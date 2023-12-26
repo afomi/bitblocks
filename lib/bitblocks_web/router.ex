@@ -17,8 +17,17 @@ defmodule BitblocksWeb.Router do
   scope "/", BitblocksWeb do
     pipe_through :browser
 
+    live "/blocks", BlockLive.Index, :index
+    live "/blocks/new", BlockLive.Index, :new
+    live "/blocks/:id/edit", BlockLive.Index, :edit
+
+    live "/blocks/:id", BlockLive.Show, :show
+    live "/blocks/:id/show/edit", BlockLive.Show, :edit
+
+    get "/status", PageController, :status
     get "/", PageController, :index
   end
+
 
   # Other scopes may use custom stacks.
   # scope "/api", BitblocksWeb do

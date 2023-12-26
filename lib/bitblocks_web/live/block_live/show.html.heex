@@ -1,0 +1,101 @@
+<h1>Show Block</h1>
+
+<%= if @live_action in [:edit] do %>
+  <.modal return_to={Routes.block_show_path(@socket, :show, @block)}>
+    <.live_component
+      module={BitblocksWeb.BlockLive.FormComponent}
+      id={@block.id}
+      title={@page_title}
+      action={@live_action}
+      block={@block}
+      return_to={Routes.block_show_path(@socket, :show, @block)}
+    />
+  </.modal>
+<% end %>
+
+<ul>
+
+  <li>
+    <strong>Hash:</strong>
+    <%= @block.hash %>
+  </li>
+
+  <li>
+    <strong>Num tx:</strong>
+    <%= @block.num_tx %>
+  </li>
+
+  <li>
+    <strong>Timestamp:</strong>
+    <%= @block.timestamp %>
+  </li>
+
+  <li>
+    <strong>Bits:</strong>
+    <%= @block.bits %>
+  </li>
+
+  <li>
+    <strong>Chainwork:</strong>
+    <%= @block.chainwork %>
+  </li>
+
+  <li>
+    <strong>Tx:</strong>
+    <%= @block.tx %>
+  </li>
+
+  <li>
+    <strong>Difficulty:</strong>
+    <%= @block.difficulty %>
+  </li>
+
+  <li>
+    <strong>Height:</strong>
+    <%= @block.height %>
+  </li>
+
+  <li>
+    <strong>Mediantime:</strong>
+    <%= @block.mediantime %>
+  </li>
+
+  <li>
+    <strong>Merkleroot:</strong>
+    <%= @block.merkleroot %>
+  </li>
+
+  <li>
+    <strong>Nextblockhash:</strong>
+    <%= @block.nextblockhash %>
+  </li>
+
+  <li>
+    <strong>Prevblockhash:</strong>
+    <%= @block.prevblockhash %>
+  </li>
+
+  <li>
+    <strong>Nonce:</strong>
+    <%= @block.nonce %>
+  </li>
+
+  <li>
+    <strong>Size:</strong>
+    <%= @block.size %>
+  </li>
+
+  <li>
+    <strong>Time:</strong>
+    <%= @block.time %>
+  </li>
+
+  <li>
+    <strong>Version:</strong>
+    <%= @block.version %>
+  </li>
+
+</ul>
+
+<span><%= live_patch "Edit", to: Routes.block_show_path(@socket, :edit, @block), class: "button" %></span> |
+<span><%= live_redirect "Back", to: Routes.block_index_path(@socket, :index) %></span>

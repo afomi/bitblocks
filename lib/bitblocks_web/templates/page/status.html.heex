@@ -1,0 +1,21 @@
+<h1>
+  Status page
+</h1>
+
+<%= if Map.has_key?(assigns, :r) do %>
+  Server is booting
+<% end %>
+
+<%= if Map.has_key?(assigns, :pruned) do %>
+  <br>
+  chain = <%= @chain %> - either main or test
+  <br>
+  pruned = <%= @pruned %>
+  <br>
+  <br>
+  <%= @blocks %> blocks of
+  <br>
+  <%= @headers %> headers
+  <br>
+  <%= @verificationprogress * 100 |> Decimal.from_float |> Decimal.round(6) %>% verified
+<% end %>

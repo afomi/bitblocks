@@ -2,13 +2,10 @@ import Config
 
 # Configure your database
 config :bitblocks, Bitblocks.Repo,
-  username: "postgres",
-  password: "postgres",
-  hostname: "localhost",
-  database: "bitblocks_dev",
-  stacktrace: true,
-  show_sensitive_data_on_connection_error: true,
-  pool_size: 10
+  adapter: Mongo.Ecto,
+  database: "ecto_simple",
+  # database: "bitblocks_development",
+  hostname: "localhost"
 
 # For development, we disable any cache and enable
 # debugging and code reloading.

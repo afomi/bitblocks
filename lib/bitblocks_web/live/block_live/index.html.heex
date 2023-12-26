@@ -1,0 +1,69 @@
+<h1>Listing Blocks</h1>
+
+<%= if @live_action in [:new, :edit] do %>
+  <.modal return_to={Routes.block_index_path(@socket, :index)}>
+    <.live_component
+      module={BitblocksWeb.BlockLive.FormComponent}
+      id={@block.id || :new}
+      title={@page_title}
+      action={@live_action}
+      block={@block}
+      return_to={Routes.block_index_path(@socket, :index)}
+    />
+  </.modal>
+<% end %>
+
+<table>
+  <thead>
+    <tr>
+      <th>Hash</th>
+      <th>Num tx</th>
+      <th>Timestamp</th>
+      <th>Bits</th>
+      <th>Chainwork</th>
+      <th>Tx</th>
+      <th>Difficulty</th>
+      <th>Height</th>
+      <th>Mediantime</th>
+      <th>Merkleroot</th>
+      <th>Nextblockhash</th>
+      <th>Prevblockhash</th>
+      <th>Nonce</th>
+      <th>Size</th>
+      <th>Time</th>
+      <th>Version</th>
+
+      <th></th>
+    </tr>
+  </thead>
+  <tbody id="blocks">
+    <%= for block <- @blocks do %>
+      <tr id={"block-#{block.id}"}>
+        <td><%= block.hash %></td>
+        <td><%= block.num_tx %></td>
+        <td><%= block.timestamp %></td>
+        <td><%= block.bits %></td>
+        <td><%= block.chainwork %></td>
+        <td><%= block.tx |> Enum.count %></td>
+        <td><%= block.difficulty %></td>
+        <td><%= block.height %></td>
+        <td><%= block.mediantime %></td>
+        <td><%= block.merkleroot %></td>
+        <td><%= block.nextblockhash %></td>
+        <td><%= block.prevblockhash %></td>
+        <td><%= block.nonce %></td>
+        <td><%= block.size %></td>
+        <td><%= block.time %></td>
+        <td><%= block.version %></td>
+
+        <td>
+          <span><%= live_redirect "Show", to: Routes.block_show_path(@socket, :show, block) %></span>
+          <span><%= live_patch "Edit", to: Routes.block_index_path(@socket, :edit, block) %></span>
+          <span><%= link "Delete", to: "#", phx_click: "delete", phx_value_id: block.id, data: [confirm: "Are you sure?"] %></span>
+        </td>
+      </tr>
+    <% end %>
+  </tbody>
+</table>
+
+<span><%= live_patch "New Block", to: Routes.block_index_path(@socket, :new) %></span>
