@@ -1,101 +1,139 @@
-<h1>Show Block</h1>
+<br>
+<br>
+<br>
+<br>
 
-<%= if @live_action in [:edit] do %>
-  <.modal return_to={Routes.block_show_path(@socket, :show, @block)}>
-    <.live_component
-      module={BitblocksWeb.BlockLive.FormComponent}
-      id={@block.id}
-      title={@page_title}
-      action={@live_action}
-      block={@block}
-      return_to={Routes.block_show_path(@socket, :show, @block)}
-    />
-  </.modal>
-<% end %>
+<div class="container mx-auto mt-3 ps-3">
+  <div class="">
+    <h1>Show Block</h1>
 
-<ul>
+    <%= if @live_action in [:edit] do %>
+      <.modal return_to={Routes.block_show_path(@socket, :show, @block)}>
+        <.live_component
+          module={BitblocksWeb.BlockLive.FormComponent}
+          id={@block.id}
+          title={@page_title}
+          action={@live_action}
+          block={@block}
+          return_to={Routes.block_show_path(@socket, :show, @block)}
+        />
+      </.modal>
+    <% end %>
 
-  <li>
-    <strong>Hash:</strong>
-    <%= @block.hash %>
-  </li>
+    <div class="flex gap-8">
+      <div class="flex-1">
 
-  <li>
-    <strong>Num tx:</strong>
-    <%= @block.num_tx %>
-  </li>
+        <div>
+          <span title="height" class="text-2xl">
+          <%= @block.height %>
+          </span>
+        </div>
 
-  <li>
-    <strong>Timestamp:</strong>
-    <%= @block.timestamp %>
-  </li>
+        <span title="hash" class="font-mono">
+          <%= @block.hash %>
+        </span>
 
-  <li>
-    <strong>Bits:</strong>
-    <%= @block.bits %>
-  </li>
+        <ul class="text-xs">
+          <li>
+            <strong>Bits:</strong>
+            <%= @block.bits %>
+          </li>
 
-  <li>
-    <strong>Chainwork:</strong>
-    <%= @block.chainwork %>
-  </li>
+          <li>
+            <strong>Chainwork:</strong>
+            <%= @block.chainwork %>
+          </li>
 
-  <li>
-    <strong>Tx:</strong>
-    <%= @block.tx %>
-  </li>
+          <li>
+            <strong>Difficulty:</strong>
+            <%= @block.difficulty %>
+          </li>
 
-  <li>
-    <strong>Difficulty:</strong>
-    <%= @block.difficulty %>
-  </li>
 
-  <li>
-    <strong>Height:</strong>
-    <%= @block.height %>
-  </li>
+          <li>
+            <strong>Mediantime:</strong>
+            <%= @block.mediantime %>
+          </li>
 
-  <li>
-    <strong>Mediantime:</strong>
-    <%= @block.mediantime %>
-  </li>
+          <li>
+            <strong>Merkleroot:</strong>
+            <%= @block.merkleroot %>
+          </li>
 
-  <li>
-    <strong>Merkleroot:</strong>
-    <%= @block.merkleroot %>
-  </li>
+          <li>
+            <strong>Nextblockhash:</strong>
+            <%= @block.nextblockhash %>
+          </li>
 
-  <li>
-    <strong>Nextblockhash:</strong>
-    <%= @block.nextblockhash %>
-  </li>
+          <li>
+            <strong>Prevblockhash:</strong>
+            <%= @block.prevblockhash %>
+          </li>
 
-  <li>
-    <strong>Prevblockhash:</strong>
-    <%= @block.prevblockhash %>
-  </li>
+          <li>
+            <strong>Nonce:</strong>
+            <%= @block.nonce %>
+          </li>
 
-  <li>
-    <strong>Nonce:</strong>
-    <%= @block.nonce %>
-  </li>
+          <li>
+            <strong>Size:</strong>
+            <%= @block.size %>
+          </li>
 
-  <li>
-    <strong>Size:</strong>
-    <%= @block.size %>
-  </li>
+          <li>
+            <strong>Time:</strong>
+            <%= @block.time %>
+          </li>
 
-  <li>
-    <strong>Time:</strong>
-    <%= @block.time %>
-  </li>
+          <li>
+            <strong>Version:</strong>
+            <%= @block.version %>
+          </li>
 
-  <li>
-    <strong>Version:</strong>
-    <%= @block.version %>
-  </li>
 
-</ul>
+        </ul>
 
-<span><%= live_patch "Edit", to: Routes.block_show_path(@socket, :edit, @block), class: "button" %></span> |
-<span><%= live_redirect "Back", to: Routes.block_index_path(@socket, :index) %></span>
+        <div class="flex justify-between gap-4 mt-6">
+          <div class="flex-1 text-2xl text-blue-500">
+            <%= live_redirect  to: Routes.block_show_path(@socket, :show, @block.height - 1) do %>
+              <div class="flex-1 text-xl text-blue-500">
+                Previous Block
+              </div>
+              <%= @block.height - 1 %>
+            <% end %>
+          </div>
+          <div class="flex-1 text-2xl text-blue-500 text-right">
+            <%= live_redirect to: Routes.block_show_path(@socket, :show, @block.height + 1) do %>
+              <div class="flex-1 text-xl text-blue-500">
+                Next Block
+              </div>
+              <%= @block.height + 1 %>
+            <% end %>
+          </div>
+        </div>
+      </div>
+
+      <div class="flex-1">
+        <div class="text-xl">
+          <%= @block.num_tx %> transactions
+        </div>
+        <div>
+        <%= for item <- @block.tx do %>
+          <span class="text-blue-500 font-mono text-xs">
+            <%= live_redirect item, to: Routes.transaction_show_path(@socket, :show, item) %>
+          </span>
+          <br>
+        <% end %>
+        </div>
+      </div>
+    </div>
+
+
+
+
+    <span><%= live_redirect "Back", to: Routes.block_index_path(@socket, :index) %></span> |
+    <span><%= live_patch "Edit", to: Routes.block_show_path(@socket, :edit, @block), class: "button" %></span> |
+    <span><%= link "Delete", to: "#", phx_click: "delete", phx_value_id: @block.id, data: [confirm: "Are you sure?"] %></span>
+
+  </div>
+</div>

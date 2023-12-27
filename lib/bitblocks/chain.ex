@@ -18,7 +18,8 @@ defmodule Bitblocks.Chain do
 
   """
   def list_blocks do
-    Repo.all(Block)
+    query = from(u in Block, limit: 100, order_by: [desc: u.height])
+    Repo.all(query)
   end
 
   @doc """
@@ -35,7 +36,13 @@ defmodule Bitblocks.Chain do
       ** (Ecto.NoResultsError)
 
   """
-  def get_block!(id), do: Repo.get!(Block, id)
+  # def get_block!(id), do: Repo.get!(Block, id)
+
+  # Find block by height, rather than ID
+  def get_block!(height) do
+     query = from i in Block, where: i.height == ^height, limit: 1
+     Repo.one(query)
+  end
 
   @doc """
   Creates a block.

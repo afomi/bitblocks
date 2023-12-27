@@ -1,12 +1,14 @@
-defmodule Bitblocks.Chain.Block do
+defmodule Bitblocks.Sync do
 
-  def loady(start) do
-    Enum.each(start..100_000, fn number ->
+  def loady(start, last) do
+    skipped_blocks = []
+
+    # Enum.each(start..100_000, fn number ->
+    Enum.each(start..last, fn number ->
       IO.puts(number) ###
 
       block_hash = BitcoinsvCli.getblockhash(number)
       block = BitcoinsvCli.getblock(block_hash)
-      block |> IO.inspect ####
 
       %{
         "hash" => hash,
@@ -35,7 +37,8 @@ defmodule Bitblocks.Chain.Block do
         prevblockhash
       end
 
-      Process.sleep(750)
+
+      # Process.sleep(750)
 
       b = %Bitblocks.Block{
         hash: hash,
@@ -43,7 +46,7 @@ defmodule Bitblocks.Chain.Block do
         time: timestamp,
         bits: bits,
         chainwork: chainwork,
-        difficulty: difficulty,
+        difficulty: difficulty / 1.0,
         height: height,
         mediantime: mediantime,
         merkleroot: merkleroot,
@@ -55,13 +58,29 @@ defmodule Bitblocks.Chain.Block do
         tx: tx,
       }
 
-      {:ok, block } = b
-        |> Ecto.Changeset.change(%{})
-        |> Bitblocks.Repo.insert()
+      if num_tx < 220_000 do
 
-      IO.puts(number) ###
-      IO.puts("DONE") ###
-      IO.puts("-------------") ###
+        insert = b
+          |> Ecto.Changeset.change(%{})
+          |> Bitblocks.Repo.insert()
+
+        case insert do
+          {:ok, block } ->
+            IO.puts(number) ###
+            IO.puts("DONE") ###
+            IO.puts("-------------") ###
+
+          {nil} ->
+            IO.puts(number) ###
+            IO.puts("DONE") ###
+            IO.puts("-------------") ###
+        end
+
+      else
+        skipped_blocks ++ [height]
+        skipped_blocks |> IO.puts
+      end
+
     end)
   end
 
