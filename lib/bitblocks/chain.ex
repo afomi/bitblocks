@@ -7,6 +7,7 @@ defmodule Bitblocks.Chain do
   alias Bitblocks.Repo
 
   alias Bitblocks.Block
+  alias Bitblocks.Transaction
 
   @doc """
   Returns the list of blocks.
@@ -19,6 +20,11 @@ defmodule Bitblocks.Chain do
   """
   def list_blocks do
     query = from(u in Block, limit: 100, order_by: [desc: u.height])
+    Repo.all(query)
+  end
+
+  def list_transactions do
+    query = from(u in Transaction, limit: 100)
     Repo.all(query)
   end
 
@@ -40,7 +46,26 @@ defmodule Bitblocks.Chain do
 
   # Find block by height, rather than ID
   def get_block!(height) do
-     query = from i in Block, where: i.height == ^height, limit: 1
+
+    case Integer.parse(height) do
+      # if passed a height, find by Height
+      {int, ""} ->
+        query = from i in Block,
+          where: (i.height == ^height), limit: 1
+        Repo.one(query)
+
+      # if passed what is assumed to be a hash, find by hash
+      {int, x} ->
+        query = from i in Block,
+          where: (i.hash == ^height), limit: 1
+        Repo.one(query)
+
+    end
+  end
+
+  def get_transaction!(txid) do
+    query = from i in Transaction,
+      where: (i.txid == ^txid), limit: 1
      Repo.one(query)
   end
 

@@ -133,7 +133,7 @@
 
     <span><%= live_redirect "Back", to: Routes.block_index_path(@socket, :index) %></span> |
     <span><%= live_patch "Edit", to: Routes.block_show_path(@socket, :edit, @block), class: "button" %></span> |
-    <span><%= link "Delete", to: "#", phx_click: "delete", phx_value_id: @block.id, data: [confirm: "Are you sure?"] %></span>
+    <span><%= link "Delete", to: "#", phx_click: "delete", phx_value_id: @block.height, data: [confirm: "Are you sure?"] %></span>
 
   </div>
 </div>

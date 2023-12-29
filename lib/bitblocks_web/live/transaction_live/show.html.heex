@@ -1,0 +1,63 @@
+<br>
+<br>
+<br>
+<br>
+
+<div class="container mx-auto mt-3 ps-3">
+  <div class="">
+    <h1>Show Transaction</h1>
+
+    <%= if @live_action in [:edit] do %>
+      <.modal return_to={Routes.block_show_path(@socket, :show, @block)}>
+        <.live_component
+          module={BitblocksWeb.BlockLive.FormComponent}
+          id={@block.id}
+          title={@page_title}
+          action={@live_action}
+          block={@block}
+          return_to={Routes.block_show_path(@socket, :show, @block)}
+        />
+      </.modal>
+    <% end %>
+
+    <div class="flex gap-8">
+      <div class="flex-1">
+
+        <div>
+          <span title="height" class="text-2xl">
+          <%= @transaction.txid %>
+        </span>
+      </div>
+      <%= @transaction |> inspect %>
+
+        <span title="hash" class="font-mono">
+          <%#= @block.hash %>
+        </span>
+
+        <ul class="text-xs">
+          <li>
+            <strong>Tx:</strong>
+            <br>
+            <% {:ok, tx} = BSV.Tx.from_binary(@transaction.raw, encoding: :hex) %>
+            <%= tx |> inspect %>
+            <br>
+            <br>
+            <%= tx.inputs |> inspect %>
+            <br>
+            <br>
+            <%= tx.outputs |> inspect %>
+          </li>
+        </ul>
+
+
+      </div>
+
+
+    </div>
+
+
+
+
+
+  </div>
+</div>

@@ -24,6 +24,13 @@ defmodule BitblocksWeb.Router do
     live "/blocks/:id", BlockLive.Show, :show
     live "/blocks/:id/show/edit", BlockLive.Show, :edit
 
+    live "/transactions", TransactionLive.Index, :index
+    live "/transactions/new", TransactionLive.Index, :new
+    live "/transactions/:id/edit", TransactionLive.Index, :edit
+
+    live "/transactions/:id", TransactionLive.Show, :show
+    live "/transactions/:id/show/edit", TransactionLive.Show, :edit
+
     live "/transactions/:id", TransactionLive.Show, :show
 
     get "/apps", PageController, :applications
