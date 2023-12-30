@@ -10,7 +10,10 @@ defmodule BitblocksWeb.Endpoint do
     signing_salt: "MjX3rWC1"
   ]
 
-  socket "/live", Phoenix.LiveView.Socket, websocket: [connect_info: [session: @session_options]]
+  socket "/live", Phoenix.LiveView.Socket, websocket: [
+    connect_info: [session: @session_options],
+    websocket: [timeout: 45_000]
+  ]
 
   # Serve at "/" the static files from "priv/static" directory.
   #
