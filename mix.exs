@@ -56,7 +56,8 @@ defmodule Bitblocks.MixProject do
       {:telemetry_poller, "~> 1.0"},
       {:gettext, "~> 0.24"},
       {:jason, "~> 1.2"},
-      {:plug_cowboy, "~> 2.5"}
+      {:plug_cowboy, "~> 2.5"},
+      {:size, "~> 0.1.0"}
     ]
   end
 

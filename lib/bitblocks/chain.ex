@@ -24,7 +24,7 @@ defmodule Bitblocks.Chain do
   end
 
   def list_transactions do
-    query = from(u in Transaction, limit: 100)
+    query = from(u in Transaction, limit: 500)
     Repo.all(query)
   end
 

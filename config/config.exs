@@ -8,7 +8,13 @@
 import Config
 
 config :bitblocks,
-  ecto_repos: [Bitblocks.Repo]
+  # ecto_repos: [Bitblocks.Repo],
+  # TODO,
+  # TODO: visualize a request from a user's browser going through the elixir stack, depicting each call in the stack
+  bitcoin_url:    System.get_env("BITCOIN_NODE_URL"),
+  rpc_user:       System.get_env("BITCOIN_NODE_RPC_USERNAME"),
+  rpc_password:   System.get_env("BITCOIN_NODE_RPC_PASSWORD"),
+  rpc_url:        System.get_env("BITCOIN_NODE_RPC_URL")
 
 # Configures the endpoint
 config :bitblocks, BitblocksWeb.Endpoint,
@@ -50,3 +56,12 @@ config :phoenix, :json_library, Jason
 # Import environment specific config. This must remain at the bottom
 # of this file so it overrides the configuration defined above.
 import_config "#{config_env()}.exs"
+
+config :tailwind, version: "3.4.0", default: [
+  args: ~w(
+    --config=tailwind.config.js
+    --input=css/app.css
+    --output=../priv/static/assets/app.css
+  ),
+  cd: Path.expand("../assets", __DIR__)
+]

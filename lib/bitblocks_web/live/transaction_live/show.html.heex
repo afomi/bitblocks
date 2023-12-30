@@ -5,7 +5,7 @@
 
 <div class="container mx-auto mt-3 ps-3">
   <div class="">
-    <h1>Show Transaction</h1>
+    <h1 class="text-4xl">Transaction</h1>
 
     <%= if @live_action in [:edit] do %>
       <.modal return_to={Routes.block_show_path(@socket, :show, @block)}>
@@ -25,33 +25,93 @@
 
         <div>
           <span title="height" class="text-2xl">
-          <%= @transaction.txid %>
-        </span>
+           <%= @transaction.txid %>
+          </span>
+        </div>
+
+        <div class="flex-1">
+          <%#= @transaction |> inspect %>
+
+          <span title="hash" class="font-mono">
+            <%#= @block.hash %>
+          </span>
+
+          <div class="text-xs">
+            <div>
+              <% {:ok, tx} = BSV.Tx.from_binary(@transaction.raw, encoding: :hex) %>
+              <%#= tx |> inspect %>
+
+              <div>
+                Version = <%= tx.version %>
+              </div>
+              <div>
+                Lock time = <%= tx.lock_time %>
+              </div>
+
+              <div class="text-2xl mt-3">
+                Inputs
+              </div>
+                <%= for item <- tx.inputs do %>
+                <div class="text-sm text-gray-500">
+                  Input
+                </div>
+                <span class="text-blue-500 font-mono text-xs">
+                  <%= item.outpoint |> inspect %>
+                  <br>
+
+  binary                  <%= item.outpoint |> BSV.OutPoint.to_binary() |> inspect %>
+  <br>
+  txid                  <%= item.outpoint |> BSV.OutPoint.get_txid() |> inspect %>
+                </span>
+                <br>
+                <span class="text-red-500 font-mono text-xs">
+                  Script = <%= item.script |> inspect %>
+                </span>
+                <div class="ms-5">
+                  <div class="text-blue-500 font-mono text-xs">
+                    Coinbase? = <%#= item.script |> BSV.Script.get_coinbase_data() |> inspect %>
+                  </div>
+                  <div class="text-cyan-500 font-mono text-xs">
+                    Script (ASM) = <%= item.script |> BSV.Script.to_asm |> inspect %>
+                  </div>
+                  <div class="text-purple-500 font-mono text-xs">
+                    Sequence = <%= item.sequence |> inspect %>
+                  </div>
+                </div>
+                <hr>
+              <% end %>
+              <hr>
+              <br>
+              <div class="text-2xl">
+                Outputs
+              </div>
+              <%= for item <- tx.outputs do %>
+                <div class="text-sm text-gray-500">
+                  Output
+                </div>
+                <div class="text-blue-500 font-mono text-xs">
+                  <%#= item.outpoint |> inspect %>
+                </div>
+                <div class="text-blue-500 font-mono text-xs">
+                  Coinbase? = <%= item.script.coinbase == true %>
+                </div>
+                <div class="text-cyan-500 font-mono text-xs">
+                  Script (ASM) = <%= item.script |> BSV.Script.to_asm |> inspect %>
+                </div>
+                <div class="text-green-500 font-mono text-xs">
+                  Satoshis = <%= item.satoshis |> inspect %>
+                </div>
+                <div class="text-purple-500 font-mono text-xs">
+                  <%#= item.sequence |> inspect %>
+                </div>
+                <hr>
+              <% end %>
+            </div>
+          </div>
+
+
+        </div>
       </div>
-      <%= @transaction |> inspect %>
-
-        <span title="hash" class="font-mono">
-          <%#= @block.hash %>
-        </span>
-
-        <ul class="text-xs">
-          <li>
-            <strong>Tx:</strong>
-            <br>
-            <% {:ok, tx} = BSV.Tx.from_binary(@transaction.raw, encoding: :hex) %>
-            <%= tx |> inspect %>
-            <br>
-            <br>
-            <%= tx.inputs |> inspect %>
-            <br>
-            <br>
-            <%= tx.outputs |> inspect %>
-          </li>
-        </ul>
-
-
-      </div>
-
 
     </div>
 
