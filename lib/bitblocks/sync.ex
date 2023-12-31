@@ -13,7 +13,7 @@ defmodule Bitblocks.Sync do
   def get(block_height) do
 
     # blocks = Bitblocks.Repo.all(query)
-    query = from i in Bitblocks.Block,
+    query = from i in Bitblocks.Chain.Block,
         where: (i.height == ^block_height), limit: 1
     block = Bitblocks.Repo.one(query)
 
@@ -36,7 +36,7 @@ defmodule Bitblocks.Sync do
           txid = tx["txid"]
           raw = tx["hex"]
 
-            t = %Bitblocks.Transaction{
+            t = %Bitblocks.Chain.Transaction{
               txid: txid,
               raw: raw,
               block_hash: block.hash,
@@ -69,7 +69,7 @@ defmodule Bitblocks.Sync do
   end
 
   def get_original(block_height) do # 10:39am Friday Dec 29
-    query = from i in Bitblocks.Block,
+    query = from i in Bitblocks.Chain.Block,
         where: (i.height == ^block_height), limit: 1
     block = Bitblocks.Repo.one(query)
 
@@ -84,7 +84,7 @@ defmodule Bitblocks.Sync do
         raw ->
           BitcoinsvCli.decoderawtransaction(raw)
 
-          t = %Bitblocks.Transaction{
+          t = %Bitblocks.Chain.Transaction{
             txid: txid,
             raw: raw,
             block_hash: block.hash,
@@ -114,10 +114,10 @@ defmodule Bitblocks.Sync do
 
   end
 
-  def loady(start, last) do
+  def get_blocks(range) do
     skipped_blocks = []
 
-    Enum.each(start..last, fn number ->
+    Enum.each(range, fn number ->
       IO.puts(number) ###
 
       block_hash = BitcoinsvCli.getblockhash(number)
@@ -153,13 +153,13 @@ defmodule Bitblocks.Sync do
 
       # Process.sleep(750)
 
-      b = %Bitblocks.Block{
+      b = %Bitblocks.Chain.Block{
         hash: hash,
         num_tx: num_tx,
         time: timestamp,
         bits: bits,
         chainwork: chainwork,
-        difficulty: difficulty / 1.0,
+        difficulty: difficulty |> String.Chars.to_string,
         height: height,
         mediantime: mediantime,
         merkleroot: merkleroot,
@@ -168,7 +168,7 @@ defmodule Bitblocks.Sync do
         nonce: nonce,
         size: size,
         version: version,
-        tx: tx,
+        # tx: tx,
       }
 
       # Skip blocks that have more than 220,000 transactions (which is a lot after 2022),

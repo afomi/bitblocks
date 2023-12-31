@@ -2,7 +2,7 @@ defmodule BitblocksWeb.BlockLive.Index do
   use BitblocksWeb, :live_view
 
   alias Bitblocks.Chain
-  alias Bitblocks.Block
+  alias Bitblocks.Chain.Block
 
   @impl true
   def mount(_params, _session, socket) do

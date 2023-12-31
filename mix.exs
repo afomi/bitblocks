@@ -42,7 +42,7 @@ defmodule Bitblocks.MixProject do
       {:ecto_sql, "~> 3.11"},
       {:mongodb_ecto, "~> 1.1.0"},
 
-      # {:postgrex, ">= 0.17.4"},
+      {:postgrex, ">= 0.17.4"},
       {:phoenix_html, "~> 3.0"},
       # {:phoenix_html_helpers, "~> 1.0"},
       {:phoenix_live_reload, "~> 1.2", only: :dev},

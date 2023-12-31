@@ -4,70 +4,34 @@
   <.form
     let={f}
     for={@changeset}
-    id="block-form"
+    id="transaction-form"
     phx-target={@myself}
     phx-change="validate"
     phx-submit="save">
   
-    <%= label f, :hash %>
-    <%= text_input f, :hash %>
-    <%= error_tag f, :hash %>
+    <%= label f, :txid %>
+    <%= text_input f, :txid %>
+    <%= error_tag f, :txid %>
   
-    <%= label f, :num_tx %>
-    <%= number_input f, :num_tx %>
-    <%= error_tag f, :num_tx %>
-  
-    <%= label f, :timestamp %>
-    <%= datetime_select f, :timestamp %>
-    <%= error_tag f, :timestamp %>
-  
-    <%= label f, :bits %>
-    <%= text_input f, :bits %>
-    <%= error_tag f, :bits %>
-  
-    <%= label f, :chainwork %>
-    <%= text_input f, :chainwork %>
-    <%= error_tag f, :chainwork %>
-  
-    <%= label f, :difficulty %>
-    <%= number_input f, :difficulty %>
-    <%= error_tag f, :difficulty %>
-  
-    <%= label f, :height %>
-    <%= number_input f, :height %>
-    <%= error_tag f, :height %>
-  
-    <%= label f, :mediantime %>
-    <%= number_input f, :mediantime %>
-    <%= error_tag f, :mediantime %>
-  
-    <%= label f, :merkleroot %>
-    <%= text_input f, :merkleroot %>
-    <%= error_tag f, :merkleroot %>
-  
-    <%= label f, :nextblockhash %>
-    <%= text_input f, :nextblockhash %>
-    <%= error_tag f, :nextblockhash %>
-  
-    <%= label f, :prevblockhash %>
-    <%= text_input f, :prevblockhash %>
-    <%= error_tag f, :prevblockhash %>
-  
-    <%= label f, :nonce %>
-    <%= number_input f, :nonce %>
-    <%= error_tag f, :nonce %>
-  
-    <%= label f, :size %>
-    <%= number_input f, :size %>
-    <%= error_tag f, :size %>
-  
-    <%= label f, :time %>
-    <%= number_input f, :time %>
-    <%= error_tag f, :time %>
+    <%= label f, :raw %>
+    <%= textarea f, :raw %>
+    <%= error_tag f, :raw %>
   
     <%= label f, :version %>
-    <%= number_input f, :version %>
+    <%= text_input f, :version %>
     <%= error_tag f, :version %>
+  
+    <%= label f, :block_hash %>
+    <%= text_input f, :block_hash %>
+    <%= error_tag f, :block_hash %>
+  
+    <%= label f, :inputs %>
+    <%= multiple_select f, :inputs, ["Option 1": "option1", "Option 2": "option2"] %>
+    <%= error_tag f, :inputs %>
+  
+    <%= label f, :outputs %>
+    <%= multiple_select f, :outputs, ["Option 1": "option1", "Option 2": "option2"] %>
+    <%= error_tag f, :outputs %>
   
     <div>
       <%= submit "Save", phx_disable_with: "Saving..." %>

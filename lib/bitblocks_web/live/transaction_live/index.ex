@@ -2,7 +2,7 @@ defmodule BitblocksWeb.TransactionLive.Index do
   use BitblocksWeb, :live_view
 
   alias Bitblocks.Chain
-  alias Bitblocks.Block
+  alias Bitblocks.Chain.Transaction
 
   @impl true
   def mount(_params, _session, socket) do
@@ -16,26 +16,26 @@ defmodule BitblocksWeb.TransactionLive.Index do
 
   defp apply_action(socket, :edit, %{"id" => id}) do
     socket
-    |> assign(:page_title, "Edit Block")
-    |> assign(:block, Chain.get_block!(id))
+    |> assign(:page_title, "Edit Transaction")
+    |> assign(:transaction, Chain.get_transaction!(id))
   end
 
   defp apply_action(socket, :new, _params) do
     socket
-    |> assign(:page_title, "New Block")
-    |> assign(:block, %Block{})
+    |> assign(:page_title, "New Transaction")
+    |> assign(:transaction, %Transaction{})
   end
 
   defp apply_action(socket, :index, _params) do
     socket
-    |> assign(:page_title, "Listing Blocks")
-    |> assign(:block, nil)
+    |> assign(:page_title, "Listing Transactions")
+    |> assign(:transaction, nil)
   end
 
   @impl true
   def handle_event("delete", %{"id" => id}, socket) do
-    block = Chain.get_block!(id)
-    {:ok, _} = Chain.delete_block(block)
+    transaction = Chain.get_transaction!(id)
+    {:ok, _} = Chain.delete_transaction(transaction)
 
     {:noreply, assign(socket, :transactions, list_transactions())}
   end

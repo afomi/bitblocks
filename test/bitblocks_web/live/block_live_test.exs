@@ -4,9 +4,9 @@ defmodule BitblocksWeb.BlockLiveTest do
   import Phoenix.LiveViewTest
   import Bitblocks.ChainFixtures
 
-  @create_attrs %{size: 42, timestamp: %{month: 12, day: 22, year: 2023, minute: 0, hour: 6}, version: 42, time: 42, bits: "some bits", hash: "some hash", num_tx: 42, chainwork: "some chainwork", difficulty: 42, height: 42, mediantime: 42, merkleroot: "some merkleroot", nextblockhash: "some nextblockhash", prevblockhash: "some prevblockhash", nonce: 42}
-  @update_attrs %{size: 43, timestamp: %{month: 12, day: 23, year: 2023, minute: 0, hour: 6}, version: 43, time: 43, bits: "some updated bits", hash: "some updated hash", num_tx: 43, chainwork: "some updated chainwork", difficulty: 43, height: 43, mediantime: 43, merkleroot: "some updated merkleroot", nextblockhash: "some updated nextblockhash", prevblockhash: "some updated prevblockhash", nonce: 43}
-  @invalid_attrs %{size: nil, timestamp: %{month: 2, day: 30, year: 2023, minute: 0, hour: 6}, version: nil, time: nil, bits: nil, hash: nil, num_tx: nil, chainwork: nil, difficulty: nil, height: nil, mediantime: nil, merkleroot: nil, nextblockhash: nil, prevblockhash: nil, nonce: nil}
+  @create_attrs %{size: 42, timestamp: %{month: 12, day: 30, year: 2023, minute: 27, hour: 20}, version: 42, time: 42, bits: "some bits", hash: "some hash", num_tx: 42, chainwork: "some chainwork", difficulty: 42, height: 42, mediantime: 42, merkleroot: "some merkleroot", nextblockhash: "some nextblockhash", prevblockhash: "some prevblockhash", nonce: 42}
+  @update_attrs %{size: 43, timestamp: %{month: 12, day: 31, year: 2023, minute: 27, hour: 20}, version: 43, time: 43, bits: "some updated bits", hash: "some updated hash", num_tx: 43, chainwork: "some updated chainwork", difficulty: 43, height: 43, mediantime: 43, merkleroot: "some updated merkleroot", nextblockhash: "some updated nextblockhash", prevblockhash: "some updated prevblockhash", nonce: 43}
+  @invalid_attrs %{size: nil, timestamp: %{month: 2, day: 30, year: 2023, minute: 27, hour: 20}, version: nil, time: nil, bits: nil, hash: nil, num_tx: nil, chainwork: nil, difficulty: nil, height: nil, mediantime: nil, merkleroot: nil, nextblockhash: nil, prevblockhash: nil, nonce: nil}
 
   defp create_block(_) do
     block = block_fixture()

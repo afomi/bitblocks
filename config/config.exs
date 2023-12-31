@@ -8,7 +8,7 @@
 import Config
 
 config :bitblocks,
-  # ecto_repos: [Bitblocks.Repo],
+  ecto_repos: [Bitblocks.Repo],
   # TODO,
   # TODO: visualize a request from a user's browser going through the elixir stack, depicting each call in the stack
   bitcoin_url:    System.get_env("BITCOIN_NODE_URL"),

@@ -16,6 +16,6 @@ defmodule BitblocksWeb.TransactionLive.Show do
      |> assign(:transaction, Chain.get_transaction!(id))}
   end
 
-  defp page_title(:show), do: "Show Block"
-  defp page_title(:edit), do: "Edit Block"
+  defp page_title(:show), do: "Show Transaction"
+  defp page_title(:edit), do: "Edit Transaction"
 end

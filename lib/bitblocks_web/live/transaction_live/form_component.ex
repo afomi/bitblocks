@@ -4,8 +4,8 @@ defmodule BitblocksWeb.TransactionLive.FormComponent do
   alias Bitblocks.Chain
 
   @impl true
-  def update(%{block: block} = assigns, socket) do
-    changeset = Chain.change_block(block)
+  def update(%{transaction: transaction} = assigns, socket) do
+    changeset = Chain.change_transaction(transaction)
 
     {:ok,
      socket
@@ -14,25 +14,25 @@ defmodule BitblocksWeb.TransactionLive.FormComponent do
   end
 
   @impl true
-  def handle_event("validate", %{"block" => block_params}, socket) do
+  def handle_event("validate", %{"transaction" => transaction_params}, socket) do
     changeset =
-      socket.assigns.block
-      |> Chain.change_block(block_params)
+      socket.assigns.transaction
+      |> Chain.change_transaction(transaction_params)
       |> Map.put(:action, :validate)
 
     {:noreply, assign(socket, :changeset, changeset)}
   end
 
-  def handle_event("save", %{"block" => block_params}, socket) do
-    save_block(socket, socket.assigns.action, block_params)
+  def handle_event("save", %{"transaction" => transaction_params}, socket) do
+    save_transaction(socket, socket.assigns.action, transaction_params)
   end
 
-  defp save_block(socket, :edit, block_params) do
-    case Chain.update_block(socket.assigns.block, block_params) do
-      {:ok, _block} ->
+  defp save_transaction(socket, :edit, transaction_params) do
+    case Chain.update_transaction(socket.assigns.transaction, transaction_params) do
+      {:ok, _transaction} ->
         {:noreply,
          socket
-         |> put_flash(:info, "Block updated successfully")
+         |> put_flash(:info, "Transaction updated successfully")
          |> push_redirect(to: socket.assigns.return_to)}
 
       {:error, %Ecto.Changeset{} = changeset} ->
@@ -40,12 +40,12 @@ defmodule BitblocksWeb.TransactionLive.FormComponent do
     end
   end
 
-  defp save_block(socket, :new, block_params) do
-    case Chain.create_block(block_params) do
-      {:ok, _block} ->
+  defp save_transaction(socket, :new, transaction_params) do
+    case Chain.create_transaction(transaction_params) do
+      {:ok, _transaction} ->
         {:noreply,
          socket
-         |> put_flash(:info, "Block created successfully")
+         |> put_flash(:info, "Transaction created successfully")
          |> push_redirect(to: socket.assigns.return_to)}
 
       {:error, %Ecto.Changeset{} = changeset} ->

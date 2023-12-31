@@ -21,7 +21,7 @@ defmodule BitblocksWeb.PageController do
       render(conn, "status.html", r: blockchain_info)
     end
 
-    blocks_synced = Repo.aggregate(Bitblocks.Block, :count, :id)
+    blocks_synced = Repo.aggregate(Bitblocks.Chain.Block, :count, :id)
 
 
     if blockchain_info |> is_map do

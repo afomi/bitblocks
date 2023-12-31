@@ -59,4 +59,51 @@ defmodule Bitblocks.ChainFixtures do
 
     block
   end
+
+  @doc """
+  Generate a block.
+  """
+  def block_fixture(attrs \\ %{}) do
+    {:ok, block} =
+      attrs
+      |> Enum.into(%{
+        size: 42,
+        timestamp: ~N[2023-12-30 20:27:00],
+        version: 42,
+        time: 42,
+        bits: "some bits",
+        hash: "some hash",
+        num_tx: 42,
+        chainwork: "some chainwork",
+        difficulty: 42,
+        height: 42,
+        mediantime: 42,
+        merkleroot: "some merkleroot",
+        nextblockhash: "some nextblockhash",
+        prevblockhash: "some prevblockhash",
+        nonce: 42
+      })
+      |> Bitblocks.Chain.create_block()
+
+    block
+  end
+
+  @doc """
+  Generate a transaction.
+  """
+  def transaction_fixture(attrs \\ %{}) do
+    {:ok, transaction} =
+      attrs
+      |> Enum.into(%{
+        raw: "some raw",
+        version: "some version",
+        inputs: [],
+        txid: "some txid",
+        block_hash: "some block_hash",
+        outputs: []
+      })
+      |> Bitblocks.Chain.create_transaction()
+
+    transaction
+  end
 end
