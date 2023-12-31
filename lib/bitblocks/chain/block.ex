@@ -18,6 +18,7 @@ defmodule Bitblocks.Chain.Block do
     field :nextblockhash, :string
     field :prevblockhash, :string
     field :nonce, :integer
+    field :tx, {:array, :string}
 
     timestamps()
   end

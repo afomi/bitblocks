@@ -18,6 +18,7 @@ defmodule Bitblocks.Repo.Migrations.CreateBlocks do
       add :size, :integer
       add :time, :integer
       add :version, :integer
+      add :tx, {:array, :string}
 
       timestamps()
     end

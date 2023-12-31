@@ -19,8 +19,8 @@ defmodule Bitblocks.Chain do
 
   """
   def list_blocks do
-    # query = from(u in Block, limit: 100, order_by: [desc: u.height])
-    Repo.all(Block) #|> Repo.limit(100)
+    query = from b in Block, limit: 1000, order_by: [asc: b.height]
+    Repo.all(query)
   end
 
   @doc """

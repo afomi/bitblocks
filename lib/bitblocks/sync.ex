@@ -168,7 +168,7 @@ defmodule Bitblocks.Sync do
         nonce: nonce,
         size: size,
         version: version,
-        # tx: tx,
+        tx: tx,
       }
 
       # Skip blocks that have more than 220,000 transactions (which is a lot after 2022),
