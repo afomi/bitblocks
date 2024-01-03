@@ -174,7 +174,7 @@ defmodule BitcoinsvCli do
     with url <- Application.get_env(:bitblocks, :bitcoin_url),
       command <- %{ jsonrpc: "1.0", method: method, params: params },
       {:ok, body} <- Poison.encode(command),
-      {:ok, response} <- HTTPoison.post(url, body, headers(), [timeout: 20000, recv_timeout: 20000]),
+      {:ok, response} <- HTTPoison.post(url, body, headers(), [timeout: 45_000, recv_timeout: 45_000]),
       {:ok, metadata} <- Poison.decode(response.body),
       %{"error" => nil, "result" => result} <- metadata do
         result
