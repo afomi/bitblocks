@@ -171,31 +171,20 @@ defmodule Bitblocks.Sync do
         tx: tx,
       }
 
-      # Skip blocks that have more than 220,000 transactions (which is a lot after 2022),
-      # because that many 64-character txid's exceeds Mongodb's 16MB limit per field
-      #
-      # TODO: explore another datastore, like RocksDB or PostgreSQL
-      if num_tx < 220_000 do
+      insert = b
+        |> Ecto.Changeset.change(%{})
+        |> Bitblocks.Repo.insert()
 
-        insert = b
-          |> Ecto.Changeset.change(%{})
-          |> Bitblocks.Repo.insert()
+      case insert do
+        {:ok, block } ->
+          IO.puts(number) ###
+          IO.puts("DONE") ###
+          IO.puts("-------------") ###
 
-        case insert do
-          {:ok, block } ->
-            IO.puts(number) ###
-            IO.puts("DONE") ###
-            IO.puts("-------------") ###
-
-          {nil} ->
-            IO.puts(number) ###
-            IO.puts("DONE") ###
-            IO.puts("-------------") ###
-        end
-
-      else
-        skipped_blocks ++ [height]
-        skipped_blocks |> IO.puts
+        {nil} ->
+          IO.puts(number) ###
+          IO.puts("DONE") ###
+          IO.puts("-------------") ###
       end
 
     end)
