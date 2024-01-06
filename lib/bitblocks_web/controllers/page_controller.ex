@@ -22,7 +22,7 @@ defmodule BitblocksWeb.PageController do
     end
 
     blocks_synced = Repo.aggregate(Bitblocks.Chain.Block, :count, :id)
-
+    transaction_count = Repo.aggregate(Bitblocks.Chain.Transaction, :count, :id)
 
     if blockchain_info |> is_map do
       %{
@@ -47,7 +47,8 @@ defmodule BitblocksWeb.PageController do
         verificationprogress: verificationprogress,
         style: %{
           style: "width: #{Float.to_string((blocks / headers) * 100)}%;"
-        }
+        },
+        transaction_count: transaction_count
       )
     end
 
