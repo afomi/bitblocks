@@ -3,10 +3,12 @@ defmodule BitblocksWeb.TransactionLive.Index do
 
   alias Bitblocks.Chain
   alias Bitblocks.Chain.Transaction
+  alias Bitblocks.Repo
 
   @impl true
   def mount(_params, _session, socket) do
-    {:ok, assign(socket, :transactions, list_transactions())}
+    count = Repo.aggregate(Bitblocks.Chain.Transaction, :count, :id)
+    {:ok, assign(socket, transactions: list_transactions(), count: count)}
   end
 
   @impl true
