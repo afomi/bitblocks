@@ -181,6 +181,10 @@ defmodule BitcoinsvCli do
       end
       # {:error, %HTTPoison.Error{id: nil, reason: :closed}
     else
+      {:error, :invalid, 0} ->
+        IO.puts("Retrying request after 5 seconds")
+        Process.sleep(5_000)
+        bitcoin_rpc(method, params)
       %{"error" => reason} -> {:error, reason}
       if %{"code" => -32601, "message" => "Method not found"} == reason do
         IO.puts "METHOD NOT FOUND. This is likely because bitcoind needs disablewallet=0 set in bitcoin.conf"
