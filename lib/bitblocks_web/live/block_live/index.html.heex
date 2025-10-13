@@ -1,0 +1,115 @@
+<div class="container mx-auto px-4 py-8 max-w-5xl">
+  <h1 class="text-4xl font-bold mb-6">
+    Blocks
+  </h1>
+
+  <%= if @live_action in [:new, :edit] do %>
+    <.modal
+      id="block-modal"
+      show
+      on_cancel={JS.patch(~p"/blocks")}
+    >
+      <.live_component
+        module={BitblocksWeb.BlockLive.FormComponent}
+        id={@block.id || :new}
+        title={@page_title}
+        action={@live_action}
+        block={@block}
+        return_to={~p"/blocks"}
+      />
+    </.modal>
+  <% end %>
+
+  <%!-- Block List --%>
+  <div class="bg-white shadow-md rounded-lg overflow-hidden">
+    <div class="divide-y divide-gray-200">
+      <%= for block <- @blocks do %>
+        <div
+          class="p-4 hover:bg-gray-50 transition-colors"
+          id={"block-#{block.height}"}
+        >
+          <div class="flex items-start justify-between gap-4">
+            <%!-- Left: Block Height --%>
+            <div class="flex-shrink-0">
+              <.link
+                navigate={~p"/blocks/#{block.height}"}
+                class="text-2xl font-bold text-blue-600 hover:text-blue-700"
+              >
+                <%= format_number(block.height) %>
+              </.link>
+            </div>
+
+            <%!-- Middle: Block Details --%>
+            <div class="flex-1 min-w-0">
+              <%!-- Hash --%>
+              <div class="font-mono text-sm text-gray-600 break-all mb-2">
+                <%= block.hash %>
+              </div>
+
+              <%!-- Stats --%>
+              <div class="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500">
+                <div>
+                  <span class="font-semibold">
+                    <%= format_number(block.num_tx) %>
+                  </span>
+                  <span>
+                    <%= if block.num_tx == 1, do: "transaction", else: "transactions" %>
+                  </span>
+                </div>
+
+                <div>
+                  <span class="font-semibold">
+                    <%= format_bytes(block.size) %>
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <%!-- Right: Timestamp --%>
+            <div class="flex-shrink-0 text-right text-xs text-gray-500">
+              <%= format_timestamp(block.time) %>
+            </div>
+          </div>
+        </div>
+      <% end %>
+    </div>
+  </div>
+
+  <%!-- Pagination --%>
+  <div class="flex justify-between items-center mt-6">
+    <div class="text-sm text-gray-600">
+      Page <%= @page %> of <%= @total_pages %>
+      <span class="text-gray-400">
+        (<%= format_number(@total_blocks) %> total)
+      </span>
+    </div>
+
+    <div class="flex gap-2">
+      <%= if @page > 1 do %>
+        <.link
+          patch={~p"/blocks?page=#{@page - 1}"}
+          class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 font-semibold transition-colors"
+        >
+          Previous
+        </.link>
+      <% else %>
+        <span class="px-4 py-2 bg-gray-200 text-gray-400 rounded-md cursor-not-allowed font-semibold">
+          Previous
+        </span>
+      <% end %>
+
+      <%= if @page < @total_pages do %>
+        <.link
+          patch={~p"/blocks?page=#{@page + 1}"}
+          class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 font-semibold transition-colors"
+        >
+          Next
+        </.link>
+      <% else %>
+        <span class="px-4 py-2 bg-gray-200 text-gray-400 rounded-md cursor-not-allowed font-semibold">
+          Next
+        </span>
+      <% end %>
+    </div>
+  </div>
+</div>

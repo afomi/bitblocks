@@ -1,0 +1,36 @@
+<div
+  id="wall-container"
+  class="w-full h-screen bg-black"
+>
+  <canvas
+    id="wall-canvas"
+    class="w-full h-full"
+  >
+  </canvas>
+
+  <div
+    id="wall-info"
+    class="absolute top-4 left-4 bg-black bg-opacity-70 text-white p-4 rounded font-mono text-sm"
+  >
+    <div>
+      Total Blocks: <span id="total-blocks">Loading...</span>
+    </div>
+    <div>
+      Loaded: <span id="loaded-blocks">0</span>
+    </div>
+    <div>
+      FPS: <span id="fps">0</span>
+    </div>
+    <div
+      class="mt-2 text-xs text-gray-400"
+    >
+      Click and drag to rotate | Scroll to zoom
+    </div>
+  </div>
+</div>
+
+<script
+  src={~p"/assets/wall.js"}
+  type="module"
+>
+</script>

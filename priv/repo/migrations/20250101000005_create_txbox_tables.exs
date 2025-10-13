@@ -1,0 +1,77 @@
+defmodule Bitblocks.Repo.Migrations.CreateTxboxTables do
+  use Ecto.Migration
+
+  def up do
+    # Create the Txbox tx table
+    create table(:txbox_txns, primary_key: false) do
+      add :guid, :binary_id, primary_key: true
+      add :txid, :string
+      add :rawtx, :binary
+      add :channel, :string
+      add :tags, {:array, :string}
+      add :meta, :map
+      add :data, :map
+      add :state, :string
+      add :block_height, :integer
+      add :search_vector, :tsvector
+
+      timestamps(type: :utc_datetime_usec)
+    end
+
+    # Add indexes for common queries and full-text search
+    create unique_index(:txbox_txns, [:txid])
+    create index(:txbox_txns, [:channel])
+    create index(:txbox_txns, [:tags], using: "GIN")
+    create index(:txbox_txns, [:search_vector], using: "GIN")
+    create index(:txbox_txns, [:block_height])
+    create index(:txbox_txns, [:state])
+    create index(:txbox_txns, [:inserted_at])
+
+    # Create function for populating search vector
+    execute """
+      CREATE OR REPLACE FUNCTION txbox_search_vector_trigger()
+      RETURNS trigger AS $$
+      BEGIN
+        NEW.search_vector :=
+          setweight(to_tsvector('pg_catalog.english', coalesce(NEW.meta->>'title', '')), 'A') ||
+          setweight(to_tsvector('pg_catalog.english', coalesce(NEW.meta->>'description', '')), 'C') ||
+          setweight(to_tsvector('pg_catalog.english', coalesce(NEW.meta->>'content', '')), 'D') ||
+          setweight(to_tsvector('pg_catalog.english', coalesce(array_to_string(NEW.tags, ','), '')), 'B');
+        RETURN NEW;
+      END
+      $$ LANGUAGE plpgsql
+    """
+
+    # Create trigger for updating search vector
+    execute """
+      CREATE TRIGGER txbox_search_vector_update
+      BEFORE INSERT OR UPDATE
+      ON txbox_txns
+      FOR EACH ROW
+      EXECUTE PROCEDURE txbox_search_vector_trigger();
+    """
+
+    # Create the Txbox MAPI Responses table
+    create table(:txbox_mapi_responses, primary_key: false) do
+      add :id, :binary_id, primary_key: true
+      add :type, :string
+      add :payload, :map
+      add :public_key, :string
+      add :signature, :string
+      add :verified, :boolean
+      add :tx_guid, references(:txbox_txns, column: :guid, type: :binary_id, on_delete: :delete_all)
+
+      timestamps(type: :utc_datetime_usec, updated_at: false)
+    end
+
+    # Add indexes
+    create index(:txbox_mapi_responses, [:tx_guid])
+    create index(:txbox_mapi_responses, [:inserted_at])
+  end
+
+  def down do
+    drop table(:txbox_mapi_responses)
+    drop table(:txbox_txns)
+    execute "DROP FUNCTION IF EXISTS txbox_search_vector_trigger;"
+  end
+end

@@ -1,0 +1,344 @@
+<br>
+<br>
+<br>
+<br>
+
+<div
+  class="container mx-auto mt-3 ps-3"
+>
+  <div
+    class=""
+  >
+    <div
+      class="mb-6"
+    >
+      <h1>Show Block</h1>
+    </div>
+
+    <%!-- Sync State Progress Indicator --%>
+    <div
+      class="mb-6"
+    >
+      <div
+        class="flex items-center justify-between mb-2"
+      >
+        <span
+          class="text-sm font-medium text-gray-700"
+        >
+          Sync Status
+        </span>
+        <button
+          phx-click="download_transactions"
+          class="px-4 py-2 bg-slate-700 text-white rounded-lg hover:bg-slate-800 font-semibold disabled:bg-gray-400 disabled:cursor-not-allowed text-sm"
+          disabled={@downloading || @transactions_downloaded}
+        >
+          <%= cond do %>
+            <% @transactions_downloaded -> %>
+              <span
+                class="flex items-center gap-2"
+              >
+                <svg
+                  class="w-4 h-4 text-green-400"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M5 13l4 4L19 7"
+                  />
+                </svg>
+                Downloaded
+              </span>
+            <% @downloading -> %>
+              <span
+                class="flex items-center gap-2"
+              >
+                <svg
+                  class="animate-spin h-4 w-4"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                >
+                  <circle
+                    class="opacity-25"
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    stroke="currentColor"
+                    stroke-width="4"
+                  />
+                  <path
+                    class="opacity-75"
+                    fill="currentColor"
+                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                  />
+                </svg>
+                Queuing...
+              </span>
+            <% true -> %>
+              Download Txs
+          <% end %>
+        </button>
+      </div>
+
+      <div
+        class="flex items-center gap-2"
+      >
+        <%!-- Step 1: Pending --%>
+        <div
+          class="flex-1"
+        >
+          <div class={[
+            "h-2 rounded-full transition-all",
+            if(@block.sync_state == "pending",
+              do: "bg-blue-500",
+              else: "bg-gray-300"
+            )
+          ]}>
+          </div>
+          <div
+            class="text-xs mt-1 text-center"
+          >
+            Pending
+          </div>
+        </div>
+
+        <div
+          class="text-gray-400"
+        >
+          →
+        </div>
+
+        <%!-- Step 2: Header Synced --%>
+        <div
+          class="flex-1"
+        >
+          <div class={[
+            "h-2 rounded-full transition-all",
+            if(@block.sync_state == "header_synced",
+              do: "bg-blue-500",
+              else: if(@block.sync_state in ["txs_queued", "txs_syncing", "completed"], do: "bg-green-500", else: "bg-gray-300")
+            )
+          ]}>
+          </div>
+          <div
+            class="text-xs mt-1 text-center"
+          >
+            Header
+          </div>
+        </div>
+
+        <div
+          class="text-gray-400"
+        >
+          →
+        </div>
+
+        <%!-- Step 3: TXs Queued --%>
+        <div
+          class="flex-1"
+        >
+          <div class={[
+            "h-2 rounded-full transition-all",
+            if(@block.sync_state == "txs_queued",
+              do: "bg-yellow-500",
+              else: if(@block.sync_state in ["txs_syncing", "completed"], do: "bg-green-500", else: "bg-gray-300")
+            )
+          ]}>
+          </div>
+          <div
+            class="text-xs mt-1 text-center"
+          >
+            Queued
+          </div>
+        </div>
+
+        <div
+          class="text-gray-400"
+        >
+          →
+        </div>
+
+        <%!-- Step 4: TXs Syncing --%>
+        <div
+          class="flex-1"
+        >
+          <div class={[
+            "h-2 rounded-full transition-all",
+            if(@block.sync_state == "txs_syncing",
+              do: "bg-blue-500 animate-pulse",
+              else: if(@block.sync_state == "completed", do: "bg-green-500", else: "bg-gray-300")
+            )
+          ]}>
+          </div>
+          <div
+            class="text-xs mt-1 text-center"
+          >
+            Syncing
+          </div>
+        </div>
+
+        <div
+          class="text-gray-400"
+        >
+          →
+        </div>
+
+        <%!-- Step 5: Completed --%>
+        <div
+          class="flex-1"
+        >
+          <div class={[
+            "h-2 rounded-full transition-all",
+            if(@block.sync_state == "completed",
+              do: "bg-green-500",
+              else: if(@block.sync_state == "failed", do: "bg-red-500", else: "bg-gray-300")
+            )
+          ]}>
+          </div>
+          <div
+            class="text-xs mt-1 text-center"
+          >
+            <%= if @block.sync_state == "failed", do: "Failed", else: "Complete" %>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <%= if @live_action in [:edit] do %>
+      <.modal
+        :if={@live_action == :edit}
+        id="blocks-modal"
+        show
+        on_cancel={JS.patch(~p"/blocks/#{@block}")}
+      >
+        <.live_component
+          module={BitblocksWeb.BlockLive.FormComponent}
+          id={@block.id}
+          title={@page_title}
+          action={@live_action}
+          block={@block}
+          patch={~p"/blocks/#{@blocks}"}
+        />
+      </.modal>
+    <% end %>
+
+    <div
+      class="flex gap-8"
+    >
+      <div
+        class="flex-1"
+      >
+
+        <div>
+          <span title="height" class="text-2xl">
+          <%= @block.height %>
+          </span>
+        </div>
+
+        <span title="hash" class="font-mono">
+          <%= @block.hash %>
+        </span>
+
+        <ul class="text-xs">
+          <li>
+            <strong>Bits:</strong>
+            <%= @block.bits %>
+          </li>
+
+          <li>
+            <strong>Chainwork:</strong>
+            <%= @block.chainwork %>
+          </li>
+
+          <li>
+            <strong>Difficulty:</strong>
+            <%= @block.difficulty %>
+          </li>
+
+
+          <li>
+            <strong>Mediantime:</strong>
+            <%= @block.mediantime %>
+          </li>
+
+          <li>
+            <strong>Merkleroot:</strong>
+            <%= @block.merkleroot %>
+          </li>
+
+          <li>
+            <strong>Nextblockhash:</strong>
+            <%= @block.nextblockhash %>
+          </li>
+
+          <li>
+            <strong>Prevblockhash:</strong>
+            <%= @block.prevblockhash %>
+          </li>
+
+          <li>
+            <strong>Nonce:</strong>
+            <%= @block.nonce %>
+          </li>
+
+          <li>
+            <strong>Size:</strong>
+            <%= @block.size %>
+          </li>
+
+          <li>
+            <strong>Time:</strong>
+            <%= @block.time %>
+          </li>
+
+          <li>
+            <strong>Version:</strong>
+            <%= @block.version %>
+          </li>
+
+
+        </ul>
+
+
+        <div class="flex justify-between gap-4 mt-6">
+          <div class="flex-1 text-2xl text-blue-500">
+            <.link navigate={~p"/blocks/#{@block.height - 1}"}>
+              <div class="flex-1 text-xl text-blue-500">
+                Previous Block
+              </div>
+              <%= @block.height - 1 %>
+            </.link>
+          </div>
+          <div class="flex-1 text-2xl text-blue-500 text-right">
+            <.link navigate={~p"/blocks/#{@block.height + 1}"}>
+              <div class="flex-1 text-xl text-blue-500">
+                Next Block
+              </div>
+              <%= @block.height + 1 %>
+            </.link>
+          </div>
+        </div>
+      </div>
+
+      <div class="flex-1">
+        <div class="text-xl">
+          <%= @block.num_tx %> transactions
+        </div>
+        <div>
+        <%= for item <- @block.tx do %>
+          <span class="text-blue-500 font-mono text-xs">
+            <.link navigate={~p"/transactions/#{item}"}><%= item %></.link>
+          </span>
+          <br>
+        <% end %>
+        </div>
+      </div>
+    </div>
+
+    <span><.link navigate={~p"/blocks/"}>Back</.link></span> |
+    <span><.link patch={~p"/blocks/#{@block}"} class="button">Edit</.link></span>
+  </div>
+</div>

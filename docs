@@ -1,0 +1,291 @@
+# Transaction Parsing on Bitcoin SV
+
+## Overview
+
+Bitblocks includes comprehensive transaction parsing capabilities to extract and decode data embedded in Bitcoin SV transactions, particularly in OP_RETURN outputs.
+
+## What is OP_RETURN?
+
+OP_RETURN is a Bitcoin script opcode that allows embedding arbitrary data in transaction outputs. On Bitcoin SV, there is no practical limit to the size of OP_RETURN data, enabling:
+
+- File storage on-chain
+- NFT inscriptions
+- Metadata and attribution
+- Protocol messages
+- Application data
+
+## TransactionParser Module
+
+Located at `lib/bitblocks/transaction_parser.ex`, this module provides:
+
+### Core Functions
+
+#### `parse_transaction(tx)`
+Parses a transaction and returns a structured map with:
+- Basic transaction info (version, lock_time, input/output counts)
+- All OP_RETURN outputs with decoded data
+- Detected protocols
+- Transaction classification
+
+```elixir
+parsed = TransactionParser.parse_transaction(tx_raw_hex)
+# => %{
+#   version: 1,
+#   lock_time: 0,
+#   input_count: 1,
+#   output_count: 3,
+#   op_returns: [...],
+#   protocols: ["B://", "MAP"],
+#   is_coinbase: false,
+#   total_output_satoshis: 5000000
+# }
+```
+
+#### `extract_op_returns(outputs)`
+Extracts all OP_RETURN outputs from a transaction:
+
+```elixir
+op_returns = TransactionParser.extract_op_returns(tx.outputs)
+# => [
+#   %{
+#     output_index: 1,
+#     satoshis: 0,
+#     data: [...parsed chunks...],
+#     raw_script: "OP_RETURN ...",
+#     hex_data: ["68656c6c6f", "776f726c64"]
+#   }
+# ]
+```
+
+#### `parse_op_return_data(script)`
+Parses OP_RETURN script into individual data chunks:
+
+```elixir
+data = TransactionParser.parse_op_return_data(script)
+# => [
+#   %{
+#     type: :push_data,
+#     hex: "68656c6c6f",
+#     utf8: "hello",
+#     length: 5
+#   },
+#   %{
+#     type: :push_data,
+#     hex: "776f726c64",
+#     utf8: "world",
+#     length: 5
+#   }
+# ]
+```
+
+## Supported Protocols
+
+The parser automatically detects common Bitcoin SV protocols:
+
+### B:// Protocol (Files on Chain)
+- **Identifier**: `19HxigV4QyBv3tHpQVcUEQyq1pzZVdoAut`
+- **Purpose**: Store complete files directly on the blockchain
+- **Use cases**: Documents, images, videos, applications
+
+### 1SAT Ordinals
+- **Identifier**: `ord` prefix
+- **Purpose**: NFT inscriptions and digital artifacts
+- **Use cases**: Digital art, collectibles, inscriptions
+
+### MAP (Magic Attribute Protocol)
+- **Identifier**: `1PuQa7K62MiKCtssSLKy1kh56WWU7MtUR5`
+- **Purpose**: Key-value metadata storage
+- **Use cases**: Metadata, tags, attributes
+
+### AIP (Author Identity Protocol)
+- **Identifier**: `15PciHG22SNLQJXMoSUaWVi7WSqc7hCfva`
+- **Purpose**: Digital signatures for content attribution
+- **Use cases**: Content signing, author verification
+
+### HAIP (Hash Author Identity Protocol)
+- **Identifier**: `1HA1P2exomAwCUycZHr8WeyFoy5vuQASE3`
+- **Purpose**: Hash-based identity attestation
+- **Use cases**: Data integrity, provenance
+
+## Web Interface
+
+### /parser Page
+Interactive transaction parser at `/parser`:
+- Input any transaction ID
+- View all OP_RETURN data decoded
+- See detected protocols
+- Inspect hex and UTF-8 representations
+- Analyze data chunks
+
+### Transaction Show Page
+Automatically displays OP_RETURN data when viewing transactions:
+- Shows detected protocols as badges
+- Displays readable text content
+- Provides expandable hex data
+- Links to full parser
+
+## Example Usage
+
+### In IEx Console
+
+```elixir
+# Get a transaction
+tx = Bitblocks.Chain.get_transaction_by_txid("your-txid")
+
+# Parse it
+parsed = Bitblocks.TransactionParser.parse_transaction(tx.raw)
+
+# Check for protocols
+parsed.protocols
+# => ["B://", "MAP"]
+
+# View OP_RETURN data
+parsed.op_returns
+|> Enum.each(fn op_return ->
+  IO.puts("Output #{op_return.output_index}:")
+  Enum.each(op_return.data, fn chunk ->
+    if chunk.type == :push_data && chunk.utf8 do
+      IO.puts("  Text: #{chunk.utf8}")
+    end
+  end)
+end)
+```
+
+### In LiveView
+
+```elixir
+# In mount or handle_params
+def handle_params(%{"id" => txid}, _, socket) do
+  transaction = Chain.get_transaction_by_txid(txid)
+  parsed_data = TransactionParser.parse_transaction(transaction.raw)
+
+  {:noreply, assign(socket, parsed_data: parsed_data)}
+end
+```
+
+## Data Formats
+
+### Chunk Types
+
+**Push Data Chunk:**
+```elixir
+%{
+  type: :push_data,
+  hex: "48656c6c6f",      # Hex representation
+  utf8: "Hello",          # UTF-8 text (if valid)
+  length: 5               # Byte length
+}
+```
+
+**Opcode Chunk:**
+```elixir
+%{
+  type: :opcode,
+  opcode: 106,
+  name: "OP_RETURN"
+}
+```
+
+## Advanced Features
+
+### Script Type Detection
+Automatically identifies:
+- OP_RETURN (data carrier)
+- P2PKH (Pay to Public Key Hash)
+- P2SH (Pay to Script Hash)
+- P2PK (Pay to Public Key)
+
+### Output Categorization
+Classifies outputs as:
+- `:op_return` - Data storage
+- `:data_carrier` - Zero-value data
+- `:payment` - Value transfer
+
+### Format Detection
+Identifies data formats:
+- URLs
+- Bitcoin addresses
+- JSON
+- Hashes (SHA-256, etc.)
+
+## Best Practices
+
+### When Parsing Transactions
+
+1. **Always check for nil UTF-8**: Not all data is valid text
+```elixir
+if chunk.utf8 do
+  # Safe to display as text
+end
+```
+
+2. **Handle large data gracefully**: Some OP_RETURNs contain megabytes
+```elixir
+if chunk.length > 1_000_000 do
+  # Show file size indicator instead of raw data
+end
+```
+
+3. **Validate protocol identifiers**: Check multiple chunks
+```elixir
+protocols = TransactionParser.detect_protocols(op_returns)
+```
+
+### Performance Considerations
+
+- Parsing is done on-demand (not stored in database)
+- Large transactions may take time to parse
+- Consider caching parsed results for frequently accessed transactions
+
+## Future Enhancements
+
+Potential areas for expansion:
+
+1. **More Protocol Support**
+   - SIGMA (token protocol)
+   - Run (smart contract protocol)
+   - PayMail protocols
+   - Custom application protocols
+
+2. **Content Type Detection**
+   - Image format detection
+   - MIME type inference
+   - File signature analysis
+
+3. **Advanced Parsing**
+   - Recursive protocol parsing
+   - Multi-protocol transactions
+   - Protocol composition analysis
+
+4. **Search & Indexing**
+   - Full-text search of OP_RETURN data
+   - Protocol-specific indexes
+   - Content categorization
+
+## Resources
+
+- [Bitcoin SV Wiki - OP_RETURN](https://wiki.bitcoinsv.io/index.php/OP_RETURN)
+- [B:// Protocol Documentation](https://b.bitdb.network/)
+- [MAP Protocol Specification](https://github.com/rohenaz/MAP)
+- [AIP Protocol Specification](https://github.com/BitcoinFiles/AUTHOR_IDENTITY_PROTOCOL)
+- [1SAT Ordinals](https://docs.1satordinals.com/)
+
+## Contributing
+
+To add support for new protocols:
+
+1. Add protocol identifier to `check_protocol_prefix/1`
+2. Update `detect_protocols/1` with detection logic
+3. Add tests for the new protocol
+4. Update this documentation
+
+Example:
+```elixir
+defp check_protocol_prefix(utf8) do
+  cond do
+    String.starts_with?(utf8, "YOUR_PROTOCOL_ADDRESS") ->
+      ["Your Protocol Name"]
+    # ... other protocols
+  end
+end
+```

@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en" class="[scrollbar-gutter:stable]">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="csrf-token" content={get_csrf_token()} />
+
+    <.live_title suffix=" · Bitblocks">
+      <%= assigns[:page_title] || "Bitblocks" %>
+    </.live_title>
+
+    <!-- SEO Meta Tags -->
+    <meta
+      name="description"
+      content={assigns[:meta_description] || "Bitblocks - Bitcoin SV Blockchain Explorer. Browse blocks, transactions, and explore the Bitcoin SV blockchain in real-time."}
+    />
+    <meta
+      name="keywords"
+      content="Bitcoin SV, BSV, blockchain explorer, bitcoin blocks, bitcoin transactions, cryptocurrency, blockchain"
+    />
+    <meta
+      name="author"
+      content="Bitblocks"
+    />
+    <meta
+      name="robots"
+      content="index, follow"
+    />
+    <link
+      rel="canonical"
+      href={"https://bitblocks.app#{assigns[:canonical_path] || "/"}"}
+    />
+
+    <!-- Open Graph / Facebook -->
+    <meta
+      property="og:type"
+      content="website"
+    />
+    <meta
+      property="og:url"
+      content="https://bitblocks.app/"
+    />
+    <meta
+      property="og:title"
+      content={assigns[:page_title] || "Bitblocks - Bitcoin SV Blockchain Explorer"}
+    />
+    <meta
+      property="og:description"
+      content={assigns[:meta_description] || "Browse blocks, transactions, and explore the Bitcoin SV blockchain in real-time."}
+    />
+    <meta
+      property="og:image"
+      content="https://bitblocks.app/images/og-image.jpg"
+    />
+    <meta
+      property="og:image:width"
+      content="1200"
+    />
+    <meta
+      property="og:image:height"
+      content="630"
+    />
+    <meta
+      property="og:image:type"
+      content="image/jpeg"
+    />
+
+    <!-- Twitter -->
+    <meta
+      property="twitter:card"
+      content="summary_large_image"
+    />
+    <meta
+      property="twitter:url"
+      content="https://bitblocks.app/"
+    />
+    <meta
+      property="twitter:title"
+      content={assigns[:page_title] || "Bitblocks - Bitcoin SV Blockchain Explorer"}
+    />
+    <meta
+      property="twitter:description"
+      content={assigns[:meta_description] || "Browse blocks, transactions, and explore the Bitcoin SV blockchain in real-time."}
+    />
+    <meta
+      property="twitter:image"
+      content="https://bitblocks.app/images/og-image.jpg"
+    />
+
+    <!-- Schema.org JSON-LD -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "WebApplication",
+        "name": "Bitblocks",
+        "alternateName": "Bitblocks Explorer",
+        "description": "Bitcoin SV Blockchain Explorer - Browse blocks, transactions, and explore the Bitcoin SV blockchain in real-time",
+        "url": "https://bitblocks.app",
+        "applicationCategory": "FinanceApplication",
+        "operatingSystem": "Web",
+        "browserRequirements": "Requires JavaScript. Requires HTML5.",
+        "softwareVersion": "1.0",
+        "offers": {
+          "@type": "Offer",
+          "price": "0",
+          "priceCurrency": "USD"
+        },
+        "provider": {
+          "@type": "Organization",
+          "name": "Bitblocks",
+          "url": "https://github.com/afomi/bitblocks"
+        },
+        "featureList": [
+          "Browse Bitcoin SV blocks",
+          "View transaction details",
+          "Search blocks and transactions",
+          "Real-time blockchain data",
+          "Transaction parsing and protocol analysis"
+        ],
+        "screenshot": "https://bitblocks.app/images/og-image.jpg",
+        "aggregateRating": {
+          "@type": "AggregateRating",
+          "ratingValue": "5",
+          "ratingCount": "1"
+        }
+      }
+    </script>
+
+    <link
+      phx-track-static
+      rel="stylesheet"
+      href={~p"/assets/app.css"}
+    />
+    <script
+      defer
+      phx-track-static
+      type="text/javascript"
+      src={~p"/assets/app.js"}
+    >
+    </script>
+  </head>
+  <body class="bg-white dark:bg-gray-900 antialiased">
+    <div
+      id="banner"
+      class="relative flex items-center gap-x-6 bg-orange-500 bg-opacity-30 px-6 py-2.5 sm:px-3.5 sm:before:flex-1"
+    >
+      <p
+        class="text-sm/6 text-gray-900"
+      >
+        <strong
+          class="font-semibold"
+        >
+          Development Notice:
+        </strong>
+        This project is in development and will sync to block 600,000 as an initial milestone.
+      </p>
+      <div
+        class="flex flex-1 justify-end"
+      >
+        <button
+          type="button"
+          class="-m-3 p-3 focus-visible:-outline-offset-4"
+          onclick="document.getElementById('banner').style.display='none'"
+        >
+          <span
+            class="sr-only"
+          >
+            Dismiss
+          </span>
+          <svg
+            viewBox="0 0 20 20"
+            fill="currentColor"
+            data-slot="icon"
+            aria-hidden="true"
+            class="size-5 text-gray-900"
+          >
+            <path
+              d="M6.28 5.22a.75.75 0 0 0-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 1 0 1.06 1.06L10 11.06l3.72 3.72a.75.75 0 1 0 1.06-1.06L11.06 10l3.72-3.72a.75.75 0 0 0-1.06-1.06L10 8.94 6.28 5.22Z"
+            />
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <BitblocksWeb.NavComponent.nav />
+
+    <main>
+      <.flash_group flash={@flash} />
+      <%= @inner_content %>
+    </main>
+
+    <footer
+      class="border-t border-gray-200 dark:border-gray-800 mt-auto"
+    >
+      <div
+        class="container mx-auto px-4 py-6"
+      >
+        <div
+          class="flex items-center justify-between"
+        >
+          <div
+            class="flex items-center gap-6"
+          >
+            <a
+              href="/status"
+              class="text-sm font-semibold text-gray-900 dark:text-white hover:text-gray-600 dark:hover:text-gray-300"
+            >
+              Node status
+            </a>
+            <a
+              href="/protocols"
+              class="text-sm font-semibold text-gray-900 dark:text-white hover:text-gray-600 dark:hover:text-gray-300"
+            >
+              Bitcoin Protocols
+            </a>
+          </div>
+          <div
+            class="flex items-center gap-6"
+          >
+            <%= if Application.get_env(:bitblocks, :dev_routes, false) do %>
+              <a
+                href="/config"
+                class="text-sm font-semibold text-indigo-600 dark:text-indigo-400 hover:text-indigo-500 dark:hover:text-indigo-300"
+              >
+                Config
+              </a>
+              <a
+                href="/sync"
+                class="text-sm font-semibold text-indigo-600 dark:text-indigo-400 hover:text-indigo-500 dark:hover:text-indigo-300"
+              >
+                Sync
+              </a>
+              <a
+                href="/graph"
+                class="text-sm font-semibold text-indigo-600 dark:text-indigo-400 hover:text-indigo-500 dark:hover:text-indigo-300"
+              >
+                Graph
+              </a>
+              <a
+                href="/highlights"
+                class="text-sm font-semibold text-indigo-600 dark:text-indigo-400 hover:text-indigo-500 dark:hover:text-indigo-300"
+              >
+                Highlights
+              </a>
+              <a
+                href="/reporting"
+                class="text-sm font-semibold text-indigo-600 dark:text-indigo-400 hover:text-indigo-500 dark:hover:text-indigo-300"
+              >
+                Reporting
+              </a>
+              <a
+                href="/debug"
+                class="text-sm font-semibold text-indigo-600 dark:text-indigo-400 hover:text-indigo-500 dark:hover:text-indigo-300"
+              >
+                Debug
+              </a>
+            <% end %>
+            <a
+              href="https://github.com/afomi/bitblocks"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="text-sm font-semibold text-gray-900 dark:text-white hover:text-gray-600 dark:hover:text-gray-300"
+            >
+              GitHub
+            </a>
+          </div>
+        </div>
+      </div>
+    </footer>
+
+  </body>
+
+</html>

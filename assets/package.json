@@ -1,0 +1,7 @@
+{
+  "dependencies": {
+    "chart.js": "^4.5.0",
+    "three": "^0.180.0",
+    "vis-network": "^10.0.2"
+  }
+}

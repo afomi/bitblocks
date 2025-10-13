@@ -1,0 +1,2 @@
+# Bitcoin RPC fixtures cached here
+# To refresh: REFRESH_FIXTURES=true mix test

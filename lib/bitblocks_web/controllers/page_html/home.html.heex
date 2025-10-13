@@ -1,0 +1,67 @@
+<div class="container mx-auto px-4 py-8 max-w-4xl">
+  <div class="text-center py-12">
+    <h1 class="text-6xl font-bold mb-6 text-gray-900 dark:text-white">
+      Bitblocks
+    </h1>
+    <p class="text-xl text-gray-600 dark:text-gray-400 mb-4">
+      Bitcoin SV Blockchain Explorer
+    </p>
+
+    <%!-- Search Bar --%>
+    <div class="max-w-2xl mx-auto mb-12">
+      <div class="relative">
+        <input
+          type="text"
+          id="home-search"
+          placeholder="Search by block height, block hash, or transaction ID..."
+          class="w-full px-6 py-4 text-sm border-2 border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 font-mono"
+        />
+        <button
+          onclick="window.location.href='/search?query=' + encodeURIComponent(document.getElementById('home-search').value)"
+          class="absolute right-2 top-1/2 -translate-y-1/2 px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 font-semibold"
+        >
+          Search
+        </button>
+      </div>
+    </div>
+
+    <div class="flex flex-wrap justify-center gap-4 mb-12">
+      <a
+        href="/blocks"
+        class="inline-block px-6 py-3 bg-slate-700 text-white rounded-lg hover:bg-slate-800 font-semibold"
+      >
+        Browse Blocks
+      </a>
+      <a
+        href="/search"
+        class="inline-block px-6 py-3 bg-slate-700 text-white rounded-lg hover:bg-slate-800 font-semibold"
+      >
+        Search
+      </a>
+      <a
+        href="/graph"
+        class="inline-block px-6 py-3 bg-slate-700 text-white rounded-lg hover:bg-slate-800 font-semibold"
+      >
+        Transaction Graph
+      </a>
+      <a
+        href="/status"
+        class="inline-block px-6 py-3 bg-slate-700 text-white rounded-lg hover:bg-slate-800 font-semibold"
+      >
+        View Status
+      </a>
+    </div>
+  </div>
+
+  <%!-- Chain Status Component --%>
+  <div class="max-w-2xl mx-auto mb-8">
+    <BitblocksWeb.ChainStatusComponent.chain_status
+      blockchain_info={@blockchain_info}
+      blocks_count={@blocks_count}
+      transactions_count={@transactions_count}
+      latest_block={@latest_block}
+      time_ago_minutes={@time_ago_minutes}
+      block_time={@block_time}
+    />
+  </div>
+</div>
