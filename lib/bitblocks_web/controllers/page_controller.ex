@@ -42,7 +42,7 @@ defmodule BitblocksWeb.PageController do
   defp get_blockchain_info do
     try do
       case BitcoinsvCli.getblockchaininfo() do
-        %{"blocks" => blocks, "headers" => headers, "chain" => chain, "verificationprogress" => verificationprogress} = info ->
+        %{"blocks" => blocks, "headers" => headers, "chain" => chain, "verificationprogress" => verificationprogress} ->
           %{
             chain: chain,
             blocks: blocks,
@@ -56,23 +56,6 @@ defmodule BitblocksWeb.PageController do
       end
     rescue
       _ -> nil
-    end
-  end
-
-  defp get_chain_tip do
-    case BitcoinsvCli.getblockchaininfo() do
-      %{"blocks" => blocks, "headers" => headers} = info ->
-        verification_progress = Map.get(info, "verificationprogress", 1.0)
-
-        %{
-          blocks: blocks,
-          headers: headers,
-          synced: blocks == headers,
-          verification_progress: verification_progress
-        }
-
-      _ ->
-        nil
     end
   end
 
@@ -116,13 +99,8 @@ defmodule BitblocksWeb.PageController do
     case blockchain_info do
       %{"blocks" => blocks, "headers" => headers} = info when is_map(info) ->
         %{
-          "bestblockhash" => bestblockhash,
           "chain" => chain,
-          "chainwork" => chainwork,
-          "difficulty" => difficulty,
-          "mediantime" => mediantime,
           "pruned" => pruned,
-          "softforks" => softforks,
           "verificationprogress" => verificationprogress
         } = info
 

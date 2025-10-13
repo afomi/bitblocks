@@ -304,17 +304,17 @@
 
 
         <div class="flex justify-between gap-4 mt-6">
-          <div class="flex-1 text-2xl text-blue-500">
+          <div class="flex-1 text-2xl text-blue-700">
             <.link navigate={~p"/blocks/#{@block.height - 1}"}>
-              <div class="flex-1 text-xl text-blue-500">
+              <div class="flex-1 text-xl text-blue-700">
                 Previous Block
               </div>
               <%= @block.height - 1 %>
             </.link>
           </div>
-          <div class="flex-1 text-2xl text-blue-500 text-right">
+          <div class="flex-1 text-2xl text-blue-700 text-right">
             <.link navigate={~p"/blocks/#{@block.height + 1}"}>
-              <div class="flex-1 text-xl text-blue-500">
+              <div class="flex-1 text-xl text-blue-700">
                 Next Block
               </div>
               <%= @block.height + 1 %>
@@ -329,7 +329,7 @@
         </div>
         <div>
         <%= for item <- @block.tx do %>
-          <span class="text-blue-500 font-mono text-xs">
+          <span class="text-blue-700 font-mono text-xs">
             <.link navigate={~p"/transactions/#{item}"}><%= item %></.link>
           </span>
           <br>

@@ -1,5 +1,9 @@
-<div class="container mx-auto px-4 py-8 max-w-5xl">
-  <h1 class="text-4xl font-bold mb-6">
+<section
+  class="container mx-auto px-4 py-8 max-w-5xl"
+  role="region"
+  aria-labelledby="blocks-heading"
+>
+  <h1 id="blocks-heading" class="text-4xl font-bold mb-6">
     Blocks
   </h1>
 
@@ -79,7 +83,7 @@
   <div class="flex justify-between items-center mt-6">
     <div class="text-sm text-gray-600">
       Page <%= @page %> of <%= @total_pages %>
-      <span class="text-gray-400">
+      <span class="text-gray-600">
         (<%= format_number(@total_blocks) %> total)
       </span>
     </div>
@@ -93,7 +97,7 @@
           Previous
         </.link>
       <% else %>
-        <span class="px-4 py-2 bg-gray-200 text-gray-400 rounded-md cursor-not-allowed font-semibold">
+        <span class="px-4 py-2 bg-gray-100 text-gray-600 rounded-md cursor-not-allowed font-semibold">
           Previous
         </span>
       <% end %>
@@ -106,10 +110,10 @@
           Next
         </.link>
       <% else %>
-        <span class="px-4 py-2 bg-gray-200 text-gray-400 rounded-md cursor-not-allowed font-semibold">
+        <span class="px-4 py-2 bg-gray-100 text-gray-600 rounded-md cursor-not-allowed font-semibold">
           Next
         </span>
       <% end %>
     </div>
   </div>
-</div>
+</section>

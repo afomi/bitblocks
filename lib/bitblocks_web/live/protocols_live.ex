@@ -752,11 +752,11 @@ defmodule BitblocksWeb.ProtocolsLive do
     """
   end
 
-  defp render_protocol_detail(%{selected_protocol: protocol} = assigns) do
+  defp render_protocol_detail(assigns) do
     ~H"""
     <div class="p-6">
       <h2 class="text-3xl font-bold mb-4">
-        <%= String.upcase(protocol) %> Protocol
+        <%= String.upcase(@selected_protocol) %> Protocol
       </h2>
 
       <p class="text-gray-700 mb-4">

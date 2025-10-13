@@ -142,6 +142,8 @@
   <body class="bg-white dark:bg-gray-900 antialiased">
     <div
       id="banner"
+      role="region"
+      aria-label="Development notice"
       class="relative flex items-center gap-x-6 bg-orange-500 bg-opacity-30 px-6 py-2.5 sm:px-3.5 sm:before:flex-1"
     >
       <p
@@ -161,6 +163,7 @@
           type="button"
           class="-m-3 p-3 focus-visible:-outline-offset-4"
           onclick="document.getElementById('banner').style.display='none'"
+          aria-label="Dismiss development notice"
         >
           <span
             class="sr-only"
@@ -181,10 +184,9 @@
         </button>
       </div>
     </div>
-
     <BitblocksWeb.NavComponent.nav />
 
-    <main>
+    <main role="main">
       <.flash_group flash={@flash} />
       <%= @inner_content %>
     </main>

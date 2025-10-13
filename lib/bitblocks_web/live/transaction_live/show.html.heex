@@ -81,186 +81,193 @@
     </div>
   </div>
 
-  <% {:ok, tx} = BSV.Tx.from_binary(@transaction.raw, encoding: :hex) %>
+  <%= if match?(%BSV.Tx{}, @decoded_tx) do %>
+    <% tx = @decoded_tx %>
+    <%!-- Transaction Details --%>
+    <div class="bg-white shadow-md rounded-lg p-6 mb-6">
+      <h2 class="text-xl font-semibold mb-4">
+        Details
+      </h2>
 
-  <%!-- Transaction Details --%>
-  <div class="bg-white shadow-md rounded-lg p-6 mb-6">
-    <h2 class="text-xl font-semibold mb-4">
-      Details
-    </h2>
-
-    <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
-      <div>
-        <div class="text-sm text-gray-600">
-          Version
-        </div>
-        <div class="font-semibold">
-          <%= tx.version %>
-        </div>
-      </div>
-
-      <div>
-        <div class="text-sm text-gray-600">
-          Lock Time
-        </div>
-        <div class="font-semibold">
-          <%= tx.lock_time %>
-        </div>
-      </div>
-
-      <div>
-        <div class="text-sm text-gray-600">
-          Inputs
-        </div>
-        <div class="font-semibold">
-          <%= length(tx.inputs) %>
-        </div>
-      </div>
-
-      <div>
-        <div class="text-sm text-gray-600">
-          Outputs
-        </div>
-        <div class="font-semibold">
-          <%= length(tx.outputs) %>
-        </div>
-      </div>
-
-      <%= if @parsed_data do %>
+      <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
         <div>
           <div class="text-sm text-gray-600">
-            OP_RETURNs
+            Version
           </div>
           <div class="font-semibold">
-            <%= length(@parsed_data.op_returns) %>
+            <%= tx.version %>
           </div>
         </div>
 
         <div>
           <div class="text-sm text-gray-600">
-            Total Output
+            Lock Time
           </div>
           <div class="font-semibold">
-            <%= format_satoshis(@parsed_data.total_output_satoshis) %>
+            <%= tx.lock_time %>
           </div>
         </div>
-      <% end %>
-    </div>
-  </div>
 
-  <%!-- Inputs --%>
-  <div class="bg-white shadow-md rounded-lg p-6 mb-6">
-    <div class="flex items-center justify-between mb-4">
-      <h2 class="text-xl font-semibold">
-        Inputs (<%= length(tx.inputs) %>)
-      </h2>
-      <div class="text-xs text-gray-500">
-        Where the value comes from
+        <div>
+          <div class="text-sm text-gray-600">
+            Inputs
+          </div>
+          <div class="font-semibold">
+            <%= length(tx.inputs) %>
+          </div>
+        </div>
+
+        <div>
+          <div class="text-sm text-gray-600">
+            Outputs
+          </div>
+          <div class="font-semibold">
+            <%= length(tx.outputs) %>
+          </div>
+        </div>
+
+        <%= if @parsed_data do %>
+          <div>
+            <div class="text-sm text-gray-600">
+              OP_RETURNs
+            </div>
+            <div class="font-semibold">
+              <%= length(@parsed_data.op_returns) %>
+            </div>
+          </div>
+
+          <div>
+            <div class="text-sm text-gray-600">
+              Total Output
+            </div>
+            <div class="font-semibold">
+              <%= format_satoshis(@parsed_data.total_output_satoshis) %>
+            </div>
+          </div>
+        <% end %>
       </div>
     </div>
 
-    <div class="space-y-4">
-      <%= for {input, idx} <- Enum.with_index(tx.inputs) do %>
-        <div class="border border-gray-200 rounded-lg p-4">
-          <div class="flex items-center justify-between mb-3">
-            <span class="text-sm font-semibold text-gray-700">
-              Input #<%= idx %>
-            </span>
-            <%= if input.script.coinbase do %>
-              <span class="px-2 py-1 bg-yellow-100 text-yellow-800 text-xs font-semibold rounded">
-                Coinbase
-              </span>
-            <% end %>
-          </div>
-
-          <div class="space-y-2 text-sm">
-            <div>
-              <span class="text-gray-600">
-                Previous Output (UTXO being spent):
-              </span>
-              <div class="font-mono text-xs bg-gray-50 p-2 rounded mt-1 break-all">
-                <%= BSV.OutPoint.get_txid(input.outpoint) %>:<%= input.outpoint.vout %>
-              </div>
-              <div class="text-xs text-gray-400 mt-1">
-                References output #<%= input.outpoint.vout %> from a previous transaction
-              </div>
-            </div>
-
-            <div>
-              <span class="text-gray-600">
-                Unlocking Script (ScriptSig):
-              </span>
-              <div class="font-mono text-xs bg-gray-50 p-2 rounded mt-1 break-all">
-                <%= BSV.Script.to_asm(input.script) |> String.slice(0, 100) %><%= if String.length(BSV.Script.to_asm(input.script)) > 100, do: "..." %>
-              </div>
-              <div class="text-xs text-gray-400 mt-1">
-                Proves ownership and authorizes spending of the UTXO
-              </div>
-            </div>
-
-            <div>
-              <span class="text-gray-600">
-                Sequence:
-              </span>
-              <span class="font-mono text-xs">
-                <%= input.sequence %>
-              </span>
-            </div>
-          </div>
+    <%!-- Inputs --%>
+    <div class="bg-white shadow-md rounded-lg p-6 mb-6">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-xl font-semibold">
+          Inputs (<%= length(tx.inputs) %>)
+        </h2>
+        <div class="text-xs text-gray-500">
+          Where the value comes from
         </div>
-      <% end %>
-    </div>
-  </div>
+      </div>
 
-  <%!-- Outputs --%>
-  <div class="bg-white shadow-md rounded-lg p-6 mb-6">
-    <div class="flex items-center justify-between mb-4">
-      <h2 class="text-xl font-semibold">
-        Outputs (<%= length(tx.outputs) %>)
-      </h2>
-      <div class="text-xs text-gray-500">
-        Where the value goes to
+      <div class="space-y-4">
+        <%= for {input, idx} <- Enum.with_index(tx.inputs) do %>
+          <div class="border border-gray-200 rounded-lg p-4">
+            <div class="flex items-center justify-between mb-3">
+              <span class="text-sm font-semibold text-gray-700">
+                Input #<%= idx %>
+              </span>
+              <%= if input.script.coinbase do %>
+                <span class="px-2 py-1 bg-yellow-100 text-yellow-800 text-xs font-semibold rounded">
+                  Coinbase
+                </span>
+              <% end %>
+            </div>
+
+            <div class="space-y-2 text-sm">
+              <div>
+                <span class="text-gray-600">
+                  Previous Output (UTXO being spent):
+                </span>
+                <div class="font-mono text-xs bg-gray-50 p-2 rounded mt-1 break-all">
+                  <%= BSV.OutPoint.get_txid(input.outpoint) %>:<%= input.outpoint.vout %>
+                </div>
+                <div class="text-xs text-gray-400 mt-1">
+                  References output #<%= input.outpoint.vout %> from a previous transaction
+                </div>
+              </div>
+
+              <div>
+                <span class="text-gray-600">
+                  Unlocking Script (ScriptSig):
+                </span>
+                <div class="font-mono text-xs bg-gray-50 p-2 rounded mt-1 break-all">
+                  <%= BSV.Script.to_asm(input.script) |> String.slice(0, 100) %><%= if String.length(BSV.Script.to_asm(input.script)) > 100, do: "..." %>
+                </div>
+                <div class="text-xs text-gray-400 mt-1">
+                  Proves ownership and authorizes spending of the UTXO
+                </div>
+              </div>
+
+              <div>
+                <span class="text-gray-600">
+                  Sequence:
+                </span>
+                <span class="font-mono text-xs">
+                  <%= input.sequence %>
+                </span>
+              </div>
+            </div>
+          </div>
+        <% end %>
       </div>
     </div>
 
-    <div class="space-y-4">
-      <%= for {output, idx} <- Enum.with_index(tx.outputs) do %>
-        <div class="border border-gray-200 rounded-lg p-4">
-          <div class="flex items-center justify-between mb-3">
-            <span class="text-sm font-semibold text-gray-700">
-              Output #<%= idx %>
-            </span>
-            <span class="px-3 py-1 bg-green-100 text-green-800 text-sm font-semibold rounded">
-              <%= format_satoshis(output.satoshis) %>
-            </span>
-          </div>
-
-          <div class="space-y-2 text-sm">
-            <div>
-              <span class="text-gray-600">
-                Satoshis:
-              </span>
-              <span class="font-mono text-xs">
-                <%= output.satoshis %>
-              </span>
-            </div>
-
-            <div>
-              <span class="text-gray-600">
-                Locking Script (ScriptPubKey):
-              </span>
-              <div class="font-mono text-xs bg-gray-50 p-2 rounded mt-1 break-all">
-                <%= BSV.Script.to_asm(output.script) |> String.slice(0, 100) %><%= if String.length(BSV.Script.to_asm(output.script)) > 100, do: "..." %>
-              </div>
-              <div class="text-xs text-gray-400 mt-1">
-                Sets conditions that must be met to spend this output in the future
-              </div>
-            </div>
-          </div>
+    <%!-- Outputs --%>
+    <div class="bg-white shadow-md rounded-lg p-6 mb-6">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-xl font-semibold">
+          Outputs (<%= length(tx.outputs) %>)
+        </h2>
+        <div class="text-xs text-gray-500">
+          Where the value goes to
         </div>
-      <% end %>
+      </div>
+
+      <div class="space-y-4">
+        <%= for {output, idx} <- Enum.with_index(tx.outputs) do %>
+          <div class="border border-gray-200 rounded-lg p-4">
+            <div class="flex items-center justify-between mb-3">
+              <span class="text-sm font-semibold text-gray-700">
+                Output #<%= idx %>
+              </span>
+              <span class="px-3 py-1 bg-green-100 text-green-800 text-sm font-semibold rounded">
+                <%= format_satoshis(output.satoshis) %>
+              </span>
+            </div>
+
+            <div class="space-y-2 text-sm">
+              <div>
+                <span class="text-gray-600">
+                  Satoshis:
+                </span>
+                <span class="font-mono text-xs">
+                  <%= output.satoshis %>
+                </span>
+              </div>
+
+              <div>
+                <span class="text-gray-600">
+                  Locking Script (ScriptPubKey):
+                </span>
+                <div class="font-mono text-xs bg-gray-50 p-2 rounded mt-1 break-all">
+                  <%= BSV.Script.to_asm(output.script) |> String.slice(0, 100) %><%= if String.length(BSV.Script.to_asm(output.script)) > 100, do: "..." %>
+                </div>
+                <div class="text-xs text-gray-400 mt-1">
+                  Sets conditions that must be met to spend this output in the future
+                </div>
+              </div>
+            </div>
+          </div>
+        <% end %>
+      </div>
     </div>
-  </div>
+  <% else %>
+    <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-6">
+      <p class="text-yellow-800 text-sm">
+        Raw transaction data could not be decoded. This may happen if the transaction record is incomplete or contains placeholder data.
+      </p>
+    </div>
+  <% end %>
 
   <%!-- OP_RETURN Data (if present) --%>
   <%= if @parsed_data && length(@parsed_data.op_returns) > 0 do %>

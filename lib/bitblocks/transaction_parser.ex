@@ -128,21 +128,19 @@ defmodule Bitblocks.TransactionParser do
   end
 
   defp detect_protocol(data_chunks) when is_list(data_chunks) do
-    protocols = []
-
     # Check first chunk for protocol identifiers
-    case List.first(data_chunks) do
+    prefix_protocols = case List.first(data_chunks) do
       %{utf8: utf8} when is_binary(utf8) ->
-        protocols = protocols ++ check_protocol_prefix(utf8)
+        check_protocol_prefix(utf8)
 
       _ ->
-        protocols
+        []
     end
 
     # Check for hex-based protocols
-    protocols = protocols ++ check_hex_protocols(data_chunks)
+    hex_protocols = check_hex_protocols(data_chunks)
 
-    protocols
+    prefix_protocols ++ hex_protocols
   end
 
   defp check_protocol_prefix(utf8) do
@@ -252,9 +250,7 @@ defmodule Bitblocks.TransactionParser do
     end)
   end
 
-  @doc """
-  Safely decodes UTF-8, returning nil if invalid.
-  """
+  # Safely decodes UTF-8, returning nil if invalid.
   defp safe_utf8_decode(binary) when is_binary(binary) do
     case :unicode.characters_to_binary(binary, :utf8) do
       result when is_binary(result) ->
@@ -269,9 +265,7 @@ defmodule Bitblocks.TransactionParser do
     end
   end
 
-  @doc """
-  Converts hex string to decimal.
-  """
+  # Converts hex string to decimal.
   defp hex_to_decimal(hex) when is_binary(hex) do
     case Integer.parse(hex, 16) do
       {decimal, ""} -> decimal
@@ -279,9 +273,7 @@ defmodule Bitblocks.TransactionParser do
     end
   end
 
-  @doc """
-  Returns the name of an opcode.
-  """
+  # Returns the name of an opcode.
   defp opcode_name(op) do
     case op do
       0 -> "OP_0"

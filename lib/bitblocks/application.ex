@@ -7,6 +7,9 @@ defmodule Bitblocks.Application do
 
   @impl true
   def start(_type, _args) do
+    # Ensure Hackney pool is started for HTTPoison
+    :hackney_pool.start_pool(:default, [timeout: 150_000, max_connections: 100])
+
     children = [
       BitblocksWeb.Telemetry,
       Bitblocks.Repo,

@@ -65,7 +65,7 @@ defmodule Bitblocks.SyncWorker do
   end
 
   @impl true
-  def handle_call({:start_sync, scope}, _from, %State{status: :running} = state) do
+  def handle_call({:start_sync, _scope}, _from, %State{status: :running} = state) do
     {:reply, {:error, :already_running}, state}
   end
 

@@ -81,6 +81,15 @@ defmodule Bitblocks.Chain do
     end
   end
 
+  def get_block(id_or_height_or_hash) do
+    try do
+      get_block!(id_or_height_or_hash)
+    rescue
+      Ecto.NoResultsError ->
+        nil
+    end
+  end
+
   def get_transaction!(id_or_txid) when is_integer(id_or_txid) do
     # Try finding by ID first, then raise if not found
     Repo.get(Transaction, id_or_txid) || raise Ecto.NoResultsError, queryable: Transaction
@@ -288,13 +297,24 @@ defmodule Bitblocks.Chain do
 
     results = Enum.map(blocks, &queue_transaction_fetch/1)
 
-    successful =
-      Enum.count(results, fn
+    {successful_results, failed_results} =
+      Enum.split_with(results, fn
         {:ok, _} -> true
         _ -> false
       end)
 
-    {:ok, successful}
+    successful = length(successful_results)
+
+    case failed_results do
+      [] ->
+        {:ok, successful}
+
+      [{:error, reason} | _] ->
+        {:error, reason}
+
+      [other | _] ->
+        {:error, other}
+    end
   end
 
   @doc """

@@ -25,22 +25,42 @@ defmodule BitblocksWeb.TransactionLive.Show do
 
     # Get the block for this transaction
     block =
-      if transaction && transaction.block_hash do
-        Chain.get_block!(transaction.block_hash)
-      else
-        nil
+      cond do
+        transaction && not is_nil(transaction.block_hash) ->
+          Chain.get_block(transaction.block_hash) ||
+            (if transaction.block_height, do: Chain.get_block(transaction.block_height), else: nil)
+
+        transaction && transaction.block_height ->
+          Chain.get_block(transaction.block_height)
+
+        true ->
+          nil
       end
 
     # Parse the transaction for OP_RETURN data
     parsed_data =
       if transaction && transaction.raw do
-        parsed = TransactionParser.parse_transaction(transaction.raw)
+        case TransactionParser.parse_transaction(transaction.raw) do
+          parsed when is_map(parsed) ->
+            # Use cached total_output_satoshis if available, otherwise fall back to parsed value
+            total_output_satoshis =
+              transaction.total_output_satoshis || parsed.total_output_satoshis
 
-        # Use cached total_output_satoshis if available, otherwise fall back to parsed value
-        total_output_satoshis =
-          transaction.total_output_satoshis || parsed.total_output_satoshis
+            %{parsed | total_output_satoshis: total_output_satoshis}
 
-        %{parsed | total_output_satoshis: total_output_satoshis}
+          {:error, _reason} ->
+            nil
+        end
+      else
+        nil
+      end
+
+    decoded_tx =
+      if transaction && transaction.raw do
+        case BSV.Tx.from_binary(transaction.raw, encoding: :hex) do
+          {:ok, tx} -> tx
+          {:error, _reason} -> nil
+        end
       else
         nil
       end
@@ -50,7 +70,8 @@ defmodule BitblocksWeb.TransactionLive.Show do
      |> assign(:page_title, page_title(socket.assigns.live_action))
      |> assign(:transaction, transaction)
      |> assign(:block, block)
-     |> assign(:parsed_data, parsed_data)}
+     |> assign(:parsed_data, parsed_data)
+     |> assign(:decoded_tx, decoded_tx)}
   end
 
   defp fetch_transaction_on_demand(txid) do

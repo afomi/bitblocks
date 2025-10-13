@@ -61,8 +61,9 @@ defmodule Bitblocks.Outbound do
   ```
   """
 
-  alias Bitblocks.Repo
   alias Txbox.Transactions
+  alias Txbox.Transactions.Tx
+  alias Txbox.Mapi.Queue
   alias Phoenix.PubSub
 
   @pubsub Bitblocks.PubSub
@@ -83,7 +84,7 @@ defmodule Bitblocks.Outbound do
       {:ok, %Txbox.Transactions.Tx{}}
   """
   def create_tx(attrs \\ %{}) do
-    result = Transactions.create(attrs)
+    result = Transactions.create_tx(attrs)
 
     case result do
       {:ok, tx} ->
@@ -109,7 +110,7 @@ defmodule Bitblocks.Outbound do
       iex> Bitblocks.Outbound.build_tx(tx, inputs, outputs)
       {:ok, %Txbox.Transactions.Tx{}}
   """
-  def build_tx(tx, inputs, outputs) do
+  def build_tx(tx, _inputs, _outputs) do
     # This would integrate with BSV library to construct the transaction
     # For now, this is a placeholder for the actual implementation
     {:ok, tx}
@@ -127,20 +128,12 @@ defmodule Bitblocks.Outbound do
       iex> Bitblocks.Outbound.sign_tx(tx, [private_key])
       {:ok, %Txbox.Transactions.Tx{}}
   """
-  def sign_tx(tx, private_keys) do
+  def sign_tx(tx, _private_keys) do
     # This would integrate with BSV library to sign the transaction
-    # For now, this is a placeholder
-    result = {:ok, tx}
-
-    case result do
-      {:ok, signed_tx} ->
-        broadcast_event("outbound_txs", {:tx_signed, signed_tx})
-        broadcast_channel_event(signed_tx.channel, {:tx_signed, signed_tx})
-        {:ok, signed_tx}
-
-      error ->
-        error
-    end
+    # For now, this is a placeholder that returns the transaction unchanged
+    broadcast_event("outbound_txs", {:tx_signed, tx})
+    broadcast_channel_event(tx.channel, {:tx_signed, tx})
+    {:ok, tx}
   end
 
   @doc """
@@ -154,11 +147,14 @@ defmodule Bitblocks.Outbound do
       iex> Bitblocks.Outbound.queue_tx(tx)
       {:ok, %Txbox.Transactions.Tx{}}
   """
-  def queue_tx(tx) do
-    result = Transactions.push(tx)
+  def queue_tx(%Tx{} = tx) do
+    case Queue.push(tx) do
+      :ok ->
+        broadcast_event("outbound_txs", {:tx_queued, tx})
+        broadcast_channel_event(tx.channel, {:tx_queued, tx})
+        {:ok, tx}
 
-    case result do
-      {:ok, queued_tx} ->
+      {:ok, %Txbox.Transactions.Tx{} = queued_tx} ->
         broadcast_event("outbound_txs", {:tx_queued, queued_tx})
         broadcast_channel_event(queued_tx.channel, {:tx_queued, queued_tx})
         {:ok, queued_tx}
@@ -169,6 +165,18 @@ defmodule Bitblocks.Outbound do
         error
     end
   end
+
+  def queue_tx(id_or_txid) when is_binary(id_or_txid) do
+    case Transactions.get_tx(id_or_txid) do
+      nil ->
+        {:error, :not_found}
+
+      tx ->
+        queue_tx(tx)
+    end
+  end
+
+  def queue_tx(other), do: {:error, {:unsupported_tx_reference, other}}
 
   @doc """
   Gets a transaction by ID or txid.
@@ -182,7 +190,7 @@ defmodule Bitblocks.Outbound do
       %Txbox.Transactions.Tx{}
   """
   def get_tx(id_or_txid) do
-    Transactions.get(id_or_txid)
+    Transactions.get_tx(id_or_txid)
   end
 
   @doc """
@@ -202,7 +210,7 @@ defmodule Bitblocks.Outbound do
       [%Txbox.Transactions.Tx{}, ...]
   """
   def list_txs(filters \\ %{}) do
-    Transactions.list(filters)
+    Transactions.list_tx(filters)
   end
 
   @doc """
@@ -214,7 +222,7 @@ defmodule Bitblocks.Outbound do
       [%Txbox.Transactions.Tx{}, ...]
   """
   def search_txs(query) do
-    Transactions.search(query)
+    Transactions.search_tx(query)
   end
 
   @doc """
@@ -226,7 +234,7 @@ defmodule Bitblocks.Outbound do
       {:ok, %Txbox.Transactions.Tx{}}
   """
   def update_tx(tx, attrs) do
-    Transactions.update(tx, attrs)
+    Transactions.update_tx(tx, attrs)
   end
 
   @doc """
@@ -235,20 +243,12 @@ defmodule Bitblocks.Outbound do
   ## Examples
 
       iex> Bitblocks.Outbound.cancel_tx(tx)
-      {:ok, %Txbox.Transactions.Tx{}}
+      {:error, :not_implemented}
   """
-  def cancel_tx(tx) do
-    result = Transactions.cancel(tx)
-
-    case result do
-      {:ok, cancelled_tx} ->
-        broadcast_event("outbound_txs", {:tx_cancelled, cancelled_tx})
-        broadcast_channel_event(cancelled_tx.channel, {:tx_cancelled, cancelled_tx})
-        {:ok, cancelled_tx}
-
-      error ->
-        error
-    end
+  def cancel_tx(_tx) do
+    # Txbox.Transactions.cancel/1 doesn't exist yet
+    # This is a placeholder for future implementation
+    {:error, :not_implemented}
   end
 
   # Private helpers

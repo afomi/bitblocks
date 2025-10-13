@@ -24,10 +24,18 @@ import topbar from "../vendor/topbar"
 
 // Import hooks
 import TxChart from "./hooks/tx_chart"
+import IOChart from "./hooks/io_chart"
+import SatoshiFlowChart from "./hooks/satoshi_flow_chart"
+import BlockTimeChart from "./hooks/block_time_chart"
+import BlockSizeChart from "./hooks/block_size_chart"
 import TransactionGraph from "./hooks/transaction_graph"
 
 let Hooks = {
   TxChart: TxChart,
+  IOChart: IOChart,
+  SatoshiFlowChart: SatoshiFlowChart,
+  BlockTimeChart: BlockTimeChart,
+  BlockSizeChart: BlockSizeChart,
   TransactionGraph: TransactionGraph
 }
 

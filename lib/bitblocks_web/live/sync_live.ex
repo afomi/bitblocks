@@ -130,8 +130,8 @@ defmodule BitblocksWeb.SyncLive do
          {end_block, ""} <- Integer.parse(end_str),
          true <- start_block >= 0,
          true <- end_block >= start_block do
-      case Bitblocks.Chain.queue_transaction_fetch_for_range(start_block, end_block) do
-        {:ok, count} when count > 0 ->
+      with {:ok, count} <- Bitblocks.Chain.queue_transaction_fetch_for_range(start_block, end_block) do
+        if count > 0 do
           {:noreply,
            socket
            |> put_flash(
@@ -139,8 +139,7 @@ defmodule BitblocksWeb.SyncLive do
              "Queued #{count} transaction download jobs for blocks #{start_block}-#{end_block}"
            )
            |> assign(tx_form_errors: [])}
-
-        {:ok, 0} ->
+        else
           {:noreply,
            socket
            |> put_flash(
@@ -148,9 +147,14 @@ defmodule BitblocksWeb.SyncLive do
              "No blocks found in range #{start_block}-#{end_block} that need transactions. They may already be synced or not exist."
            )
            |> assign(tx_form_errors: [])}
-
+        end
+      else
         {:error, reason} ->
           {:noreply, assign(socket, tx_form_errors: ["Failed to queue jobs: #{inspect(reason)}"])}
+
+        other ->
+          {:noreply,
+           assign(socket, tx_form_errors: ["Unexpected queue response: #{inspect(other)}"])}
       end
     else
       _ ->
@@ -628,7 +632,7 @@ defmodule BitblocksWeb.SyncLive do
 
           <button
             type="submit"
-            class="px-6 py-3 bg-green-600 text-white rounded hover:bg-green-700 font-semibold"
+            class="px-6 py-3 bg-green-700 text-white rounded hover:bg-green-800 font-semibold"
           >
             Queue Transaction Downloads
           </button>

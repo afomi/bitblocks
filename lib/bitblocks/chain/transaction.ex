@@ -12,6 +12,8 @@ defmodule Bitblocks.Chain.Transaction do
     field :outputs, {:array, :string}
     field :total_output_satoshis, :integer
     field :total_input_satoshis, :integer
+    field :input_count, :integer
+    field :output_count, :integer
 
     timestamps()
   end
@@ -19,7 +21,7 @@ defmodule Bitblocks.Chain.Transaction do
   @doc false
   def changeset(transaction, attrs) do
     transaction
-    |> cast(attrs, [:txid, :raw, :version, :block_hash, :block_height, :inputs, :outputs, :total_output_satoshis, :total_input_satoshis])
+    |> cast(attrs, [:txid, :raw, :version, :block_hash, :block_height, :inputs, :outputs, :total_output_satoshis, :total_input_satoshis, :input_count, :output_count])
     |> validate_required([:txid, :raw, :version, :block_hash, :inputs, :outputs])
   end
 

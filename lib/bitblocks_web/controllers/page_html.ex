@@ -1,6 +1,5 @@
 defmodule BitblocksWeb.PageHTML do
   use BitblocksWeb, :html
-  import BitblocksWeb.RpcNodeStatusComponent
 
   embed_templates "page_html/*"
 

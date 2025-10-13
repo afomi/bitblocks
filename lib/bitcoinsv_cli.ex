@@ -175,7 +175,7 @@ defmodule BitcoinsvCli do
 
     with {:ok, url} <- bitcoin_url(),
          {:ok, body} <- Poison.encode(command),
-         {:ok, %HTTPoison.Response{status_code: status, body: response_body} = response} <-
+         {:ok, %HTTPoison.Response{status_code: _status, body: response_body}} <-
            HTTPoison.post(url, body, headers(), timeout: 45_000, recv_timeout: 45_000),
          {:ok, %{"error" => nil, "result" => result}} <- Poison.decode(response_body) do
       result

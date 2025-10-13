@@ -43,7 +43,7 @@ defmodule BitblocksWeb do
         layouts: [html: BitblocksWeb.Layouts]
 
       import Plug.Conn
-      import BitblocksWeb.Gettext
+      use Gettext, backend: BitblocksWeb.Gettext
 
       unquote(verified_routes())
     end
@@ -85,7 +85,7 @@ defmodule BitblocksWeb do
       import Phoenix.HTML
       # Core UI components and translation
       import BitblocksWeb.CoreComponents
-      import BitblocksWeb.Gettext
+      use Gettext, backend: BitblocksWeb.Gettext
 
       # Shortcut for generating JS commands
       alias Phoenix.LiveView.JS

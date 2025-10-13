@@ -15,7 +15,7 @@ defmodule Bitblocks.Workers.FetchTransactionsWorker do
     unique: [period: 60, fields: [:args], keys: [:block_hash]]
 
   require Logger
-  alias Bitblocks.{Repo, Chain}
+  alias Bitblocks.Repo
   alias Bitblocks.Chain.Block
   alias Bitblocks.Sync.DatabaseWriter
 

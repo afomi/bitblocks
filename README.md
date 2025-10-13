@@ -132,8 +132,19 @@ mix ecto.reset               # Drop, recreate, and migrate database
 ### Testing
 
 ```bash
+# Run all tests (excluding accessibility tests that require ChromeDriver)
 mix test
+
+# Run accessibility tests (requires ChromeDriver)
+mix test --only accessibility_axe
+
+# Run with visible browser for debugging
+HEADLESS=false mix test --only accessibility_axe
 ```
+
+**Accessibility Testing Requirements:**
+- ChromeDriver must be installed: `brew install chromedriver` (macOS)
+- See `test/bitblocks_web/ACCESSIBILITY.md` for full documentation
 
 ### Asset Management
 
@@ -204,16 +215,25 @@ Bitblocks includes configuration for deployment to Fly.io:
    fly deploy
    ```
 
-#### GitHub Actions Auto-Deploy
+#### GitHub Actions CI/CD
 
-To enable automatic deployment on push to `develop`:
+The project includes automated testing and deployment:
 
+**On every push and PR:**
+- Runs unit tests
+- Runs accessibility tests (axe-core)
+- Compiles with warnings-as-errors
+
+**On push to `develop`:**
+- Runs all tests first
+- Automatically deploys to Fly.io if tests pass
+
+**Setup:**
 1. Get your Fly.io API token: `fly auth token`
 2. Add it to GitHub: Repository → Settings → Secrets and variables → Actions
 3. Create secret named `FLY_API_TOKEN` with your token
-4. Push to `develop` branch to trigger deployment
 
-See `.github/workflows/fly-deploy.yml` for the workflow configuration.
+See `.github/workflows/ci.yml` for the full workflow configuration.
 
 #### General Production Configuration
 

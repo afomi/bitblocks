@@ -45,7 +45,7 @@ defmodule Bitblocks.BlockMonitor do
   use GenServer
   require Logger
 
-  alias Bitblocks.{Repo, Chain, Sync}
+  alias Bitblocks.{Chain, Sync}
   alias Phoenix.PubSub
 
   @pubsub Bitblocks.PubSub

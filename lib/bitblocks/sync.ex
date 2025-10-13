@@ -1,6 +1,5 @@
 defmodule Bitblocks.Sync do
   import Ecto.Query, warn: false
-  alias Bitblocks.Repo
 
   def get_all(range) do
     Enum.each(range, fn block ->
@@ -67,6 +66,16 @@ defmodule Bitblocks.Sync do
               {0, 0}
             end
 
+          # Decode transaction to get input/output counts
+          {input_count, output_count} =
+            case BSV.Tx.from_binary(raw, encoding: :hex) do
+              {:ok, decoded_tx} ->
+                {length(decoded_tx.inputs), length(decoded_tx.outputs)}
+
+              {:error, _} ->
+                {0, 0}
+            end
+
           t = %Bitblocks.Chain.Transaction{
             txid: txid,
             raw: raw,
@@ -75,7 +84,9 @@ defmodule Bitblocks.Sync do
             inputs: ["tx.inputs"],
             outputs: ["tx.outputs"],
             total_input_satoshis: total_input_satoshis,
-            total_output_satoshis: total_output_satoshis
+            total_output_satoshis: total_output_satoshis,
+            input_count: input_count,
+            output_count: output_count
           }
 
           # what else to do to a transaction as it comes in.
@@ -91,11 +102,14 @@ defmodule Bitblocks.Sync do
           IO.puts("last wrote in block #{block_height}")
 
           case insert do
-            {:ok, block} ->
-              "BLOCK INSERT" |> IO.puts()
+            {:ok, _new_tx} ->
+              IO.puts("INSERTED transaction from block #{block_height}")
 
-            _ ->
-              "Errrrrrr in BLOCK INSERT" |> IO.puts()
+            {:error, changeset} ->
+              IO.puts("Failed inserting transaction from block #{block_height}: #{inspect(changeset.errors)}")
+
+            other ->
+              IO.puts("Unexpected insert result for block #{block_height}: #{inspect(other)}")
           end
         end)
     end
@@ -143,6 +157,16 @@ defmodule Bitblocks.Sync do
               0
             end
 
+          # Decode transaction to get input/output counts
+          {input_count, output_count} =
+            case BSV.Tx.from_binary(raw, encoding: :hex) do
+              {:ok, decoded_tx} ->
+                {length(decoded_tx.inputs), length(decoded_tx.outputs)}
+
+              {:error, _} ->
+                {0, 0}
+            end
+
           t = %Bitblocks.Chain.Transaction{
             txid: txid,
             raw: raw,
@@ -151,7 +175,9 @@ defmodule Bitblocks.Sync do
             inputs: ["tx.inputs"],
             outputs: ["tx.outputs"],
             total_input_satoshis: total_input_satoshis,
-            total_output_satoshis: total_output_satoshis
+            total_output_satoshis: total_output_satoshis,
+            input_count: input_count,
+            output_count: output_count
           }
 
           # what else to do to a transaction as it comes in.
@@ -167,7 +193,7 @@ defmodule Bitblocks.Sync do
           IO.puts("last wrote in block #{block_height}")
 
           case insert do
-            {:ok, block} ->
+            {:ok, _block} ->
               "BLOCK INSERT" |> IO.puts()
               # block |> IO.inspect
           end
@@ -176,8 +202,6 @@ defmodule Bitblocks.Sync do
   end
 
   def get_blocks(range) do
-    skipped_blocks = []
-
     Enum.each(range, fn number ->
       ###
       IO.puts(number)
@@ -201,19 +225,20 @@ defmodule Bitblocks.Sync do
         "tx" => tx
       } = block
 
-      nextblockhash = ""
-      prevblockhash = ""
-
       nextblockhash =
         if Map.has_key?(block, "nextblockhash") do
           %{"nextblockhash" => nextblockhash} = block
           nextblockhash
+        else
+          nil
         end
 
       prevblockhash =
         if Map.has_key?(block, "previousblockhash") do
           %{"previousblockhash" => prevblockhash} = block
           prevblockhash
+        else
+          nil
         end
 
       Process.sleep(250)
@@ -253,7 +278,7 @@ defmodule Bitblocks.Sync do
         |> Bitblocks.Repo.insert()
 
       case insert do
-        {:ok, block} ->
+        {:ok, _block} ->
           ###
           IO.puts(number)
           ###

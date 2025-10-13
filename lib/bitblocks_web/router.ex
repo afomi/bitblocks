@@ -54,7 +54,7 @@ defmodule BitblocksWeb.Router do
 
   scope "/", BitblocksWeb do
     # In dev, just use browser pipeline; in prod, require auth
-    pipe_through if Mix.env() == :dev, do: :browser, else: :admin
+    pipe_through if Mix.env() in [:dev, :test], do: :browser, else: :admin
 
     get "/config", PageController, :config
     get "/debug", PageController, :debug
@@ -78,7 +78,7 @@ defmodule BitblocksWeb.Router do
 
     scope "/dev" do
       # In dev, just use browser pipeline; in prod, require auth
-      pipe_through if Mix.env() == :dev, do: :browser, else: :admin
+      pipe_through if Mix.env() in [:dev, :test], do: :browser, else: :admin
 
       live_dashboard "/dashboard", metrics: BitblocksWeb.Telemetry
       forward "/mailbox", Plug.Swoosh.MailboxPreview

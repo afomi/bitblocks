@@ -19,7 +19,7 @@ defmodule Bitblocks.MixProject do
   def application do
     [
       mod: {Bitblocks.Application, []},
-      extra_applications: [:logger, :runtime_tools]
+      extra_applications: [:logger, :runtime_tools, :hackney]
     ]
   end
 
@@ -43,6 +43,8 @@ defmodule Bitblocks.MixProject do
       {:phoenix_live_reload, "~> 1.2", only: :dev},
       {:phoenix_live_view, "~> 1.1.14"},
       {:floki, ">= 0.30.0", only: :test},
+      {:a11y_audit, "~> 0.2.3", only: :test},
+      {:wallaby, "~> 0.30", only: :test},
       {:phoenix_live_dashboard, "~> 0.8.3"},
       {:esbuild, "~> 0.8", runtime: Mix.env() == :dev},
       {:tailwind, "~> 0.2", runtime: Mix.env() == :dev},

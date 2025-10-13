@@ -101,13 +101,17 @@ defmodule BitblocksWeb.SearchLive do
       <div class="bg-white shadow-md rounded-lg p-6 mb-6">
         <form phx-submit="search" class="space-y-4">
           <div>
-            <label class="block text-sm font-medium text-gray-700 mb-2">
+            <label
+              for="search-query"
+              class="block text-sm font-medium text-gray-700 mb-2"
+            >
               Block Height, Block Hash, or Transaction ID
             </label>
             <div class="flex gap-2">
               <input
                 type="text"
                 name="query"
+                id="search-query"
                 value={@query}
                 placeholder="Enter block height, hash, or txid..."
                 class="flex-1 px-4 py-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm"

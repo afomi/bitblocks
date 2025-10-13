@@ -17,7 +17,7 @@ defmodule BitblocksWeb.CoreComponents do
   use Phoenix.Component
 
   alias Phoenix.LiveView.JS
-  import BitblocksWeb.Gettext
+  use Gettext, backend: BitblocksWeb.Gettext
 
   @doc """
   Renders a modal.

@@ -18,7 +18,7 @@ config :bitblocks, Bitblocks.Repo,
 config :bitblocks, BitblocksWeb.Endpoint,
   http: [ip: {127, 0, 0, 1}, port: 4002],
   secret_key_base: "5k/box4ZnbnVs2WVF1YUEGiNX+A6k0Wn26DvHH07BMMcTtyZX1E8wvAVBqkS79rX",
-  server: false
+  server: true
 
 # In test we don't send emails.
 config :bitblocks, Bitblocks.Mailer, adapter: Swoosh.Adapters.Test
@@ -31,3 +31,32 @@ config :logger, level: :warning
 
 # Initialize plugs at runtime for faster test compilation
 config :phoenix, :plug_init_mode, :runtime
+
+# Bitcoin RPC configuration for tests
+config :bitblocks,
+  bitcoin_url: System.get_env("BITCOIN_NODE_URL"),
+  rpc_user: System.get_env("BITCOIN_NODE_RPC_USERNAME"),
+  rpc_password: System.get_env("BITCOIN_NODE_RPC_PASSWORD"),
+  rpc_url: System.get_env("BITCOIN_NODE_RPC_URL")
+
+# Disable Oban queues in test (but keep the supervisor running)
+config :bitblocks, Oban, testing: :manual, queues: false
+
+# Wallaby configuration
+config :wallaby,
+  otp_app: :bitblocks,
+  base_url: "http://localhost:4002",
+  driver: Wallaby.Chrome,
+  chrome: [
+    headless: System.get_env("HEADLESS", "true") == "true",
+    capabilities: %{
+      chromeOptions: %{
+        args: [
+          "--no-sandbox",
+          "--disable-dev-shm-usage",
+          "--disable-gpu",
+          "--disable-software-rasterizer"
+        ]
+      }
+    }
+  ]
