@@ -8,9 +8,11 @@ defmodule BitblocksWeb.SyncLive do
   def mount(_params, _session, socket) do
     if connected?(socket) do
       PubSub.subscribe(Bitblocks.PubSub, "sync_progress")
+      PubSub.subscribe(Bitblocks.PubSub, "sync_pipeline")
     end
 
     status = SyncWorker.get_status()
+    pipeline_status = Bitblocks.Sync.Pipeline.status()
     chain_tip = get_chain_tip()
     {blocks_count, transactions_count} = get_db_counts()
     sync_jobs = get_recent_sync_jobs()
@@ -19,11 +21,13 @@ defmodule BitblocksWeb.SyncLive do
       assign(socket,
         page_title: "Blockchain Sync",
         scope_type: "range",
+        sync_mode: "parallel",
         start_block: "",
         end_block: "",
         tx_start_block: "",
         tx_end_block: "",
         sync_status: status,
+        pipeline_status: pipeline_status,
         form_errors: [],
         tx_form_errors: [],
         chain_tip: chain_tip,
@@ -69,18 +73,35 @@ defmodule BitblocksWeb.SyncLive do
   end
 
   @impl true
+  def handle_event("sync_mode_changed", %{"value" => sync_mode}, socket) do
+    {:noreply, assign(socket, sync_mode: sync_mode, form_errors: [])}
+  end
+
+  @impl true
   def handle_event("start_sync", params, socket) do
+    sync_mode = socket.assigns.sync_mode
+
     case build_scope(socket.assigns.scope_type, params) do
       {:ok, scope} ->
-        case SyncWorker.start_sync(scope) do
+        result =
+          case sync_mode do
+            "parallel" ->
+              start_parallel_sync(scope)
+
+            "sequential" ->
+              case SyncWorker.start_sync(scope) do
+                :ok -> :ok
+                {:error, :already_running} -> {:error, "Sync is already running"}
+                {:error, reason} -> {:error, "Failed to start sync: #{inspect(reason)}"}
+              end
+          end
+
+        case result do
           :ok ->
             {:noreply, assign(socket, form_errors: [])}
 
-          {:error, :already_running} ->
-            {:noreply, assign(socket, form_errors: ["Sync is already running"])}
-
-          {:error, reason} ->
-            {:noreply, assign(socket, form_errors: ["Failed to start sync: #{inspect(reason)}"])}
+          {:error, message} ->
+            {:noreply, assign(socket, form_errors: [message])}
         end
 
       {:error, errors} ->
@@ -90,7 +111,9 @@ defmodule BitblocksWeb.SyncLive do
 
   @impl true
   def handle_event("stop_sync", _params, socket) do
+    # Stop both sync methods
     SyncWorker.stop_sync()
+    Bitblocks.Sync.Pipeline.stop_sync()
     {:noreply, socket}
   end
 
@@ -130,7 +153,8 @@ defmodule BitblocksWeb.SyncLive do
          {end_block, ""} <- Integer.parse(end_str),
          true <- start_block >= 0,
          true <- end_block >= start_block do
-      with {:ok, count} <- Bitblocks.Chain.queue_transaction_fetch_for_range(start_block, end_block) do
+      with {:ok, count} <-
+             Bitblocks.Chain.queue_transaction_fetch_for_range(start_block, end_block) do
         if count > 0 do
           {:noreply,
            socket
@@ -170,17 +194,72 @@ defmodule BitblocksWeb.SyncLive do
   @impl true
   def handle_info({:sync_progress, _progress}, socket) do
     status = SyncWorker.get_status()
+    pipeline_status = Bitblocks.Sync.Pipeline.status()
     {blocks_count, transactions_count} = get_db_counts()
     sync_jobs = get_recent_sync_jobs()
 
     socket =
       assign(socket,
         sync_status: status,
+        pipeline_status: pipeline_status,
         blocks_count: blocks_count,
         transactions_count: transactions_count,
         sync_jobs: sync_jobs
       )
 
+    {:noreply, socket}
+  end
+
+  @impl true
+  def handle_info({:pipeline_progress, _progress}, socket) do
+    pipeline_status = Bitblocks.Sync.Pipeline.status()
+    {blocks_count, transactions_count} = get_db_counts()
+
+    socket =
+      assign(socket,
+        pipeline_status: pipeline_status,
+        blocks_count: blocks_count,
+        transactions_count: transactions_count
+      )
+
+    {:noreply, socket}
+  end
+
+  @impl true
+  def handle_info(:pipeline_started, socket) do
+    pipeline_status = Bitblocks.Sync.Pipeline.status()
+    {:noreply, assign(socket, pipeline_status: pipeline_status)}
+  end
+
+  @impl true
+  def handle_info(:pipeline_stopped, socket) do
+    pipeline_status = Bitblocks.Sync.Pipeline.status()
+    {:noreply, assign(socket, pipeline_status: pipeline_status)}
+  end
+
+  @impl true
+  def handle_info(:pipeline_completed, socket) do
+    pipeline_status = Bitblocks.Sync.Pipeline.status()
+    {blocks_count, transactions_count} = get_db_counts()
+
+    socket =
+      assign(socket,
+        pipeline_status: pipeline_status,
+        blocks_count: blocks_count,
+        transactions_count: transactions_count
+      )
+
+    {:noreply, socket}
+  end
+
+  @impl true
+  def handle_info({:block_error, _height, _error}, socket) do
+    pipeline_status = Bitblocks.Sync.Pipeline.status()
+    {:noreply, assign(socket, pipeline_status: pipeline_status)}
+  end
+
+  @impl true
+  def handle_info(_msg, socket) do
     {:noreply, socket}
   end
 
@@ -212,6 +291,42 @@ defmodule BitblocksWeb.SyncLive do
 
   defp build_scope(_, _) do
     {:error, ["Please select a valid sync scope"]}
+  end
+
+  defp start_parallel_sync({:range, start_block, end_block}) do
+    case Bitblocks.Sync.Pipeline.start_sync(start_block, end_block) do
+      :ok -> :ok
+      {:error, :already_running} -> {:error, "Pipeline is already running"}
+      {:error, reason} -> {:error, "Failed to start pipeline: #{inspect(reason)}"}
+    end
+  end
+
+  defp start_parallel_sync({:all}) do
+    case BitcoinsvCli.getblockchaininfo() do
+      %{"blocks" => tip} ->
+        case Bitblocks.Sync.Pipeline.start_sync(0, tip) do
+          :ok -> :ok
+          {:error, :already_running} -> {:error, "Pipeline is already running"}
+          {:error, reason} -> {:error, "Failed to start pipeline: #{inspect(reason)}"}
+        end
+
+      _ ->
+        {:error, "Failed to get blockchain info from node"}
+    end
+  end
+
+  defp start_parallel_sync({:from_block, start_block}) do
+    case BitcoinsvCli.getblockchaininfo() do
+      %{"blocks" => tip} ->
+        case Bitblocks.Sync.Pipeline.start_sync(start_block, tip) do
+          :ok -> :ok
+          {:error, :already_running} -> {:error, "Pipeline is already running"}
+          {:error, reason} -> {:error, "Failed to start pipeline: #{inspect(reason)}"}
+        end
+
+      _ ->
+        {:error, "Failed to get blockchain info from node"}
+    end
   end
 
   @impl true
@@ -263,7 +378,7 @@ defmodule BitblocksWeb.SyncLive do
       </div>
 
       <%!-- Current Sync Status --%>
-      <%= if @sync_status.status != :idle do %>
+      <%= if @sync_status.status != :idle || @pipeline_status.status != :idle do %>
         <div
           class="bg-white shadow-md rounded-lg p-6 mb-6"
         >
@@ -276,6 +391,24 @@ defmodule BitblocksWeb.SyncLive do
           <div
             class="space-y-4"
           >
+            <%!-- Show Pipeline Status if Running --%>
+            <%= if @pipeline_status.status == :running do %>
+              <div
+                class="flex items-center gap-4"
+              >
+                <span
+                  class="font-medium"
+                >
+                  Mode:
+                </span>
+                <span
+                  class="text-blue-600 font-semibold"
+                >
+                  Parallel (5 workers)
+                </span>
+              </div>
+            <% end %>
+
             <%!-- Status Badge --%>
             <div
               class="flex items-center gap-4"
@@ -287,25 +420,50 @@ defmodule BitblocksWeb.SyncLive do
               </span>
               <span class={[
                 "px-3 py-1 rounded-full text-sm font-semibold",
-                status_class(@sync_status.status)
+                status_class(
+                  if(@pipeline_status.status != :idle,
+                    do: @pipeline_status.status,
+                    else: @sync_status.status
+                  )
+                )
               ]}>
-                <%= status_text(@sync_status.status) %>
+                <%= status_text(
+                  if(@pipeline_status.status != :idle,
+                    do: @pipeline_status.status,
+                    else: @sync_status.status
+                  )
+                ) %>
               </span>
             </div>
 
             <%!-- Scope Info --%>
-            <div
-              class="flex items-center gap-4"
-            >
-              <span
-                class="font-medium"
+            <%= if @pipeline_status.status != :idle do %>
+              <div
+                class="flex items-center gap-4"
               >
-                Scope:
-              </span>
-              <span>
-                <%= scope_description(@sync_status.scope) %>
-              </span>
-            </div>
+                <span
+                  class="font-medium"
+                >
+                  Range:
+                </span>
+                <span>
+                  Blocks <%= @pipeline_status.start_height %> to <%= @pipeline_status.end_height %>
+                </span>
+              </div>
+            <% else %>
+              <div
+                class="flex items-center gap-4"
+              >
+                <span
+                  class="font-medium"
+                >
+                  Scope:
+                </span>
+                <span>
+                  <%= scope_description(@sync_status.scope) %>
+                </span>
+              </div>
+            <% end %>
 
             <%!-- Progress Bar --%>
             <div>
@@ -317,56 +475,101 @@ defmodule BitblocksWeb.SyncLive do
                 >
                   Progress
                 </span>
-                <span
-                  class="text-sm text-gray-600"
-                >
-                  <%= @sync_status.blocks_synced %> / <%= @sync_status.total_blocks %> blocks
-                  (<%= progress_percent(@sync_status) %>%)
-                </span>
+                <%= if @pipeline_status.status != :idle do %>
+                  <span
+                    class="text-sm text-gray-600"
+                  >
+                    <%= @pipeline_status.blocks_processed || 0 %> / <%= (@pipeline_status.end_height || 0) - (@pipeline_status.start_height || 0) + 1 %> blocks
+                    (<%= @pipeline_status.progress_percent || 0 %>%)
+                  </span>
+                <% else %>
+                  <span
+                    class="text-sm text-gray-600"
+                  >
+                    <%= @sync_status.blocks_synced %> / <%= @sync_status.total_blocks %> blocks
+                    (<%= progress_percent(@sync_status) %>%)
+                  </span>
+                <% end %>
               </div>
               <div
                 class="w-full bg-gray-200 rounded-full h-6"
               >
                 <div
                   class="bg-blue-600 h-6 rounded-full transition-all duration-300"
-                  style={"width: #{progress_percent(@sync_status)}%"}
+                  style={
+                    if(@pipeline_status.status != :idle,
+                      do: "width: #{@pipeline_status.progress_percent || 0}%",
+                      else: "width: #{progress_percent(@sync_status)}%"
+                    )
+                  }
                 >
                 </div>
               </div>
             </div>
 
             <%!-- Current Block Info --%>
-            <div
-              class="grid grid-cols-2 gap-4 text-sm"
-            >
-              <div>
-                <span
-                  class="font-medium"
-                >
-                  Current Block:
-                </span>
-                <%= @sync_status.current_block %>
+            <%= if @pipeline_status.status != :idle do %>
+              <div
+                class="grid grid-cols-2 gap-4 text-sm"
+              >
+                <div>
+                  <span
+                    class="font-medium"
+                  >
+                    Current Height:
+                  </span>
+                  <%= @pipeline_status.current_height || 0 %>
+                </div>
+                <div>
+                  <span
+                    class="font-medium"
+                  >
+                    Blocks Processed:
+                  </span>
+                  <%= @pipeline_status.blocks_processed || 0 %>
+                </div>
+                <div>
+                  <span
+                    class="font-medium"
+                  >
+                    Errors:
+                  </span>
+                  <%= @pipeline_status.errors_count || 0 %>
+                </div>
               </div>
-              <div>
-                <span
-                  class="font-medium"
-                >
-                  Transactions in Block:
-                </span>
-                <%= @sync_status.current_block_tx_count || 0 %>
+            <% else %>
+              <div
+                class="grid grid-cols-2 gap-4 text-sm"
+              >
+                <div>
+                  <span
+                    class="font-medium"
+                  >
+                    Current Block:
+                  </span>
+                  <%= @sync_status.current_block %>
+                </div>
+                <div>
+                  <span
+                    class="font-medium"
+                  >
+                    Transactions in Block:
+                  </span>
+                  <%= @sync_status.current_block_tx_count || 0 %>
+                </div>
+                <div>
+                  <span
+                    class="font-medium"
+                  >
+                    Errors:
+                  </span>
+                  <%= @sync_status.errors_count || 0 %>
+                </div>
               </div>
-              <div>
-                <span
-                  class="font-medium"
-                >
-                  Errors:
-                </span>
-                <%= @sync_status.errors_count || 0 %>
-              </div>
-            </div>
+            <% end %>
 
             <%!-- Stop Button --%>
-            <%= if @sync_status.status == :running do %>
+            <%= if @sync_status.status == :running || @pipeline_status.status == :running do %>
               <button
                 phx-click="stop_sync"
                 class="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
@@ -404,6 +607,63 @@ defmodule BitblocksWeb.SyncLive do
           phx-submit="start_sync"
           class="space-y-6"
         >
+          <%!-- Sync Mode Selection --%>
+          <div>
+            <label
+              class="block text-sm font-medium mb-2"
+            >
+              Sync Mode
+            </label>
+            <div
+              class="space-y-3"
+            >
+              <label
+                class="flex items-center"
+              >
+                <input
+                  type="radio"
+                  name="sync_mode"
+                  value="parallel"
+                  checked={@sync_mode == "parallel"}
+                  phx-click="sync_mode_changed"
+                  class="mr-2"
+                />
+                <span
+                  class="font-medium"
+                >
+                  Parallel (Fast)
+                </span>
+                <span
+                  class="ml-2 text-sm text-gray-600"
+                >
+                  - Uses 5 concurrent workers for faster syncing
+                </span>
+              </label>
+              <label
+                class="flex items-center"
+              >
+                <input
+                  type="radio"
+                  name="sync_mode"
+                  value="sequential"
+                  checked={@sync_mode == "sequential"}
+                  phx-click="sync_mode_changed"
+                  class="mr-2"
+                />
+                <span
+                  class="font-medium"
+                >
+                  Sequential (Slow)
+                </span>
+                <span
+                  class="ml-2 text-sm text-gray-600"
+                >
+                  - Processes one block at a time (legacy mode)
+                </span>
+              </label>
+            </div>
+          </div>
+
           <%!-- Scope Selection --%>
           <div>
             <label
@@ -549,16 +809,18 @@ defmodule BitblocksWeb.SyncLive do
           <%!-- Submit Button --%>
           <button
             type="submit"
-            disabled={@sync_status.status == :running}
+            disabled={@sync_status.status == :running || @pipeline_status.status == :running}
             class={[
               "px-6 py-3 rounded font-semibold",
-              if(@sync_status.status == :running,
+              if(@sync_status.status == :running || @pipeline_status.status == :running,
                 do: "bg-gray-400 text-gray-700 cursor-not-allowed",
                 else: "bg-blue-600 text-white hover:bg-blue-700"
               )
             ]}
           >
-            <%= if @sync_status.status == :running, do: "Sync In Progress...", else: "Start Sync" %>
+            <%= if @sync_status.status == :running || @pipeline_status.status == :running,
+              do: "Sync In Progress...",
+              else: "Start Sync" %>
           </button>
         </form>
       </div>
