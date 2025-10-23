@@ -1,0 +1,13 @@
+{
+  "chain": "main",
+  "blocks": 850000,
+  "headers": 850000,
+  "bestblockhash": "00000000000000000123456789abcdef00000000000000000123456789abcdef",
+  "difficulty": 1234567890.123456,
+  "mediantime": 1704067200,
+  "verificationprogress": 0.9999999,
+  "chainwork": "0000000000000000000000000000000000000000012345678901234567890abc",
+  "pruned": false,
+  "softforks": [],
+  "warnings": ""
+}

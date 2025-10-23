@@ -12,7 +12,7 @@ defmodule BitblocksWeb.ChainStatusComponent do
               RPC Node Status
             </div>
             <%= if @blockchain_info.blocks == @blockchain_info.headers do %>
-              <span class="text-xs text-green-600 dark:text-green-400 font-semibold">
+              <span class="text-xs text-green-700 dark:text-green-400 font-semibold">
                 ✓ Fully Synced
               </span>
             <% end %>
@@ -26,7 +26,7 @@ defmodule BitblocksWeb.ChainStatusComponent do
                     <%= @blockchain_info.chain %>
                   </span>
                 <% else %>
-                  <span class="inline-flex items-center rounded-md bg-gray-50 dark:bg-gray-700 px-2 py-1 text-xs font-medium text-gray-400 ring-1 ring-inset ring-gray-500/10">
+                  <span class="inline-flex items-center rounded-md bg-gray-50 dark:bg-gray-700 px-2 py-1 text-xs font-medium text-gray-600 dark:text-gray-400 ring-1 ring-inset ring-gray-500/10">
                     <%= option %>
                   </span>
                 <% end %>
@@ -97,7 +97,7 @@ defmodule BitblocksWeb.ChainStatusComponent do
                 <span class="font-medium text-gray-700 dark:text-gray-300">
                   Last Block:
                 </span>
-                <span class="ml-1 text-sm font-semibold text-green-600 dark:text-green-400">
+                <span class="ml-1 text-sm font-semibold text-green-700 dark:text-green-400">
                   <%= @time_ago_minutes %> min ago
                 </span>
                 <span class="ml-1 text-gray-500 dark:text-gray-400">

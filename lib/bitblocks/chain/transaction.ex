@@ -21,7 +21,19 @@ defmodule Bitblocks.Chain.Transaction do
   @doc false
   def changeset(transaction, attrs) do
     transaction
-    |> cast(attrs, [:txid, :raw, :version, :block_hash, :block_height, :inputs, :outputs, :total_output_satoshis, :total_input_satoshis, :input_count, :output_count])
+    |> cast(attrs, [
+      :txid,
+      :raw,
+      :version,
+      :block_hash,
+      :block_height,
+      :inputs,
+      :outputs,
+      :total_output_satoshis,
+      :total_input_satoshis,
+      :input_count,
+      :output_count
+    ])
     |> validate_required([:txid, :raw, :version, :block_hash, :inputs, :outputs])
   end
 

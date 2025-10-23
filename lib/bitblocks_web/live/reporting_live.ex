@@ -106,18 +106,19 @@ defmodule BitblocksWeb.ReportingLive do
 
       # Cap unrealistic values (e.g., if there are timestamp issues)
       # Bitcoin blocks should never take more than a few hours
-      time_diff_minutes = cond do
-        time_diff_seconds < 0 ->
-          # Negative time difference (clock skew or out of order)
-          0.0
+      time_diff_minutes =
+        cond do
+          time_diff_seconds < 0 ->
+            # Negative time difference (clock skew or out of order)
+            0.0
 
-        time_diff_seconds > 7200 ->
-          # More than 2 hours - likely a data issue, cap it
-          120.0
+          time_diff_seconds > 7200 ->
+            # More than 2 hours - likely a data issue, cap it
+            120.0
 
-        true ->
-          time_diff_seconds / 60.0
-      end
+          true ->
+            time_diff_seconds / 60.0
+        end
 
       %{
         height: block.height,
@@ -160,14 +161,18 @@ defmodule BitblocksWeb.ReportingLive do
         total_satoshis_out: 0
       }
     else
-      Enum.reduce(chart_data, %{total_inputs: 0, total_outputs: 0, total_satoshis_in: 0, total_satoshis_out: 0}, fn block, acc ->
-        %{
-          total_inputs: acc.total_inputs + to_integer(block.input_count),
-          total_outputs: acc.total_outputs + to_integer(block.output_count),
-          total_satoshis_in: acc.total_satoshis_in + to_integer(block.total_inputs),
-          total_satoshis_out: acc.total_satoshis_out + to_integer(block.total_outputs)
-        }
-      end)
+      Enum.reduce(
+        chart_data,
+        %{total_inputs: 0, total_outputs: 0, total_satoshis_in: 0, total_satoshis_out: 0},
+        fn block, acc ->
+          %{
+            total_inputs: acc.total_inputs + to_integer(block.input_count),
+            total_outputs: acc.total_outputs + to_integer(block.output_count),
+            total_satoshis_in: acc.total_satoshis_in + to_integer(block.total_inputs),
+            total_satoshis_out: acc.total_satoshis_out + to_integer(block.total_outputs)
+          }
+        end
+      )
     end
   end
 

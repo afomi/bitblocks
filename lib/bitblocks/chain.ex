@@ -237,6 +237,10 @@ defmodule Bitblocks.Chain do
   @doc """
   Queues an Oban job to fetch transactions for a block.
 
+  Accepts a Block struct and updates its sync_state to "txs_queued" before
+  enqueueing the job. Works regardless of the block's current sync_state
+  (useful for retries).
+
   ## Examples
 
       iex> queue_transaction_fetch("00000000...")
@@ -245,22 +249,8 @@ defmodule Bitblocks.Chain do
       iex> queue_transaction_fetch(block)
       {:ok, %Oban.Job{}}
   """
-  def queue_transaction_fetch(%Block{hash: hash, sync_state: "header_synced"} = block) do
-    # Update block to txs_queued state
-    {:ok, _block} =
-      block
-      |> Ecto.Changeset.change(%{sync_state: "txs_queued"})
-      |> Repo.update()
-
-    # Enqueue job
-    %{block_hash: hash}
-    |> Bitblocks.Workers.FetchTransactionsWorker.new()
-    |> Oban.insert()
-  end
-
   def queue_transaction_fetch(%Block{hash: hash} = block) do
-    # Allow queuing even if not in header_synced state (for retries)
-    # Update block to txs_queued state
+    # Update block to txs_queued state (works for any current state)
     {:ok, _block} =
       block
       |> Ecto.Changeset.change(%{sync_state: "txs_queued"})
@@ -497,7 +487,7 @@ defmodule Bitblocks.Chain do
 
   """
   def count_transactions(filters \\ %{}) do
-    query = from t in Transaction
+    query = from(t in Transaction)
     query = apply_transaction_filters(query, filters)
     Repo.aggregate(query, :count, :id)
   end
@@ -598,5 +588,97 @@ defmodule Bitblocks.Chain do
   """
   def change_transaction(%Transaction{} = transaction, attrs \\ %{}) do
     Transaction.changeset(transaction, attrs)
+  end
+
+  @doc """
+  Marks all "running" sync jobs as "failed" with a note that they were interrupted.
+
+  This should be called on application startup to clean up jobs that were
+  running when the application was stopped or crashed.
+
+  Returns the number of jobs that were marked as failed.
+
+  ## Examples
+
+      iex> cleanup_stale_sync_jobs()
+      3  # 3 jobs were marked as failed
+
+  """
+  def cleanup_stale_sync_jobs do
+    require Logger
+
+    query =
+      from s in Bitblocks.Chain.SyncJob,
+        where: s.status == "running"
+
+    # Get the count before updating
+    count = Repo.aggregate(query, :count, :id)
+
+    if count > 0 do
+      Logger.warning(
+        "Found #{count} stale sync job(s) in 'running' state. Marking as failed (likely interrupted by restart)."
+      )
+
+      # Mark them all as failed
+      {updated_count, _} =
+        Repo.update_all(query,
+          set: [
+            status: "failed",
+            completed_at: DateTime.utc_now(),
+            updated_at: DateTime.utc_now()
+          ]
+        )
+
+      Logger.info("Marked #{updated_count} stale sync job(s) as failed")
+      updated_count
+    else
+      Logger.debug("No stale sync jobs found")
+      0
+    end
+  end
+
+  @doc """
+  Checks if a sync worker process is actually running.
+
+  Uses the process registry to verify if the named GenServer is alive.
+  This is more reliable than checking the database status.
+
+  Returns true if the SyncWorker or Pipeline process is running.
+
+  ## Examples
+
+      iex> sync_actually_running?()
+      true
+
+  """
+  def sync_actually_running? do
+    sync_worker_running? = Process.whereis(Bitblocks.SyncWorker) != nil
+    pipeline_running? = Process.whereis(Bitblocks.Sync.Pipeline) != nil
+
+    # Check if either process exists AND is in running state
+    cond do
+      sync_worker_running? ->
+        try do
+          case GenServer.call(Bitblocks.SyncWorker, :get_status, 1_000) do
+            %{status: :running} -> true
+            _ -> false
+          end
+        catch
+          _, _ -> false
+        end
+
+      pipeline_running? ->
+        try do
+          case GenServer.call(Bitblocks.Sync.Pipeline, :status, 1_000) do
+            %{status: :running} -> true
+            _ -> false
+          end
+        catch
+          _, _ -> false
+        end
+
+      true ->
+        false
+    end
   end
 end

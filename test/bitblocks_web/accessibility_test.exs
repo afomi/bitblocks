@@ -5,7 +5,9 @@ defmodule BitblocksWeb.AccessibilityTest do
 
   # Bypass basic auth for testing
   setup %{conn: conn} do
-    conn = Plug.Conn.put_req_header(conn, "authorization", "Basic " <> Base.encode64("admin:secret"))
+    conn =
+      Plug.Conn.put_req_header(conn, "authorization", "Basic " <> Base.encode64("admin:secret"))
+
     {:ok, conn: conn}
   end
 

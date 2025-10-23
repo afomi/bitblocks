@@ -34,9 +34,16 @@ defmodule BitcoinsvCliTest do
       block = BitcoinRpcFixtures.getblock_verbose(hash)
 
       assert block["bits"] == "1b04864c"
-      assert block["merkleroot"] == "f3e94742aca4b5ef85488dc37c06c3282295ffec960994b2c0d5ac2a25a95766"
-      assert block["previousblockhash"] == "000000000002d01c1fccc21636b607dfd930d31d01c3a62104612a1719011250"
-      assert block["nextblockhash"] == "00000000000080b66c911bd5ba14a74260057311eaeb1982802f7010f1a9f090"
+
+      assert block["merkleroot"] ==
+               "f3e94742aca4b5ef85488dc37c06c3282295ffec960994b2c0d5ac2a25a95766"
+
+      assert block["previousblockhash"] ==
+               "000000000002d01c1fccc21636b607dfd930d31d01c3a62104612a1719011250"
+
+      assert block["nextblockhash"] ==
+               "00000000000080b66c911bd5ba14a74260057311eaeb1982802f7010f1a9f090"
+
       assert block["nonce"] == 274_148_111
       assert block["size"] == 957
       assert block["version"] == 1

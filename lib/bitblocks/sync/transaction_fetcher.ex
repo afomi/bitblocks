@@ -38,28 +38,45 @@ defmodule Bitblocks.Sync.TransactionFetcher do
 
   @impl true
   def handle_events(events, _from, state) do
-    Logger.debug("TransactionFetcher ##{state.id}: processing #{length(events)} blocks")
+    if events == [] do
+      {:noreply, [], state}
+    else
+      start_time = System.monotonic_time()
+      started_at = DateTime.utc_now()
+      heights = Enum.map(events, & &1.height)
 
-    # Fetch full block data for each block
-    enriched_blocks =
-      Enum.map(events, fn block_info ->
-        fetch_block_with_transactions(block_info, state)
+      send(state.parent, {:fetcher_started, state.id, heights, started_at})
+
+      Logger.debug("TransactionFetcher ##{state.id}: processing #{length(events)} blocks")
+
+      # Fetch full block data for each block
+      enriched_blocks =
+        Enum.map(events, fn block_info ->
+          fetch_block_with_transactions(block_info, state)
+        end)
+
+      # Filter out errors
+      {successful, failed} = Bitblocks.RpcHelper.split_ok_error(enriched_blocks)
+
+      Enum.each(failed, fn {:error, height, error} ->
+        send(state.parent, {:block_error, height, error})
       end)
 
-    # Filter out errors
-    {successful, failed} =
-      Enum.split_with(enriched_blocks, fn
-        {:ok, _} -> true
-        _ -> false
-      end)
+      blocks = Bitblocks.RpcHelper.extract_ok_values(successful)
 
-    Enum.each(failed, fn {:error, height, error} ->
-      send(state.parent, {:block_error, height, error})
-    end)
+      duration_ms =
+        System.monotonic_time()
+        |> Kernel.-(start_time)
+        |> System.convert_time_unit(:native, :millisecond)
 
-    blocks = Enum.map(successful, fn {:ok, block} -> block end)
+      send(
+        state.parent,
+        {:fetcher_finished, state.id, heights, started_at, duration_ms, length(blocks),
+         length(events) - length(blocks)}
+      )
 
-    {:noreply, blocks, state}
+      {:noreply, blocks, state}
+    end
   end
 
   # Private Functions
@@ -67,21 +84,25 @@ defmodule Bitblocks.Sync.TransactionFetcher do
   defp fetch_block_with_transactions(block_info, state) do
     height = block_info.height
     hash = block_info.hash
+    start_time = System.monotonic_time()
 
     Logger.debug("TransactionFetcher ##{state.id}: fetching block #{height}")
 
     # Step 1: Get block header with txids (verbosity 1)
+    # Note: verbosity 0 = hex string, 1 = json with txids, 2 = json with full tx data
+    # We use 1 to get metadata + txid list without full tx details
     case BitcoinsvCli.getblock(hash, 1) do
       block when is_map(block) ->
         txids = block["tx"] || []
+        tx_count = length(txids)
 
         Logger.debug(
-          "TransactionFetcher ##{state.id}: block #{height} has #{length(txids)} transactions"
+          "TransactionFetcher ##{state.id}: block #{height} has #{tx_count} transactions"
         )
 
         # Step 2: Fetch individual transaction details
         # This can be throttled or made optional based on configuration
-        fetch_transactions? = Application.get_env(:bitblocks, :fetch_full_transactions, false)
+        fetch_transactions? = Bitblocks.Config.fetch_full_transactions?()
 
         transactions =
           if fetch_transactions? && length(txids) > 0 do
@@ -113,11 +134,33 @@ defmodule Bitblocks.Sync.TransactionFetcher do
           transactions: transactions
         }
 
+        duration = System.monotonic_time() - start_time
+
+        :telemetry.execute(
+          [:bitblocks, :sync, :transaction_fetch],
+          %{duration: duration, tx_count: tx_count},
+          %{mode: :pipeline, status: :success, height: height, fetcher_id: state.id}
+        )
+
         {:ok, block_data}
 
       error ->
+        duration = System.monotonic_time() - start_time
+
         Logger.error(
           "TransactionFetcher ##{state.id}: failed to fetch block #{height}: #{inspect(error)}"
+        )
+
+        :telemetry.execute(
+          [:bitblocks, :sync, :transaction_fetch],
+          %{duration: duration, tx_count: 0},
+          %{
+            mode: :pipeline,
+            status: :error,
+            height: height,
+            fetcher_id: state.id,
+            error: inspect(error)
+          }
         )
 
         {:error, height, error}
@@ -131,7 +174,7 @@ defmodule Bitblocks.Sync.TransactionFetcher do
 
     # Fetch each transaction
     # Note: This can be parallelized further if needed using Task.async_stream
-    max_tx_fetch = Application.get_env(:bitblocks, :max_transactions_per_block, 1000)
+    max_tx_fetch = Bitblocks.Config.max_transactions_per_block()
     txids_to_fetch = Enum.take(txids, max_tx_fetch)
 
     Enum.map(txids_to_fetch, fn txid ->

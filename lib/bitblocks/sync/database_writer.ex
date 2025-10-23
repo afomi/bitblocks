@@ -38,7 +38,11 @@ defmodule Bitblocks.Sync.DatabaseWriter do
 
   @impl true
   def handle_events(events, _from, state) do
-    Logger.debug("DatabaseWriter: writing #{length(events)} blocks")
+    start_time = System.monotonic_time()
+
+    if length(events) > 0 do
+      Logger.info("DatabaseWriter: writing #{length(events)} blocks")
+    end
 
     # Write each block to database
     results =
@@ -47,11 +51,8 @@ defmodule Bitblocks.Sync.DatabaseWriter do
       end)
 
     # Count successes
-    successful =
-      Enum.count(results, fn
-        {:ok, _} -> true
-        _ -> false
-      end)
+    {successful_results, _failed} = Bitblocks.RpcHelper.split_ok_error(results)
+    successful = length(successful_results)
 
     # Notify parent of each successful write
     Enum.each(results, fn
@@ -64,9 +65,26 @@ defmodule Bitblocks.Sync.DatabaseWriter do
 
     new_state = %{state | blocks_written: state.blocks_written + successful}
 
-    Logger.debug(
-      "DatabaseWriter: wrote #{successful}/#{length(events)} blocks (total: #{new_state.blocks_written})"
-    )
+    if length(events) > 0 do
+      Logger.info(
+        "DatabaseWriter: wrote #{successful}/#{length(events)} blocks (total: #{new_state.blocks_written})"
+      )
+    end
+
+    # Emit telemetry
+    if length(events) > 0 do
+      duration = System.monotonic_time() - start_time
+
+      :telemetry.execute(
+        [:bitblocks, :sync, :database_writer],
+        %{
+          duration: duration,
+          blocks_written: successful,
+          blocks_failed: length(events) - successful
+        },
+        %{total_blocks: new_state.blocks_written}
+      )
+    end
 
     {:noreply, [], new_state}
   end
@@ -80,6 +98,19 @@ defmodule Bitblocks.Sync.DatabaseWriter do
       # Use a transaction to write block and optionally its transactions atomically
       Repo.transaction(fn ->
         # Write the block
+        # Memory optimization: Don't store tx array for huge blocks (>10k transactions)
+        # We store num_tx which is sufficient, and can query transactions table
+        tx_list =
+          if length(block_data.tx || []) > 10_000 do
+            Logger.debug(
+              "Block #{height} has #{length(block_data.tx)} txs, not storing tx array to save memory"
+            )
+
+            []
+          else
+            block_data.tx
+          end
+
         block_struct = %Chain.Block{
           hash: block_data.hash,
           num_tx: block_data.num_tx,
@@ -95,8 +126,8 @@ defmodule Bitblocks.Sync.DatabaseWriter do
           nonce: block_data.nonce,
           size: block_data.size,
           version: block_data.version,
-          tx: block_data.tx,
-          timestamp: DateTime.from_unix!(block_data.time)
+          tx: tx_list,
+          timestamp: DateTime.from_unix!(block_data.time) |> DateTime.to_naive()
         }
 
         case Repo.insert(block_struct |> Ecto.Changeset.change(%{sync_state: "header_synced"}),

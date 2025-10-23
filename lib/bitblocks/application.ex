@@ -8,13 +8,36 @@ defmodule Bitblocks.Application do
   @impl true
   def start(_type, _args) do
     # Ensure Hackney pool is started for HTTPoison
-    :hackney_pool.start_pool(:default, [timeout: 150_000, max_connections: 100])
+    :hackney_pool.start_pool(:default, timeout: 150_000, max_connections: 100)
+
+    # Initialize IP blocker and request tracking ETS tables
+    BitblocksWeb.Plugs.IpBlocker.start_link()
+    BitblocksWeb.Plugs.RequestLogger.start_link()
+    Bitblocks.TelemetryHandlers.attach()
+
+    # Clean up stale sync jobs from previous runs
+    # This is done before starting children to ensure database is ready
+    Task.start(fn ->
+      # Wait a bit for Repo to be ready
+      Process.sleep(1000)
+      Bitblocks.Chain.cleanup_stale_sync_jobs()
+    end)
 
     children = [
       BitblocksWeb.Telemetry,
+      {TelemetryMetricsPrometheus.Core,
+       name: Bitblocks.TelemetryPrometheus, metrics: BitblocksWeb.Telemetry.prometheus_metrics()},
       Bitblocks.Repo,
       {DNSCluster, query: Application.get_env(:bitblocks, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: Bitblocks.PubSub},
+      # Monitor memory usage and warn when approaching limits
+      Bitblocks.MemoryMonitor,
+      # Track competing chain tips and fork metadata
+      Bitblocks.ForkTracker,
+      # Playground for event-driven LiveView experiments
+      Bitblocks.EventPlayground,
+      # Start RPC cache for caching blockchain info calls
+      Bitblocks.RpcCache,
       # Start the Finch HTTP client for sending emails
       {Finch, name: Bitblocks.Finch},
       # Start Oban for background job processing

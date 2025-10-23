@@ -14,6 +14,10 @@ defmodule BitblocksWeb.Router do
     plug :accepts, ["json"]
   end
 
+  pipeline :metrics do
+    plug :accepts, ["text"]
+  end
+
   pipeline :admin do
     plug :browser
     plug :basic_auth
@@ -29,22 +33,15 @@ defmodule BitblocksWeb.Router do
   scope "/", BitblocksWeb do
     pipe_through :browser
 
-    live "/blocks", BlockLive.Index, :index
-    live "/blocks/new", BlockLive.Index, :new
-    live "/blocks/:id/edit", BlockLive.Index, :edit
-
-    live "/blocks/:id", BlockLive.Show, :show
-    live "/blocks/:id/show/edit", BlockLive.Show, :edit
-
-    # Transactions are only accessible by direct txid lookup (no public list)
-    live "/transactions/:id", TransactionLive.Show, :show
-    live "/transactions/:id/show/edit", TransactionLive.Show, :edit
-
     live "/search", SearchLive
     live "/protocols", ProtocolsLive
+    live "/about", AboutLive
 
     get "/wall", WallController, :index
     get "/wall/blocks_data", WallController, :blocks_data
+    get "/reward_wall", RewardWallController, :index
+    get "/reward_wall/reward_data", RewardWallController, :reward_data
+    get "/reward_wall/address_data", RewardWallController, :address_data
 
     get "/apps", PageController, :applications
     get "/resources", PageController, :resources
@@ -61,15 +58,33 @@ defmodule BitblocksWeb.Router do
 
     # Dev-only routes
     live "/builder", BuilderLive
+    live "/address_repo", AddressRepoLive
+    live "/forks", ForkGraphLive
     live "/sync", SyncLive
     live "/reporting", ReportingLive
     live "/highlights", HighlightsLive
     live "/graph", GraphLive
+    live "/rpc_admin", RpcAdminLive
 
-    # Transaction list only for dev/admin (too many transactions for public browsing)
+    # Block pages only for dev/admin (too many requests for public access)
+    live "/blocks", BlockLive.Index, :index
+    live "/blocks/new", BlockLive.Index, :new
+    live "/blocks/:id/edit", BlockLive.Index, :edit
+    live "/blocks/:id", BlockLive.Show, :show
+    live "/blocks/:id/show/edit", BlockLive.Show, :edit
+
+    # Transaction pages only for dev/admin (too many requests for public access)
     live "/transactions", TransactionLive.Index, :index
     live "/transactions/new", TransactionLive.Index, :new
+    live "/transactions/:id", TransactionLive.Show, :show
     live "/transactions/:id/edit", TransactionLive.Index, :edit
+    live "/transactions/:id/show/edit", TransactionLive.Show, :edit
+  end
+
+  scope "/" do
+    pipe_through(if Mix.env() in [:dev, :test], do: [:metrics], else: [:metrics, :admin])
+
+    forward "/metrics", TelemetryMetricsPrometheus.Router, name: Bitblocks.TelemetryPrometheus
   end
 
   # Admin-only routes (protected by basic auth in production)

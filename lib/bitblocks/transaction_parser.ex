@@ -129,13 +129,14 @@ defmodule Bitblocks.TransactionParser do
 
   defp detect_protocol(data_chunks) when is_list(data_chunks) do
     # Check first chunk for protocol identifiers
-    prefix_protocols = case List.first(data_chunks) do
-      %{utf8: utf8} when is_binary(utf8) ->
-        check_protocol_prefix(utf8)
+    prefix_protocols =
+      case List.first(data_chunks) do
+        %{utf8: utf8} when is_binary(utf8) ->
+          check_protocol_prefix(utf8)
 
-      _ ->
-        []
-    end
+        _ ->
+          []
+      end
 
     # Check for hex-based protocols
     hex_protocols = check_hex_protocols(data_chunks)

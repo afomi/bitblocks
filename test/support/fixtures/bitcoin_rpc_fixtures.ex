@@ -27,7 +27,8 @@ defmodule BitcoinRpcFixtures do
   @doc """
   Get block data for block 100,000 with verbosity 0 (raw hex)
   """
-  def getblock_raw(hash) when hash == "000000000003ba27aa200b1cecaad478d2b00432346c3f1f3986da1afd33e506" do
+  def getblock_raw(hash)
+      when hash == "000000000003ba27aa200b1cecaad478d2b00432346c3f1f3986da1afd33e506" do
     load_or_fetch("block_100000_raw.json", fn ->
       BitcoinsvCli.getblock(hash, 0)
     end)
@@ -36,7 +37,8 @@ defmodule BitcoinRpcFixtures do
   @doc """
   Get block data for block 100,000 with verbosity 1 (with tx details)
   """
-  def getblock_verbose(hash) when hash == "000000000003ba27aa200b1cecaad478d2b00432346c3f1f3986da1afd33e506" do
+  def getblock_verbose(hash)
+      when hash == "000000000003ba27aa200b1cecaad478d2b00432346c3f1f3986da1afd33e506" do
     load_or_fetch("block_100000_verbose.json", fn ->
       BitcoinsvCli.getblock(hash, 1)
     end)
@@ -68,19 +70,22 @@ defmodule BitcoinRpcFixtures do
   def decoderawtransaction_coinbase do
     %{
       "hash" => "8c14f0db3df150123e6f3dbbf30f8b955a8249b62ac1d1ff16284aefa3d06d87",
-      "hex" => "01000000010000000000000000000000000000000000000000000000000000000000000000ffffffff08044c86041b020602ffffffff0100f2052a010000004341041b0e8c2567c12536aa13357b79a073dc4444acb83c4ec7a0e2f99dd7457516c5817242da796924ca4e99947d087fedf9ce467cb9f7c6287078f801df276fdf84ac00000000",
+      "hex" =>
+        "01000000010000000000000000000000000000000000000000000000000000000000000000ffffffff08044c86041b020602ffffffff0100f2052a010000004341041b0e8c2567c12536aa13357b79a073dc4444acb83c4ec7a0e2f99dd7457516c5817242da796924ca4e99947d087fedf9ce467cb9f7c6287078f801df276fdf84ac00000000",
       "locktime" => 0,
       "size" => 135,
       "txid" => "8c14f0db3df150123e6f3dbbf30f8b955a8249b62ac1d1ff16284aefa3d06d87",
       "version" => 1,
-      "vin" => [%{"coinbase" => "044c86041b020602", "sequence" => 4294967295}],
+      "vin" => [%{"coinbase" => "044c86041b020602", "sequence" => 4_294_967_295}],
       "vout" => [
         %{
           "n" => 0,
           "scriptPubKey" => %{
             "addresses" => ["1HWqMzw1jfpXb3xyuUZ4uWXY4tqL2cW47J"],
-            "asm" => "041b0e8c2567c12536aa13357b79a073dc4444acb83c4ec7a0e2f99dd7457516c5817242da796924ca4e99947d087fedf9ce467cb9f7c6287078f801df276fdf84 OP_CHECKSIG",
-            "hex" => "41041b0e8c2567c12536aa13357b79a073dc4444acb83c4ec7a0e2f99dd7457516c5817242da796924ca4e99947d087fedf9ce467cb9f7c6287078f801df276fdf84ac",
+            "asm" =>
+              "041b0e8c2567c12536aa13357b79a073dc4444acb83c4ec7a0e2f99dd7457516c5817242da796924ca4e99947d087fedf9ce467cb9f7c6287078f801df276fdf84 OP_CHECKSIG",
+            "hex" =>
+              "41041b0e8c2567c12536aa13357b79a073dc4444acb83c4ec7a0e2f99dd7457516c5817242da796924ca4e99947d087fedf9ce467cb9f7c6287078f801df276fdf84ac",
             "reqSigs" => 1,
             "type" => "pubkey"
           },

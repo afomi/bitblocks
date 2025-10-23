@@ -84,7 +84,8 @@ defmodule Bitblocks.Release do
       app/bin/bitblocks remote
       Bitblocks.Release.sync_blocks(100001, 200000)
   """
-  def sync_blocks(start_height, end_height) when is_integer(start_height) and is_integer(end_height) do
+  def sync_blocks(start_height, end_height)
+      when is_integer(start_height) and is_integer(end_height) do
     Logger.info("Starting block sync: #{start_height}..#{end_height}")
 
     try do
@@ -142,6 +143,74 @@ defmodule Bitblocks.Release do
   end
 
   @doc """
+  Start parallel pipeline sync (faster than sync_blocks).
+
+  ## Usage
+
+  Via fly.io:
+      fly ssh console -a bitblocks -C "/app/bin/bitblocks rpc 'Bitblocks.Release.pipeline_sync(250000, 260000)'"
+  """
+  def pipeline_sync(start_height, end_height)
+      when is_integer(start_height) and is_integer(end_height) do
+    Logger.info("Starting parallel pipeline sync: #{start_height}..#{end_height}")
+
+    case Bitblocks.Sync.Pipeline.start_sync(start_height, end_height) do
+      :ok ->
+        Logger.info("Pipeline started successfully")
+        :ok
+
+      {:error, reason} ->
+        Logger.error("Failed to start pipeline: #{inspect(reason)}")
+        {:error, reason}
+    end
+  end
+
+  @doc """
+  Get the current status of the sync pipeline.
+
+  ## Usage
+
+  Via fly.io:
+      fly ssh console -a bitblocks -C "/app/bin/bitblocks rpc 'Bitblocks.Release.pipeline_status()'"
+  """
+  def pipeline_status do
+    status = Bitblocks.Sync.Pipeline.status()
+
+    IO.puts("\n=== Pipeline Status ===")
+    IO.puts("Status: #{status.status}")
+    IO.puts("Range: #{status.start_height || "N/A"} to #{status.end_height || "N/A"}")
+    IO.puts("Blocks processed: #{status.blocks_processed || 0}")
+    IO.puts("Current height: #{status.current_height || "N/A"}")
+    IO.puts("Progress: #{status.progress_percent || 0}%")
+    IO.puts("Errors: #{status.errors_count || 0}")
+    IO.puts("=====================\n")
+
+    status
+  end
+
+  @doc """
+  Stop the sync pipeline.
+
+  ## Usage
+
+  Via fly.io:
+      fly ssh console -a bitblocks -C "/app/bin/bitblocks rpc 'Bitblocks.Release.pipeline_stop()'"
+  """
+  def pipeline_stop do
+    Logger.info("Stopping pipeline...")
+
+    case Bitblocks.Sync.Pipeline.stop_sync() do
+      :ok ->
+        Logger.info("Pipeline stopped successfully")
+        :ok
+
+      {:error, reason} ->
+        Logger.error("Failed to stop pipeline: #{inspect(reason)}")
+        {:error, reason}
+    end
+  end
+
+  @doc """
   Gets database statistics.
 
   ## Usage
@@ -155,10 +224,11 @@ defmodule Bitblocks.Release do
     stats = %{
       total_blocks: Repo.aggregate(Chain.Block, :count, :id),
       total_transactions: Repo.aggregate(Chain.Transaction, :count, :id),
-      latest_block: case Chain.get_latest_block() do
-        nil -> nil
-        block -> %{height: block.height, hash: block.hash}
-      end,
+      latest_block:
+        case Chain.get_latest_block() do
+          nil -> nil
+          block -> %{height: block.height, hash: block.hash}
+        end,
       db_size: get_db_size()
     }
 

@@ -185,7 +185,7 @@ defmodule Bitblocks.BlockMonitor do
   # Private Functions
 
   defp check_for_new_blocks(state) do
-    case BitcoinsvCli.getblockchaininfo() do
+    case Bitblocks.RpcCache.get_blockchain_info() do
       %{"blocks" => node_height, "bestblockhash" => node_hash} ->
         handle_node_response(state, node_height, node_hash)
 
@@ -233,6 +233,9 @@ defmodule Bitblocks.BlockMonitor do
     Logger.info(
       "BlockMonitor: New blocks detected! Syncing #{blocks_to_sync} blocks (#{start_height}..#{node_height})"
     )
+
+    # Invalidate blockchain info cache since a new block was detected
+    Bitblocks.RpcCache.invalidate_blockchain_info()
 
     broadcast_event({:new_blocks_detected, start_height, node_height, blocks_to_sync})
 

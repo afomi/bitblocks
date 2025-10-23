@@ -16,11 +16,26 @@ config :bitblocks,
   rpc_url: System.get_env("BITCOIN_NODE_RPC_URL"),
   # Sync pipeline configuration
   # Number of parallel transaction fetchers
-  transaction_fetcher_concurrency: 5,
+  # Higher values help with remote node latency
+  # Note: For 1GB RAM, use 5-8. For 2GB+, can use 10-15
+  transaction_fetcher_concurrency: 8,
   # Whether to fetch full tx details (heavy)
   fetch_full_transactions: false,
   # Limit tx fetching per block
-  max_transactions_per_block: 1000
+  max_transactions_per_block: 1000,
+  # Default RPC timeouts (overridden via env in runtime config)
+  bitcoin_rpc_timeout_ms: 60_000,
+  bitcoin_rpc_recv_timeout_ms: 60_000,
+  bitcoin_rpc_batch_timeout_ms: 60_000,
+  # Log threshold for slow RPC calls (milliseconds)
+  slow_rpc_log_threshold_ms: 30_000,
+  # Auto-ban configuration
+  # Enable automatic IP banning for abusive requests
+  auto_ban_enabled: true,
+  # Number of invalid requests before auto-ban (404s, 400s, suspicious patterns)
+  invalid_request_threshold: 10,
+  # Time window for tracking invalid requests (seconds)
+  tracking_window_seconds: 300
 
 # Configure Txbox
 config :txbox,
@@ -51,7 +66,7 @@ config :esbuild,
   version: "0.17.11",
   bitblocks: [
     args:
-      ~w(js/app.js js/wall.js --bundle --target=es2017 --outdir=../priv/static/assets --external:/fonts/* --external:/images/*),
+      ~w(js/app.js js/wall.js js/reward_wall.js --bundle --target=es2017 --outdir=../priv/static/assets --external:/fonts/* --external:/images/*),
     cd: Path.expand("../assets", __DIR__),
     env: %{"NODE_PATH" => Path.expand("../deps", __DIR__)}
   ]

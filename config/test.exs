@@ -34,6 +34,7 @@ config :phoenix, :plug_init_mode, :runtime
 
 # Bitcoin RPC configuration for tests
 config :bitblocks,
+  bitcoinsv_cli: BitcoinsvCliMock,
   bitcoin_url: System.get_env("BITCOIN_NODE_URL"),
   rpc_user: System.get_env("BITCOIN_NODE_RPC_USERNAME"),
   rpc_password: System.get_env("BITCOIN_NODE_RPC_PASSWORD"),

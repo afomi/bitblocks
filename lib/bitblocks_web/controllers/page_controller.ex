@@ -14,15 +14,16 @@ defmodule BitblocksWeb.PageController do
     total_blocks = Chain.count_blocks()
 
     # Calculate time since last block if we have one
-    {time_ago_minutes, block_time} = if latest_block do
-      block_time = DateTime.from_unix!(latest_block.time)
-      now = DateTime.utc_now()
-      diff_seconds = DateTime.diff(now, block_time)
-      minutes_ago = div(diff_seconds, 60)
-      {minutes_ago, block_time}
-    else
-      {nil, nil}
-    end
+    {time_ago_minutes, block_time} =
+      if latest_block do
+        block_time = DateTime.from_unix!(latest_block.time)
+        now = DateTime.utc_now()
+        diff_seconds = DateTime.diff(now, block_time)
+        minutes_ago = div(diff_seconds, 60)
+        {minutes_ago, block_time}
+      else
+        {nil, nil}
+      end
 
     # Get blockchain info from RPC node
     blockchain_info = get_blockchain_info()
@@ -41,8 +42,13 @@ defmodule BitblocksWeb.PageController do
 
   defp get_blockchain_info do
     try do
-      case BitcoinsvCli.getblockchaininfo() do
-        %{"blocks" => blocks, "headers" => headers, "chain" => chain, "verificationprogress" => verificationprogress} ->
+      case Bitblocks.RpcCache.get_blockchain_info() do
+        %{
+          "blocks" => blocks,
+          "headers" => headers,
+          "chain" => chain,
+          "verificationprogress" => verificationprogress
+        } ->
           %{
             chain: chain,
             blocks: blocks,
@@ -73,7 +79,7 @@ defmodule BitblocksWeb.PageController do
     # Safely attempt to get blockchain info, handling all error cases
     blockchain_info =
       try do
-        BitcoinsvCli.getblockchaininfo()
+        Bitblocks.RpcCache.get_blockchain_info()
       rescue
         error ->
           require Logger
@@ -86,15 +92,17 @@ defmodule BitblocksWeb.PageController do
 
     # Get latest block and calculate time since last block
     latest_block = Chain.get_latest_block()
-    {time_ago_minutes, block_time} = if latest_block do
-      block_time = DateTime.from_unix!(latest_block.time)
-      now = DateTime.utc_now()
-      diff_seconds = DateTime.diff(now, block_time)
-      minutes_ago = div(diff_seconds, 60)
-      {minutes_ago, block_time}
-    else
-      {nil, nil}
-    end
+
+    {time_ago_minutes, block_time} =
+      if latest_block do
+        block_time = DateTime.from_unix!(latest_block.time)
+        now = DateTime.utc_now()
+        diff_seconds = DateTime.diff(now, block_time)
+        minutes_ago = div(diff_seconds, 60)
+        {minutes_ago, block_time}
+      else
+        {nil, nil}
+      end
 
     case blockchain_info do
       %{"blocks" => blocks, "headers" => headers} = info when is_map(info) ->
@@ -105,11 +113,12 @@ defmodule BitblocksWeb.PageController do
         } = info
 
         # Calculate app sync progress (blocks indexed vs RPC node blocks)
-        app_sync_percentage = if blocks > 0 do
-          (blocks_synced / blocks * 100) |> Float.round(2)
-        else
-          0.0
-        end
+        app_sync_percentage =
+          if blocks > 0 do
+            (blocks_synced / blocks * 100) |> Float.round(2)
+          else
+            0.0
+          end
 
         render(conn, :status,
           pruned: pruned,
@@ -159,7 +168,7 @@ defmodule BitblocksWeb.PageController do
     # Try to connect if configured
     connection_status =
       if configured do
-        case BitcoinsvCli.getblockchaininfo() do
+        case Bitblocks.RpcCache.get_blockchain_info() do
           %{"chain" => _} -> :success
           {:error, _reason} -> :error
           nil -> :error
@@ -181,7 +190,7 @@ defmodule BitblocksWeb.PageController do
     # Safely attempt to get blockchain info, handling all error cases
     blockchain_info_result =
       try do
-        BitcoinsvCli.getblockchaininfo()
+        Bitblocks.RpcCache.get_blockchain_info()
       rescue
         error ->
           require Logger

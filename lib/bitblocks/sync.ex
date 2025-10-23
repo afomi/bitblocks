@@ -11,107 +11,151 @@ defmodule Bitblocks.Sync do
     query = from i in Bitblocks.Chain.Block, where: i.height == ^block_height, limit: 1
     block = Bitblocks.Repo.one(query)
 
-    # Use verbosity 1 to get tx list with hex, then fetch each tx individually
-    # This avoids massive responses for BSV blocks with millions of transactions
-    case BitcoinsvCli.getblock(block.hash, 1) do
-      {:error, %HTTPoison.Error{reason: :connect_timeout, id: nil}} ->
-        IO.puts("Errrrrrr Connect_timeout")
+    # Block already has txid array from initial sync - use that instead of fetching again
+    txids = block.tx || []
+    tx_count = length(txids)
 
-      {:error, %HTTPoison.Error{reason: :closed, id: nil}} ->
-        IO.puts("Errrrrrr Closed")
+    IO.puts("Processing #{tx_count} transactions for block #{block_height}")
 
-      {:error, %HTTPoison.Error{reason: :timeout, id: nil}} ->
-        IO.puts("Errrrrrr Timeout")
+    # Use max_transactions_per_block config to limit processing
+    max_txs = Application.get_env(:bitblocks, :max_transactions_per_block, 1000)
 
-      {:error, %HTTPoison.Error{reason: :enetunreach, id: nil}} ->
-        IO.puts("Errrrrrr enetunreach")
+    txids_to_process =
+      if tx_count > max_txs do
+        IO.puts("Block #{block_height} has #{tx_count} txs, limiting to first #{max_txs}")
+        Enum.take(txids, max_txs)
+      else
+        txids
+      end
 
-      block_response ->
-        Enum.each(block_response["tx"], fn tx ->
-          txid = tx["txid"]
-          raw = tx["hex"]
+    # Fetch transactions in batches using batch RPC
+    chunk_size = 100
 
-          # For large blocks, we get the hex but need to fetch details for input values
-          # Get transaction details to calculate input/output totals
-          tx_details = BitcoinsvCli.getrawtransaction(txid, 1)
+    txids_to_process
+    |> Enum.chunk_every(chunk_size)
+    |> Enum.with_index()
+    |> Enum.each(fn {chunk, batch_num} ->
+      IO.puts(
+        "Fetching batch #{batch_num + 1}/#{div(length(txids_to_process), chunk_size) + 1} (#{length(chunk)} txs) for block #{block_height}"
+      )
 
-          {total_input_satoshis, total_output_satoshis} =
-            if is_map(tx_details) do
-              inputs =
-                if tx_details["vin"] do
-                  Enum.reduce(tx_details["vin"], 0, fn input, acc ->
-                    if Map.has_key?(input, "coinbase") do
-                      acc
-                    else
-                      value = Map.get(input, "value", 0)
-                      acc + trunc(value * 100_000_000)
-                    end
-                  end)
-                else
-                  0
-                end
+      # Use batch RPC to fetch multiple transactions at once
+      case BitcoinsvCli.batch_getrawtransaction(chunk, 1) do
+        {:ok, tx_map} ->
+          # Process each transaction in the batch
+          Enum.each(chunk, fn txid ->
+            case Map.get(tx_map, txid) do
+              {:error, error} ->
+                IO.puts("Failed to fetch tx #{txid}: #{inspect(error)}")
 
-              outputs =
-                if tx_details["vout"] do
-                  Enum.reduce(tx_details["vout"], 0, fn output, acc ->
-                    value = Map.get(output, "value", 0)
-                    acc + trunc(value * 100_000_000)
-                  end)
-                else
-                  0
-                end
+              tx_data when is_map(tx_data) ->
+                store_transaction(tx_data, block.hash, block_height)
 
-              {inputs, outputs}
-            else
-              {0, 0}
+              nil ->
+                IO.puts("No data returned for tx #{txid}")
             end
+          end)
 
-          # Decode transaction to get input/output counts
-          {input_count, output_count} =
-            case BSV.Tx.from_binary(raw, encoding: :hex) do
-              {:ok, decoded_tx} ->
-                {length(decoded_tx.inputs), length(decoded_tx.outputs)}
+        {:error, _reason} ->
+          IO.puts("Batch RPC failed for block #{block_height}, falling back to individual calls")
 
-              {:error, _} ->
-                {0, 0}
+          # Fallback to individual calls
+          Enum.each(chunk, fn txid ->
+            case BitcoinsvCli.getrawtransaction(txid, 1) do
+              tx_data when is_map(tx_data) ->
+                store_transaction(tx_data, block.hash, block_height)
+
+              error ->
+                IO.puts("Failed to fetch tx #{txid}: #{inspect(error)}")
             end
+          end)
+      end
 
-          t = %Bitblocks.Chain.Transaction{
-            txid: txid,
-            raw: raw,
-            block_hash: block.hash,
-            block_height: block.height,
-            inputs: ["tx.inputs"],
-            outputs: ["tx.outputs"],
-            total_input_satoshis: total_input_satoshis,
-            total_output_satoshis: total_output_satoshis,
-            input_count: input_count,
-            output_count: output_count
-          }
+      # Small delay between batches to avoid overwhelming the node
+      Process.sleep(100)
+    end)
 
-          # what else to do to a transaction as it comes in.
-          # file explorer options and parser options / responsibilities
+    {:ok, length(txids_to_process)}
+  end
 
-          insert =
-            t
-            |> Ecto.Changeset.change(%{})
-            |> Bitblocks.Repo.insert()
+  defp store_transaction(tx_data, block_hash, block_height) do
+    txid = tx_data["txid"]
+    raw = tx_data["hex"]
 
-          Process.sleep(50)
-
-          IO.puts("last wrote in block #{block_height}")
-
-          case insert do
-            {:ok, _new_tx} ->
-              IO.puts("INSERTED transaction from block #{block_height}")
-
-            {:error, changeset} ->
-              IO.puts("Failed inserting transaction from block #{block_height}: #{inspect(changeset.errors)}")
-
-            other ->
-              IO.puts("Unexpected insert result for block #{block_height}: #{inspect(other)}")
+    # Calculate input/output totals from the tx_data we already have
+    {total_input_satoshis, total_output_satoshis} =
+      if is_map(tx_data) do
+        inputs =
+          if tx_data["vin"] do
+            Enum.reduce(tx_data["vin"], 0, fn input, acc ->
+              if Map.has_key?(input, "coinbase") do
+                acc
+              else
+                value = Map.get(input, "value", 0)
+                acc + trunc(value * 100_000_000)
+              end
+            end)
+          else
+            0
           end
-        end)
+
+        outputs =
+          if tx_data["vout"] do
+            Enum.reduce(tx_data["vout"], 0, fn output, acc ->
+              value = Map.get(output, "value", 0)
+              acc + trunc(value * 100_000_000)
+            end)
+          else
+            0
+          end
+
+        {inputs, outputs}
+      else
+        {0, 0}
+      end
+
+    # Decode transaction to get input/output counts
+    {input_count, output_count} =
+      case BSV.Tx.from_binary(raw, encoding: :hex) do
+        {:ok, decoded_tx} ->
+          {length(decoded_tx.inputs), length(decoded_tx.outputs)}
+
+        {:error, _} ->
+          {0, 0}
+      end
+
+    t = %Bitblocks.Chain.Transaction{
+      txid: txid,
+      raw: raw,
+      block_hash: block_hash,
+      block_height: block_height,
+      inputs: ["tx.inputs"],
+      outputs: ["tx.outputs"],
+      total_input_satoshis: total_input_satoshis,
+      total_output_satoshis: total_output_satoshis,
+      input_count: input_count,
+      output_count: output_count
+    }
+
+    # Insert transaction (with on_conflict to handle duplicates)
+    case Bitblocks.Repo.insert(
+           Ecto.Changeset.change(t, %{}),
+           on_conflict: :nothing,
+           conflict_target: :txid
+         ) do
+      {:ok, _new_tx} ->
+        :ok
+
+      {:error, changeset} ->
+        IO.puts(
+          "Failed inserting transaction #{txid} from block #{block_height}: #{inspect(changeset.errors)}"
+        )
+
+        {:error, changeset.errors}
+
+      other ->
+        IO.puts("Unexpected insert result for tx #{txid}: #{inspect(other)}")
+        {:error, :unexpected}
     end
   end
 

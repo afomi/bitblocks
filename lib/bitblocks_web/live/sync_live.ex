@@ -11,8 +11,8 @@ defmodule BitblocksWeb.SyncLive do
       PubSub.subscribe(Bitblocks.PubSub, "sync_pipeline")
     end
 
-    status = SyncWorker.get_status()
-    pipeline_status = Bitblocks.Sync.Pipeline.status()
+    status = safe_get_status(SyncWorker)
+    pipeline_status = safe_get_pipeline_status()
     chain_tip = get_chain_tip()
     {blocks_count, transactions_count} = get_db_counts()
     sync_jobs = get_recent_sync_jobs()
@@ -21,7 +21,7 @@ defmodule BitblocksWeb.SyncLive do
       assign(socket,
         page_title: "Blockchain Sync",
         scope_type: "range",
-        sync_mode: "parallel",
+        sync_mode: "sequential",
         start_block: "",
         end_block: "",
         tx_start_block: "",
@@ -40,7 +40,7 @@ defmodule BitblocksWeb.SyncLive do
   end
 
   defp get_chain_tip do
-    case BitcoinsvCli.getblockchaininfo() do
+    case Bitblocks.RpcCache.get_blockchain_info() do
       %{"blocks" => blocks, "headers" => headers} = info ->
         verification_progress = Map.get(info, "verificationprogress", 1.0)
 
@@ -79,16 +79,22 @@ defmodule BitblocksWeb.SyncLive do
 
   @impl true
   def handle_event("start_sync", params, socket) do
+    require Logger
+    Logger.info("SyncLive: Received start_sync event with params: #{inspect(params)}")
     sync_mode = socket.assigns.sync_mode
+    Logger.info("SyncLive: Using sync_mode: #{sync_mode}, scope_type: #{socket.assigns.scope_type}")
 
     case build_scope(socket.assigns.scope_type, params) do
       {:ok, scope} ->
+        Logger.info("SyncLive: Built scope: #{inspect(scope)}")
         result =
           case sync_mode do
             "parallel" ->
+              Logger.info("SyncLive: Starting parallel sync")
               start_parallel_sync(scope)
 
             "sequential" ->
+              Logger.info("SyncLive: Starting sequential sync")
               case SyncWorker.start_sync(scope) do
                 :ok -> :ok
                 {:error, :already_running} -> {:error, "Sync is already running"}
@@ -193,8 +199,8 @@ defmodule BitblocksWeb.SyncLive do
 
   @impl true
   def handle_info({:sync_progress, _progress}, socket) do
-    status = SyncWorker.get_status()
-    pipeline_status = Bitblocks.Sync.Pipeline.status()
+    status = safe_get_status(SyncWorker)
+    pipeline_status = safe_get_pipeline_status()
     {blocks_count, transactions_count} = get_db_counts()
     sync_jobs = get_recent_sync_jobs()
 
@@ -212,7 +218,7 @@ defmodule BitblocksWeb.SyncLive do
 
   @impl true
   def handle_info({:pipeline_progress, _progress}, socket) do
-    pipeline_status = Bitblocks.Sync.Pipeline.status()
+    pipeline_status = safe_get_pipeline_status()
     {blocks_count, transactions_count} = get_db_counts()
 
     socket =
@@ -227,19 +233,19 @@ defmodule BitblocksWeb.SyncLive do
 
   @impl true
   def handle_info(:pipeline_started, socket) do
-    pipeline_status = Bitblocks.Sync.Pipeline.status()
+    pipeline_status = safe_get_pipeline_status()
     {:noreply, assign(socket, pipeline_status: pipeline_status)}
   end
 
   @impl true
   def handle_info(:pipeline_stopped, socket) do
-    pipeline_status = Bitblocks.Sync.Pipeline.status()
+    pipeline_status = safe_get_pipeline_status()
     {:noreply, assign(socket, pipeline_status: pipeline_status)}
   end
 
   @impl true
   def handle_info(:pipeline_completed, socket) do
-    pipeline_status = Bitblocks.Sync.Pipeline.status()
+    pipeline_status = safe_get_pipeline_status()
     {blocks_count, transactions_count} = get_db_counts()
 
     socket =
@@ -254,7 +260,7 @@ defmodule BitblocksWeb.SyncLive do
 
   @impl true
   def handle_info({:block_error, _height, _error}, socket) do
-    pipeline_status = Bitblocks.Sync.Pipeline.status()
+    pipeline_status = safe_get_pipeline_status()
     {:noreply, assign(socket, pipeline_status: pipeline_status)}
   end
 
@@ -302,7 +308,7 @@ defmodule BitblocksWeb.SyncLive do
   end
 
   defp start_parallel_sync({:all}) do
-    case BitcoinsvCli.getblockchaininfo() do
+    case Bitblocks.RpcCache.get_blockchain_info() do
       %{"blocks" => tip} ->
         case Bitblocks.Sync.Pipeline.start_sync(0, tip) do
           :ok -> :ok
@@ -316,7 +322,7 @@ defmodule BitblocksWeb.SyncLive do
   end
 
   defp start_parallel_sync({:from_block, start_block}) do
-    case BitcoinsvCli.getblockchaininfo() do
+    case Bitblocks.RpcCache.get_blockchain_info() do
       %{"blocks" => tip} ->
         case Bitblocks.Sync.Pipeline.start_sync(start_block, tip) do
           :ok -> :ok
@@ -977,6 +983,13 @@ defmodule BitblocksWeb.SyncLive do
                       >
                         (<%= job_progress_percent(job) %>%)
                       </span>
+                      <%= if job.errors_count && job.errors_count > 0 do %>
+                        <span
+                          class="ml-2 text-xs text-red-600 dark:text-red-400"
+                        >
+                          <%= job.errors_count %> errors
+                        </span>
+                      <% end %>
                     </td>
                     <td
                       class="px-6 py-4 whitespace-nowrap"
@@ -999,6 +1012,27 @@ defmodule BitblocksWeb.SyncLive do
                       <%= format_duration(job) %>
                     </td>
                   </tr>
+                  <%= if job.error_message do %>
+                    <tr>
+                      <td
+                        colspan="6"
+                        class="px-6 py-3 bg-red-50 dark:bg-red-900/20"
+                      >
+                        <div
+                          class="text-sm text-red-800 dark:text-red-200"
+                        >
+                          <strong
+                            class="font-semibold"
+                          >
+                            Errors:
+                          </strong>
+                          <pre
+                            class="mt-1 whitespace-pre-wrap font-mono text-xs"
+                          ><%= job.error_message %></pre>
+                        </div>
+                      </td>
+                    </tr>
+                  <% end %>
                 <% end %>
               </tbody>
             </table>
@@ -1069,10 +1103,15 @@ defmodule BitblocksWeb.SyncLive do
   defp scope_description(_), do: "Unknown"
 
   defp progress_percent(%{total_blocks: 0}), do: 0
+  defp progress_percent(%{total_blocks: nil}), do: 0
+  defp progress_percent(%{blocks_synced: nil}), do: 0
 
-  defp progress_percent(%{blocks_synced: synced, total_blocks: total}) do
+  defp progress_percent(%{blocks_synced: synced, total_blocks: total})
+       when is_number(synced) and is_number(total) and total > 0 do
     (synced / total * 100) |> Float.round(2)
   end
+
+  defp progress_percent(_), do: 0
 
   defp format_number(number) when is_integer(number) do
     number
@@ -1094,11 +1133,75 @@ defmodule BitblocksWeb.SyncLive do
     )
   end
 
-  defp job_progress_percent(%{total_blocks: 0}), do: "0.00"
+  defp safe_get_status(worker) do
+    try do
+      GenServer.call(worker, :get_status, 30_000)
+    catch
+      :exit, {:timeout, _} ->
+        %{status: :idle, blocks_synced: 0, total_blocks: 0, current_block: 0, errors_count: 0}
 
-  defp job_progress_percent(%{blocks_synced: synced, total_blocks: total}) do
+      :exit, {:noproc, _} ->
+        %{status: :idle, blocks_synced: 0, total_blocks: 0, current_block: 0, errors_count: 0}
+
+      kind, reason ->
+        require Logger
+        Logger.warning("Failed to get sync status: #{inspect(kind)}, #{inspect(reason)}")
+        %{status: :idle, blocks_synced: 0, total_blocks: 0, current_block: 0, errors_count: 0}
+    end
+  end
+
+  defp safe_get_pipeline_status do
+    try do
+      GenServer.call(Bitblocks.Sync.Pipeline, :status, 30_000)
+    catch
+      :exit, {:timeout, _} ->
+        %{
+          status: :idle,
+          start_height: nil,
+          end_height: nil,
+          current_height: nil,
+          blocks_processed: 0,
+          progress_percent: 0.0,
+          errors_count: 0
+        }
+
+      :exit, {:noproc, _} ->
+        %{
+          status: :idle,
+          start_height: nil,
+          end_height: nil,
+          current_height: nil,
+          blocks_processed: 0,
+          progress_percent: 0.0,
+          errors_count: 0
+        }
+
+      kind, reason ->
+        require Logger
+        Logger.warning("Failed to get pipeline status: #{inspect(kind)}, #{inspect(reason)}")
+
+        %{
+          status: :idle,
+          start_height: nil,
+          end_height: nil,
+          current_height: nil,
+          blocks_processed: 0,
+          progress_percent: 0.0,
+          errors_count: 0
+        }
+    end
+  end
+
+  defp job_progress_percent(%{total_blocks: 0}), do: "0.00"
+  defp job_progress_percent(%{total_blocks: nil}), do: "0.00"
+  defp job_progress_percent(%{blocks_synced: nil}), do: "0.00"
+
+  defp job_progress_percent(%{blocks_synced: synced, total_blocks: total})
+       when is_number(synced) and is_number(total) and total > 0 do
     (synced / total * 100) |> Float.round(2) |> Float.to_string()
   end
+
+  defp job_progress_percent(_), do: "0.00"
 
   defp job_status_class("running"),
     do: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200"

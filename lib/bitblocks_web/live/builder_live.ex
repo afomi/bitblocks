@@ -47,6 +47,7 @@ defmodule BitblocksWeb.BuilderLive do
     # TODO: Fetch UTXOs from Bitcoin node for these addresses
     # For now, show placeholder structure
     utxos = []
+
     error_message =
       if parsed_addresses == [] do
         "Enter at least one address to load UTXOs"

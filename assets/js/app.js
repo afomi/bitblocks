@@ -29,6 +29,7 @@ import SatoshiFlowChart from "./hooks/satoshi_flow_chart"
 import BlockTimeChart from "./hooks/block_time_chart"
 import BlockSizeChart from "./hooks/block_size_chart"
 import TransactionGraph from "./hooks/transaction_graph"
+import ForkGraph from "./hooks/fork_graph"
 
 let Hooks = {
   TxChart: TxChart,
@@ -36,7 +37,8 @@ let Hooks = {
   SatoshiFlowChart: SatoshiFlowChart,
   BlockTimeChart: BlockTimeChart,
   BlockSizeChart: BlockSizeChart,
-  TransactionGraph: TransactionGraph
+  TransactionGraph: TransactionGraph,
+  ForkGraph: ForkGraph
 }
 
 let csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
@@ -59,4 +61,3 @@ liveSocket.connect()
 // >> liveSocket.enableLatencySim(1000)  // enabled for duration of browser session
 // >> liveSocket.disableLatencySim()
 window.liveSocket = liveSocket
-

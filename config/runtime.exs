@@ -1,17 +1,47 @@
 import Config
 
+# Helper for parsing integer environment variables with fallback defaults.
+parse_env_integer = fn value, default ->
+  case value do
+    nil ->
+      default
+
+    value ->
+      case Integer.parse(value) do
+        {int, ""} -> int
+        _ -> default
+      end
+  end
+end
+
 # Load Bitcoin node connection details at runtime so release builds
 # pick up secrets provided via the environment (e.g. Fly.io secrets).
 bitcoin_url = System.get_env("BITCOIN_NODE_URL")
 rpc_user = System.get_env("BITCOIN_NODE_RPC_USERNAME")
 rpc_password = System.get_env("BITCOIN_NODE_RPC_PASSWORD")
 rpc_url = System.get_env("BITCOIN_NODE_RPC_URL") || bitcoin_url
+rpc_timeout_ms = parse_env_integer.(System.get_env("BITCOIN_RPC_TIMEOUT_MS"), 60_000)
+
+rpc_recv_timeout_ms =
+  parse_env_integer.(System.get_env("BITCOIN_RPC_RECV_TIMEOUT_MS"), rpc_timeout_ms)
+
+rpc_batch_timeout_ms =
+  parse_env_integer.(System.get_env("BITCOIN_RPC_BATCH_TIMEOUT_MS"), rpc_recv_timeout_ms)
+
+slow_rpc_threshold_ms = parse_env_integer.(System.get_env("SLOW_RPC_LOG_THRESHOLD_MS"), 30_000)
+fetcher_concurrency = parse_env_integer.(System.get_env("SYNC_CONCURRENCY"), 8)
 
 config :bitblocks,
   bitcoin_url: bitcoin_url,
   rpc_user: rpc_user,
   rpc_password: rpc_password,
-  rpc_url: rpc_url
+  rpc_url: rpc_url,
+  # Allow overriding concurrency via env var (useful for memory-constrained environments)
+  transaction_fetcher_concurrency: fetcher_concurrency,
+  bitcoin_rpc_timeout_ms: rpc_timeout_ms,
+  bitcoin_rpc_recv_timeout_ms: rpc_recv_timeout_ms,
+  bitcoin_rpc_batch_timeout_ms: rpc_batch_timeout_ms,
+  slow_rpc_log_threshold_ms: slow_rpc_threshold_ms
 
 # config/runtime.exs is executed for all environments, including
 # during releases. It is executed after compilation and before the
@@ -87,11 +117,9 @@ if config_env() == :prod do
   config :bitblocks, BitblocksWeb.Endpoint,
     url: [host: host, port: 443, scheme: "https"],
     http: [
-      # Enable IPv6 and bind on all interfaces.
-      # Set it to  {0, 0, 0, 0, 0, 0, 0, 1} for local network only access.
-      # See the documentation on https://hexdocs.pm/bandit/Bandit.html#t:options/0
-      # for details about using IPv6 vs IPv4 and loopback vs public addresses.
-      ip: {0, 0, 0, 0, 0, 0, 0, 0},
+      # Bind on all IPv4 interfaces for Fly.io compatibility
+      # Fly.io requires binding to 0.0.0.0 (IPv4) on port 8080
+      ip: {0, 0, 0, 0},
       port: port
     ],
     secret_key_base: secret_key_base,

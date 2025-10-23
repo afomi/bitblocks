@@ -137,28 +137,31 @@ defmodule Bitblocks.ChainTest do
     end
 
     test "miner_fee/1 calculates the fee correctly" do
-      transaction = transaction_fixture(%{
-        total_input_satoshis: 100_000_000,
-        total_output_satoshis: 99_900_000
-      })
+      transaction =
+        transaction_fixture(%{
+          total_input_satoshis: 100_000_000,
+          total_output_satoshis: 99_900_000
+        })
 
       assert Transaction.miner_fee(transaction) == 100_000
     end
 
     test "miner_fee/1 returns nil when inputs are nil" do
-      transaction = transaction_fixture(%{
-        total_input_satoshis: nil,
-        total_output_satoshis: 99_900_000
-      })
+      transaction =
+        transaction_fixture(%{
+          total_input_satoshis: nil,
+          total_output_satoshis: 99_900_000
+        })
 
       assert Transaction.miner_fee(transaction) == nil
     end
 
     test "miner_fee/1 returns nil when outputs are nil" do
-      transaction = transaction_fixture(%{
-        total_input_satoshis: 100_000_000,
-        total_output_satoshis: nil
-      })
+      transaction =
+        transaction_fixture(%{
+          total_input_satoshis: 100_000_000,
+          total_output_satoshis: nil
+        })
 
       assert Transaction.miner_fee(transaction) == nil
     end

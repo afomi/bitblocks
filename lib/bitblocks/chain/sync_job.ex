@@ -9,9 +9,10 @@ defmodule Bitblocks.Chain.SyncJob do
     field :status, :string
     field :blocks_synced, :integer, default: 0
     field :total_blocks, :integer
-    field :started_at, :utc_datetime
-    field :completed_at, :utc_datetime
+    field :started_at, :utc_datetime_usec
+    field :completed_at, :utc_datetime_usec
     field :errors_count, :integer, default: 0
+    field :error_message, :string
 
     timestamps()
   end
@@ -28,7 +29,8 @@ defmodule Bitblocks.Chain.SyncJob do
       :total_blocks,
       :started_at,
       :completed_at,
-      :errors_count
+      :errors_count,
+      :error_message
     ])
     |> validate_required([:scope, :start_block, :end_block, :status, :started_at])
     |> validate_inclusion(:status, ["running", "completed", "stopped", "failed"])

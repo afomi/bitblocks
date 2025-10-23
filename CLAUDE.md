@@ -52,12 +52,36 @@ mix assets.deploy           # Build and minify for production
 
 ### Blockchain Sync
 
-- `Bitblocks.Sync` (lib/bitblocks/sync.ex) - Syncs blockchain data from Bitcoin SV node
-  - `get_blocks/1` - Main function to sync a range of blocks
-  - Fetches block metadata and transaction IDs from Bitcoin node
-  - Stores blocks in database with all metadata (hash, height, merkleroot, etc.)
-  - `get/1` - Fetches full transaction data (including raw hex) for a specific block
-  - `get_original/1` - Alternative method to fetch transactions one-by-one
+**Three-Phase Sync Strategy** (see SYNC_PHASES.md for details):
+
+1. **Phase 1: Header-Only Sync (Verbosity 0)** - DEFAULT
+   - Uses `getblock(hash, 0)` to fetch raw hex (~215 bytes per block)
+   - ~595,000x smaller than verbosity 1 for blocks with 4M transactions
+   - Extracts: hash, height, version, prev/merkleroot, time, bits, nonce, tx count
+   - Sets `sync_state = "header_only"`
+   - Perfect for rapid blockchain sync and chain tip monitoring
+
+2. **Phase 2: Transaction IDs (Verbosity 1)**
+   - Uses `getblock(hash, 1)` to fetch JSON with txid array (~128 MB for 4M tx blocks)
+   - Adds: txid array, chainwork, difficulty, next block hash
+   - Sets `sync_state = "header_synced"`
+   - Memory optimization: doesn't store tx arrays >10k transactions
+
+3. **Phase 3: Full Transactions (Individual Calls)**
+   - Uses `getrawtransaction(txid, 1)` for each transaction
+   - Fetched on-demand for transactions being viewed
+   - Sets `sync_state = "completed"`
+
+**Sync Modules**:
+- `Bitblocks.SyncWorker` (lib/bitblocks/sync_worker.ex) - Sequential sync with lazy mode
+  - Defaults to header-only sync (verbosity 0)
+  - Pass `verbosity: :with_txids` or `verbosity: 1` for Phase 2
+  - Lazy batch discovery for large ranges (100 blocks at a time)
+  - Idempotent - only fetches missing blocks
+- `Bitblocks.BlockHeaderDecoder` (lib/bitblocks/block_header_decoder.ex) - Decodes verbosity 0 hex data
+  - Parses 80-byte Bitcoin block headers
+  - Computes block hash via double SHA256
+  - Extracts transaction count from variable-length integer
 
 ### Data Layer
 
@@ -69,7 +93,10 @@ mix assets.deploy           # Build and minify for production
   - `list_transactions/0` - Returns up to 500 transactions
 
 **Schemas:**
-- `Bitblocks.Chain.Block` - Stores block metadata (hash, height, merkleroot, difficulty, tx array, etc.)
+- `Bitblocks.Chain.Block` - Stores block metadata with state machine for sync phases
+  - **sync_state** values: `pending`, `header_only`, `header_synced`, `txs_queued`, `txs_syncing`, `completed`, `failed`
+  - Transitions managed by Machinery state machine
+  - Fields: hash, height, merkleroot, difficulty, tx array (empty for `header_only` state), etc.
 - `Bitblocks.Chain.Transaction` - Stores transaction data (txid, raw hex, block_hash, inputs/outputs as arrays)
 
 ### Web Layer
@@ -82,6 +109,15 @@ mix assets.deploy           # Build and minify for production
   - `/transactions` - List transactions
   - `/transactions/:id` - Show transaction by txid
   - `/dev/dashboard` - LiveDashboard (dev only)
+
+**Request Logging:**
+- `BitblocksWeb.Plugs.RequestLogger` (lib/bitblocks_web/plugs/request_logger.ex) - Logs all requests with metadata
+  - Captures IP address (from X-Forwarded-For header or remote_ip)
+  - Logs user agent, referer, path, query string, status code, and duration
+  - Detects suspicious patterns (path traversal, injection attempts, probes for common vulnerabilities)
+  - Warns on 404s and other client errors
+  - Tracks high request rates from individual IPs
+  - All logs include timestamps in ISO8601 format for easy parsing and reporting
 
 ## Configuration
 

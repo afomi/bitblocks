@@ -5,10 +5,12 @@ defmodule Bitblocks.Chain.Block do
     # State machine field
     field: :sync_state,
     # All possible states
-    states: ~w(pending header_synced txs_queued txs_syncing completed failed),
+    states: ~w(pending header_only header_synced txs_queued txs_syncing completed failed),
     # State transitions
     transitions: %{
-      pending: [:header_synced],
+      pending: [:header_only, :header_synced],
+      # header_only = verbosity 0 (minimal data, no txid array)
+      header_only: [:header_synced, :completed],
       # completed if block has 0 txs
       header_synced: [:txs_queued, :completed],
       txs_queued: [:txs_syncing],
@@ -19,7 +21,7 @@ defmodule Bitblocks.Chain.Block do
 
   import Ecto.Changeset
 
-  @sync_states ~w(pending header_synced txs_queued txs_syncing completed failed)
+  @sync_states ~w(pending header_only header_synced txs_queued txs_syncing completed failed)
 
   schema "blocks" do
     field :size, :integer
@@ -83,7 +85,10 @@ defmodule Bitblocks.Chain.Block do
   State transition changeset using Machinery.
 
   Valid transitions (managed by Machinery):
-  - pending -> header_synced (block header downloaded)
+  - pending -> header_only (block header downloaded via verbosity 0 - minimal data)
+  - pending -> header_synced (block header + txid array downloaded via verbosity 1)
+  - header_only -> header_synced (txid array fetched)
+  - header_only -> completed (skip if block has 0 txs)
   - header_synced -> txs_queued (transaction download job queued)
   - header_synced -> completed (skip tx download if block has 0 txs)
   - txs_queued -> txs_syncing (transaction download started)

@@ -36,6 +36,7 @@ defmodule BitblocksWeb.NavComponent do
           <div class="hidden lg:flex lg:gap-x-12">
             <a href="/blocks" class="text-sm/6 font-semibold text-gray-900 dark:text-white">Blocks</a>
             <a href="/transactions" class="text-sm/6 font-semibold text-gray-900 dark:text-white">Transactions</a>
+            <a href="/about" class="text-sm/6 font-semibold text-gray-900 dark:text-white">About</a>
           </div>
         </div>
         <div class="flex lg:hidden">
@@ -116,6 +117,7 @@ defmodule BitblocksWeb.NavComponent do
               <div class="mt-6 space-y-2">
                 <a href="/blocks" class="-mx-3 block rounded-lg px-3 py-2 text-base/7 font-semibold text-gray-900 hover:bg-gray-50 dark:text-white dark:hover:bg-white/5">Blocks</a>
                 <a href="/transactions" class="-mx-3 block rounded-lg px-3 py-2 text-base/7 font-semibold text-gray-900 hover:bg-gray-50 dark:text-white dark:hover:bg-white/5">Transactions</a>
+                <a href="/about" class="-mx-3 block rounded-lg px-3 py-2 text-base/7 font-semibold text-gray-900 hover:bg-gray-50 dark:text-white dark:hover:bg-white/5">About</a>
               </div>
             </el-dialog-panel>
           </div>

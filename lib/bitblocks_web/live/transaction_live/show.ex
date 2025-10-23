@@ -28,7 +28,7 @@ defmodule BitblocksWeb.TransactionLive.Show do
       cond do
         transaction && not is_nil(transaction.block_hash) ->
           Chain.get_block(transaction.block_hash) ||
-            (if transaction.block_height, do: Chain.get_block(transaction.block_height), else: nil)
+            if transaction.block_height, do: Chain.get_block(transaction.block_height), else: nil
 
         transaction && transaction.block_height ->
           Chain.get_block(transaction.block_height)

@@ -1,0 +1,87 @@
+<div
+  id="reward-wall-container"
+  class="w-full h-screen bg-black text-white"
+>
+  <canvas
+    id="reward-wall-canvas"
+    class="w-full h-full"
+  >
+  </canvas>
+
+  <div
+    id="reward-wall-controls"
+    class="absolute top-4 left-4 bg-zinc-900/80 backdrop-blur-sm border border-zinc-700 rounded-lg p-4 text-sm font-mono space-y-3"
+  >
+    <div class="flex flex-col space-y-2">
+      <label
+        class="uppercase tracking-wider text-xs text-zinc-400"
+        for="reward-wall-mode"
+      >
+        Mode
+      </label>
+      <select
+        id="reward-wall-mode"
+        class="bg-zinc-900 border border-zinc-600 rounded px-2 py-1"
+      >
+        <option value="reward">
+          Block Reward Schedule
+        </option>
+        <option value="addresses">
+          Address Concentration
+        </option>
+      </select>
+    </div>
+
+    <div class="flex flex-col space-y-2">
+      <label
+        class="uppercase tracking-wider text-xs text-zinc-400"
+        for="reward-wall-phase"
+      >
+        Phase
+      </label>
+      <select
+        id="reward-wall-phase"
+        class="bg-zinc-900 border border-zinc-600 rounded px-2 py-1"
+      >
+        <%= for {phase_key, {_start, finish}} <- @phases do %>
+          <option value={phase_key}>
+            <%= phase_label(phase_key, finish) %>
+          </option>
+        <% end %>
+      </select>
+    </div>
+
+    <div class="border-t border-zinc-700 pt-2 space-y-1 text-xs text-zinc-300">
+      <div>
+        Points Loaded:
+        <span id="reward-wall-loaded">
+          0
+        </span>
+      </div>
+      <div>
+        Range:
+        <span id="reward-wall-range">
+          —
+        </span>
+      </div>
+      <div>
+        Status:
+        <span id="reward-wall-status">
+          Initializing…
+        </span>
+      </div>
+    </div>
+
+    <div
+      id="reward-wall-top-addresses"
+      class="border-t border-zinc-700 pt-2 space-y-1 max-h-52 overflow-y-auto pr-1"
+    >
+    </div>
+  </div>
+</div>
+
+<script
+  src={~p"/assets/reward_wall.js"}
+  type="module"
+>
+</script>

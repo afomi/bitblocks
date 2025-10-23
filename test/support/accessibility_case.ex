@@ -69,7 +69,10 @@ defmodule BitblocksWeb.AccessibilityCase do
       end)
 
     if length(images_without_alt) > 0 do
-      [{:missing_alt, "#{length(images_without_alt)} image(s) missing alt attribute"} | violations]
+      [
+        {:missing_alt, "#{length(images_without_alt)} image(s) missing alt attribute"}
+        | violations
+      ]
     else
       violations
     end
@@ -77,7 +80,11 @@ defmodule BitblocksWeb.AccessibilityCase do
 
   # Check form inputs have associated labels
   defp check_form_labels(violations, document) do
-    inputs = Floki.find(document, "input[type='text'], input[type='email'], input[type='password'], input[type='search'], textarea, select")
+    inputs =
+      Floki.find(
+        document,
+        "input[type='text'], input[type='email'], input[type='password'], input[type='search'], textarea, select"
+      )
 
     inputs_without_labels =
       Enum.reject(inputs, fn input ->
@@ -88,14 +95,18 @@ defmodule BitblocksWeb.AccessibilityCase do
         # Check if has aria-label, aria-labelledby, or associated label
         has_label =
           aria_label != nil or
-          aria_labelledby != nil or
-          (id != nil and length(Floki.find(document, "label[for='#{id}']")) > 0)
+            aria_labelledby != nil or
+            (id != nil and length(Floki.find(document, "label[for='#{id}']")) > 0)
 
         has_label
       end)
 
     if length(inputs_without_labels) > 0 do
-      [{:missing_labels, "#{length(inputs_without_labels)} form input(s) without associated labels"} | violations]
+      [
+        {:missing_labels,
+         "#{length(inputs_without_labels)} form input(s) without associated labels"}
+        | violations
+      ]
     else
       violations
     end
@@ -114,7 +125,10 @@ defmodule BitblocksWeb.AccessibilityCase do
       end)
 
     if length(links_without_text) > 0 do
-      [{:links_no_text, "#{length(links_without_text)} link(s) without accessible text"} | violations]
+      [
+        {:links_no_text, "#{length(links_without_text)} link(s) without accessible text"}
+        | violations
+      ]
     else
       violations
     end
@@ -150,6 +164,7 @@ defmodule BitblocksWeb.AccessibilityCase do
       case html_elements do
         [{_tag, attrs, _children} | _] ->
           Enum.any?(attrs, fn {name, _value} -> name == "lang" end)
+
         _ ->
           false
       end
@@ -174,7 +189,10 @@ defmodule BitblocksWeb.AccessibilityCase do
       end)
 
     if length(buttons_without_text) > 0 do
-      [{:buttons_no_text, "#{length(buttons_without_text)} button(s) without accessible text"} | violations]
+      [
+        {:buttons_no_text, "#{length(buttons_without_text)} button(s) without accessible text"}
+        | violations
+      ]
     else
       violations
     end
@@ -198,7 +216,11 @@ defmodule BitblocksWeb.AccessibilityCase do
       end)
 
     if length(elements_without_names) > 0 do
-      [{:missing_names, "#{length(elements_without_names)} form element(s) without name or id attribute"} | violations]
+      [
+        {:missing_names,
+         "#{length(elements_without_names)} form element(s) without name or id attribute"}
+        | violations
+      ]
     else
       violations
     end

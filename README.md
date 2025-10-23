@@ -39,31 +39,21 @@ Bitblocks is a Phoenix/Elixir application that syncs Bitcoin SV blockchain data 
 
 3. **Configure your Bitcoin SV node connection**
 
-   Copy the example environment file and edit it:
+   Set environment variables for your Bitcoin SV node:
    ```bash
-   cp .env.example .env
+   export BITCOIN_NODE_URL=http://your-node-ip:8332
+   export BITCOIN_NODE_RPC_USERNAME=your_rpc_username
+   export BITCOIN_NODE_RPC_PASSWORD=your_rpc_password
+   export BITCOIN_NODE_RPC_URL=http://your-node-ip:8332
    ```
 
-   Edit `.env` with your Bitcoin SV node details:
-   ```bash
-   BITCOIN_NODE_URL=http://your-node-ip:8332
-   BITCOIN_NODE_RPC_USERNAME=your_rpc_username
-   BITCOIN_NODE_RPC_PASSWORD=your_rpc_password
-   BITCOIN_NODE_RPC_URL=http://your-node-ip:8332
-   ```
-
-4. **Load environment variables**
-   ```bash
-   source .env
-   ```
-
-5. **Setup the database**
+4. **Setup the database**
    ```bash
    mix ecto.create
    mix ecto.migrate
    ```
 
-6. **Install and build assets**
+5. **Install and build assets**
    ```bash
    mix assets.setup
    mix assets.build
