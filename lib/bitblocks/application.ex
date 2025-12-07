@@ -38,6 +38,8 @@ defmodule Bitblocks.Application do
       Bitblocks.EventPlayground,
       # Start RPC cache for caching blockchain info calls
       Bitblocks.RpcCache,
+      # Cache database stats (counts) to avoid slow COUNT(*) queries
+      Bitblocks.StatsCache,
       # Start the Finch HTTP client for sending emails
       {Finch, name: Bitblocks.Finch},
       # Start Oban for background job processing
@@ -50,6 +52,8 @@ defmodule Bitblocks.Application do
       Bitblocks.SyncWorker,
       # Start sync pipeline for parallel blockchain sync (new)
       Bitblocks.Sync.Pipeline,
+      # Start tip sync worker for continuous chain tip monitoring
+      Bitblocks.TipSyncWorker,
       # Start block monitor for real-time new block detection
       Bitblocks.BlockMonitor,
       # Start to serve requests, typically the last entry

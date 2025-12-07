@@ -130,7 +130,7 @@ defmodule Bitblocks.Sync.DatabaseWriter do
           timestamp: DateTime.from_unix!(block_data.time) |> DateTime.to_naive()
         }
 
-        case Repo.insert(block_struct |> Ecto.Changeset.change(%{sync_state: "header_synced"}),
+        case Repo.insert(block_struct |> Ecto.Changeset.change(%{sync_state: "header_only"}),
                on_conflict: :nothing
              ) do
           {:ok, block} ->
@@ -140,10 +140,10 @@ defmodule Bitblocks.Sync.DatabaseWriter do
               # Mark as completed
               Repo.update(Ecto.Changeset.change(block, %{sync_state: "completed"}))
             else
-              # Just keep it at header_synced - don't auto-queue transaction jobs
+              # Just keep it at header_only - don't auto-queue transaction jobs
               # Transactions can be queued manually later via Chain.queue_transaction_fetch/1
               Logger.debug(
-                "DatabaseWriter: stored block header #{height} with #{length(block_data.tx || [])} transaction IDs"
+                "DatabaseWriter: stored block header #{height} (header-only sync)"
               )
             end
 

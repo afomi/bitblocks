@@ -24,6 +24,7 @@ defmodule Bitblocks.Workers.FetchTransactionsWorker do
     Logger.info("Fetching transactions for block #{block_hash}")
 
     with {:ok, block} <- get_block(block_hash),
+         {:ok, block} <- ensure_has_txids(block),
          {:ok, block} <- transition_to_syncing(block),
          {:ok, transactions} <- fetch_transactions(block),
          {:ok, _} <- DatabaseWriter.store_transactions(transactions),
@@ -51,6 +52,38 @@ defmodule Bitblocks.Workers.FetchTransactionsWorker do
       nil -> {:error, :block_not_found}
       block -> {:ok, block}
     end
+  end
+
+  # Ensures block has transaction IDs before attempting to fetch transactions
+  # If block is in header_only state, upgrades it to header_synced first
+  defp ensure_has_txids(%Block{sync_state: "header_only", hash: hash, height: height}) do
+    Logger.info("Block #{height} is header_only, upgrading to header_synced first")
+
+    case Bitblocks.Chain.upgrade_block_to_header_synced(hash) do
+      {:ok, upgraded_block} ->
+        Logger.info("Successfully upgraded block #{height} to header_synced")
+        {:ok, upgraded_block}
+
+      {:error, reason} ->
+        Logger.error("Failed to upgrade block #{height}: #{inspect(reason)}")
+        {:error, reason}
+    end
+  end
+
+  defp ensure_has_txids(%Block{tx: []} = block) do
+    # Block has empty tx array but might have transactions in another state
+    # Try to upgrade it
+    Logger.info("Block #{block.height} has empty tx array, attempting upgrade")
+
+    case Bitblocks.Chain.upgrade_block_to_header_synced(block.hash) do
+      {:ok, upgraded_block} -> {:ok, upgraded_block}
+      {:error, _} -> {:ok, block}  # If upgrade fails, continue anyway
+    end
+  end
+
+  defp ensure_has_txids(block) do
+    # Block already has txids
+    {:ok, block}
   end
 
   defp transition_to_syncing(block) do

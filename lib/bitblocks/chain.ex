@@ -342,6 +342,135 @@ defmodule Bitblocks.Chain do
   end
 
   @doc """
+  Upgrades a block from header_only to header_synced by fetching transaction IDs.
+
+  This is idempotent - if the block already has txids, it just returns :ok.
+
+  ## Examples
+
+      iex> upgrade_block_to_header_synced(759108)
+      {:ok, %Block{sync_state: "header_synced", tx: [...]}}
+
+      iex> upgrade_block_to_header_synced("00000000...")
+      {:ok, %Block{sync_state: "header_synced", tx: [...]}}
+  """
+  def upgrade_block_to_header_synced(height_or_hash) do
+    with {:ok, block} <- fetch_block(height_or_hash),
+         {:ok, upgraded_block} <- do_upgrade_block_to_header_synced(block) do
+      {:ok, upgraded_block}
+    else
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp fetch_block(height) when is_integer(height) do
+    case get_block(height) do
+      nil -> {:error, :block_not_found}
+      block -> {:ok, block}
+    end
+  end
+
+  defp fetch_block(hash) when is_binary(hash) do
+    case get_block(hash) do
+      nil -> {:error, :block_not_found}
+      block -> {:ok, block}
+    end
+  end
+
+  defp do_upgrade_block_to_header_synced(%Block{sync_state: "header_synced"} = block) do
+    # Already upgraded
+    {:ok, block}
+  end
+
+  defp do_upgrade_block_to_header_synced(%Block{sync_state: "completed"} = block) do
+    # Already has everything
+    {:ok, block}
+  end
+
+  defp do_upgrade_block_to_header_synced(%Block{tx: tx} = block) when is_list(tx) and length(tx) > 0 do
+    # Already has txids, just update state
+    block
+    |> Ecto.Changeset.change(%{sync_state: "header_synced"})
+    |> Repo.update()
+  end
+
+  defp do_upgrade_block_to_header_synced(%Block{hash: hash, height: height} = block) do
+    require Logger
+    Logger.info("Upgrading block #{height} from header_only to header_synced")
+
+    # Fetch transaction IDs using getblock verbosity 1
+    case BitcoinsvCli.getblock(hash, 1) do
+      block_data when is_map(block_data) ->
+        txids = block_data["tx"] || []
+
+        # Memory optimization: Don't store tx array for huge blocks (>10k transactions)
+        tx_array_to_store =
+          if length(txids) > 10_000 do
+            Logger.debug(
+              "Block #{height} has #{length(txids)} txs, not storing tx array to save memory"
+            )
+            []
+          else
+            txids
+          end
+
+        # Update block with transaction IDs
+        block
+        |> Ecto.Changeset.change(%{
+          tx: tx_array_to_store,
+          sync_state: "header_synced",
+          # Update other fields that might not have been in header-only mode
+          chainwork: Map.get(block_data, "chainwork", block.chainwork),
+          difficulty: to_string(Map.get(block_data, "difficulty", block.difficulty)),
+          nextblockhash: Map.get(block_data, "nextblockhash", block.nextblockhash),
+          size: Map.get(block_data, "size", block.size)
+        })
+        |> Repo.update()
+
+      {:error, reason} ->
+        Logger.error("Failed to upgrade block #{height}: #{inspect(reason)}")
+        {:error, reason}
+
+      other ->
+        Logger.error("Unexpected response upgrading block #{height}: #{inspect(other)}")
+        {:error, :unexpected_response}
+    end
+  end
+
+  @doc """
+  Upgrades blocks in a range from header_only to header_synced.
+
+  Fetches transaction IDs for all header_only blocks in the range.
+  This is useful for preparing blocks before queuing transaction downloads.
+
+  ## Examples
+
+      iex> upgrade_blocks_to_header_synced(0, 1000)
+      {:ok, 150}  # 150 blocks upgraded
+  """
+  def upgrade_blocks_to_header_synced(start_height, end_height) do
+    query =
+      from b in Block,
+        where: b.height >= ^start_height and b.height <= ^end_height,
+        where: b.sync_state == "header_only",
+        select: b
+
+    blocks = Repo.all(query)
+
+    results = Enum.map(blocks, fn block ->
+      do_upgrade_block_to_header_synced(block)
+    end)
+
+    successful =
+      Enum.count(results, fn
+        {:ok, _} -> true
+        _ -> false
+      end)
+
+    {:ok, successful}
+  end
+
+  @doc """
   Creates a block.
 
   ## Examples

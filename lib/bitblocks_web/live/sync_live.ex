@@ -6,13 +6,22 @@ defmodule BitblocksWeb.SyncLive do
 
   @impl true
   def mount(_params, _session, socket) do
+    require Logger
+
     if connected?(socket) do
+      Logger.info("SyncLive: Connected, subscribing to PubSub topics")
       PubSub.subscribe(Bitblocks.PubSub, "sync_progress")
       PubSub.subscribe(Bitblocks.PubSub, "sync_pipeline")
+
+      # Poll tip sync status every 10 seconds
+      Process.send_after(self(), :poll_tip_sync, 10000)
+    else
+      Logger.info("SyncLive: Not connected yet (initial HTTP request)")
     end
 
     status = safe_get_status(SyncWorker)
     pipeline_status = safe_get_pipeline_status()
+    tip_sync_status = safe_get_tip_sync_status()
     chain_tip = get_chain_tip()
     {blocks_count, transactions_count} = get_db_counts()
     sync_jobs = get_recent_sync_jobs()
@@ -28,12 +37,16 @@ defmodule BitblocksWeb.SyncLive do
         tx_end_block: "",
         sync_status: status,
         pipeline_status: pipeline_status,
+        tip_sync_status: tip_sync_status,
         form_errors: [],
         tx_form_errors: [],
         chain_tip: chain_tip,
         blocks_count: blocks_count,
         transactions_count: transactions_count,
-        sync_jobs: sync_jobs
+        sync_jobs: sync_jobs,
+        current_block_inflight: nil,
+        current_block_duration_ms: nil,
+        last_block_duration_ms: nil
       )
 
     {:ok, socket}
@@ -124,6 +137,26 @@ defmodule BitblocksWeb.SyncLive do
   end
 
   @impl true
+  def handle_event("start_tip_sync", _params, socket) do
+    case Bitblocks.TipSyncWorker.start_sync() do
+      :ok ->
+        {:noreply, put_flash(socket, :info, "Started continuous tip sync")}
+
+      {:error, :already_running} ->
+        {:noreply, put_flash(socket, :info, "Tip sync is already running")}
+
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "Failed to start tip sync: #{inspect(reason)}")}
+    end
+  end
+
+  @impl true
+  def handle_event("stop_tip_sync", _params, socket) do
+    Bitblocks.TipSyncWorker.stop_sync()
+    {:noreply, put_flash(socket, :info, "Stopped tip sync")}
+  end
+
+  @impl true
   def handle_event("clear_blocks", _params, socket) do
     {count, _} = Bitblocks.Repo.delete_all(Bitblocks.Chain.Block)
     {blocks_count, transactions_count} = get_db_counts()
@@ -198,11 +231,19 @@ defmodule BitblocksWeb.SyncLive do
   end
 
   @impl true
-  def handle_info({:sync_progress, _progress}, socket) do
+  def handle_info({:sync_progress, progress}, socket) do
     status = safe_get_status(SyncWorker)
     pipeline_status = safe_get_pipeline_status()
     {blocks_count, transactions_count} = get_db_counts()
     sync_jobs = get_recent_sync_jobs()
+
+    # Calculate current block duration if in-flight
+    current_block_duration_ms =
+      if progress.current_block_inflight && progress.current_block_started_at do
+        DateTime.diff(DateTime.utc_now(), progress.current_block_started_at, :millisecond)
+      else
+        nil
+      end
 
     socket =
       assign(socket,
@@ -210,7 +251,10 @@ defmodule BitblocksWeb.SyncLive do
         pipeline_status: pipeline_status,
         blocks_count: blocks_count,
         transactions_count: transactions_count,
-        sync_jobs: sync_jobs
+        sync_jobs: sync_jobs,
+        current_block_inflight: progress.current_block_inflight,
+        current_block_duration_ms: current_block_duration_ms,
+        last_block_duration_ms: progress.last_block_duration_ms
       )
 
     {:noreply, socket}
@@ -265,12 +309,37 @@ defmodule BitblocksWeb.SyncLive do
   end
 
   @impl true
+  def handle_info(:poll_tip_sync, socket) do
+    tip_sync_status = safe_get_tip_sync_status()
+    {blocks_count, transactions_count} = get_db_counts()
+
+    socket =
+      assign(socket,
+        tip_sync_status: tip_sync_status,
+        blocks_count: blocks_count,
+        transactions_count: transactions_count
+      )
+
+    # Schedule next poll
+    Process.send_after(self(), :poll_tip_sync, 10000)
+
+    {:noreply, socket}
+  end
+
+  @impl true
   def handle_info(_msg, socket) do
     {:noreply, socket}
   end
 
   defp build_scope("all", _params) do
-    {:ok, {:all}}
+    # Resolve "all" to 0..tip range
+    case Bitblocks.RpcCache.get_blockchain_info() do
+      %{"blocks" => tip} ->
+        {:ok, {0, tip}}
+
+      _ ->
+        {:error, ["Failed to get blockchain info from node"]}
+    end
   end
 
   defp build_scope("range", %{"start_block" => start_str, "end_block" => end_str}) do
@@ -278,7 +347,7 @@ defmodule BitblocksWeb.SyncLive do
          {end_block, ""} <- Integer.parse(end_str),
          true <- start_block >= 0,
          true <- end_block >= start_block do
-      {:ok, {:range, start_block, end_block}}
+      {:ok, {start_block, end_block}}
     else
       _ ->
         {:error, ["Invalid block range. Start and end must be valid integers with end >= start."]}
@@ -286,12 +355,14 @@ defmodule BitblocksWeb.SyncLive do
   end
 
   defp build_scope("from_block", %{"start_block" => start_str}) do
-    case Integer.parse(start_str) do
-      {start_block, ""} when start_block >= 0 ->
-        {:ok, {:from_block, start_block}}
-
+    # Resolve "from block to tip" to start..tip range
+    with {start_block, ""} <- Integer.parse(start_str),
+         true <- start_block >= 0,
+         %{"blocks" => tip} <- Bitblocks.RpcCache.get_blockchain_info() do
+      {:ok, {start_block, tip}}
+    else
       _ ->
-        {:error, ["Invalid start block. Must be a valid integer >= 0."]}
+        {:error, ["Invalid start block or failed to get blockchain info from node"]}
     end
   end
 
@@ -299,39 +370,11 @@ defmodule BitblocksWeb.SyncLive do
     {:error, ["Please select a valid sync scope"]}
   end
 
-  defp start_parallel_sync({:range, start_block, end_block}) do
+  defp start_parallel_sync({start_block, end_block}) do
     case Bitblocks.Sync.Pipeline.start_sync(start_block, end_block) do
       :ok -> :ok
       {:error, :already_running} -> {:error, "Pipeline is already running"}
       {:error, reason} -> {:error, "Failed to start pipeline: #{inspect(reason)}"}
-    end
-  end
-
-  defp start_parallel_sync({:all}) do
-    case Bitblocks.RpcCache.get_blockchain_info() do
-      %{"blocks" => tip} ->
-        case Bitblocks.Sync.Pipeline.start_sync(0, tip) do
-          :ok -> :ok
-          {:error, :already_running} -> {:error, "Pipeline is already running"}
-          {:error, reason} -> {:error, "Failed to start pipeline: #{inspect(reason)}"}
-        end
-
-      _ ->
-        {:error, "Failed to get blockchain info from node"}
-    end
-  end
-
-  defp start_parallel_sync({:from_block, start_block}) do
-    case Bitblocks.RpcCache.get_blockchain_info() do
-      %{"blocks" => tip} ->
-        case Bitblocks.Sync.Pipeline.start_sync(start_block, tip) do
-          :ok -> :ok
-          {:error, :already_running} -> {:error, "Pipeline is already running"}
-          {:error, reason} -> {:error, "Failed to start pipeline: #{inspect(reason)}"}
-        end
-
-      _ ->
-        {:error, "Failed to get blockchain info from node"}
     end
   end
 
@@ -512,6 +555,45 @@ defmodule BitblocksWeb.SyncLive do
                 </div>
               </div>
             </div>
+
+            <%!-- Real-Time Block Sync Progress (Sequential Mode) --%>
+            <%= if @sync_status.status == :running && @current_block_inflight do %>
+              <div
+                class="bg-blue-50 border-l-4 border-blue-500 p-4 rounded animate-pulse"
+              >
+                <div
+                  class="flex items-center justify-between mb-2"
+                >
+                  <span
+                    class="font-semibold text-blue-900"
+                  >
+                    Syncing Block <%= @current_block_inflight %>
+                  </span>
+                  <span class={[
+                    "px-2 py-1 rounded text-xs font-mono",
+                    duration_class(@current_block_duration_ms)
+                  ]}>
+                    <%= format_block_duration(@current_block_duration_ms) %>
+                  </span>
+                </div>
+                <div
+                  class="w-full bg-blue-200 rounded-full h-2"
+                >
+                  <div
+                    class="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                    style={"width: #{min((@current_block_duration_ms || 0) / max((@last_block_duration_ms || 300), 300) * 100, 100)}%"}
+                  >
+                  </div>
+                </div>
+                <%= if @last_block_duration_ms do %>
+                  <div
+                    class="text-xs text-blue-700 mt-1"
+                  >
+                    Previous block: <%= format_block_duration(@last_block_duration_ms) %>
+                  </div>
+                <% end %>
+              </div>
+            <% end %>
 
             <%!-- Current Block Info --%>
             <%= if @pipeline_status.status != :idle do %>
@@ -844,7 +926,9 @@ defmodule BitblocksWeb.SyncLive do
         <p
           class="text-sm text-gray-600 mb-4"
         >
-          Download transactions for blocks that have been synced but don't have transaction data yet. Only blocks in "header_synced" state will be queued.
+          Download full transaction data for blocks in a range.
+          Works with blocks in any state - <span class="font-mono bg-gray-100 px-2 py-1 rounded">header_only</span> blocks will be automatically upgraded first.
+          You can also upgrade individual blocks by clicking "Upgrade & Download Txs" on the <.link navigate={~p"/blocks"} class="text-blue-600 underline hover:text-blue-800">block detail page</.link>.
         </p>
 
         <%= if @tx_form_errors != [] do %>
@@ -905,6 +989,117 @@ defmodule BitblocksWeb.SyncLive do
             Queue Transaction Downloads
           </button>
         </form>
+      </div>
+
+      <%!-- Continuous Tip Sync --%>
+      <div
+        class="bg-white shadow-md rounded-lg p-6 mb-6"
+      >
+        <h2
+          class="text-2xl font-semibold mb-4"
+        >
+          Continuous Tip Sync
+        </h2>
+
+        <p
+          class="text-sm text-gray-600 mb-4"
+        >
+          Automatically monitor and sync new blocks as they're mined.
+          Checks every 10 seconds for new blocks at the chain tip.
+          Use this for staying up-to-date with the latest blocks.
+        </p>
+
+        <div
+          class="bg-gray-50 rounded-lg p-4 mb-4"
+        >
+          <div
+            class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm"
+          >
+            <div>
+              <div
+                class="text-gray-600"
+              >
+                Status
+              </div>
+              <div
+                class="font-semibold"
+              >
+                <%= if @tip_sync_status.status == :running do %>
+                  <span
+                    class="text-green-600"
+                  >
+                    ● Running
+                  </span>
+                <% else %>
+                  <span
+                    class="text-gray-600"
+                  >
+                    ○ Stopped
+                  </span>
+                <% end %>
+              </div>
+            </div>
+
+            <div>
+              <div
+                class="text-gray-600"
+              >
+                Current Tip
+              </div>
+              <div
+                class="font-semibold font-mono text-lg"
+              >
+                <%= @tip_sync_status[:current_tip] || "—" %>
+              </div>
+            </div>
+
+            <div>
+              <div
+                class="text-gray-600"
+              >
+                Last Synced
+              </div>
+              <div
+                class="font-semibold font-mono text-lg"
+              >
+                <%= @tip_sync_status[:last_synced_height] || "—" %>
+              </div>
+            </div>
+
+            <div>
+              <div
+                class="text-gray-600"
+              >
+                Blocks Synced
+              </div>
+              <div
+                class="font-semibold font-mono text-lg"
+              >
+                <%= @tip_sync_status[:blocks_synced] || 0 %>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div
+          class="flex gap-3"
+        >
+          <%= if @tip_sync_status.status == :running do %>
+            <button
+              phx-click="stop_tip_sync"
+              class="px-6 py-3 bg-red-600 text-white rounded hover:bg-red-700 font-semibold"
+            >
+              Stop Tip Sync
+            </button>
+          <% else %>
+            <button
+              phx-click="start_tip_sync"
+              class="px-6 py-3 bg-blue-600 text-white rounded hover:bg-blue-700 font-semibold"
+            >
+              Start Tip Sync
+            </button>
+          <% end %>
+        </div>
       </div>
 
       <%!-- Sync Job History --%>
@@ -1092,26 +1287,40 @@ defmodule BitblocksWeb.SyncLive do
   defp status_text(:stopped), do: "Stopped"
   defp status_text(:completed), do: "Completed"
 
-  defp scope_description({:all}), do: "All blocks (0 to chain tip)"
-
-  defp scope_description({:range, start_block, end_block}),
+  defp scope_description({start_block, end_block}),
     do: "Blocks #{start_block} to #{end_block}"
-
-  defp scope_description({:from_block, start_block}),
-    do: "From block #{start_block} to chain tip (continuous)"
 
   defp scope_description(_), do: "Unknown"
 
+  # Progress percent calculation
   defp progress_percent(%{total_blocks: 0}), do: 0
   defp progress_percent(%{total_blocks: nil}), do: 0
   defp progress_percent(%{blocks_synced: nil}), do: 0
-
   defp progress_percent(%{blocks_synced: synced, total_blocks: total})
        when is_number(synced) and is_number(total) and total > 0 do
     (synced / total * 100) |> Float.round(2)
   end
-
   defp progress_percent(_), do: 0
+
+  # Format duration in milliseconds to human-readable string (for real-time block sync)
+  defp format_block_duration(nil), do: "--"
+  defp format_block_duration(ms) when ms < 1000, do: "#{ms}ms"
+  defp format_block_duration(ms) when ms < 60_000 do
+    seconds = Float.round(ms / 1000, 1)
+    "#{seconds}s"
+  end
+  defp format_block_duration(ms) do
+    minutes = div(ms, 60_000)
+    seconds = div(rem(ms, 60_000), 1000)
+    "#{minutes}m #{seconds}s"
+  end
+
+  # Color-code duration based on speed
+  defp duration_class(nil), do: "bg-gray-200 text-gray-800"
+  defp duration_class(ms) when ms < 300, do: "bg-green-100 text-green-800"
+  defp duration_class(ms) when ms < 1000, do: "bg-blue-100 text-blue-800"
+  defp duration_class(ms) when ms < 5000, do: "bg-yellow-100 text-yellow-800"
+  defp duration_class(_ms), do: "bg-red-100 text-red-800"
 
   defp format_number(number) when is_integer(number) do
     number
@@ -1189,6 +1398,18 @@ defmodule BitblocksWeb.SyncLive do
           progress_percent: 0.0,
           errors_count: 0
         }
+    end
+  end
+
+  defp safe_get_tip_sync_status do
+    try do
+      Bitblocks.TipSyncWorker.get_status()
+    catch
+      :exit, {:noproc, _} ->
+        %{status: :idle, last_synced_height: nil, current_tip: nil, blocks_synced: 0}
+
+      _, _ ->
+        %{status: :idle, last_synced_height: nil, current_tip: nil, blocks_synced: 0}
     end
   end
 

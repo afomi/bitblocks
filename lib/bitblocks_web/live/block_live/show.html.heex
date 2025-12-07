@@ -77,6 +77,8 @@
                 </svg>
                 Queuing...
               </span>
+            <% @block.sync_state == "header_only" -> %>
+              Upgrade & Download Txs
             <% true -> %>
               Download Txs
           <% end %>
@@ -86,22 +88,22 @@
       <div
         class="flex items-center gap-2"
       >
-        <%!-- Step 1: Pending --%>
+        <%!-- Step 1: Header Only --%>
         <div
           class="flex-1"
         >
           <div class={[
             "h-2 rounded-full transition-all",
-            if(@block.sync_state == "pending",
+            if(@block.sync_state == "header_only",
               do: "bg-blue-500",
-              else: "bg-gray-300"
+              else: if(@block.sync_state in ["header_synced", "txs_queued", "txs_syncing", "completed"], do: "bg-green-500", else: "bg-gray-300")
             )
           ]}>
           </div>
           <div
             class="text-xs mt-1 text-center"
           >
-            Pending
+            Header
           </div>
         </div>
 
@@ -111,7 +113,7 @@
           →
         </div>
 
-        <%!-- Step 2: Header Synced --%>
+        <%!-- Step 2: Header + TxIDs --%>
         <div
           class="flex-1"
         >
@@ -126,7 +128,7 @@
           <div
             class="text-xs mt-1 text-center"
           >
-            Header
+            TxIDs
           </div>
         </div>
 

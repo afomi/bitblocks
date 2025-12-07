@@ -49,15 +49,23 @@ defmodule Bitblocks.SyncWorker do
   end
 
   @doc """
-  Start syncing with a specific scope.
+  Start syncing blocks in the specified range.
 
-  Scopes:
-  - {:all} - Sync all blocks from 0 to current chain tip
-  - {:range, start_block, end_block} - Sync specific range
-  - {:from_block, start_block} - Sync from block to chain tip (continuous)
+  ## Parameters
+  - `{start_block, end_block}` - Range of blocks to sync (inclusive)
+
+  ## Examples
+      # Sync blocks 0 to current tip
+      start_sync({0, 900_000})
+
+      # Sync specific range
+      start_sync({750_000, 900_000})
+
+      # Sync from block to tip
+      start_sync({800_000, 900_000})
   """
-  def start_sync(scope) do
-    GenServer.call(__MODULE__, {:start_sync, scope}, 60_000)
+  def start_sync({start_block, end_block} = range) when is_integer(start_block) and is_integer(end_block) do
+    GenServer.call(__MODULE__, {:start_sync, range}, 60_000)
   end
 
   def stop_sync do
@@ -76,63 +84,39 @@ defmodule Bitblocks.SyncWorker do
   end
 
   @impl true
-  def handle_call({:start_sync, _scope}, _from, %State{status: :running} = state) do
+  def handle_call({:start_sync, _range}, _from, %State{status: :running} = state) do
     {:reply, {:error, :already_running}, state}
   end
 
   @impl true
-  def handle_call({:start_sync, scope}, _from, _state) do
-    Logger.info("SyncWorker: Starting sync with scope #{inspect(scope)}")
-    {start_block, end_block, _range_size} = calculate_range(scope)
+  def handle_call({:start_sync, {start_block, end_block} = range}, _from, _state) do
+    Logger.info("SyncWorker: Starting sync range #{start_block}..#{end_block}")
 
-    Logger.info("SyncWorker: Calculated range #{start_block}..#{end_block}")
+    range_size = end_block - start_block + 1
 
     # Use lazy discovery for large ranges to avoid loading entire range into memory
-    # Only calculate initial batch, then fetch more as needed
-    {initial_ranges, total_missing, is_lazy} =
-      case scope do
-        {:all} ->
-          # Lazy mode: Only check first 100 blocks initially
-          batch_size = 100
-          batch_end = min(start_block + batch_size - 1, end_block)
-          ranges = calculate_missing_ranges_chunked(start_block, batch_end, 1_000)
-          count = count_blocks_in_ranges(ranges)
-          Logger.info("SyncWorker: Lazy mode - checking first #{batch_size} blocks, found #{count} missing")
-          {ranges, count, true}
-
-        {:from_block, _} ->
-          # Lazy mode: Only check first 100 blocks initially
-          batch_size = 100
-          batch_end = min(start_block + batch_size - 1, end_block)
-          ranges = calculate_missing_ranges_chunked(start_block, batch_end, 1_000)
-          count = count_blocks_in_ranges(ranges)
-          Logger.info("SyncWorker: Lazy mode - checking first #{batch_size} blocks, found #{count} missing")
-          {ranges, count, true}
-
-        {:range, _, _} ->
-          # For specific ranges, check if it's small enough to be eager
-          range_size = end_block - start_block + 1
-
-          if range_size <= 1_000 do
-            # Small range: Calculate all missing blocks
-            ranges = calculate_missing_ranges_chunked(start_block, end_block, 1_000)
-            count = count_blocks_in_ranges(ranges)
-            Logger.info("SyncWorker: Small range - found #{count} missing blocks in #{length(ranges)} ranges")
-            {ranges, count, false}
-          else
-            # Large range: Use lazy mode
-            batch_size = 100
-            batch_end = min(start_block + batch_size - 1, end_block)
-            ranges = calculate_missing_ranges_chunked(start_block, batch_end, 1_000)
-            count = count_blocks_in_ranges(ranges)
-            Logger.info("SyncWorker: Large range - lazy mode, checking first #{batch_size} blocks, found #{count} missing")
-            {ranges, count, true}
-          end
+    # Small ranges (<=1000 blocks): Load all missing blocks upfront
+    # Large ranges (>1000 blocks): Batch discovery in chunks of 100 blocks
+    {initial_ranges, total_missing, is_lazy, batch_end_height} =
+      if range_size <= 1_000 do
+        # Small range: Calculate all missing blocks eagerly
+        ranges = calculate_missing_ranges_chunked(start_block, end_block, 1_000)
+        count = count_blocks_in_ranges(ranges)
+        Logger.info("SyncWorker: Small range (#{range_size} blocks) - found #{count} missing blocks in #{length(ranges)} ranges")
+        {ranges, count, false, nil}
+      else
+        # Large range: Use lazy mode - check first 100 blocks, then fetch more as needed
+        batch_size = 100
+        batch_end = min(start_block + batch_size - 1, end_block)
+        ranges = calculate_missing_ranges_chunked(start_block, batch_end, 1_000)
+        count = count_blocks_in_ranges(ranges)
+        Logger.info("SyncWorker: Large range (#{range_size} blocks) - lazy mode, checking first #{batch_size} blocks, found #{count} missing")
+        {ranges, count, true, batch_end}
       end
 
     {current_range, pending_ranges} = pop_next_range(initial_ranges)
 
-    {:ok, sync_job} = create_sync_job(scope, start_block, end_block, total_missing)
+    {:ok, sync_job} = create_sync_job(range, start_block, end_block, total_missing)
     Logger.info("SyncWorker: Created sync job ##{sync_job.id}")
 
     # For lazy mode, always start as :running to allow batch fetching logic to continue
@@ -150,11 +134,8 @@ defmodule Bitblocks.SyncWorker do
         nil -> max(start_block, 0)
       end
 
-    # For lazy mode, track where we've checked up to
-    batch_end_height = if is_lazy, do: min(start_block + 99, end_block), else: nil
-
     new_state = %State{
-      scope: scope,
+      scope: range,
       start_block: start_block,
       end_block: end_block,
       current_block: current_block,
@@ -323,7 +304,6 @@ defmodule Bitblocks.SyncWorker do
       |> Map.put(:current_block_started_at, nil)
       |> Map.put(:last_block_started_at, started_at)
       |> Map.put(:last_block_duration_ms, duration_ms)
-      |> maybe_extend_continuous_scope()
 
     broadcast_progress(extended_state)
 
@@ -376,40 +356,55 @@ defmodule Bitblocks.SyncWorker do
     end
   end
 
-  # Sync block header only using verbosity 0 (raw hex)
+  # Sync block header only using getblockheader (verbosity 1)
   # This is ~250,000x faster for blocks with millions of transactions
+  # Returns JSON with just header data (~400 bytes) instead of full block (up to 2.3 GB)
   defp sync_block_header_only(block_height, block_hash) do
     try do
-      case bitcoin_cli().getblock(block_hash, 0) do
+      case bitcoin_cli().getblockheader(block_hash, true) do
         {:error, reason} ->
           Logger.error("Failed to fetch block header #{block_height}: #{inspect(reason)}")
           {:error, reason}
 
-        hex_data when is_binary(hex_data) ->
-          # Decode the 80-byte header + transaction count
-          header_data = Bitblocks.BlockHeaderDecoder.decode(hex_data)
-          computed_hash = Bitblocks.BlockHeaderDecoder.hash(hex_data)
-
+        %{
+          "hash" => hash,
+          "version" => version,
+          "previousblockhash" => prevblockhash,
+          "merkleroot" => merkleroot,
+          "time" => time,
+          "bits" => bits,
+          "nonce" => nonce,
+          "num_tx" => num_tx
+        } = header when is_map(header) ->
           # Verify hash matches
-          if computed_hash != block_hash do
+          if hash != block_hash do
             Logger.error(
-              "Hash mismatch for block #{block_height}: expected #{block_hash}, got #{computed_hash}"
+              "Hash mismatch for block #{block_height}: expected #{block_hash}, got #{hash}"
             )
 
             {:error, :hash_mismatch}
           else
+            # Extract optional fields
+            chainwork = Map.get(header, "chainwork", "")
+            difficulty = Map.get(header, "difficulty", "")
+            mediantime = Map.get(header, "mediantime", time)
+            nextblockhash = Map.get(header, "nextblockhash", "")
+
             # Store minimal block data
             block_struct = %Bitblocks.Chain.Block{
-              hash: block_hash,
+              hash: hash,
               height: block_height,
-              num_tx: header_data.num_tx,
-              time: header_data.time,
-              bits: header_data.bits,
-              merkleroot: header_data.merkleroot,
-              prevblockhash: header_data.prevblockhash,
-              nonce: header_data.nonce,
-              size: header_data.size,
-              version: header_data.version,
+              num_tx: num_tx,
+              time: time,
+              bits: bits,
+              chainwork: chainwork,
+              difficulty: to_string(difficulty),
+              mediantime: mediantime,
+              merkleroot: merkleroot,
+              prevblockhash: prevblockhash,
+              nextblockhash: nextblockhash,
+              nonce: nonce,
+              version: version,
               tx: [],
               # Mark as header_only sync state
               sync_state: "header_only"
@@ -417,7 +412,7 @@ defmodule Bitblocks.SyncWorker do
 
             case Repo.insert(block_struct |> Ecto.Changeset.change(%{})) do
               {:ok, _} ->
-                {:ok, header_data.num_tx}
+                {:ok, num_tx}
 
               {:error, changeset} ->
                 Logger.error("Failed to insert block #{block_height}: #{inspect(changeset.errors)}")
@@ -426,7 +421,7 @@ defmodule Bitblocks.SyncWorker do
           end
 
         other ->
-          Logger.error("Unexpected response from getblock(#{block_hash}, 0): #{inspect(other)}")
+          Logger.error("Unexpected response from getblockheader(#{block_hash}): #{inspect(other)}")
           {:error, :unexpected_response}
       end
     rescue
@@ -440,8 +435,20 @@ defmodule Bitblocks.SyncWorker do
     try do
       case bitcoin_cli().getblock(block_hash, 1) do
         {:error, reason} ->
-          Logger.error("Failed to fetch block #{block_height} (#{block_hash}): #{inspect(reason)}")
-          {:error, reason}
+          # Check if this is a parse error due to response size
+          case reason do
+            {:parse_error, %{skip: skip_bytes}} when is_integer(skip_bytes) ->
+              Logger.warning(
+                "Block #{block_height} response too large (#{skip_bytes} bytes skipped), " <>
+                "falling back to header-only sync"
+              )
+              # Fall back to header-only sync for this massive block
+              sync_block_header_only(block_height, block_hash)
+
+            _ ->
+              Logger.error("Failed to fetch block #{block_height} (#{block_hash}): #{inspect(reason)}")
+              {:error, reason}
+          end
 
         %{
           "hash" => hash,
@@ -662,50 +669,6 @@ defmodule Bitblocks.SyncWorker do
     new_state
   end
 
-  defp maybe_extend_continuous_scope(%State{scope: {:from_block, _}} = state) do
-    case get_chain_tip() do
-      {:ok, tip} when is_integer(tip) and tip > state.end_block ->
-        new_range = {state.end_block + 1, tip}
-        new_blocks = range_size(new_range)
-
-        cond do
-          state.current_range == nil and state.pending_ranges == [] ->
-            %{
-              state
-              | end_block: tip,
-                total_blocks: state.total_blocks + new_blocks,
-                current_range: new_range,
-                pending_ranges: [],
-                current_block: elem(new_range, 0)
-            }
-
-          true ->
-            %{
-              state
-              | end_block: tip,
-                total_blocks: state.total_blocks + new_blocks,
-                pending_ranges: append_pending_range(state.pending_ranges, new_range)
-            }
-        end
-
-      _ ->
-        state
-    end
-  end
-
-  defp maybe_extend_continuous_scope(state), do: state
-
-  defp append_pending_range([], range), do: [range]
-
-  defp append_pending_range(pending, {new_start, new_end} = new_range) do
-    case List.last(pending) do
-      {last_start, last_end} when last_end + 1 == new_start ->
-        List.replace_at(pending, length(pending) - 1, {last_start, new_end})
-
-      _ ->
-        pending ++ [new_range]
-    end
-  end
 
   defp remaining_current_range(%State{current_range: nil}), do: 0
 
@@ -776,32 +739,6 @@ defmodule Bitblocks.SyncWorker do
 
   defp unique_violation?(_), do: false
 
-  defp calculate_range({:all}) do
-    case get_chain_tip() do
-      {:ok, tip} -> {0, tip, tip + 1}
-      _ -> {0, 0, 1}
-    end
-  end
-
-  defp calculate_range({:range, start_block, end_block}) do
-    total = end_block - start_block + 1
-    {start_block, end_block, total}
-  end
-
-  defp calculate_range({:from_block, start_block}) do
-    case get_chain_tip() do
-      {:ok, tip} -> {start_block, tip, tip - start_block + 1}
-      _ -> {start_block, start_block, 1}
-    end
-  end
-
-  defp get_chain_tip do
-    case bitcoin_cli().getblockchaininfo() do
-      %{"blocks" => blocks} -> {:ok, blocks}
-      _ -> {:error, :no_connection}
-    end
-  end
-
   defp broadcast_progress(state) do
     progress_percent =
       if state.total_blocks && state.blocks_synced && state.total_blocks > 0 do
@@ -850,17 +787,9 @@ defmodule Bitblocks.SyncWorker do
     end
   end
 
-  defp create_sync_job(scope, start_block, end_block, total_blocks) do
-    scope_str =
-      case scope do
-        {:all} -> "all"
-        {:range, _, _} -> "range"
-        {:from_block, _} -> "from_block"
-        _ -> "unknown"
-      end
-
+  defp create_sync_job({start_block, end_block}, start_block, end_block, total_blocks) do
     attrs = %{
-      scope: scope_str,
+      scope: "range",
       start_block: start_block,
       end_block: end_block,
       total_blocks: total_blocks,

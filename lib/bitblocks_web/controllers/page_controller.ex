@@ -1,6 +1,5 @@
 defmodule BitblocksWeb.PageController do
   use BitblocksWeb, :controller
-  alias Bitblocks.Repo
 
   def index(conn, _params) do
     render(conn, :index)
@@ -8,10 +7,14 @@ defmodule BitblocksWeb.PageController do
 
   def home(conn, _params) do
     alias Bitblocks.Chain
+    alias Bitblocks.StatsCache
 
-    # Get latest block and total count
+    # Get latest block (fast query with index)
     latest_block = Chain.get_latest_block()
-    total_blocks = Chain.count_blocks()
+
+    # Use cached counts to avoid slow COUNT(*) queries
+    total_blocks = StatsCache.blocks_count()
+    transactions_count = StatsCache.transactions_count()
 
     # Calculate time since last block if we have one
     {time_ago_minutes, block_time} =
@@ -27,7 +30,6 @@ defmodule BitblocksWeb.PageController do
 
     # Get blockchain info from RPC node
     blockchain_info = get_blockchain_info()
-    transactions_count = Repo.aggregate(Bitblocks.Chain.Transaction, :count, :id)
 
     render(conn, :home,
       latest_block: latest_block,
@@ -75,6 +77,7 @@ defmodule BitblocksWeb.PageController do
 
   def status(conn, _params) do
     alias Bitblocks.Chain
+    alias Bitblocks.StatsCache
 
     # Safely attempt to get blockchain info, handling all error cases
     blockchain_info =
@@ -87,8 +90,9 @@ defmodule BitblocksWeb.PageController do
           {:error, error}
       end
 
-    blocks_synced = Repo.aggregate(Bitblocks.Chain.Block, :count, :id)
-    transaction_count = Repo.aggregate(Bitblocks.Chain.Transaction, :count, :id)
+    # Use cached counts to avoid slow COUNT(*) queries
+    blocks_synced = StatsCache.blocks_count()
+    transaction_count = StatsCache.transactions_count()
 
     # Get latest block and calculate time since last block
     latest_block = Chain.get_latest_block()

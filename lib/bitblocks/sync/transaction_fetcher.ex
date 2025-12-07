@@ -88,57 +88,44 @@ defmodule Bitblocks.Sync.TransactionFetcher do
 
     Logger.debug("TransactionFetcher ##{state.id}: fetching block #{height}")
 
-    # Step 1: Get block header with txids (verbosity 1)
-    # Note: verbosity 0 = hex string, 1 = json with txids, 2 = json with full tx data
-    # We use 1 to get metadata + txid list without full tx details
-    case BitcoinsvCli.getblock(hash, 1) do
-      block when is_map(block) ->
-        txids = block["tx"] || []
-        tx_count = length(txids)
+    # Use getblockheader instead of getblock for efficiency
+    # This is ~5,750,000x smaller for blocks with millions of transactions
+    # Returns ~400 bytes of header data instead of up to 2.3 GB
+    case BitcoinsvCli.getblockheader(hash, true) do
+      header when is_map(header) ->
+        num_tx = header["num_tx"] || header["nTx"] || 0
 
         Logger.debug(
-          "TransactionFetcher ##{state.id}: block #{height} has #{tx_count} transactions"
+          "TransactionFetcher ##{state.id}: block #{height} has #{num_tx} transactions"
         )
 
-        # Step 2: Fetch individual transaction details
-        # This can be throttled or made optional based on configuration
-        fetch_transactions? = Bitblocks.Config.fetch_full_transactions?()
-
-        transactions =
-          if fetch_transactions? && length(txids) > 0 do
-            fetch_transaction_details(txids, height, state)
-          else
-            # Just store txids for now
-            []
-          end
-
-        # Extract and normalize block data
+        # Extract and normalize block header data
         block_data = %{
           height: height,
           hash: hash,
-          num_tx: block["num_tx"],
-          time: block["time"],
-          bits: block["bits"],
-          chainwork: block["chainwork"],
-          difficulty: to_string(block["difficulty"]),
-          mediantime: block["mediantime"],
-          merkleroot: block["merkleroot"],
-          nonce: block["nonce"],
-          size: block["size"],
-          version: block["version"],
-          nextblockhash: Map.get(block, "nextblockhash", ""),
-          prevblockhash: Map.get(block, "previousblockhash", ""),
-          # Array of txids
-          tx: txids,
-          # Full transaction data (if fetched)
-          transactions: transactions
+          num_tx: num_tx,
+          time: header["time"],
+          bits: header["bits"],
+          chainwork: Map.get(header, "chainwork", ""),
+          difficulty: to_string(Map.get(header, "difficulty", "")),
+          mediantime: Map.get(header, "mediantime", header["time"]),
+          merkleroot: header["merkleroot"],
+          nonce: header["nonce"],
+          size: nil,
+          version: header["version"],
+          nextblockhash: Map.get(header, "nextblockhash", ""),
+          prevblockhash: header["previousblockhash"] || "",
+          # Empty tx array for header-only mode
+          tx: [],
+          # No transaction data in header-only mode
+          transactions: []
         }
 
         duration = System.monotonic_time() - start_time
 
         :telemetry.execute(
           [:bitblocks, :sync, :transaction_fetch],
-          %{duration: duration, tx_count: tx_count},
+          %{duration: duration, tx_count: num_tx},
           %{mode: :pipeline, status: :success, height: height, fetcher_id: state.id}
         )
 
@@ -167,6 +154,9 @@ defmodule Bitblocks.Sync.TransactionFetcher do
     end
   end
 
+  # NOTE: This function is currently unused as we're using header-only sync mode
+  # It can be re-enabled if we want to fetch full transaction data during parallel sync
+  # by setting fetch_full_transactions: true in config
   defp fetch_transaction_details(txids, height, state) do
     Logger.debug(
       "TransactionFetcher ##{state.id}: fetching #{length(txids)} transactions for block #{height}"
