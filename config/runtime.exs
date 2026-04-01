@@ -137,8 +137,7 @@ if config_env() == :prod do
     secret_key_base: secret_key_base,
     check_origin: [
       "https://bitblocks.app",
-      "https://www.bitblocks.app",
-      "https://bitblocks.fly.dev"
+      "https://www.bitblocks.app"
     ]
 
   # ## SSL Support
