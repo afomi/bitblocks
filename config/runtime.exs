@@ -99,11 +99,24 @@ if config_env() == :prod do
 
   maybe_ipv6 = if System.get_env("ECTO_IPV6") in ~w(true 1), do: [:inet6], else: []
 
+  db_hostname =
+    database_url
+    |> URI.parse()
+    |> Map.get(:host)
+    |> to_charlist()
+
   config :bitblocks, Bitblocks.Repo,
-    # ssl: true,
     url: database_url,
     pool_size: String.to_integer(System.get_env("POOL_SIZE") || "10"),
     socket_options: maybe_ipv6,
+    ssl: if(System.get_env("DATABASE_SSL", "true") != "false",
+      do: [
+        verify: :verify_peer,
+        cacertfile: Application.app_dir(:bitblocks, "priv/ssl/aws-rds-ca.pem"),
+        server_name_indication: db_hostname
+      ],
+      else: false
+    ),
     # Increase timeout for large tables (default is 15s)
     timeout: 60_000,
     queue_target: 5_000,
