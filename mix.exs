@@ -19,7 +19,7 @@ defmodule Bitblocks.MixProject do
   def application do
     [
       mod: {Bitblocks.Application, []},
-      extra_applications: [:logger, :runtime_tools, :hackney]
+      extra_applications: [:logger, :runtime_tools, :hackney, :rollbax]
     ]
   end
 
@@ -33,7 +33,7 @@ defmodule Bitblocks.MixProject do
   defp deps do
     [
       {:bsv, "~> 2.1.0"},
-      {:httpoison, "~> 0.13"},
+      {:httpoison, "~> 2.3.0"},
       {:poison, "~> 6.0"},
       {:phoenix, "~> 1.8.1"},
       {:phoenix_ecto, "~> 4.4"},
@@ -44,7 +44,7 @@ defmodule Bitblocks.MixProject do
       {:phoenix_live_view, "~> 1.1.14"},
       {:lazy_html, ">= 0.1.0", only: :test},
       {:floki, ">= 0.30.0", only: :test},
-      {:a11y_audit, "~> 0.2.3", only: :test},
+      {:a11y_audit, "~> 0.3.1", only: :test},
       {:wallaby, "~> 0.30", only: :test},
       {:phoenix_live_dashboard, "~> 0.8.3"},
       {:esbuild, "~> 0.8", runtime: Mix.env() == :dev},
@@ -58,13 +58,14 @@ defmodule Bitblocks.MixProject do
        depth: 1},
       {:swoosh, "~> 1.5"},
       {:finch, "~> 0.13"},
-      {:telemetry_metrics, "~> 0.6"},
+      {:telemetry_metrics, "~> 1.1.0 "},
       {:telemetry_poller, "~> 1.0"},
       {:telemetry_metrics_prometheus_core, "~> 1.2"},
       {:telemetry_metrics_prometheus, "~> 1.1"},
-      {:gettext, "~> 0.20"},
+      {:gettext, "~> 1.0.2"},
       {:jason, "~> 1.4.4"},
-      {:dns_cluster, "~> 0.1.1"},
+      {:jose, "~> 1.11"},
+      {:dns_cluster, "~> 0.2.0"},
       {:bandit, "~> 1.2"},
       # Txbox for outbound transaction management
       {:txbox, "~> 0.3"},
@@ -76,7 +77,8 @@ defmodule Bitblocks.MixProject do
       {:ex_aws, "~> 2.5"},
       {:ex_aws_s3, "~> 2.5"},
       {:sweet_xml, "~> 0.7"},
-      {:hackney, "~> 1.20"}
+      {:hackney, "~> 1.25.0"},
+      {:rollbax, "~> 0.11"}
     ]
   end
 

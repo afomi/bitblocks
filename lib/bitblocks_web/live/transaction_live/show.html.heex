@@ -81,6 +81,46 @@
     </div>
   </div>
 
+  <%!-- Collection Item Banner --%>
+  <%= if @collection_item && @collection_module do %>
+    <div class="bg-gradient-to-r from-pink-50 to-purple-50 border border-pink-200 rounded-lg p-5 mb-6">
+      <div class="flex items-center gap-5">
+        <img
+          src={@collection_module.image_path(@collection_item)}
+          alt={@collection_module.item_title(@collection_item)}
+          class="w-24 h-24 rounded-lg shadow-md object-cover"
+        />
+        <div class="flex-1">
+          <div class="flex items-center gap-2 mb-1">
+            <span class="px-2 py-0.5 bg-pink-200 text-pink-800 rounded-full text-xs font-bold">
+              <%= String.upcase(@collection_module.name()) %> NFT
+            </span>
+          </div>
+          <h3 class="text-xl font-bold text-gray-900">
+            <%= @collection_module.item_title(@collection_item) %>
+          </h3>
+          <div class="flex flex-wrap gap-1.5 mt-2">
+            <%= for type <- @collection_module.trait_types() do %>
+              <%= if @collection_item[type] do %>
+                <span class="px-2 py-0.5 bg-white/80 border border-pink-200 rounded text-xs text-gray-700">
+                  <span class="text-gray-400"><%= type %>:</span> <%= @collection_item[type] %>
+                </span>
+              <% end %>
+            <% end %>
+          </div>
+        </div>
+        <div class="flex-shrink-0">
+          <.link
+            navigate={"/collections/#{@collection_slug}"}
+            class="px-4 py-2 bg-pink-600 text-white rounded-lg hover:bg-pink-700 text-sm font-semibold"
+          >
+            View Collection
+          </.link>
+        </div>
+      </div>
+    </div>
+  <% end %>
+
   <%= if match?(%BSV.Tx{}, @decoded_tx) do %>
     <% tx = @decoded_tx %>
     <%!-- Transaction Details --%>

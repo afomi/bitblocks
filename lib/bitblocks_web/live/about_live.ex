@@ -1,9 +1,20 @@
 defmodule BitblocksWeb.AboutLive do
   use BitblocksWeb, :live_view
 
+  alias BitblocksWeb.Seo
+
   @impl true
   def mount(_params, _session, socket) do
-    {:ok, assign(socket, page_title: "About")}
+    {:ok,
+     assign(
+       socket,
+       Seo.public_page(
+         page_title: "About Bitblocks",
+         meta_description:
+           "Learn what Bitblocks is, why it focuses on Bitcoin SV, and how it approaches scalable block exploration and protocol visibility.",
+         canonical_path: "/about"
+       )
+     )}
   end
 
   @impl true

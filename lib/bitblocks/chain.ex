@@ -387,7 +387,8 @@ defmodule Bitblocks.Chain do
     {:ok, block}
   end
 
-  defp do_upgrade_block_to_header_synced(%Block{tx: tx} = block) when is_list(tx) and length(tx) > 0 do
+  defp do_upgrade_block_to_header_synced(%Block{tx: tx} = block)
+       when is_list(tx) and length(tx) > 0 do
     # Already has txids, just update state
     block
     |> Ecto.Changeset.change(%{sync_state: "header_synced"})
@@ -409,6 +410,7 @@ defmodule Bitblocks.Chain do
             Logger.debug(
               "Block #{height} has #{length(txids)} txs, not storing tx array to save memory"
             )
+
             []
           else
             txids
@@ -457,9 +459,10 @@ defmodule Bitblocks.Chain do
 
     blocks = Repo.all(query)
 
-    results = Enum.map(blocks, fn block ->
-      do_upgrade_block_to_header_synced(block)
-    end)
+    results =
+      Enum.map(blocks, fn block ->
+        do_upgrade_block_to_header_synced(block)
+      end)
 
     successful =
       Enum.count(results, fn

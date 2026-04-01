@@ -56,6 +56,10 @@ defmodule Bitblocks.Application do
       Bitblocks.TipSyncWorker,
       # Start block monitor for real-time new block detection
       Bitblocks.BlockMonitor,
+      # Generic collections registry
+      Bitblocks.Collections,
+      # Rexxie NFT collection
+      Bitblocks.Rexxies,
       # Start to serve requests, typically the last entry
       BitblocksWeb.Endpoint
     ]

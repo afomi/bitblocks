@@ -10,7 +10,9 @@ defmodule Bitblocks.SyncWorkerTest do
   setup do
     # Stop any running Sync Worker
     case Process.whereis(SyncWorker) do
-      nil -> :ok
+      nil ->
+        :ok
+
       pid when is_pid(pid) ->
         if Process.alive?(pid) do
           try do
@@ -18,6 +20,7 @@ defmodule Bitblocks.SyncWorkerTest do
           catch
             :exit, _ -> :ok
           end
+
           Process.sleep(100)
           if Process.alive?(pid), do: Process.exit(pid, :kill)
           Process.sleep(50)
@@ -91,11 +94,13 @@ defmodule Bitblocks.SyncWorkerTest do
       assert block.hash == block_hash
       assert block.height == block_height
       assert block.num_tx == 150
-      assert block.merkleroot == "abc123def456abc123def456abc123def456abc123def456abc123def456abc1"
+
+      assert block.merkleroot ==
+               "abc123def456abc123def456abc123def456abc123def456abc123def456abc1"
+
       assert block.size == 1_234_567
       assert block.difficulty == "123456.789"
       assert length(block.tx) == 3
-
     end
 
     test "handles large blocks by not storing tx array (>10k txs)" do

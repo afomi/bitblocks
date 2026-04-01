@@ -70,14 +70,21 @@ defmodule BitcoinsvCliMock do
             # Return hex-encoded block data (verbosity 0)
             # This is a minimal valid block header + 1 transaction
             # 80 bytes header + 1 byte tx count + minimal coinbase tx
-            "01000000" <> # version
-              "7bc154e0fa7ea32218a72fe2c1bb9f86cf8c9ebf9a715ed27fdb229a00000000" <> # prev hash
-              "f3e94742aca4b5ef85488dc37c06c3282295ffec960994b2c0d5ac2a25a95766" <> # merkle root
-              "29ab5f49" <> # time
-              "ffff001d" <> # bits
-              "f3e0ff0d" <> # nonce
-              "01" <> # tx count (1)
-              # Minimal coinbase transaction
+            # version
+            # prev hash
+            # merkle root
+            # time
+            # bits
+            # nonce
+            # tx count (1)
+            # Minimal coinbase transaction
+            "01000000" <>
+              "7bc154e0fa7ea32218a72fe2c1bb9f86cf8c9ebf9a715ed27fdb229a00000000" <>
+              "f3e94742aca4b5ef85488dc37c06c3282295ffec960994b2c0d5ac2a25a95766" <>
+              "29ab5f49" <>
+              "ffff001d" <>
+              "f3e0ff0d" <>
+              "01" <>
               "01000000010000000000000000000000000000000000000000000000000000000000000000ffffffff0704ffff001d0102ffffffff0100f2052a01000000434104678afdb0fe5548271967f1a67130b7105cd6a828e03909a67962e0ea1f61deb649f6bc3f4cef38c4f35504e51ec112de5c384df7ba0b8d578a4c702b6bf11d5fac00000000"
 
           _ ->
@@ -102,7 +109,8 @@ defmodule BitcoinsvCliMock do
               "chainwork" => "0000000000000000000000000000000000000000000000000000014100014100",
               "previousblockhash" =>
                 "000000007bc154e0fa7ea32218a72fe2c1bb9f86cf8c9ebf9a715ed27fdb229a",
-              "nextblockhash" => "00000000c937983704a73af28acdec37b049d214adbda81d7e2a3dd146f6ed09"
+              "nextblockhash" =>
+                "00000000c937983704a73af28acdec37b049d214adbda81d7e2a3dd146f6ed09"
             }
         end
 

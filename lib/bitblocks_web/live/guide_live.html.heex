@@ -1,0 +1,204 @@
+<div class="min-h-screen bg-neutral-950 text-neutral-200">
+  <div class="max-w-3xl mx-auto px-4 py-12">
+    <div class="flex items-center gap-4 mb-8">
+      <a
+        href="/"
+        class="text-neutral-400 hover:text-neutral-200 text-sm"
+      >
+        &larr; Back
+      </a>
+      <h1 class="text-3xl font-bold">
+        Understanding Bitcoin
+      </h1>
+    </div>
+
+    <p class="text-neutral-400 mb-10 text-lg leading-relaxed">
+      Bitcoin is a peer-to-peer electronic cash system described in a
+      <a
+        href="https://bitcoin.org/bitcoin.pdf"
+        class="text-blue-400 hover:text-blue-300 underline"
+        target="_blank"
+      >whitepaper</a>
+      published in 2008 by Satoshi Nakamoto.
+      This guide explains how the blockchain works and how to explore it using Bitblocks.
+    </p>
+
+    <%!-- Section: What is a Block? --%>
+    <section class="mb-10" id="blocks">
+      <h2 class="text-xl font-semibold mb-3 text-neutral-100">
+        What is a Block?
+      </h2>
+      <p class="text-neutral-400 leading-relaxed mb-3">
+        A block is a bundle of transactions confirmed by miners.
+        Each block links to the previous one through a cryptographic hash, forming a chain.
+      </p>
+      <p class="text-neutral-400 leading-relaxed mb-3">
+        The very first block, called the <strong class="text-neutral-200">genesis block</strong>, was mined on January 3, 2009.
+        Every block since then traces back to it.
+      </p>
+      <div class="bg-neutral-900 border border-neutral-800 rounded-lg p-4 text-sm">
+        <p class="text-neutral-500 mb-2">Explore blocks:</p>
+        <a
+          href="/blocks"
+          class="text-blue-400 hover:text-blue-300"
+        >
+          Browse blocks &rarr;
+        </a>
+        |
+        <a
+          href="/block-graph?start=0&end=10"
+          class="text-blue-400 hover:text-blue-300"
+        >
+          Visualize the first 10 blocks in 3D &rarr;
+        </a>
+      </div>
+    </section>
+
+    <%!-- Section: What is a Transaction? --%>
+    <section class="mb-10" id="transactions">
+      <h2 class="text-xl font-semibold mb-3 text-neutral-100">
+        What is a Transaction?
+      </h2>
+      <p class="text-neutral-400 leading-relaxed mb-3">
+        A transaction transfers value from one or more inputs to one or more outputs.
+        Each input spends a previous output, creating a chain of ownership called the <strong class="text-neutral-200">UTXO set</strong> (Unspent Transaction Outputs).
+      </p>
+      <p class="text-neutral-400 leading-relaxed mb-3">
+        The first transaction in every block is called the <strong class="text-neutral-200">coinbase transaction</strong>.
+        It creates new coins as a reward for the miner.
+      </p>
+      <div class="bg-neutral-900 border border-neutral-800 rounded-lg p-4 text-sm">
+        <p class="text-neutral-500 mb-2">Explore transactions:</p>
+        <a
+          href="/transactions"
+          class="text-blue-400 hover:text-blue-300"
+        >
+          Browse transactions &rarr;
+        </a>
+        |
+        <a
+          href="/tx-graph"
+          class="text-blue-400 hover:text-blue-300"
+        >
+          Trace a transaction's spending chain &rarr;
+        </a>
+      </div>
+    </section>
+
+    <%!-- Section: Data on the Blockchain --%>
+    <section class="mb-10" id="data">
+      <h2 class="text-xl font-semibold mb-3 text-neutral-100">
+        Data on the Blockchain
+      </h2>
+      <p class="text-neutral-400 leading-relaxed mb-3">
+        Bitcoin SV transactions can store data in <strong class="text-neutral-200">OP_RETURN</strong> outputs.
+        This enables protocols like B:// (file storage), MAP (key-value data), and 1Sat Ordinals (inscriptions).
+      </p>
+      <p class="text-neutral-400 leading-relaxed mb-3">
+        Bitblocks detects and parses these protocols, making on-chain data browseable.
+      </p>
+      <div class="bg-neutral-900 border border-neutral-800 rounded-lg p-4 text-sm">
+        <p class="text-neutral-500 mb-2">Explore protocols:</p>
+        <a
+          href="/protocols"
+          class="text-blue-400 hover:text-blue-300"
+        >
+          Protocol Registry &rarr;
+        </a>
+        |
+        <a
+          href="/ecosystem"
+          class="text-blue-400 hover:text-blue-300"
+        >
+          BSV Ecosystem in 3D &rarr;
+        </a>
+      </div>
+    </section>
+
+    <%!-- Section: Identity --%>
+    <section class="mb-10" id="identity">
+      <h2 class="text-xl font-semibold mb-3 text-neutral-100">
+        Identity on Bitcoin
+      </h2>
+      <p class="text-neutral-400 leading-relaxed mb-3">
+        Decentralized Identifiers (DIDs) let you create a verifiable identity without a central authority.
+        Bitblocks supports DID creation, Verifiable Credentials, and vCard-format profiles.
+      </p>
+      <div class="bg-neutral-900 border border-neutral-800 rounded-lg p-4 text-sm">
+        <p class="text-neutral-500 mb-2">Try it:</p>
+        <a
+          href="/did"
+          class="text-blue-400 hover:text-blue-300"
+        >
+          DID Playground &rarr;
+        </a>
+      </div>
+    </section>
+
+    <%!-- Section: The Network --%>
+    <section class="mb-10" id="network">
+      <h2 class="text-xl font-semibold mb-3 text-neutral-100">
+        The Network
+      </h2>
+      <p class="text-neutral-400 leading-relaxed mb-3">
+        Bitcoin is a network of nodes that validate and relay transactions.
+        Miners compete to add the next block to the chain.
+        Bitblocks connects to a BSV node via RPC to sync and display blockchain data.
+      </p>
+      <div class="bg-neutral-900 border border-neutral-800 rounded-lg p-4 text-sm">
+        <p class="text-neutral-500 mb-2">See the network:</p>
+        <a
+          href="/peers"
+          class="text-blue-400 hover:text-blue-300"
+        >
+          Peer Map &rarr;
+        </a>
+        |
+        <a
+          href="/pulse"
+          class="text-blue-400 hover:text-blue-300"
+        >
+          Network Pulse &rarr;
+        </a>
+      </div>
+    </section>
+
+    <%!-- Further Reading --%>
+    <section class="mb-10" id="resources">
+      <h2 class="text-xl font-semibold mb-3 text-neutral-100">
+        Further Reading
+      </h2>
+      <ul class="space-y-2 text-neutral-400 text-sm">
+        <li>
+          <a
+            href="https://bitcoin.org/bitcoin.pdf"
+            class="text-blue-400 hover:text-blue-300"
+            target="_blank"
+          >
+            Bitcoin Whitepaper (PDF)
+          </a>
+          — The original paper by Satoshi Nakamoto.
+        </li>
+        <li>
+          <a
+            href="https://learnmeabitcoin.com/browser/node/"
+            class="text-blue-400 hover:text-blue-300"
+            target="_blank"
+          >
+            Learn Me a Bitcoin
+          </a>
+          — Interactive Bitcoin learning resource.
+        </li>
+        <li>
+          <a
+            href="/about"
+            class="text-blue-400 hover:text-blue-300"
+          >
+            About Bitblocks
+          </a>
+          — Learn more about this project.
+        </li>
+      </ul>
+    </section>
+  </div>
+</div>

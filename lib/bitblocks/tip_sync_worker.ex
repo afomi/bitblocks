@@ -16,8 +16,10 @@ defmodule Bitblocks.TipSyncWorker do
 
   alias Bitblocks.{Repo, Chain}
 
-  @poll_interval_ms 10_000  # Check for new blocks every 10 seconds
-  @max_concurrent_tasks 10  # Limit concurrent DB queries
+  # Check for new blocks every 10 seconds
+  @poll_interval_ms 10_000
+  # Limit concurrent DB queries
+  @max_concurrent_tasks 10
 
   defmodule State do
     defstruct [
@@ -78,10 +80,11 @@ defmodule Bitblocks.TipSyncWorker do
     current_tip = get_chain_tip()
 
     # Get last synced block from database
-    last_synced = case Chain.get_latest_block() do
-      nil -> 0
-      block -> block.height
-    end
+    last_synced =
+      case Chain.get_latest_block() do
+        nil -> 0
+        block -> block.height
+      end
 
     new_state = %State{
       status: :running,
@@ -117,16 +120,14 @@ defmodule Bitblocks.TipSyncWorker do
   @impl true
   def handle_info({:block_synced, _height}, state) do
     # Get highest block from DB (assumes no missing blocks)
-    last_synced = case Chain.get_latest_block() do
-      nil -> 0
-      block -> block.height
-    end
+    last_synced =
+      case Chain.get_latest_block() do
+        nil -> 0
+        block -> block.height
+      end
 
     # Update state with latest from DB
-    new_state = %{state |
-      blocks_synced: state.blocks_synced + 1,
-      last_synced_height: last_synced
-    }
+    new_state = %{state | blocks_synced: state.blocks_synced + 1, last_synced_height: last_synced}
 
     {:noreply, new_state}
   end
@@ -157,10 +158,7 @@ defmodule Bitblocks.TipSyncWorker do
       |> Stream.run()
     end)
 
-    new_state = %{state |
-      current_tip: current_tip,
-      last_check_at: DateTime.utc_now()
-    }
+    new_state = %{state | current_tip: current_tip, last_check_at: DateTime.utc_now()}
 
     # Schedule next check
     Process.send_after(self(), :check_tip, @poll_interval_ms)
@@ -215,7 +213,9 @@ defmodule Bitblocks.TipSyncWorker do
                   timestamp: DateTime.from_unix!(header["time"]) |> DateTime.to_naive()
                 }
 
-                case Repo.insert(block_struct |> Ecto.Changeset.change(%{}), on_conflict: :nothing) do
+                case Repo.insert(block_struct |> Ecto.Changeset.change(%{}),
+                       on_conflict: :nothing
+                     ) do
                   {:ok, _} ->
                     send(parent, {:block_synced, height})
                     :ok
@@ -227,5 +227,4 @@ defmodule Bitblocks.TipSyncWorker do
         end
     end
   end
-
 end

@@ -142,9 +142,7 @@ defmodule Bitblocks.Sync.DatabaseWriter do
             else
               # Just keep it at header_only - don't auto-queue transaction jobs
               # Transactions can be queued manually later via Chain.queue_transaction_fetch/1
-              Logger.debug(
-                "DatabaseWriter: stored block header #{height} (header-only sync)"
-              )
+              Logger.debug("DatabaseWriter: stored block header #{height} (header-only sync)")
             end
 
             Logger.debug("DatabaseWriter: wrote block #{height}")

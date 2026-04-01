@@ -1,0 +1,328 @@
+<div class="fixed inset-0 bg-neutral-950 flex flex-col">
+  <%!-- Top toolbar --%>
+  <div class="flex items-center justify-between px-4 py-2 bg-neutral-900 border-b border-neutral-800 z-10">
+    <div class="flex items-center gap-4">
+      <a
+        href="/"
+        class="text-neutral-400 hover:text-neutral-200 text-sm"
+      >
+        &larr; Back
+      </a>
+      <h1 class="text-lg font-semibold text-neutral-100">
+        Block Transaction Graph
+      </h1>
+    </div>
+
+    <%!-- Range controls --%>
+    <form
+      phx-submit="load_graph"
+      class="flex items-center gap-3"
+    >
+      <label class="text-xs text-neutral-400">Range:</label>
+      <input
+        type="number"
+        name="start"
+        value={@start_height}
+        min="0"
+        class="w-24 px-2 py-1 text-sm bg-neutral-800 border border-neutral-700 rounded text-neutral-200 focus:outline-none focus:ring-1 focus:ring-blue-500"
+      />
+      <span class="text-neutral-500">to</span>
+      <input
+        type="number"
+        name="end"
+        value={@end_height}
+        min="0"
+        class="w-24 px-2 py-1 text-sm bg-neutral-800 border border-neutral-700 rounded text-neutral-200 focus:outline-none focus:ring-1 focus:ring-blue-500"
+      />
+
+      <%!-- Hidden filter fields passed with form --%>
+      <input
+        type="hidden"
+        name="address"
+        value={@address_filter}
+      />
+      <input
+        type="hidden"
+        name="min_value"
+        value={@min_value}
+      />
+      <input
+        type="hidden"
+        name="max_value"
+        value={@max_value}
+      />
+      <input
+        type="hidden"
+        name="type"
+        value={@tx_type}
+      />
+
+      <button
+        type="submit"
+        class="px-3 py-1 text-sm rounded bg-blue-600 text-white hover:bg-blue-700 transition-colors"
+      >
+        Load
+      </button>
+    </form>
+
+    <div class="flex items-center gap-3">
+      <%!-- Filter toggle --%>
+      <button
+        phx-click="toggle_filters"
+        class={"px-2 py-1 text-xs rounded transition-colors " <> if(@filters_open, do: "bg-amber-600 text-white", else: "bg-neutral-800 text-neutral-300 hover:bg-neutral-700")}
+      >
+        Filters
+      </button>
+
+      <%!-- Layout toggle --%>
+      <div class="flex items-center gap-1">
+        <span class="text-xs text-neutral-400">Layout:</span>
+        <button
+          phx-click="set_layout"
+          phx-value-mode="time"
+          class={"px-2 py-1 text-xs rounded transition-colors " <> if(@layout_mode == "time", do: "bg-blue-600 text-white", else: "bg-neutral-800 text-neutral-300 hover:bg-neutral-700")}
+        >
+          Time
+        </button>
+        <button
+          phx-click="set_layout"
+          phx-value-mode="force"
+          class={"px-2 py-1 text-xs rounded transition-colors " <> if(@layout_mode == "force", do: "bg-blue-600 text-white", else: "bg-neutral-800 text-neutral-300 hover:bg-neutral-700")}
+        >
+          Force
+        </button>
+        <button
+          phx-click="set_layout"
+          phx-value-mode="hierarchical"
+          class={"px-2 py-1 text-xs rounded transition-colors " <> if(@layout_mode == "hierarchical", do: "bg-blue-600 text-white", else: "bg-neutral-800 text-neutral-300 hover:bg-neutral-700")}
+        >
+          Hierarchical
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <%!-- Filter panel (collapsible) --%>
+  <%= if @filters_open do %>
+    <div class="px-4 py-3 bg-neutral-900/95 border-b border-neutral-800 z-10">
+      <form
+        phx-submit="load_graph"
+        class="flex items-end gap-6 flex-wrap"
+      >
+        <%!-- Preserve range --%>
+        <input
+          type="hidden"
+          name="start"
+          value={@start_height}
+        />
+        <input
+          type="hidden"
+          name="end"
+          value={@end_height}
+        />
+
+        <div>
+          <label class="block text-xs text-neutral-400 mb-1">
+            Address filter
+          </label>
+          <input
+            type="text"
+            name="address"
+            value={@address_filter}
+            placeholder="addr1, addr2, ..."
+            class="w-72 px-2 py-1 text-sm bg-neutral-800 border border-neutral-700 rounded text-neutral-200 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          />
+        </div>
+
+        <div>
+          <label class="block text-xs text-neutral-400 mb-1">
+            Min value (satoshis)
+          </label>
+          <input
+            type="number"
+            name="min_value"
+            value={if @min_value > 0, do: @min_value, else: ""}
+            placeholder="0"
+            min="0"
+            class="w-36 px-2 py-1 text-sm bg-neutral-800 border border-neutral-700 rounded text-neutral-200 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          />
+        </div>
+
+        <div>
+          <label class="block text-xs text-neutral-400 mb-1">
+            Max value (satoshis)
+          </label>
+          <input
+            type="number"
+            name="max_value"
+            value={if @max_value > 0, do: @max_value, else: ""}
+            placeholder="unlimited"
+            min="0"
+            class="w-36 px-2 py-1 text-sm bg-neutral-800 border border-neutral-700 rounded text-neutral-200 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          />
+        </div>
+
+        <div>
+          <label class="block text-xs text-neutral-400 mb-1">
+            Transaction type
+          </label>
+          <select
+            name="type"
+            class="px-2 py-1 text-sm bg-neutral-800 border border-neutral-700 rounded text-neutral-200 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          >
+            <option
+              value="all"
+              selected={@tx_type == "all"}
+            >
+              All
+            </option>
+            <option
+              value="coinbase"
+              selected={@tx_type == "coinbase"}
+            >
+              Coinbase only
+            </option>
+            <option
+              value="spends"
+              selected={@tx_type == "spends"}
+            >
+              Spends only
+            </option>
+          </select>
+        </div>
+
+        <button
+          type="submit"
+          class="px-3 py-1 text-sm rounded bg-blue-600 text-white hover:bg-blue-700 transition-colors"
+        >
+          Apply Filters
+        </button>
+      </form>
+    </div>
+  <% end %>
+
+  <%!-- Stats bar --%>
+  <div class="flex items-center gap-6 px-4 py-1.5 bg-neutral-900/80 border-b border-neutral-800 text-xs text-neutral-400 z-10">
+    <span>
+      Blocks: <strong class="text-neutral-200"><%= @block_count %></strong>
+    </span>
+    <span>
+      Transactions: <strong class="text-neutral-200"><%= @node_count %></strong>
+    </span>
+    <span>
+      Connections: <strong class="text-neutral-200"><%= @edge_count %></strong>
+    </span>
+    <%= if @address_filter != "" do %>
+      <span class="text-amber-400">
+        Address: <%= @address_filter %>
+      </span>
+    <% end %>
+    <%= if @min_value > 0 or @max_value > 0 do %>
+      <span class="text-amber-400">
+        Value: <%= if @min_value > 0, do: "#{@min_value}+", else: "" %><%= if @max_value > 0, do: " ≤#{@max_value}", else: "" %> sat
+      </span>
+    <% end %>
+    <%= if @tx_type != "all" do %>
+      <span class="text-amber-400">
+        Type: <%= @tx_type %>
+      </span>
+    <% end %>
+    <%= if @loading do %>
+      <span class="text-amber-400 animate-pulse">Loading...</span>
+    <% end %>
+  </div>
+
+  <%!-- Playback controls --%>
+  <div class="flex items-center justify-center gap-3 px-4 py-2 bg-neutral-900/80 border-b border-neutral-800 z-10">
+    <button
+      id="playback-rewind"
+      phx-click="playback_rewind"
+      title="rewind"
+      class="px-2 py-1 text-sm rounded bg-neutral-800 text-neutral-300 hover:bg-neutral-700 transition-colors"
+    >
+      &#x23EE; rewind
+    </button>
+    <button
+      id="playback-play"
+      phx-click="playback_play"
+      title="play"
+      class={"px-3 py-1 text-sm rounded transition-colors " <> if(@playback_state == "playing", do: "bg-green-600 text-white", else: "bg-neutral-800 text-neutral-300 hover:bg-neutral-700")}
+    >
+      &#x25B6; play
+    </button>
+    <button
+      id="playback-pause"
+      phx-click="playback_pause"
+      title="pause"
+      class={"px-2 py-1 text-sm rounded transition-colors " <> if(@playback_state == "paused", do: "bg-amber-600 text-white", else: "bg-neutral-800 text-neutral-300 hover:bg-neutral-700")}
+    >
+      &#x23F8; pause
+    </button>
+    <button
+      id="playback-forward"
+      phx-click="playback_forward"
+      title="forward"
+      class="px-2 py-1 text-sm rounded bg-neutral-800 text-neutral-300 hover:bg-neutral-700 transition-colors"
+    >
+      &#x23ED; forward
+    </button>
+    <span class="ml-4 text-xs text-neutral-400">
+      <span id="playback-status" data-state={@playback_state}>
+        <%= @playback_state %> &middot; Block <%= @playback_cursor %>
+      </span>
+    </span>
+  </div>
+
+  <%!-- Three.js canvas --%>
+  <div
+    id="block-graph"
+    phx-hook="BlockGraph"
+    data-layout={@layout_mode}
+    class="flex-1 w-full"
+  >
+  </div>
+
+  <%!-- Tooltip overlay --%>
+  <div
+    id="block-graph-tooltip"
+    class="fixed pointer-events-none bg-neutral-900/95 border border-neutral-700 rounded-lg px-3 py-2 text-xs text-neutral-200 shadow-xl z-50 hidden"
+  >
+  </div>
+
+  <%!-- Zoom level indicator --%>
+  <div class="fixed bottom-4 left-4 bg-neutral-900/90 border border-neutral-700 rounded-lg px-3 py-2 text-xs text-neutral-400 z-50">
+    <div
+      id="zoom-indicator"
+      class="flex items-center gap-2"
+    >
+      <span class="w-2 h-2 rounded-full bg-blue-500"></span>
+      <span>Scroll to zoom &middot; Drag to pan &middot; Right-drag to rotate</span>
+    </div>
+  </div>
+
+  <%!-- Legend --%>
+  <div class="fixed bottom-4 right-4 bg-neutral-900/90 border border-neutral-700 rounded-lg px-3 py-2 text-xs text-neutral-400 z-50">
+    <div class="flex items-center gap-4">
+      <div class="flex items-center gap-1.5">
+        <span class="w-2.5 h-2.5 rounded-full bg-yellow-400"></span>
+        <span>Coinbase</span>
+      </div>
+      <div class="flex items-center gap-1.5">
+        <span class="w-2.5 h-2.5 rounded-full bg-blue-500"></span>
+        <span>Regular</span>
+      </div>
+      <div class="flex items-center gap-1.5">
+        <span class="w-2.5 h-2.5 rounded-full bg-green-500"></span>
+        <span>&gt;1 BSV</span>
+      </div>
+      <div class="flex items-center gap-1.5">
+        <span class="w-2.5 h-2.5 rounded-full bg-blue-500 opacity-40"></span>
+        <span>Spent</span>
+      </div>
+      <div class="flex items-center gap-1.5">
+        <span class="w-2.5 h-2.5 rounded-full bg-blue-500"></span>
+        <span>Unspent</span>
+      </div>
+    </div>
+  </div>
+</div>

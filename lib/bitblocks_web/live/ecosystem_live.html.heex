@@ -1,0 +1,82 @@
+<div class="fixed inset-0 bg-neutral-950 flex flex-col">
+  <%!-- Top toolbar --%>
+  <div class="flex items-center justify-between px-4 py-2 bg-neutral-900 border-b border-neutral-800 z-10">
+    <div class="flex items-center gap-4">
+      <a
+        href="/"
+        class="text-neutral-400 hover:text-neutral-200 text-sm"
+      >
+        &larr; Back
+      </a>
+      <h1 class="text-lg font-semibold text-neutral-100">
+        BSV Ecosystem
+      </h1>
+    </div>
+
+    <div class="flex items-center gap-4 text-xs text-neutral-400">
+      <span>
+        Services: <strong class="text-neutral-200"><%= @node_count %></strong>
+      </span>
+      <span>
+        Connections: <strong class="text-neutral-200"><%= @edge_count %></strong>
+      </span>
+      <%= if @loading do %>
+        <span class="text-amber-400 animate-pulse">Loading...</span>
+      <% end %>
+    </div>
+  </div>
+
+  <%!-- Selected node detail --%>
+  <%= if @selected_node do %>
+    <div class="px-4 py-2 bg-neutral-900/95 border-b border-neutral-800 z-10 text-sm text-neutral-200">
+      Selected: <strong><%= @selected_node.name %></strong>
+    </div>
+  <% end %>
+
+  <%!-- Three.js canvas --%>
+  <div
+    id="ecosystem-graph"
+    phx-hook="EcosystemGraph"
+    phx-update="ignore"
+    class="flex-1 w-full min-h-0 overflow-hidden"
+  >
+  </div>
+
+  <%!-- Tooltip --%>
+  <div
+    id="ecosystem-tooltip"
+    class="fixed pointer-events-none bg-neutral-900/95 border border-neutral-700 rounded-lg px-3 py-2 text-xs text-neutral-200 shadow-xl z-50 hidden"
+  >
+  </div>
+
+  <%!-- Legend --%>
+  <div class="fixed bottom-4 left-4 bg-neutral-900/90 border border-neutral-700 rounded-lg px-3 py-2 text-xs text-neutral-400 z-50">
+    <div class="flex items-center gap-4 flex-wrap">
+      <div class="flex items-center gap-1.5">
+        <span class="w-2.5 h-2.5 rounded-full bg-amber-400"></span>
+        <span>Network</span>
+      </div>
+      <div class="flex items-center gap-1.5">
+        <span class="w-2.5 h-2.5 rounded-full bg-blue-400"></span>
+        <span>Data</span>
+      </div>
+      <div class="flex items-center gap-1.5">
+        <span class="w-2.5 h-2.5 rounded-full bg-green-400"></span>
+        <span>Identity</span>
+      </div>
+      <div class="flex items-center gap-1.5">
+        <span class="w-2.5 h-2.5 rounded-full bg-purple-400"></span>
+        <span>Token/Asset</span>
+      </div>
+      <div class="flex items-center gap-1.5">
+        <span class="w-2.5 h-2.5 rounded-full bg-rose-400"></span>
+        <span>Infrastructure</span>
+      </div>
+      <div class="flex items-center gap-1.5">
+        <span class="w-2.5 h-2.5 rounded-full bg-neutral-500"></span>
+        <span>Deprecated</span>
+      </div>
+      <span>Drag to rotate &middot; Scroll to zoom</span>
+    </div>
+  </div>
+</div>

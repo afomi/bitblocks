@@ -2,14 +2,24 @@ defmodule BitblocksWeb.SearchLive do
   use BitblocksWeb, :live_view
 
   alias Bitblocks.Chain
+  alias BitblocksWeb.Seo
 
   @impl true
   def mount(params, _session, socket) do
     query = Map.get(params, "query", "")
 
     socket =
-      assign(socket,
-        page_title: "Search",
+      assign(
+        socket,
+        Seo.public_page(
+          page_title: "Search the Bitblocks Explorer",
+          meta_description:
+            "Search Bitblocks for Bitcoin SV block heights, block hashes, and transaction IDs.",
+          canonical_path: "/search",
+          meta_robots: "noindex, follow"
+        )
+      )
+      |> assign(
         query: query,
         results: nil,
         error: nil
@@ -45,7 +55,7 @@ defmodule BitblocksWeb.SearchLive do
     cond do
       # Check if it's a block height (numeric)
       is_numeric?(query) ->
-        case Chain.get_block!(query) do
+        case Chain.get_block(query) do
           nil -> {:error, "Block not found"}
           block -> {:block, block}
         end
@@ -60,7 +70,7 @@ defmodule BitblocksWeb.SearchLive do
       # Check if it's a block hash (64 hex chars) - same as txid check but try both
       is_hex?(query) ->
         # Try as block hash first
-        case Chain.get_block!(query) do
+        case Chain.get_block(query) do
           nil ->
             # Try as transaction
             case Chain.get_transaction_by_txid(query) do

@@ -14,6 +14,17 @@ defmodule BitblocksWeb.Router do
     plug :accepts, ["json"]
   end
 
+  # Protocol Registry API
+  scope "/api/v1", BitblocksWeb.Api do
+    pipe_through :api
+
+    get "/protocols", ProtocolController, :index
+    get "/protocols/stats", ProtocolController, :stats_overview
+    get "/protocols/search", ProtocolController, :search
+    get "/protocols/:address", ProtocolController, :show
+    post "/protocols/identify", ProtocolController, :identify
+  end
+
   pipeline :metrics do
     plug :accepts, ["text"]
   end
@@ -35,7 +46,10 @@ defmodule BitblocksWeb.Router do
 
     live "/search", SearchLive
     live "/protocols", ProtocolsLive
+    live "/collections/rexxies", RexxiesLive
     live "/about", AboutLive
+    live "/guide", GuideLive
+    live "/did", DIDLive
 
     get "/wall", WallController, :index
     get "/wall/blocks_data", WallController, :blocks_data
@@ -57,14 +71,19 @@ defmodule BitblocksWeb.Router do
     get "/debug", PageController, :debug
 
     # Dev-only routes
-    live "/builder", BuilderLive
-    live "/address_repo", AddressRepoLive
+live "/address_repo", AddressRepoLive
     live "/forks", ForkGraphLive
     live "/sync", SyncLive
     live "/reporting", ReportingLive
     live "/highlights", HighlightsLive
     live "/graph", GraphLive
+    live "/block-graph", BlockGraphLive
     live "/rpc_admin", RpcAdminLive
+    live "/peers", PeerMapLive
+    live "/pulse", PulseLive
+    live "/ecosystem", EcosystemLive
+    live "/tx-graph", TxGraphLive
+    live "/shape-layers", ShapeLayerLive
 
     # Block pages only for dev/admin (too many requests for public access)
     live "/blocks", BlockLive.Index, :index

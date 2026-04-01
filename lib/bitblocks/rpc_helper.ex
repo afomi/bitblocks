@@ -89,7 +89,13 @@ defmodule Bitblocks.RpcHelper do
   """
   def batch_with_fallback(items, batch_fn, single_fn, opts \\ []) do
     log_fallback = Keyword.get(opts, :log_fallback, true)
-    fallback_message = Keyword.get(opts, :fallback_message, "Batch RPC failed, falling back to individual requests")
+
+    fallback_message =
+      Keyword.get(
+        opts,
+        :fallback_message,
+        "Batch RPC failed, falling back to individual requests"
+      )
 
     case batch_fn.(items) do
       {:ok, results} ->

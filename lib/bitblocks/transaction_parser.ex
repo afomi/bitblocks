@@ -110,6 +110,9 @@ defmodule Bitblocks.TransactionParser do
   @doc """
   Detects known protocols in OP_RETURN data.
 
+  First attempts to look up protocols in the Protocol Registry database.
+  Falls back to hardcoded protocol detection for well-known protocols.
+
   Known protocols:
   - B:// (B protocol - files on chain)
   - 1SAT Ordinals
@@ -127,6 +130,26 @@ defmodule Bitblocks.TransactionParser do
     |> Enum.uniq()
   end
 
+  @doc """
+  Detects protocols with full registry information.
+
+  Returns a list of maps with protocol details for each detected protocol.
+  Useful for displaying detailed protocol information in the UI.
+
+  ## Examples
+
+      iex> detect_protocols_with_info(op_return_outputs)
+      [%{name: "B://", address: "19Hx...", category: :data_storage, ...}, ...]
+
+  """
+  def detect_protocols_with_info(op_return_outputs) do
+    op_return_outputs
+    |> Enum.flat_map(fn op_return ->
+      detect_protocol_with_info(op_return.data, op_return[:output_index])
+    end)
+    |> Enum.uniq_by(fn p -> p.name end)
+  end
+
   defp detect_protocol(data_chunks) when is_list(data_chunks) do
     # Check first chunk for protocol identifiers
     prefix_protocols =
@@ -141,8 +164,70 @@ defmodule Bitblocks.TransactionParser do
     # Check for hex-based protocols
     hex_protocols = check_hex_protocols(data_chunks)
 
-    prefix_protocols ++ hex_protocols
+    # Check for vCard data
+    vcard_protocols = check_vcard_protocol(data_chunks)
+
+    prefix_protocols ++ hex_protocols ++ vcard_protocols
   end
+
+  defp detect_protocol_with_info(data_chunks, output_index) when is_list(data_chunks) do
+    first_chunk = List.first(data_chunks)
+    address = extract_address_from_chunk(first_chunk)
+
+    # Try registry lookup first
+    registry_result =
+      if address do
+        case Bitblocks.ProtocolRegistry.identify_protocol(address) do
+          {:ok, protocol} ->
+            [
+              %{
+                name: protocol.name,
+                address: protocol.address,
+                category: protocol.category,
+                verification_status: protocol.verification_status,
+                has_covenant: protocol.has_covenant,
+                output_index: output_index,
+                source: :registry
+              }
+            ]
+
+          {:error, _} ->
+            []
+        end
+      else
+        []
+      end
+
+    # Fall back to hardcoded detection if registry didn't match
+    if Enum.empty?(registry_result) do
+      fallback_names = detect_protocol(data_chunks)
+
+      Enum.map(fallback_names, fn name ->
+        %{
+          name: name,
+          address: nil,
+          category: :other,
+          verification_status: :unverified,
+          has_covenant: false,
+          output_index: output_index,
+          source: :fallback
+        }
+      end)
+    else
+      registry_result
+    end
+  end
+
+  defp extract_address_from_chunk(%{utf8: utf8}) when is_binary(utf8) do
+    # Check if it looks like a Bitcoin address
+    if Regex.match?(~r/^[13][a-km-zA-HJ-NP-Z1-9]{25,34}$/, utf8) do
+      utf8
+    else
+      nil
+    end
+  end
+
+  defp extract_address_from_chunk(_), do: nil
 
   defp check_protocol_prefix(utf8) do
     cond do
@@ -167,6 +252,19 @@ defmodule Bitblocks.TransactionParser do
       true ->
         []
     end
+  end
+
+  defp check_vcard_protocol(data_chunks) do
+    text =
+      data_chunks
+      |> Enum.filter(fn
+        %{type: :push_data, utf8: utf8} when is_binary(utf8) -> true
+        _ -> false
+      end)
+      |> Enum.map(fn %{utf8: utf8} -> utf8 end)
+      |> Enum.join("")
+
+    if Bitblocks.VcardParser.is_vcard?(text), do: ["vCard"], else: []
   end
 
   defp check_hex_protocols(data_chunks) do

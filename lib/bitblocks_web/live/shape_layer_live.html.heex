@@ -1,0 +1,142 @@
+<div class="min-h-screen bg-neutral-950 text-neutral-200">
+  <div class="max-w-4xl mx-auto px-4 py-8">
+    <div class="flex items-center gap-4 mb-6">
+      <a
+        href="/"
+        class="text-neutral-400 hover:text-neutral-200 text-sm"
+      >
+        &larr; Back
+      </a>
+      <h1 class="text-2xl font-bold">
+        Shape Layer NFTs
+      </h1>
+    </div>
+
+    <p class="text-neutral-400 text-sm mb-8">
+      GeoJSON geometry objects stored on-chain with bounds, center, and metadata.
+    </p>
+
+    <%!-- Shape selector --%>
+    <div class="flex gap-3 mb-8">
+      <%= for {shape, i} <- Enum.with_index(@shapes) do %>
+        <button
+          phx-click="select_shape"
+          phx-value-index={i}
+          class={"px-4 py-2 rounded-lg text-sm transition-colors " <> if(i == @selected_index, do: "bg-blue-600 text-white", else: "bg-neutral-800 text-neutral-300 hover:bg-neutral-700")}
+        >
+          <%= shape.description %>
+        </button>
+      <% end %>
+    </div>
+
+    <%!-- Selected shape detail --%>
+    <% shape = selected_shape(assigns) %>
+    <%= if shape do %>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <%!-- SVG map rendering --%>
+        <div class="bg-neutral-900 border border-neutral-800 rounded-xl p-4">
+          <h2 class="text-sm font-semibold text-neutral-400 mb-3">
+            Geometry
+          </h2>
+          <svg
+            viewBox="0 0 400 300"
+            class="w-full bg-neutral-950 rounded-lg"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <% svg = geometry_to_svg(shape) %>
+            <%= case svg do %>
+              <% {:circle, cx, cy} -> %>
+                <circle
+                  cx={cx}
+                  cy={cy}
+                  r="8"
+                  fill="#3b82f6"
+                  stroke="#60a5fa"
+                  stroke-width="2"
+                />
+              <% {:polyline, points} -> %>
+                <polyline
+                  points={points}
+                  fill="none"
+                  stroke="#3b82f6"
+                  stroke-width="3"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              <% {:polygon, points} -> %>
+                <polygon
+                  points={points}
+                  fill="#3b82f620"
+                  stroke="#3b82f6"
+                  stroke-width="2"
+                />
+              <% _ -> %>
+                <text
+                  x="200"
+                  y="150"
+                  text-anchor="middle"
+                  fill="#6b7280"
+                >
+                  Unsupported geometry
+                </text>
+            <% end %>
+            <%!-- Center marker --%>
+            <% {cx, cy} = project_center(shape) %>
+            <circle
+              cx={cx}
+              cy={cy}
+              r="4"
+              fill="#f59e0b"
+              stroke="#fbbf24"
+              stroke-width="1"
+            />
+          </svg>
+        </div>
+
+        <%!-- Metadata --%>
+        <div class="bg-neutral-900 border border-neutral-800 rounded-xl p-4">
+          <h2 class="text-sm font-semibold text-neutral-400 mb-3">
+            Properties
+          </h2>
+          <dl class="space-y-3 text-sm">
+            <div>
+              <dt class="text-neutral-500">Description</dt>
+              <dd><%= shape.description %></dd>
+            </div>
+            <div>
+              <dt class="text-neutral-500">Geometry Type</dt>
+              <dd><%= shape.geometry["type"] %></dd>
+            </div>
+            <div>
+              <dt class="text-neutral-500">Center</dt>
+              <dd>
+                <%= Float.round(shape.center.lon, 4) %>, <%= Float.round(shape.center.lat, 4) %>
+              </dd>
+            </div>
+            <div>
+              <dt class="text-neutral-500">Bounds</dt>
+              <dd class="font-mono text-xs">
+                [<%= Float.round(shape.bounds.min_lon, 4) %>, <%= Float.round(shape.bounds.min_lat, 4) %>]
+                to
+                [<%= Float.round(shape.bounds.max_lon, 4) %>, <%= Float.round(shape.bounds.max_lat, 4) %>]
+              </dd>
+            </div>
+            <div>
+              <dt class="text-neutral-500">Block Height</dt>
+              <dd><%= shape.block_height || "—" %></dd>
+            </div>
+            <div>
+              <dt class="text-neutral-500">Created</dt>
+              <dd><%= DateTime.to_iso8601(shape.created_at) %></dd>
+            </div>
+          </dl>
+
+          <h2 class="text-sm font-semibold text-neutral-400 mt-6 mb-3">
+            GeoJSON
+          </h2>
+          <pre class="bg-neutral-950 rounded-lg p-3 text-xs text-neutral-400 overflow-x-auto"><%= shape |> Bitblocks.ShapeLayer.to_geojson() |> Jason.encode!(pretty: true) %></pre>
+        </div>
+      </div>
+    <% end %>
+  </div>
+</div>

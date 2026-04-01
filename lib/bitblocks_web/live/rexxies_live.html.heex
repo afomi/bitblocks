@@ -1,0 +1,328 @@
+<div class="container mx-auto px-4 py-8 max-w-7xl">
+  <%!-- Header --%>
+  <div class="mb-8">
+    <div class="flex items-center gap-2 text-sm text-gray-500 mb-3">
+      <.link
+        navigate="/collections"
+        class="hover:text-gray-700"
+      >
+        Collections
+      </.link>
+      <span>/</span>
+      <span class="text-gray-900 font-semibold">Rexxies</span>
+    </div>
+    <div class="flex items-center gap-3 mb-2">
+      <h1 class="text-4xl font-bold">
+        Rexxies
+      </h1>
+      <span class="px-3 py-1 bg-pink-100 text-pink-800 rounded-full text-sm font-semibold">
+        NFT Collection
+      </span>
+    </div>
+    <p class="text-gray-600">
+      2,222 unique dinosaur NFTs on the BSV blockchain, built with Run protocol.
+    </p>
+  </div>
+
+  <%!-- Stats --%>
+  <%= if @stats do %>
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+      <div class="bg-white shadow rounded-lg p-4">
+        <div class="text-sm text-gray-500">
+          Total Supply
+        </div>
+        <div class="text-2xl font-bold">
+          <%= @stats.total %>
+        </div>
+      </div>
+      <div class="bg-white shadow rounded-lg p-4">
+        <div class="text-sm text-gray-500">
+          Trait Types
+        </div>
+        <div class="text-2xl font-bold">
+          <%= @stats.trait_types %>
+        </div>
+      </div>
+      <div class="bg-white shadow rounded-lg p-4">
+        <div class="text-sm text-gray-500">
+          Backgrounds
+        </div>
+        <div class="text-2xl font-bold">
+          <%= length(@stats.trait_counts["background"] || []) %>
+        </div>
+      </div>
+      <div class="bg-white shadow rounded-lg p-4">
+        <div class="text-sm text-gray-500">
+          Base Types
+        </div>
+        <div class="text-2xl font-bold">
+          <%= length(@stats.trait_counts["base"] || []) %>
+        </div>
+      </div>
+    </div>
+  <% end %>
+
+  <%!-- Search and Filters --%>
+  <div class="bg-white shadow rounded-lg p-4 mb-6">
+    <div class="flex flex-wrap items-end gap-4">
+      <form
+        phx-submit="search"
+        class="flex items-center gap-2 flex-1 min-w-[200px]"
+      >
+        <input
+          type="text"
+          name="q"
+          value={@search}
+          placeholder="Search by trait (e.g. Purple, Laser Eyes)..."
+          class="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-pink-500 text-sm"
+        />
+        <button
+          type="submit"
+          class="px-4 py-2 bg-pink-600 text-white rounded-md hover:bg-pink-700 text-sm"
+        >
+          Search
+        </button>
+      </form>
+
+      <%= if @search != "" || @trait_type != "" do %>
+        <button
+          phx-click="clear_filters"
+          class="px-3 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 text-sm"
+        >
+          Clear Filters
+        </button>
+      <% end %>
+    </div>
+
+    <%= if @search != "" do %>
+      <div class="mt-2 text-sm text-gray-500">
+        Showing results for: <strong class="text-pink-600"><%= @search %></strong>
+      </div>
+    <% end %>
+    <%= if @trait_type != "" do %>
+      <div class="mt-2 text-sm text-gray-500">
+        Filtering by: <strong class="text-pink-600"><%= @trait_type %>: <%= @trait_value %></strong>
+      </div>
+    <% end %>
+  </div>
+
+  <%!-- Loading --%>
+  <%= if @loading do %>
+    <div class="text-center py-12">
+      <div class="text-gray-500 animate-pulse text-lg">
+        Loading Rexxies...
+      </div>
+    </div>
+  <% end %>
+
+  <%!-- NFT Grid --%>
+  <%= if !@loading && length(@nfts) > 0 do %>
+    <div class="mb-4 text-sm text-gray-500">
+      Showing <%= length(@nfts) %> of <%= @total %> Rexxies
+    </div>
+
+    <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 mb-8">
+      <%= for nft <- @nfts do %>
+        <div
+          phx-click="select_nft"
+          phx-value-number={nft["number"]}
+          class="bg-white shadow rounded-lg overflow-hidden cursor-pointer hover:shadow-lg transition-shadow hover:ring-2 hover:ring-pink-400"
+        >
+          <div class="aspect-square bg-gray-100">
+            <img
+              src={"/images/rexxies/#{nft["number"]}.png"}
+              alt={"Rexxie ##{nft["number"]}"}
+              loading="lazy"
+              class="w-full h-full object-cover"
+            />
+          </div>
+          <div class="p-3">
+            <div class="font-bold text-sm">
+              Rexxie #<%= nft["number"] %>
+            </div>
+            <div class="text-xs text-gray-500 mt-1 truncate">
+              <%= nft["base"] || nft["background"] %>
+            </div>
+          </div>
+        </div>
+      <% end %>
+    </div>
+
+    <%!-- Pagination --%>
+    <%= if @total > @per_page && @search == "" && @trait_type == "" do %>
+      <% total_pages = ceil(@total / @per_page) %>
+      <div class="flex items-center justify-center gap-2">
+        <%= if @page > 1 do %>
+          <button
+            phx-click="page"
+            phx-value-page={@page - 1}
+            class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300 text-sm"
+          >
+            Prev
+          </button>
+        <% end %>
+
+        <span class="text-sm text-gray-600">
+          Page <%= @page %> of <%= total_pages %>
+        </span>
+
+        <%= if @page < total_pages do %>
+          <button
+            phx-click="page"
+            phx-value-page={@page + 1}
+            class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300 text-sm"
+          >
+            Next
+          </button>
+        <% end %>
+      </div>
+    <% end %>
+  <% end %>
+
+  <%!-- Empty state --%>
+  <%= if !@loading && length(@nfts) == 0 do %>
+    <div class="text-center py-12 bg-gray-50 rounded-lg">
+      <div class="text-gray-500 text-lg mb-2">
+        No Rexxies found
+      </div>
+      <div class="text-gray-400 text-sm">
+        Try adjusting your search or filters.
+      </div>
+    </div>
+  <% end %>
+
+  <%!-- NFT Detail Modal --%>
+  <%= if @selected_nft do %>
+    <div
+      class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4"
+      phx-click="close_detail"
+    >
+      <div
+        class="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto"
+        phx-click-away="close_detail"
+      >
+        <div class="flex flex-col md:flex-row">
+          <%!-- Image --%>
+          <div class="md:w-1/2 bg-gray-100">
+            <img
+              src={"/images/rexxies/#{@selected_nft["number"]}.png"}
+              alt={"Rexxie ##{@selected_nft["number"]}"}
+              class="w-full aspect-square object-cover"
+            />
+          </div>
+
+          <%!-- Details --%>
+          <div class="md:w-1/2 p-6">
+            <div class="flex items-center justify-between mb-4">
+              <h2 class="text-2xl font-bold">
+                Rexxie #<%= @selected_nft["number"] %>
+              </h2>
+              <button
+                phx-click="close_detail"
+                class="text-gray-400 hover:text-gray-600 text-2xl"
+              >
+                &times;
+              </button>
+            </div>
+
+            <%!-- Traits --%>
+            <h3 class="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-2">
+              Traits
+            </h3>
+            <div class="space-y-2 mb-6">
+              <% trait_types = ["background", "base", "body", "eye", "mouth", "head"] %>
+              <%= for type <- trait_types do %>
+                <%= if @selected_nft[type] do %>
+                  <div class="flex items-center justify-between bg-gray-50 rounded px-3 py-2">
+                    <span class="text-xs text-gray-500 uppercase">
+                      <%= type %>
+                    </span>
+                    <span
+                      phx-click="filter_trait"
+                      phx-value-type={type}
+                      phx-value-value={@selected_nft[type]}
+                      class="text-sm font-semibold text-pink-600 cursor-pointer hover:underline"
+                    >
+                      <%= @selected_nft[type] %>
+                    </span>
+                  </div>
+                <% end %>
+              <% end %>
+            </div>
+
+            <%!-- On-chain --%>
+            <h3 class="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-2">
+              On-Chain
+            </h3>
+            <div class="space-y-2 mb-4">
+              <%= if @selected_nft["txid"] do %>
+                <div class="flex items-center justify-between">
+                  <span class="text-xs text-gray-500">
+                    Mint TX
+                  </span>
+                  <.link
+                    navigate={~p"/transactions/#{@selected_nft["txid"]}"}
+                    class="font-mono text-xs text-blue-600 hover:underline"
+                  >
+                    <%= String.slice(@selected_nft["txid"], 0, 16) %>...
+                  </.link>
+                </div>
+              <% end %>
+              <div class="flex items-center justify-between">
+                <span class="text-xs text-gray-500">
+                  Jig Ref
+                </span>
+                <span class="font-mono text-xs text-gray-700">
+                  <%= @selected_nft["txid"] && String.slice(@selected_nft["txid"], 0, 8) %>..._o3
+                </span>
+              </div>
+              <div class="flex items-center justify-between">
+                <span class="text-xs text-gray-500">
+                  Collection
+                </span>
+                <span class="font-mono text-xs text-gray-700">
+                  <%= Bitblocks.Rexxies.collection_class() |> String.slice(0, 12) %>...
+                </span>
+              </div>
+            </div>
+
+            <%!-- External links --%>
+            <div class="pt-4 border-t">
+              <a
+                href={"https://whatsonchain.com/tx/#{@selected_nft["txid"]}"}
+                target="_blank"
+                rel="noopener"
+                class="text-xs text-blue-600 hover:underline"
+              >
+                View on WhatsOnChain
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  <% end %>
+
+  <%!-- About section --%>
+  <div class="mt-12 bg-gray-50 border border-gray-200 rounded-lg p-6">
+    <h2 class="text-xl font-semibold mb-3">
+      About Rexxies
+    </h2>
+    <div class="text-sm text-gray-700 space-y-2">
+      <p>
+        Rexxies are a collection of 2,222 unique dinosaur NFTs living on the Bitcoin SV blockchain.
+        Each Rexxie is a Run protocol "jig" — a UTXO with protocol-level meaning tracked by the Run token system.
+      </p>
+      <p>
+        Every Rexxie has 6 trait categories: background, base, body, eye, mouth, and head.
+        The collection was originally minted and traded on RelayX.
+      </p>
+      <p>
+        <strong>Collection Class Origin:</strong>
+        <code class="bg-gray-200 px-1.5 py-0.5 rounded text-xs break-all">
+          <%= Bitblocks.Rexxies.collection_class() %>
+        </code>
+      </p>
+    </div>
+  </div>
+</div>

@@ -64,7 +64,8 @@ defmodule Bitblocks.SyncWorker do
       # Sync from block to tip
       start_sync({800_000, 900_000})
   """
-  def start_sync({start_block, end_block} = range) when is_integer(start_block) and is_integer(end_block) do
+  def start_sync({start_block, end_block} = range)
+      when is_integer(start_block) and is_integer(end_block) do
     GenServer.call(__MODULE__, {:start_sync, range}, 60_000)
   end
 
@@ -102,7 +103,11 @@ defmodule Bitblocks.SyncWorker do
         # Small range: Calculate all missing blocks eagerly
         ranges = calculate_missing_ranges_chunked(start_block, end_block, 1_000)
         count = count_blocks_in_ranges(ranges)
-        Logger.info("SyncWorker: Small range (#{range_size} blocks) - found #{count} missing blocks in #{length(ranges)} ranges")
+
+        Logger.info(
+          "SyncWorker: Small range (#{range_size} blocks) - found #{count} missing blocks in #{length(ranges)} ranges"
+        )
+
         {ranges, count, false, nil}
       else
         # Large range: Use lazy mode - check first 100 blocks, then fetch more as needed
@@ -110,7 +115,11 @@ defmodule Bitblocks.SyncWorker do
         batch_end = min(start_block + batch_size - 1, end_block)
         ranges = calculate_missing_ranges_chunked(start_block, batch_end, 1_000)
         count = count_blocks_in_ranges(ranges)
-        Logger.info("SyncWorker: Large range (#{range_size} blocks) - lazy mode, checking first #{batch_size} blocks, found #{count} missing")
+
+        Logger.info(
+          "SyncWorker: Large range (#{range_size} blocks) - lazy mode, checking first #{batch_size} blocks, found #{count} missing"
+        )
+
         {ranges, count, true, batch_end}
       end
 
@@ -375,7 +384,8 @@ defmodule Bitblocks.SyncWorker do
           "bits" => bits,
           "nonce" => nonce,
           "num_tx" => num_tx
-        } = header when is_map(header) ->
+        } = header
+        when is_map(header) ->
           # Verify hash matches
           if hash != block_hash do
             Logger.error(
@@ -415,13 +425,19 @@ defmodule Bitblocks.SyncWorker do
                 {:ok, num_tx}
 
               {:error, changeset} ->
-                Logger.error("Failed to insert block #{block_height}: #{inspect(changeset.errors)}")
+                Logger.error(
+                  "Failed to insert block #{block_height}: #{inspect(changeset.errors)}"
+                )
+
                 {:error, :insert_failed}
             end
           end
 
         other ->
-          Logger.error("Unexpected response from getblockheader(#{block_hash}): #{inspect(other)}")
+          Logger.error(
+            "Unexpected response from getblockheader(#{block_hash}): #{inspect(other)}"
+          )
+
           {:error, :unexpected_response}
       end
     rescue
@@ -440,13 +456,17 @@ defmodule Bitblocks.SyncWorker do
             {:parse_error, %{skip: skip_bytes}} when is_integer(skip_bytes) ->
               Logger.warning(
                 "Block #{block_height} response too large (#{skip_bytes} bytes skipped), " <>
-                "falling back to header-only sync"
+                  "falling back to header-only sync"
               )
+
               # Fall back to header-only sync for this massive block
               sync_block_header_only(block_height, block_hash)
 
             _ ->
-              Logger.error("Failed to fetch block #{block_height} (#{block_hash}): #{inspect(reason)}")
+              Logger.error(
+                "Failed to fetch block #{block_height} (#{block_hash}): #{inspect(reason)}"
+              )
+
               {:error, reason}
           end
 
@@ -561,16 +581,16 @@ defmodule Bitblocks.SyncWorker do
     end)
   end
 
-  defp ensure_active_range(%State{current_range: nil, pending_ranges: [], lazy_mode: true} = state) do
+  defp ensure_active_range(
+         %State{current_range: nil, pending_ranges: [], lazy_mode: true} = state
+       ) do
     # Lazy mode: fetch next batch of blocks
     if state.last_batch_end && state.last_batch_end < state.end_block do
       batch_size = 100
       batch_start = state.last_batch_end + 1
       batch_end = min(batch_start + batch_size - 1, state.end_block)
 
-      Logger.info(
-        "SyncWorker: Lazy mode - fetching next batch #{batch_start}..#{batch_end}"
-      )
+      Logger.info("SyncWorker: Lazy mode - fetching next batch #{batch_start}..#{batch_end}")
 
       new_ranges = calculate_missing_ranges_chunked(batch_start, batch_end, 1_000)
       missing_count = count_blocks_in_ranges(new_ranges)
@@ -668,7 +688,6 @@ defmodule Bitblocks.SyncWorker do
     broadcast_progress(new_state)
     new_state
   end
-
 
   defp remaining_current_range(%State{current_range: nil}), do: 0
 

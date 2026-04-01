@@ -109,8 +109,7 @@ defmodule Bitblocks.Sync.BlockProducer do
             heights_to_fetch,
             batch_fn,
             single_fn,
-            fallback_message:
-              "Batch getblockhash failed for #{length(heights_to_fetch)} heights"
+            fallback_message: "Batch getblockhash failed for #{length(heights_to_fetch)} heights"
           )
 
         # Process results (handle both batch map format and individual results)
@@ -142,11 +141,17 @@ defmodule Bitblocks.Sync.BlockProducer do
                   {:ok, %{height: height, hash: hash}}
 
                 {:error, error} ->
-                  Logger.error("Failed to fetch block hash for height #{height}: #{inspect(error)}")
+                  Logger.error(
+                    "Failed to fetch block hash for height #{height}: #{inspect(error)}"
+                  )
+
                   {:error, height, error}
 
                 error ->
-                  Logger.error("Failed to fetch block hash for height #{height}: #{inspect(error)}")
+                  Logger.error(
+                    "Failed to fetch block hash for height #{height}: #{inspect(error)}"
+                  )
+
                   {:error, height, error}
               end
             end)

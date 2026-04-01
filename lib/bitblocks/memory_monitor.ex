@@ -173,13 +173,16 @@ defmodule Bitblocks.MemoryMonitor do
       end)
       |> Enum.sum()
 
-    duration_ms = System.convert_time_unit(System.monotonic_time() - start_time, :native, :millisecond)
+    duration_ms =
+      System.convert_time_unit(System.monotonic_time() - start_time, :native, :millisecond)
 
     Logger.info("Garbage collected #{count} processes in #{duration_ms}ms")
 
     after_mb = bytes_to_mb(:erlang.memory(:total))
 
-    Logger.info("Memory before: #{before_mb} MB, after: #{after_mb} MB, freed: #{before_mb - after_mb} MB")
+    Logger.info(
+      "Memory before: #{before_mb} MB, after: #{after_mb} MB, freed: #{before_mb - after_mb} MB"
+    )
 
     :ok
   end

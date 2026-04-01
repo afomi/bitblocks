@@ -30,6 +30,10 @@ import BlockTimeChart from "./hooks/block_time_chart"
 import BlockSizeChart from "./hooks/block_size_chart"
 import TransactionGraph from "./hooks/transaction_graph"
 import ForkGraph from "./hooks/fork_graph"
+import BlockGraph from "./hooks/block_graph"
+import PeerMap from "./hooks/peer_map"
+import NetworkPulse from "./hooks/network_pulse"
+import EcosystemGraph from "./hooks/ecosystem_graph"
 
 let Hooks = {
   TxChart: TxChart,
@@ -38,7 +42,11 @@ let Hooks = {
   BlockTimeChart: BlockTimeChart,
   BlockSizeChart: BlockSizeChart,
   TransactionGraph: TransactionGraph,
-  ForkGraph: ForkGraph
+  ForkGraph: ForkGraph,
+  BlockGraph: BlockGraph,
+  PeerMap: PeerMap,
+  NetworkPulse: NetworkPulse,
+  EcosystemGraph: EcosystemGraph
 }
 
 let csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")

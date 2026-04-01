@@ -1,11 +1,11 @@
 defmodule BitblocksWeb.TransactionLive.Show do
   use BitblocksWeb, :live_view
 
-  alias Bitblocks.{Chain, TransactionParser}
+  alias Bitblocks.{Chain, TransactionParser, Collections}
 
   @impl true
   def mount(_params, _session, socket) do
-    {:ok, socket}
+    {:ok, assign(socket, collection_item: nil, collection_slug: nil, collection_module: nil)}
   end
 
   @impl true
@@ -65,13 +65,31 @@ defmodule BitblocksWeb.TransactionLive.Show do
         nil
       end
 
+    # Check if this transaction belongs to any registered collection
+    {collection_slug, collection_item, collection_module} =
+      if transaction && transaction.txid do
+        case Collections.lookup_txid(transaction.txid) do
+          {slug, item} ->
+            module = Collections.get(slug)
+            {slug, item, module}
+
+          nil ->
+            {nil, nil, nil}
+        end
+      else
+        {nil, nil, nil}
+      end
+
     {:noreply,
      socket
      |> assign(:page_title, page_title(socket.assigns.live_action))
      |> assign(:transaction, transaction)
      |> assign(:block, block)
      |> assign(:parsed_data, parsed_data)
-     |> assign(:decoded_tx, decoded_tx)}
+     |> assign(:decoded_tx, decoded_tx)
+     |> assign(:collection_item, collection_item)
+     |> assign(:collection_slug, collection_slug)
+     |> assign(:collection_module, collection_module)}
   end
 
   defp fetch_transaction_on_demand(txid) do

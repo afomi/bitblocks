@@ -1,0 +1,123 @@
+<div class="fixed inset-0 bg-neutral-950 flex flex-col">
+  <%!-- Top toolbar --%>
+  <div class="flex items-center justify-between px-4 py-2 bg-neutral-900 border-b border-neutral-800 z-10">
+    <div class="flex items-center gap-4">
+      <a
+        href="/"
+        class="text-neutral-400 hover:text-neutral-200 text-sm"
+      >
+        &larr; Back
+      </a>
+      <h1 class="text-lg font-semibold text-neutral-100">
+        Peer Network Map
+      </h1>
+    </div>
+
+    <div class="flex items-center gap-4">
+      <span class="text-xs text-neutral-400">
+        Connected Peers: <strong class="text-neutral-200"><%= @peer_count %></strong>
+      </span>
+      <%= if @last_updated do %>
+        <span class="text-xs text-neutral-500">
+          Updated: <%= @last_updated %>
+        </span>
+      <% end %>
+      <button
+        phx-click="refresh"
+        class="px-3 py-1 text-sm rounded bg-neutral-800 text-neutral-300 hover:bg-neutral-700 transition-colors"
+      >
+        Refresh
+      </button>
+    </div>
+  </div>
+
+  <%!-- Stats bar --%>
+  <div class="flex items-center gap-6 px-4 py-1.5 bg-neutral-900/80 border-b border-neutral-800 text-xs text-neutral-400 z-10">
+    <% located = Enum.count(@peers, fn p -> p.lat != nil end) %>
+    <% countries = @peers |> Enum.map(& &1.country) |> Enum.reject(&is_nil/1) |> Enum.uniq() |> length() %>
+    <% inbound = Enum.count(@peers, fn p -> p.inbound end) %>
+    <% outbound = @peer_count - inbound %>
+    <span>
+      Located: <strong class="text-neutral-200"><%= located %>/<%= @peer_count %></strong>
+    </span>
+    <span>
+      Countries: <strong class="text-neutral-200"><%= countries %></strong>
+    </span>
+    <span>
+      Inbound: <strong class="text-green-400"><%= inbound %></strong>
+      Outbound: <strong class="text-blue-400"><%= outbound %></strong>
+    </span>
+    <%= if @loading do %>
+      <span class="text-amber-400 animate-pulse">Geolocating peers...</span>
+    <% end %>
+  </div>
+
+  <%!-- Three.js globe --%>
+  <div
+    id="peer-map"
+    phx-hook="PeerMap"
+    phx-update="ignore"
+    class="flex-1 w-full min-h-0 overflow-hidden"
+  >
+  </div>
+
+  <%!-- Peer list sidebar --%>
+  <div class="fixed right-0 top-20 bottom-0 w-72 bg-neutral-900/95 border-l border-neutral-800 overflow-y-auto z-10">
+    <div class="p-3">
+      <h2 class="text-xs font-semibold text-neutral-400 uppercase tracking-wide mb-3">
+        Connected Peers
+      </h2>
+      <div class="space-y-2">
+        <%= for peer <- Enum.sort_by(@peers, & &1.country) do %>
+          <div class="bg-neutral-800/50 rounded-lg px-3 py-2 text-xs">
+            <div class="flex items-center justify-between mb-1">
+              <span class="font-mono text-neutral-200">
+                <%= peer.ip %>
+              </span>
+              <span class={"px-1.5 py-0.5 rounded text-[10px] " <> if(peer.inbound, do: "bg-green-500/20 text-green-400", else: "bg-blue-500/20 text-blue-400")}>
+                <%= if peer.inbound, do: "in", else: "out" %>
+              </span>
+            </div>
+            <%= if peer.city || peer.country do %>
+              <div class="text-neutral-400">
+                <%= [peer.city, peer.country] |> Enum.reject(&is_nil/1) |> Enum.join(", ") %>
+              </div>
+            <% end %>
+            <div class="flex items-center justify-between mt-1 text-neutral-500">
+              <span class="truncate max-w-[140px]">
+                <%= String.replace(peer.subver || "", "/", "") %>
+              </span>
+              <%= if peer.pingtime && peer.pingtime > 0 do %>
+                <span>
+                  <%= Float.round(peer.pingtime * 1000, 0) %>ms
+                </span>
+              <% end %>
+            </div>
+          </div>
+        <% end %>
+      </div>
+    </div>
+  </div>
+
+  <%!-- Tooltip --%>
+  <div
+    id="peer-map-tooltip"
+    class="fixed pointer-events-none bg-neutral-900/95 border border-neutral-700 rounded-lg px-3 py-2 text-xs text-neutral-200 shadow-xl z-50 hidden"
+  >
+  </div>
+
+  <%!-- Legend --%>
+  <div class="fixed bottom-4 left-4 bg-neutral-900/90 border border-neutral-700 rounded-lg px-3 py-2 text-xs text-neutral-400 z-50">
+    <div class="flex items-center gap-4">
+      <div class="flex items-center gap-1.5">
+        <span class="w-2.5 h-2.5 rounded-full bg-green-400"></span>
+        <span>Inbound</span>
+      </div>
+      <div class="flex items-center gap-1.5">
+        <span class="w-2.5 h-2.5 rounded-full bg-blue-400"></span>
+        <span>Outbound</span>
+      </div>
+      <span>Drag to rotate &middot; Scroll to zoom</span>
+    </div>
+  </div>
+</div>

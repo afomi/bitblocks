@@ -96,7 +96,9 @@ defmodule Bitblocks.StatsCache do
     :ets.insert(__MODULE__, {:blocks_count, blocks_count})
     :ets.insert(__MODULE__, {:transactions_count, transactions_count})
 
-    Logger.info("StatsCache: updated - blocks=#{blocks_count}, transactions=#{transactions_count}")
+    Logger.info(
+      "StatsCache: updated - blocks=#{blocks_count}, transactions=#{transactions_count}"
+    )
   rescue
     error ->
       Logger.error("StatsCache: refresh failed - #{inspect(error)}")

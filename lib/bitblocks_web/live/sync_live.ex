@@ -95,11 +95,15 @@ defmodule BitblocksWeb.SyncLive do
     require Logger
     Logger.info("SyncLive: Received start_sync event with params: #{inspect(params)}")
     sync_mode = socket.assigns.sync_mode
-    Logger.info("SyncLive: Using sync_mode: #{sync_mode}, scope_type: #{socket.assigns.scope_type}")
+
+    Logger.info(
+      "SyncLive: Using sync_mode: #{sync_mode}, scope_type: #{socket.assigns.scope_type}"
+    )
 
     case build_scope(socket.assigns.scope_type, params) do
       {:ok, scope} ->
         Logger.info("SyncLive: Built scope: #{inspect(scope)}")
+
         result =
           case sync_mode do
             "parallel" ->
@@ -108,6 +112,7 @@ defmodule BitblocksWeb.SyncLive do
 
             "sequential" ->
               Logger.info("SyncLive: Starting sequential sync")
+
               case SyncWorker.start_sync(scope) do
                 :ok -> :ok
                 {:error, :already_running} -> {:error, "Sync is already running"}
@@ -1296,19 +1301,23 @@ defmodule BitblocksWeb.SyncLive do
   defp progress_percent(%{total_blocks: 0}), do: 0
   defp progress_percent(%{total_blocks: nil}), do: 0
   defp progress_percent(%{blocks_synced: nil}), do: 0
+
   defp progress_percent(%{blocks_synced: synced, total_blocks: total})
        when is_number(synced) and is_number(total) and total > 0 do
     (synced / total * 100) |> Float.round(2)
   end
+
   defp progress_percent(_), do: 0
 
   # Format duration in milliseconds to human-readable string (for real-time block sync)
   defp format_block_duration(nil), do: "--"
   defp format_block_duration(ms) when ms < 1000, do: "#{ms}ms"
+
   defp format_block_duration(ms) when ms < 60_000 do
     seconds = Float.round(ms / 1000, 1)
     "#{seconds}s"
   end
+
   defp format_block_duration(ms) do
     minutes = div(ms, 60_000)
     seconds = div(rem(ms, 60_000), 1000)

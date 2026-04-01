@@ -1,18 +1,24 @@
 <!DOCTYPE html>
 <html lang="en" class="[scrollbar-gutter:stable]">
   <head>
+    <% page_title = assigns[:page_title] || "Bitblocks" %>
+    <% meta_description = assigns[:meta_description] || "Explore Bitcoin SV blocks, transactions, protocols, and network status with Bitblocks." %>
+    <% meta_robots = assigns[:meta_robots] || "index, follow" %>
+    <% canonical_url = "https://bitblocks.app#{assigns[:canonical_path] || "/"}" %>
+    <% social_image = assigns[:social_image] || "https://bitblocks.app/images/og-image.jpg" %>
+    <% social_image_alt = assigns[:social_image_alt] || "Bitblocks Bitcoin SV blockchain explorer preview" %>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="csrf-token" content={get_csrf_token()} />
 
     <.live_title suffix=" · Bitblocks">
-      <%= assigns[:page_title] || "Bitblocks" %>
+      <%= page_title %>
     </.live_title>
 
     <!-- SEO Meta Tags -->
     <meta
       name="description"
-      content={assigns[:meta_description] || "Bitblocks - Bitcoin SV Blockchain Explorer. Browse blocks, transactions, and explore the Bitcoin SV blockchain in real-time."}
+      content={meta_description}
     />
     <meta
       name="keywords"
@@ -24,11 +30,11 @@
     />
     <meta
       name="robots"
-      content="index, follow"
+      content={meta_robots}
     />
     <link
       rel="canonical"
-      href={"https://bitblocks.app#{assigns[:canonical_path] || "/"}"}
+      href={canonical_url}
     />
 
     <!-- Open Graph / Facebook -->
@@ -37,20 +43,28 @@
       content="website"
     />
     <meta
+      property="og:site_name"
+      content="Bitblocks"
+    />
+    <meta
       property="og:url"
-      content="https://bitblocks.app/"
+      content={canonical_url}
     />
     <meta
       property="og:title"
-      content={assigns[:page_title] || "Bitblocks - Bitcoin SV Blockchain Explorer"}
+      content={page_title}
     />
     <meta
       property="og:description"
-      content={assigns[:meta_description] || "Browse blocks, transactions, and explore the Bitcoin SV blockchain in real-time."}
+      content={meta_description}
     />
     <meta
       property="og:image"
-      content="https://bitblocks.app/images/og-image.jpg"
+      content={social_image}
+    />
+    <meta
+      property="og:image:alt"
+      content={social_image_alt}
     />
     <meta
       property="og:image:width"
@@ -67,61 +81,48 @@
 
     <!-- Twitter -->
     <meta
-      property="twitter:card"
+      name="twitter:card"
       content="summary_large_image"
     />
     <meta
-      property="twitter:url"
-      content="https://bitblocks.app/"
+      name="twitter:url"
+      content={canonical_url}
     />
     <meta
-      property="twitter:title"
-      content={assigns[:page_title] || "Bitblocks - Bitcoin SV Blockchain Explorer"}
+      name="twitter:title"
+      content={page_title}
     />
     <meta
-      property="twitter:description"
-      content={assigns[:meta_description] || "Browse blocks, transactions, and explore the Bitcoin SV blockchain in real-time."}
+      name="twitter:description"
+      content={meta_description}
     />
     <meta
-      property="twitter:image"
-      content="https://bitblocks.app/images/og-image.jpg"
+      name="twitter:image"
+      content={social_image}
+    />
+    <meta
+      name="twitter:image:alt"
+      content={social_image_alt}
     />
 
     <!-- Schema.org JSON-LD -->
     <script type="application/ld+json">
       {
         "@context": "https://schema.org",
-        "@type": "WebApplication",
+        "@type": "WebSite",
         "name": "Bitblocks",
         "alternateName": "Bitblocks Explorer",
-        "description": "Bitcoin SV Blockchain Explorer - Browse blocks, transactions, and explore the Bitcoin SV blockchain in real-time",
+        "description": "Explore Bitcoin SV blocks, transactions, protocols, and network status with Bitblocks.",
         "url": "https://bitblocks.app",
-        "applicationCategory": "FinanceApplication",
-        "operatingSystem": "Web",
-        "browserRequirements": "Requires JavaScript. Requires HTML5.",
-        "softwareVersion": "1.0",
-        "offers": {
-          "@type": "Offer",
-          "price": "0",
-          "priceCurrency": "USD"
-        },
-        "provider": {
+        "publisher": {
           "@type": "Organization",
           "name": "Bitblocks",
           "url": "https://github.com/afomi/bitblocks"
         },
-        "featureList": [
-          "Browse Bitcoin SV blocks",
-          "View transaction details",
-          "Search blocks and transactions",
-          "Real-time blockchain data",
-          "Transaction parsing and protocol analysis"
-        ],
-        "screenshot": "https://bitblocks.app/images/og-image.jpg",
-        "aggregateRating": {
-          "@type": "AggregateRating",
-          "ratingValue": "5",
-          "ratingCount": "1"
+        "potentialAction": {
+          "@type": "SearchAction",
+          "target": "https://bitblocks.app/search?query={search_term_string}",
+          "query-input": "required name=search_term_string"
         }
       }
     </script>

@@ -1,6 +1,8 @@
 defmodule BitblocksWeb.PageController do
   use BitblocksWeb, :controller
 
+  alias BitblocksWeb.Seo
+
   def index(conn, _params) do
     render(conn, :index)
   end
@@ -31,14 +33,26 @@ defmodule BitblocksWeb.PageController do
     # Get blockchain info from RPC node
     blockchain_info = get_blockchain_info()
 
-    render(conn, :home,
-      latest_block: latest_block,
-      total_blocks: total_blocks,
-      time_ago_minutes: time_ago_minutes,
-      block_time: block_time,
-      blockchain_info: blockchain_info,
-      blocks_count: total_blocks,
-      transactions_count: transactions_count
+    seo =
+      Seo.public_page(
+        page_title: "Bitcoin SV Blockchain Explorer",
+        meta_description:
+          "Browse Bitcoin SV blocks, transactions, protocols, and live network status with Bitblocks.",
+        canonical_path: "/"
+      )
+
+    render(
+      conn,
+      :home,
+      Map.merge(seo, %{
+        latest_block: latest_block,
+        total_blocks: total_blocks,
+        time_ago_minutes: time_ago_minutes,
+        block_time: block_time,
+        blockchain_info: blockchain_info,
+        blocks_count: total_blocks,
+        transactions_count: transactions_count
+      })
     )
   end
 
@@ -68,11 +82,29 @@ defmodule BitblocksWeb.PageController do
   end
 
   def applications(conn, _params) do
-    render(conn, "applications.html")
+    render(
+      conn,
+      "applications.html",
+      Seo.public_page(
+        page_title: "Applications on Bitcoin SV",
+        meta_description:
+          "Explore the types of applications Bitblocks supports across Bitcoin SV, from protocol discovery to transaction inspection and DID tooling.",
+        canonical_path: "/apps"
+      )
+    )
   end
 
   def resources(conn, _params) do
-    render(conn, "resources.html")
+    render(
+      conn,
+      "resources.html",
+      Seo.public_page(
+        page_title: "Bitblocks Resources",
+        meta_description:
+          "Find Bitblocks resources for explorer usage, protocol discovery, source code, deployment notes, and Bitcoin SV learning links.",
+        canonical_path: "/resources"
+      )
+    )
   end
 
   def status(conn, _params) do
@@ -124,39 +156,63 @@ defmodule BitblocksWeb.PageController do
             0.0
           end
 
-        render(conn, :status,
-          pruned: pruned,
-          chain: chain,
-          blocks: blocks,
-          blocks_synced: blocks_synced,
-          headers: headers,
-          verificationprogress: verificationprogress,
-          style: %{
-            style: "width: #{app_sync_percentage}%;"
-          },
-          transaction_count: transaction_count,
-          latest_block: latest_block,
-          time_ago_minutes: time_ago_minutes,
-          block_time: block_time
+        seo =
+          Seo.public_page(
+            page_title: "Bitcoin SV Node Status",
+            meta_description:
+              "Monitor Bitblocks sync progress, indexed block counts, transaction totals, and current Bitcoin SV node health.",
+            canonical_path: "/status"
+          )
+
+        render(
+          conn,
+          :status,
+          Map.merge(seo, %{
+            pruned: pruned,
+            chain: chain,
+            blocks: blocks,
+            blocks_synced: blocks_synced,
+            headers: headers,
+            verificationprogress: verificationprogress,
+            style: %{
+              style: "width: #{app_sync_percentage}%;"
+            },
+            transaction_count: transaction_count,
+            latest_block: latest_block,
+            time_ago_minutes: time_ago_minutes,
+            block_time: block_time
+          })
         )
 
       # Handle any error case (nil, error tuple, or unexpected response)
       _ ->
-        render(conn, :status,
-          r: nil,
-          blocks: nil,
-          blocks_synced: blocks_synced,
-          transaction_count: transaction_count,
-          style: %{
-            style: "width: 0;"
-          },
-          chain: nil,
-          headers: nil,
-          verificationprogress: 0.0,
-          pruned: nil,
-          latest_block: nil,
-          time_ago_minutes: nil,
-          block_time: nil
+        render(
+          conn,
+          :status,
+          Map.merge(
+            Seo.public_page(
+              page_title: "Bitcoin SV Node Status",
+              meta_description:
+                "Monitor Bitblocks sync progress, indexed block counts, transaction totals, and current Bitcoin SV node health.",
+              canonical_path: "/status"
+            ),
+            %{
+              r: nil,
+              blocks: nil,
+              blocks_synced: blocks_synced,
+              transaction_count: transaction_count,
+              style: %{
+                style: "width: 0;"
+              },
+              chain: nil,
+              headers: nil,
+              verificationprogress: 0.0,
+              pruned: nil,
+              latest_block: nil,
+              time_ago_minutes: nil,
+              block_time: nil
+            }
+          )
         )
     end
   end

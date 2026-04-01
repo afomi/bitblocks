@@ -1,0 +1,101 @@
+<div class="relative min-h-screen overflow-hidden bg-[#020611] text-neutral-100">
+  <div
+    id="network-pulse-canvas"
+    phx-hook="NetworkPulse"
+    phx-update="ignore"
+    class="absolute inset-0"
+  >
+  </div>
+
+  <div class="relative z-10 flex min-h-screen flex-col">
+    <header class="flex items-center justify-between px-6 py-5 sm:px-8">
+      <div>
+        <a
+          href="/"
+          class="text-xs uppercase tracking-[0.28em] text-cyan-200/70 transition hover:text-cyan-100"
+        >
+          Bitblocks Experimental
+        </a>
+        <h1 class="mt-3 text-3xl font-semibold tracking-[0.08em] text-white sm:text-5xl">
+          Network Pulse
+        </h1>
+      </div>
+
+      <div class="text-right text-xs uppercase tracking-[0.2em] text-cyan-100/70">
+        <div>Compression</div>
+        <div class="mt-2">Stamp</div>
+        <div class="mt-2">Expansion</div>
+      </div>
+    </header>
+
+    <main class="flex flex-1 flex-col justify-between px-6 pb-8 pt-2 sm:px-8">
+      <section class="max-w-3xl">
+        <p class="max-w-2xl text-sm leading-7 text-cyan-50/78 sm:text-base">
+          A rhythmic sketch of proof-of-work as a breathing system: mempool pressure draws
+          inward, miners compress search into a block, and a stamped block expands through the
+          network before the cycle begins again.
+        </p>
+      </section>
+
+      <section class="pointer-events-none flex flex-1 items-center justify-center">
+        <div class="max-w-xl text-center">
+          <p class="text-[0.7rem] uppercase tracking-[0.42em] text-cyan-100/55">
+            Digital Metabolism
+          </p>
+          <p class="mt-5 text-2xl font-light leading-relaxed text-white/92 sm:text-4xl">
+            Each block interval becomes a beat in the system’s metabolism.
+          </p>
+        </div>
+      </section>
+
+      <section class="grid gap-4 lg:grid-cols-[1.2fr_1fr_1fr]">
+        <article class="rounded-3xl border border-cyan-200/10 bg-white/5 p-5 backdrop-blur-sm">
+          <p class="text-[0.7rem] uppercase tracking-[0.28em] text-cyan-100/55">
+            Mempool Pressure
+          </p>
+          <p class="mt-3 font-mono text-3xl text-cyan-50 sm:text-4xl">
+            <%= format_count(@mempool_count) %>
+          </p>
+          <p class="mt-2 text-sm text-cyan-50/65">
+            Current transactions waiting to be stamped into a block.
+          </p>
+          <p class="mt-4 text-xs uppercase tracking-[0.2em] text-cyan-100/45">
+            <%= format_bytes(@mempool_bytes) %> queued
+          </p>
+        </article>
+
+        <article class="rounded-3xl border border-orange-200/10 bg-white/5 p-5 backdrop-blur-sm">
+          <p class="text-[0.7rem] uppercase tracking-[0.28em] text-orange-100/55">
+            Last Stamp
+          </p>
+          <p class="mt-3 font-mono text-3xl text-orange-50 sm:text-4xl">
+            <%= format_count(@last_block_tx_count) %>
+          </p>
+          <p class="mt-2 text-sm text-orange-50/65">
+            Transactions visualized in the most recent block pulse.
+          </p>
+        </article>
+
+        <article class="rounded-3xl border border-emerald-200/10 bg-white/5 p-5 backdrop-blur-sm">
+          <p class="text-[0.7rem] uppercase tracking-[0.28em] text-emerald-100/55">
+            Chain Beat
+          </p>
+          <p class="mt-3 font-mono text-3xl text-emerald-50 sm:text-4xl">
+            <%= if @block_height, do: format_count(@block_height), else: "Waiting" %>
+          </p>
+          <p class="mt-2 text-sm text-emerald-50/65">
+            <%= if @rpc_online, do: "Live RPC data is feeding the pulse.", else: "RPC offline. The pulse is idling on ambient motion." %>
+          </p>
+          <%= if @last_block_seen_at do %>
+            <time
+              datetime={@last_block_seen_at}
+              class="mt-4 block text-xs uppercase tracking-[0.2em] text-emerald-100/45"
+            >
+              Last block seen at <%= @last_block_seen_at %>
+            </time>
+          <% end %>
+        </article>
+      </section>
+    </main>
+  </div>
+</div>
