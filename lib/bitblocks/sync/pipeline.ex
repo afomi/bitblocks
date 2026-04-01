@@ -143,26 +143,6 @@ defmodule Bitblocks.Sync.Pipeline do
   end
 
   @impl true
-  def handle_cast(:stop_sync, state) do
-    if state.status == :running do
-      stop_pipeline(state)
-
-      new_state = %{
-        state
-        | status: :stopped,
-          fetcher_stats: mark_fetchers_idle(state.fetcher_stats)
-      }
-
-      Logger.info("Sync pipeline stopped")
-      broadcast_fetcher_stats(new_state)
-      broadcast_event(:pipeline_stopped)
-      {:noreply, new_state}
-    else
-      {:noreply, state}
-    end
-  end
-
-  @impl true
   def handle_call(:status, _from, state) do
     progress =
       if state.status == :running do
@@ -183,6 +163,26 @@ defmodule Bitblocks.Sync.Pipeline do
     }
 
     {:reply, status, state}
+  end
+
+  @impl true
+  def handle_cast(:stop_sync, state) do
+    if state.status == :running do
+      stop_pipeline(state)
+
+      new_state = %{
+        state
+        | status: :stopped,
+          fetcher_stats: mark_fetchers_idle(state.fetcher_stats)
+      }
+
+      Logger.info("Sync pipeline stopped")
+      broadcast_fetcher_stats(new_state)
+      broadcast_event(:pipeline_stopped)
+      {:noreply, new_state}
+    else
+      {:noreply, state}
+    end
   end
 
   @impl true
