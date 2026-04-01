@@ -67,7 +67,7 @@ defmodule Bitblocks.Sync.Pipeline do
   end
 
   def stop_sync do
-    GenServer.call(__MODULE__, :stop_sync)
+    GenServer.cast(__MODULE__, :stop_sync)
   end
 
   def status do
@@ -143,7 +143,7 @@ defmodule Bitblocks.Sync.Pipeline do
   end
 
   @impl true
-  def handle_call(:stop_sync, _from, state) do
+  def handle_cast(:stop_sync, state) do
     if state.status == :running do
       stop_pipeline(state)
 
@@ -156,9 +156,9 @@ defmodule Bitblocks.Sync.Pipeline do
       Logger.info("Sync pipeline stopped")
       broadcast_fetcher_stats(new_state)
       broadcast_event(:pipeline_stopped)
-      {:reply, :ok, new_state}
+      {:noreply, new_state}
     else
-      {:reply, {:error, :not_running}, state}
+      {:noreply, state}
     end
   end
 
@@ -332,9 +332,9 @@ defmodule Bitblocks.Sync.Pipeline do
   end
 
   defp stop_pipeline(state) do
-    if state.producer_pid, do: GenServer.stop(state.producer_pid, :normal)
-    if state.writer_pid, do: GenServer.stop(state.writer_pid, :normal)
-    Enum.each(state.fetchers_pids || [], &GenServer.stop(&1, :normal))
+    if state.producer_pid, do: Process.exit(state.producer_pid, :shutdown)
+    if state.writer_pid, do: Process.exit(state.writer_pid, :shutdown)
+    Enum.each(state.fetchers_pids || [], &Process.exit(&1, :shutdown))
   end
 
   defp broadcast_event(event) do

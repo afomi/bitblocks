@@ -68,18 +68,17 @@ defmodule Bitblocks.Sync.PipelineTest do
   describe "Pipeline.stop_sync/0" do
     test "stops a running sync" do
       assert :ok = Pipeline.start_sync(100_000, 100_010)
-      assert :ok = Pipeline.stop_sync()
+      Pipeline.stop_sync()
 
+      # Cast is async — give it a moment to process
+      Process.sleep(100)
       status = Pipeline.status()
       assert status.status == :stopped
     end
 
-    test "returns error if not running" do
-      status = Pipeline.status()
-
-      if status.status == :idle do
-        assert {:error, :not_running} = Pipeline.stop_sync()
-      end
+    test "is a no-op if not running" do
+      # stop_sync is now a cast and returns :ok regardless
+      assert :ok = Pipeline.stop_sync()
     end
   end
 

@@ -199,15 +199,9 @@ defmodule Bitblocks.Release do
   def pipeline_stop do
     Logger.info("Stopping pipeline...")
 
-    case Bitblocks.Sync.Pipeline.stop_sync() do
-      :ok ->
-        Logger.info("Pipeline stopped successfully")
-        :ok
-
-      {:error, reason} ->
-        Logger.error("Failed to stop pipeline: #{inspect(reason)}")
-        {:error, reason}
-    end
+    Bitblocks.Sync.Pipeline.stop_sync()
+    Logger.info("Pipeline stop requested")
+    :ok
   end
 
   @doc """

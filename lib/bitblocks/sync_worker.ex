@@ -423,8 +423,7 @@ defmodule Bitblocks.SyncWorker do
             }
 
             case Repo.insert(block_struct |> Ecto.Changeset.change(%{}),
-                   on_conflict: :nothing,
-                   conflict_target: :hash
+                   on_conflict: :nothing
                  ) do
               {:ok, _} ->
                 {:ok, num_tx}

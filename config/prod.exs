@@ -10,7 +10,8 @@ config :bitblocks, BitblocksWeb.Endpoint,
   url: [port: 443, scheme: "https", host: "www.bitblocks.app"],
   force_ssl: [
     rewrite_on: [:x_forwarded_proto],
-    hsts: true
+    hsts: true,
+    exclude: ["healthz"]
   ]
 
 # Configures Swoosh API Client
