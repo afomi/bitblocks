@@ -1,0 +1,363 @@
+<div class="max-w-6xl mx-auto px-4 py-8">
+  <h1 class="text-2xl font-semibold">DID Playground (Single Account)</h1>
+
+  <div class="mt-6 flex gap-2 flex-wrap">
+    <button
+      phx-click="switch"
+      phx-value-tab="did"
+      class={"px-3 py-2 rounded-xl border #{if @tab==:did, do: "bg-indigo-600 text-white", else: "bg-white"}"}
+    >
+      Create DID
+    </button>
+    <button
+      phx-click="switch"
+      phx-value-tab="vanity"
+      class={"px-3 py-2 rounded-xl border #{if @tab==:vanity, do: "bg-indigo-600 text-white", else: "bg-white"}"}
+    >
+      Vanity DID
+    </button>
+    <button
+      phx-click="switch"
+      phx-value-tab="issue"
+      class={"px-3 py-2 rounded-xl border #{if @tab==:issue, do: "bg-indigo-600 text-white", else: "bg-white"}"}
+    >
+      Issuance
+    </button>
+    <button
+      phx-click="switch"
+      phx-value-tab="verify"
+      class={"px-3 py-2 rounded-xl border #{if @tab==:verify, do: "bg-indigo-600 text-white", else: "bg-white"}"}
+    >
+      Verification
+    </button>
+  </div>
+
+  <!-- DID CREATION -->
+  <%= if @tab == :did do %>
+    <div class="mt-6 rounded-2xl border p-4 bg-white">
+      <h2 class="font-semibold text-lg">Create DID (did:web)</h2>
+      <.simple_form
+        for={:did}
+        phx-submit="gen_did"
+        class="grid md:grid-cols-3 gap-4 mt-4"
+      >
+        <.input
+          name="host"
+          value={@host}
+          label="Host"
+          placeholder="ryanwold.net"
+        />
+        <.input
+          name="path"
+          value={@path}
+          label="Path (optional)"
+          placeholder="dept/dmv"
+        />
+        <.input
+          type="select"
+          name="alg"
+          value={@alg}
+          label="Algorithm"
+          options={["ES256", "EdDSA"]}
+        />
+        <:actions>
+          <.button class="mt-2">Generate</.button>
+        </:actions>
+      </.simple_form>
+
+      <%= if @did do %>
+        <div class="mt-6 grid md:grid-cols-2 gap-4">
+          <div class="rounded-xl border p-3">
+            <p class="text-sm text-slate-600">DID</p>
+            <p class="font-mono text-sm break-all"><%= @did %></p>
+            <p class="text-sm text-slate-600 mt-3">Publish at</p>
+            <a
+              class="font-mono text-xs text-indigo-700 underline break-all"
+              href={@did_url}
+              target="_blank"
+            ><%= @did_url %></a>
+          </div>
+          <div class="rounded-xl border p-3">
+            <p class="font-semibold">Public JWK</p>
+            <textarea class="w-full h-48 font-mono text-xs border rounded-lg p-2"><%= @pub_jwk_json %></textarea>
+          </div>
+        </div>
+
+        <div class="mt-4 grid md:grid-cols-2 gap-4">
+          <div class="rounded-xl border p-3">
+            <p class="font-semibold">Private JWK (keep secret)</p>
+            <textarea class="w-full h-48 font-mono text-xs border rounded-lg p-2"><%= @priv_jwk_json %></textarea>
+          </div>
+          <div class="rounded-xl border p-3">
+            <p class="font-semibold">did.json</p>
+            <textarea class="w-full h-48 font-mono text-xs border rounded-lg p-2"><%= @did_doc_json %></textarea>
+          </div>
+        </div>
+      <% end %>
+    </div>
+  <% end %>
+
+  <!-- VANITY DID -->
+  <%= if @tab == :vanity do %>
+    <div class="mt-6 rounded-2xl border p-4 bg-white">
+      <h2 class="font-semibold text-lg">Vanity DID (secp256k1)</h2>
+      <p class="text-sm text-slate-600 mt-1">
+        Generate a DID with a Bitcoin address matching your prefix.
+        Uses the same key for both DID signing and Bitcoin transactions.
+      </p>
+
+      <.simple_form
+        for={:vanity}
+        phx-submit="search_vanity"
+        class="grid md:grid-cols-3 gap-4 mt-4"
+      >
+        <.input
+          name="vanity_prefix"
+          value={@vanity_prefix}
+          label="Prefix (after '1')"
+          placeholder="Ryan"
+        />
+        <.input
+          name="vanity_host"
+          value={@vanity_host}
+          label="Host"
+          placeholder="ryanwold.net"
+        />
+        <.input
+          name="vanity_path"
+          value={@vanity_path}
+          label="Path (optional)"
+          placeholder="dept/id"
+        />
+        <div class="flex items-center gap-4 md:col-span-3">
+          <label class="flex items-center gap-2">
+            <input
+              type="checkbox"
+              name="vanity_case_sensitive"
+              value="true"
+              checked={@vanity_case_sensitive}
+              class="rounded"
+            />
+            <span class="text-sm">Case sensitive</span>
+          </label>
+          <label class="flex items-center gap-2">
+            <input
+              type="checkbox"
+              name="vanity_suffix"
+              value="true"
+              checked={@vanity_suffix}
+              class="rounded"
+            />
+            <span class="text-sm">Match suffix</span>
+          </label>
+        </div>
+        <:actions>
+          <.button
+            class="mt-2"
+            disabled={@vanity_searching}
+          >
+            <%= if @vanity_searching, do: "Searching...", else: "Search" %>
+          </.button>
+        </:actions>
+      </.simple_form>
+
+      <%= if @vanity_searching do %>
+        <div class="mt-4 p-4 rounded-xl border bg-slate-50">
+          <div class="flex items-center gap-3">
+            <div class="animate-spin h-5 w-5 border-2 border-indigo-600 border-t-transparent rounded-full"></div>
+            <span>Searching... <%= VanityDID.format_number(@vanity_attempts) %> attempts</span>
+          </div>
+          <%= if assigns[:vanity_difficulty] do %>
+            <p class="text-xs text-slate-500 mt-2">
+              Estimated attempts needed: ~<%= VanityDID.format_number(@vanity_difficulty) %>
+            </p>
+          <% end %>
+        </div>
+      <% end %>
+
+      <%= if @vanity_error do %>
+        <div class="mt-4 p-4 rounded-xl border bg-red-50 text-red-700">
+          <%= @vanity_error %>
+        </div>
+      <% end %>
+
+      <%= if @vanity_result do %>
+        <div class="mt-6 grid md:grid-cols-2 gap-4">
+          <div class="rounded-xl border p-3 bg-green-50">
+            <p class="font-semibold text-green-700">Found in <%= VanityDID.format_number(@vanity_result.attempts) %> attempts!</p>
+            <p class="text-sm text-slate-600 mt-2">Bitcoin Address</p>
+            <p class="font-mono text-sm break-all"><%= @vanity_result.address %></p>
+            <p class="text-sm text-slate-600 mt-3">DID</p>
+            <p class="font-mono text-sm break-all"><%= @vanity_result.did %></p>
+            <p class="text-sm text-slate-600 mt-3">Publish at</p>
+            <a
+              class="font-mono text-xs text-indigo-700 underline break-all"
+              href={@vanity_result.did_url}
+              target="_blank"
+            >
+              <%= @vanity_result.did_url %>
+            </a>
+          </div>
+          <div class="rounded-xl border p-3">
+            <p class="font-semibold">WIF (Bitcoin private key)</p>
+            <textarea
+              class="w-full h-20 font-mono text-xs border rounded-lg p-2"
+              readonly
+            ><%= @vanity_result.wif %></textarea>
+          </div>
+        </div>
+
+        <div class="mt-4 grid md:grid-cols-2 gap-4">
+          <div class="rounded-xl border p-3">
+            <p class="font-semibold">Public JWK (secp256k1)</p>
+            <textarea
+              class="w-full h-48 font-mono text-xs border rounded-lg p-2"
+              readonly
+            ><%= json(@vanity_result.pub_jwk) %></textarea>
+          </div>
+          <div class="rounded-xl border p-3">
+            <p class="font-semibold">Private JWK (keep secret)</p>
+            <textarea
+              class="w-full h-48 font-mono text-xs border rounded-lg p-2"
+              readonly
+            ><%= json(@vanity_result.priv_jwk) %></textarea>
+          </div>
+        </div>
+
+        <div class="mt-4">
+          <div class="rounded-xl border p-3">
+            <p class="font-semibold">did.json</p>
+            <textarea
+              class="w-full h-64 font-mono text-xs border rounded-lg p-2"
+              readonly
+            ><%= json(@vanity_result.did_doc) %></textarea>
+          </div>
+        </div>
+      <% end %>
+    </div>
+  <% end %>
+
+  <!-- ISSUANCE -->
+  <%= if @tab == :issue do %>
+    <div class="mt-6 rounded-2xl border p-4 bg-white">
+      <h2 class="font-semibold text-lg">Issue Verifiable Credential (JWT-VC)</h2>
+      <.simple_form
+        for={:issue}
+        phx-submit="sign_vc"
+        class="grid md:grid-cols-2 gap-4 mt-4"
+      >
+        <.input
+          name="issuer_did"
+          value={@issuer_did}
+          label="Issuer DID"
+          placeholder="did:web:dmv.example.gov"
+        />
+        <.input
+          name="issuer_kid"
+          value={@issuer_kid}
+          label="kid (defaults to #key-1)"
+          placeholder="did:web:dmv.example.gov#key-2"
+        />
+        <.input
+          type="select"
+          name="issue_alg"
+          value={@issue_alg}
+          label="Algorithm"
+          options={["ES256", "EdDSA"]}
+        />
+        <.input
+          name="valid_days"
+          value={@valid_days}
+          label="Validity (days)"
+        />
+        <.input
+          name="holder_did"
+          value={@holder_did}
+          label="Holder DID (subject)"
+        />
+        <.input
+          name="name"
+          value={@name}
+          label="Holder Name"
+        />
+        <.input
+          name="license"
+          value={@license}
+          label="License #"
+        />
+        <.input
+          name="status_url"
+          value={@status_url}
+          label="StatusList2021 URL (optional)"
+        />
+        <.input
+          name="status_idx"
+          value={@status_idx}
+          label="StatusListIndex (optional)"
+        />
+        <div class="md:col-span-2">
+          <label class="text-sm font-medium">Issuer Private JWK (JSON)</label>
+          <textarea
+            name="issuer_priv_jwk"
+            class="mt-1 w-full h-40 font-mono text-xs border rounded-lg p-2"
+            placeholder='{"kty":"EC","crv":"P-256","d":"...","x":"...","y":"..."}'
+          ><%= @issuer_priv_jwk %></textarea>
+        </div>
+        <:actions>
+          <.button class="mt-2">Sign VC</.button>
+        </:actions>
+      </.simple_form>
+
+      <div class="mt-4">
+        <p class="font-semibold">JWT-VC</p>
+        <textarea class="w-full h-32 font-mono text-xs border rounded-lg p-2"><%= @vc_jwt %></textarea>
+      </div>
+    </div>
+  <% end %>
+
+  <!-- VERIFICATION -->
+  <%= if @tab == :verify do %>
+    <div class="mt-6 rounded-2xl border p-4 bg-white">
+      <h2 class="font-semibold text-lg">Verify VC/VP (JWT)</h2>
+      <.simple_form
+        for={:verify}
+        phx-submit="verify"
+        class="grid md:grid-cols-2 gap-4 mt-4"
+      >
+        <div class="md:col-span-2">
+          <label class="text-sm font-medium">JWT</label>
+          <textarea
+            name="verify_jwt"
+            class="mt-1 w-full h-32 font-mono text-xs border rounded-lg p-2"
+            placeholder="Paste a JWT..."
+          ><%= @verify_jwt %></textarea>
+        </div>
+        <.input
+          name="verify_aud"
+          value={@verify_aud}
+          label="expected aud (for VP)"
+          placeholder="https://verifier.example/app"
+        />
+        <.input
+          name="verify_nonce"
+          value={@verify_nonce}
+          label="expected nonce (for VP)"
+          placeholder="challenge-123"
+        />
+        <:actions>
+          <.button class="mt-2">Verify</.button>
+        </:actions>
+      </.simple_form>
+
+      <div class="mt-4 flex items-center gap-3">
+        <span class="font-semibold"><%= @verify_result %></span>
+        <span class="text-xs text-slate-500"><%= @verify_log %></span>
+      </div>
+
+      <div class="mt-3">
+        <p class="text-sm font-semibold">Decoded Verified Payload</p>
+        <textarea class="w-full h-56 font-mono text-xs border rounded-lg p-2"><%= @verified_payload_json %></textarea>
+      </div>
+    </div>
+  <% end %>
+</div>

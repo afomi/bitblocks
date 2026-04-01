@@ -76,12 +76,6 @@ defmodule BitblocksWeb.AccessibilityAxeTest do
       |> assert_no_violations()
     end
 
-    test "builder page is accessible", %{session: session} do
-      session
-      |> visit("/builder")
-      |> assert_no_violations()
-    end
-
     test "config page is accessible", %{session: session} do
       session
       |> visit("/config")

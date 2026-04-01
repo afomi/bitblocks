@@ -35,7 +35,7 @@ defmodule BitblocksWeb.BlockGraphLiveTest do
   end
 
   test "renders block graph with playback controls", %{conn: conn} do
-    {:ok, view, html} = live(conn, "/block-graph?start=0&end=5")
+    {:ok, _view, html} = live(conn, "/block-graph?start=0&end=5")
 
     assert html =~ "Block Transaction Graph"
     assert html =~ "play"

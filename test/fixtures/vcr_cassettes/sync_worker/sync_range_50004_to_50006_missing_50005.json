@@ -1,0 +1,50 @@
+[
+  {
+    "request": {
+      "body": "{\"jsonrpc\":\"1.0\",\"method\":\"getblockhash\",\"params\":[50005]}",
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "method": "post",
+      "options": {
+        "recv_timeout": 60000,
+        "connect_timeout": 60000
+      },
+      "url": "http://testnode:18332",
+      "request_body": "{\"jsonrpc\":\"1.0\",\"method\":\"getblockhash\",\"params\":[50005]}"
+    },
+    "response": {
+      "binary": false,
+      "body": "{\"result\":\"0000000000e1ad737f11fe4cb3d126408b2cbcc28ab0d83293f408e413733338\",\"error\":null,\"id\":null}\n",
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "status_code": 200,
+      "type": "ok"
+    }
+  },
+  {
+    "request": {
+      "body": "{\"jsonrpc\":\"1.0\",\"method\":\"getblockheader\",\"params\":[\"0000000000e1ad737f11fe4cb3d126408b2cbcc28ab0d83293f408e413733338\", 1]}",
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "method": "post",
+      "options": {
+        "recv_timeout": 60000,
+        "connect_timeout": 60000
+      },
+      "url": "http://testnode:18332",
+      "request_body": "{\"jsonrpc\":\"1.0\",\"method\":\"getblockheader\",\"params\":[\"0000000000e1ad737f11fe4cb3d126408b2cbcc28ab0d83293f408e413733338\", 1]}"
+    },
+    "response": {
+      "binary": false,
+      "body": "{\"result\": {\"hash\": \"0000000000e1ad737f11fe4cb3d126408b2cbcc28ab0d83293f408e413733338\",\"confirmations\": 892700,\"size\": 215,\"height\": 50005,\"version\": 1,\"versionHex\": \"00000001\",\"merkleroot\": \"b348500f97dedd6f3d1e77fa9b161d3043d2d609be1779d2ade5684dfafc98dd\",\"num_tx\": 1,\"time\": 1270918880,\"mediantime\": 1270916538,\"nonce\": 329453914,\"bits\": \"1c2a1115\",\"difficulty\": 6.085476906000794,\"chainwork\": \"00000000000000000000000000000000000000000000000000014a60d31b6172\",\"previousblockhash\": \"000000000528e8aac90e3096abb7b1f3d52efa2cd8f12754614788cb43eefe11\",\"nextblockhash\": \"000000001669236925e145e50438824aec6ef9b27095a39df7e8f987ee353e20\",\"status\": {\"validity\":\"scripts\",\"data\":true,\"undo\":true,\"failed\":false,\"parent failed\":false,\"disk meta\":true,\"soft reject\":false,\"double spend\":false,\"soft consensus frozen\":false}},\"error\": null,\"id\": null}\n",
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "status_code": 200,
+      "type": "ok"
+    }
+  }
+]

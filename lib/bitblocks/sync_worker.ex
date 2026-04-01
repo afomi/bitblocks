@@ -45,7 +45,9 @@ defmodule Bitblocks.SyncWorker do
   # Client API
 
   def start_link(opts \\ []) do
-    GenServer.start_link(__MODULE__, opts, name: __MODULE__)
+    {name, opts} = Keyword.pop(opts, :name, __MODULE__)
+    gen_opts = if name, do: [name: name], else: []
+    GenServer.start_link(__MODULE__, opts, gen_opts)
   end
 
   @doc """
@@ -64,17 +66,17 @@ defmodule Bitblocks.SyncWorker do
       # Sync from block to tip
       start_sync({800_000, 900_000})
   """
-  def start_sync({start_block, end_block} = range)
+  def start_sync({start_block, end_block} = range, server \\ __MODULE__)
       when is_integer(start_block) and is_integer(end_block) do
-    GenServer.call(__MODULE__, {:start_sync, range}, 60_000)
+    GenServer.call(server, {:start_sync, range}, 60_000)
   end
 
-  def stop_sync do
-    GenServer.call(__MODULE__, :stop_sync)
+  def stop_sync(server \\ __MODULE__) do
+    GenServer.call(server, :stop_sync)
   end
 
-  def get_status do
-    GenServer.call(__MODULE__, :get_status)
+  def get_status(server \\ __MODULE__) do
+    GenServer.call(server, :get_status)
   end
 
   # Server Callbacks
@@ -420,7 +422,10 @@ defmodule Bitblocks.SyncWorker do
               sync_state: "header_only"
             }
 
-            case Repo.insert(block_struct |> Ecto.Changeset.change(%{})) do
+            case Repo.insert(block_struct |> Ecto.Changeset.change(%{}),
+                   on_conflict: :nothing,
+                   conflict_target: :hash
+                 ) do
               {:ok, _} ->
                 {:ok, num_tx}
 
@@ -522,7 +527,10 @@ defmodule Bitblocks.SyncWorker do
             sync_state: "header_synced"
           }
 
-          case Bitblocks.Repo.insert(block_struct |> Ecto.Changeset.change(%{})) do
+          case Bitblocks.Repo.insert(block_struct |> Ecto.Changeset.change(%{}),
+                 on_conflict: :nothing,
+                 conflict_target: :hash
+               ) do
             {:ok, _} ->
               # Sync transactions if they exist in the response
               if is_list(tx_list) and length(tx_list) > 0 do
@@ -540,12 +548,7 @@ defmodule Bitblocks.SyncWorker do
               {:ok, num_tx}
 
             {:error, changeset} ->
-              if unique_violation?(changeset) do
-                Logger.debug("Block #{block_height} already persisted, skipping")
-                {:ok, :skipped}
-              else
-                {:error, changeset}
-              end
+              {:error, changeset}
           end
 
         nil ->
@@ -750,13 +753,6 @@ defmodule Bitblocks.SyncWorker do
   defp pop_next_range([]), do: {nil, []}
   defp pop_next_range([range | rest]), do: {range, rest}
 
-  defp unique_violation?(%Ecto.Changeset{errors: errors}) do
-    Enum.any?(errors, fn {_field, {_message, opts}} ->
-      Keyword.get(opts, :constraint) == :unique
-    end)
-  end
-
-  defp unique_violation?(_), do: false
 
   defp broadcast_progress(state) do
     progress_percent =

@@ -153,41 +153,4 @@ defmodule Bitblocks.Sync.TransactionFetcher do
         {:error, height, error}
     end
   end
-
-  # NOTE: This function is currently unused as we're using header-only sync mode
-  # It can be re-enabled if we want to fetch full transaction data during parallel sync
-  # by setting fetch_full_transactions: true in config
-  defp fetch_transaction_details(txids, height, state) do
-    Logger.debug(
-      "TransactionFetcher ##{state.id}: fetching #{length(txids)} transactions for block #{height}"
-    )
-
-    # Fetch each transaction
-    # Note: This can be parallelized further if needed using Task.async_stream
-    max_tx_fetch = Bitblocks.Config.max_transactions_per_block()
-    txids_to_fetch = Enum.take(txids, max_tx_fetch)
-
-    Enum.map(txids_to_fetch, fn txid ->
-      case BitcoinsvCli.getrawtransaction(txid, 1) do
-        tx when is_map(tx) ->
-          %{
-            txid: txid,
-            version: tx["version"],
-            locktime: tx["locktime"],
-            size: tx["size"],
-            vin: tx["vin"] || [],
-            vout: tx["vout"] || [],
-            hex: tx["hex"]
-          }
-
-        error ->
-          Logger.warning(
-            "TransactionFetcher ##{state.id}: failed to fetch tx #{txid}: #{inspect(error)}"
-          )
-
-          nil
-      end
-    end)
-    |> Enum.reject(&is_nil/1)
-  end
 end

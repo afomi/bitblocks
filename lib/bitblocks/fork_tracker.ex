@@ -108,7 +108,7 @@ defmodule Bitblocks.ForkTracker do
   def init(opts) do
     state_path = Keyword.get(opts, :state_path, @default_state_path)
     log_path = Keyword.get(opts, :log_path, @default_log_path)
-    poll_interval = Keyword.get(opts, :poll_interval, @default_poll_interval)
+    poll_interval = Keyword.get(opts, :poll_interval, Application.get_env(:bitblocks, :fork_tracker_poll_interval, @default_poll_interval))
     retention = Keyword.get(opts, :retention, @default_retention)
 
     File.mkdir_p!(Path.dirname(state_path))
@@ -138,7 +138,7 @@ defmodule Bitblocks.ForkTracker do
   end
 
   @impl true
-  def handle_call(:reset, _from, state) do
+  def handle_call(:reset, _from, %State{} = state) do
     now = DateTime.utc_now()
     removed_hashes = Map.keys(state.nodes)
 
@@ -213,6 +213,10 @@ defmodule Bitblocks.ForkTracker do
 
           next_state
 
+        {:error, %{"code" => -28, "message" => message}} ->
+          Logger.info("ForkTracker poll skipped: node not ready (#{message})")
+          state
+
         {:error, reason} ->
           Logger.error("ForkTracker poll failed: #{inspect(reason)}")
           state
@@ -238,7 +242,7 @@ defmodule Bitblocks.ForkTracker do
 
   defp ingest_tips(state, [], _source, _now), do: {state, empty_delta(state)}
 
-  defp ingest_tips(state, tips, source, now) do
+  defp ingest_tips(%State{} = state, tips, source, now) do
     old_state = state
 
     {nodes_intermediate, tips_map, inserted_nodes} =
@@ -327,7 +331,7 @@ defmodule Bitblocks.ForkTracker do
           end
 
         cond do
-          header == nil ->
+          not is_map(header) ->
             {nodes, [], :main}
 
           true ->
@@ -344,7 +348,7 @@ defmodule Bitblocks.ForkTracker do
               cond do
                 total > 0 && remaining == 0 -> hash
                 root != :main -> root
-                total > 0 -> hash
+                total > 0 && parent_hash -> parent_hash
                 true -> :main
               end
 

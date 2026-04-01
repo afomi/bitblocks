@@ -11,7 +11,7 @@ config :bitblocks, Bitblocks.Repo,
   hostname: "localhost",
   database: "bitblocks_test#{System.get_env("MIX_TEST_PARTITION")}",
   pool: Ecto.Adapters.SQL.Sandbox,
-  pool_size: System.schedulers_online() * 2
+  pool_size: 10
 
 # We don't run a server during test. If one is required,
 # you can enable the server option below.
@@ -32,16 +32,27 @@ config :logger, level: :warning
 # Initialize plugs at runtime for faster test compilation
 config :phoenix, :plug_init_mode, :runtime
 
-# Bitcoin RPC configuration for tests
-config :bitblocks,
-  bitcoinsv_cli: BitcoinsvCliMock,
-  bitcoin_url: System.get_env("BITCOIN_NODE_URL"),
-  rpc_user: System.get_env("BITCOIN_NODE_RPC_USERNAME"),
-  rpc_password: System.get_env("BITCOIN_NODE_RPC_PASSWORD"),
-  rpc_url: System.get_env("BITCOIN_NODE_RPC_URL")
+# ExVCR — record HTTP cassettes on first run, replay thereafter.
+# Match on request body only so cassettes work regardless of which node URL is configured.
+config :exvcr,
+  vcr_cassette_library_dir: "test/fixtures/vcr_cassettes",
+  custom_cassette_library_dir: "test/fixtures/vcr_cassettes",
+  enable_global_settings: true,
+  match_requests_on: [:request_body],
+  filter_sensitive_data: [
+    [pattern: System.get_env("BITCOIN_NODE_RPC_USERNAME") || "rpcuser", placeholder: "REDACTED_USER"],
+    [pattern: System.get_env("BITCOIN_NODE_RPC_PASSWORD") || "rpcpassword", placeholder: "REDACTED_PASS"]
+  ]
+
+# Disable ForkTracker polling in tests to avoid background RPC calls
+config :bitblocks, fork_tracker_poll_interval: nil
 
 # Disable Oban queues in test (but keep the supervisor running)
 config :bitblocks, Oban, testing: :manual, queues: false
+
+# Disable request auto-ban in tests — the Wallaby browser hits many endpoints
+# from 127.0.0.1 and would otherwise get blocked by the RequestLogger.
+config :bitblocks, :invalid_request_threshold, 10_000
 
 # Wallaby configuration
 config :wallaby,

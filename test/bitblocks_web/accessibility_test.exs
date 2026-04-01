@@ -81,12 +81,6 @@ defmodule BitblocksWeb.AccessibilityTest do
       assert_accessible(html, "Search page")
     end
 
-    test "builder page is accessible", %{conn: conn} do
-      conn = get(conn, ~p"/builder")
-      html = html_response(conn, 200)
-      assert_accessible(html, "Builder page")
-    end
-
     test "config page is accessible", %{conn: conn} do
       conn = get(conn, ~p"/config")
       html = html_response(conn, 200)

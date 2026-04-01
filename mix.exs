@@ -46,6 +46,7 @@ defmodule Bitblocks.MixProject do
       {:floki, ">= 0.30.0", only: :test},
       {:a11y_audit, "~> 0.3.1", only: :test},
       {:wallaby, "~> 0.30", only: :test},
+      {:exvcr, "~> 0.15", only: :test},
       {:phoenix_live_dashboard, "~> 0.8.3"},
       {:esbuild, "~> 0.8", runtime: Mix.env() == :dev},
       {:tailwind, "~> 0.2", runtime: Mix.env() == :dev},

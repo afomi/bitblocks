@@ -305,8 +305,13 @@ defmodule BitblocksWeb.ProtocolsLive do
               phx-change="search"
               class="relative"
             >
+              <label
+                for="protocol-search"
+                class="sr-only"
+              >Search protocols</label>
               <input
                 type="text"
+                id="protocol-search"
                 name="query"
                 value={@search_query}
                 placeholder="Search protocols..."
@@ -329,7 +334,12 @@ defmodule BitblocksWeb.ProtocolsLive do
 
             <%!-- Category Filter --%>
             <form phx-change="filter_category">
+              <label
+                for="protocol-category"
+                class="sr-only"
+              >Filter by category</label>
               <select
+                id="protocol-category"
                 name="category"
                 class="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
               >
@@ -381,7 +391,7 @@ defmodule BitblocksWeb.ProtocolsLive do
             <p class="text-gray-500 mb-4">
               No protocols found matching your criteria.
             </p>
-            <p class="text-sm text-gray-400">
+            <p class="text-sm text-gray-500">
               Try adjusting your search or filter settings.
             </p>
           </div>
@@ -392,7 +402,7 @@ defmodule BitblocksWeb.ProtocolsLive do
                 <span class={"px-2 py-1 rounded text-xs font-semibold #{category_color(category)}"}>
                   <%= format_category(category) %>
                 </span>
-                <span class="text-gray-400 text-sm font-normal">
+                <span class="text-gray-500 text-sm font-normal">
                   (<%= length(protocols) %>)
                 </span>
               </h3>
@@ -531,24 +541,24 @@ defmodule BitblocksWeb.ProtocolsLive do
 
         <div class="space-y-3 font-mono text-sm">
           <div class="bg-white p-3 rounded border">
-            <span class="text-green-600">GET</span>
+            <span class="text-green-700">GET</span>
             <span class="text-gray-700">/api/v1/protocols</span>
-            <span class="text-gray-400 ml-2">- List all protocols</span>
+            <span class="text-gray-500 ml-2">- List all protocols</span>
           </div>
           <div class="bg-white p-3 rounded border">
-            <span class="text-green-600">GET</span>
+            <span class="text-green-700">GET</span>
             <span class="text-gray-700">/api/v1/protocols/:address</span>
-            <span class="text-gray-400 ml-2">- Get protocol by address</span>
+            <span class="text-gray-500 ml-2">- Get protocol by address</span>
           </div>
           <div class="bg-white p-3 rounded border">
             <span class="text-blue-600">POST</span>
             <span class="text-gray-700">/api/v1/protocols/identify</span>
-            <span class="text-gray-400 ml-2">- Identify protocol from address</span>
+            <span class="text-gray-500 ml-2">- Identify protocol from address</span>
           </div>
           <div class="bg-white p-3 rounded border">
-            <span class="text-green-600">GET</span>
+            <span class="text-green-700">GET</span>
             <span class="text-gray-700">/api/v1/protocols/stats</span>
-            <span class="text-gray-400 ml-2">- Protocol usage statistics</span>
+            <span class="text-gray-500 ml-2">- Protocol usage statistics</span>
           </div>
         </div>
       </div>

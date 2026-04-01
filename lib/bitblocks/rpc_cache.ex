@@ -66,17 +66,14 @@ defmodule Bitblocks.RpcCache do
     end
   end
 
+  defp bitcoin_cli do
+    Application.get_env(:bitblocks, :bitcoinsv_cli, BitcoinsvCli)
+  end
+
   defp fetch_and_cache_blockchain_info do
     started_at = System.system_time(:millisecond)
 
-    # Use mock in test environment if available
-    result =
-      if Code.ensure_loaded?(BitcoinsvCliMock) and
-           function_exported?(BitcoinsvCliMock, :getblockchaininfo, 0) do
-        BitcoinsvCliMock.getblockchaininfo()
-      else
-        BitcoinsvCli.getblockchaininfo()
-      end
+    result = bitcoin_cli().getblockchaininfo()
 
     duration = System.system_time(:millisecond) - started_at
 

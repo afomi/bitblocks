@@ -77,7 +77,8 @@ defmodule Bitblocks.Workers.FetchTransactionsWorker do
 
     case Bitblocks.Chain.upgrade_block_to_header_synced(block.hash) do
       {:ok, upgraded_block} -> {:ok, upgraded_block}
-      {:error, _} -> {:ok, block}  # If upgrade fails, continue anyway
+      # If upgrade fails, continue anyway
+      {:error, _} -> {:ok, block}
     end
   end
 

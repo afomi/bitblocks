@@ -1,0 +1,106 @@
+[
+  {
+    "request": {
+      "body": "{\"jsonrpc\":\"1.0\",\"method\":\"getblockheader\",\"params\":[\"fork_120\",1]}",
+      "headers": [
+        [
+          "Content-Type",
+          "application/json"
+        ]
+      ],
+      "method": "post",
+      "options": [],
+      "url": "http://testnode:18332",
+      "request_body": "{\"jsonrpc\":\"1.0\",\"method\":\"getblockheader\",\"params\":[\"fork_120\",1]}"
+    },
+    "response": {
+      "body": "{\"result\":{\"hash\":\"fork_120\",\"height\":120,\"time\":1693929720,\"chainwork\":\"feba\",\"previousblockhash\":\"fork_119\"},\"error\":null,\"id\":\"curltest\"}",
+      "headers": [
+        [
+          "Content-Type",
+          "application/json"
+        ]
+      ],
+      "status_code": 200,
+      "type": "ok"
+    }
+  },
+  {
+    "request": {
+      "body": "{\"jsonrpc\":\"1.0\",\"method\":\"getblockheader\",\"params\":[\"fork_119\",1]}",
+      "headers": [
+        [
+          "Content-Type",
+          "application/json"
+        ]
+      ],
+      "method": "post",
+      "options": [],
+      "url": "http://testnode:18332",
+      "request_body": "{\"jsonrpc\":\"1.0\",\"method\":\"getblockheader\",\"params\":[\"fork_119\",1]}"
+    },
+    "response": {
+      "body": "{\"result\":{\"hash\":\"fork_119\",\"height\":119,\"time\":1693929719,\"chainwork\":\"feb9\",\"previousblockhash\":\"common_118\"},\"error\":null,\"id\":\"curltest\"}",
+      "headers": [
+        [
+          "Content-Type",
+          "application/json"
+        ]
+      ],
+      "status_code": 200,
+      "type": "ok"
+    }
+  },
+  {
+    "request": {
+      "body": "{\"jsonrpc\":\"1.0\",\"method\":\"getblockheader\",\"params\":[\"common_118\",1]}",
+      "headers": [
+        [
+          "Content-Type",
+          "application/json"
+        ]
+      ],
+      "method": "post",
+      "options": [],
+      "url": "http://testnode:18332",
+      "request_body": "{\"jsonrpc\":\"1.0\",\"method\":\"getblockheader\",\"params\":[\"common_118\",1]}"
+    },
+    "response": {
+      "body": "{\"result\":{\"hash\":\"common_118\",\"height\":118,\"time\":1693929718,\"chainwork\":\"fec6\",\"previousblockhash\":\"common_117\"},\"error\":null,\"id\":\"curltest\"}",
+      "headers": [
+        [
+          "Content-Type",
+          "application/json"
+        ]
+      ],
+      "status_code": 200,
+      "type": "ok"
+    }
+  },
+  {
+    "request": {
+      "body": "{\"jsonrpc\":\"1.0\",\"method\":\"getblockheader\",\"params\":[\"common_117\",1]}",
+      "headers": [
+        [
+          "Content-Type",
+          "application/json"
+        ]
+      ],
+      "method": "post",
+      "options": [],
+      "url": "http://testnode:18332",
+      "request_body": "{\"jsonrpc\":\"1.0\",\"method\":\"getblockheader\",\"params\":[\"common_117\",1]}"
+    },
+    "response": {
+      "body": "{\"result\":{\"hash\":\"common_117\",\"height\":117,\"time\":1693929717,\"chainwork\":\"fec5\",\"previousblockhash\":null},\"error\":null,\"id\":\"curltest\"}",
+      "headers": [
+        [
+          "Content-Type",
+          "application/json"
+        ]
+      ],
+      "status_code": 200,
+      "type": "ok"
+    }
+  }
+]

@@ -40,6 +40,27 @@ defmodule Bitblocks.DataCase do
     on_exit(fn -> Ecto.Adapters.SQL.Sandbox.stop_owner(pid) end)
   end
 
+  @bitcoin_rpc_url "http://testnode:18332"
+
+  @doc """
+  Sets a fake Bitcoin node URL for the duration of a test so that
+  `BitcoinsvCli` passes its URL check and ExVCR cassettes can intercept
+  the resulting HTTPoison request.
+  Call this in a `setup` block for any test that uses ExVCR cassettes
+  against the Bitcoin RPC.
+  """
+  def setup_bitcoin_rpc do
+    Application.put_env(:bitblocks, :bitcoin_url, @bitcoin_rpc_url)
+    Application.put_env(:bitblocks, :rpc_user, "testuser")
+    Application.put_env(:bitblocks, :rpc_password, "testpassword")
+
+    on_exit(fn ->
+      Application.delete_env(:bitblocks, :bitcoin_url)
+      Application.delete_env(:bitblocks, :rpc_user)
+      Application.delete_env(:bitblocks, :rpc_password)
+    end)
+  end
+
   @doc """
   A helper that transforms changeset errors into a map of messages.
 

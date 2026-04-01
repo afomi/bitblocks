@@ -1,0 +1,26 @@
+[
+  {
+    "request": {
+      "body": "{\"jsonrpc\":\"1.0\",\"method\":\"getblockhash\",\"params\":[999999999]}",
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "method": "post",
+      "options": {
+        "recv_timeout": 60000,
+        "connect_timeout": 60000
+      },
+      "url": "http://testnode:18332",
+      "request_body": "{\"jsonrpc\":\"1.0\",\"method\":\"getblockhash\",\"params\":[999999999]}"
+    },
+    "response": {
+      "binary": false,
+      "body": "{\"result\":null,\"error\":{\"code\":-8,\"message\":\"Block height out of range\"},\"id\":null}\n",
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "status_code": 200,
+      "type": "ok"
+    }
+  }
+]
