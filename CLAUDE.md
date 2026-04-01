@@ -54,10 +54,11 @@ mix assets.deploy           # Build and minify for production
 
 **Three-Phase Sync Strategy** (see SYNC_PHASES.md for details):
 
-1. **Phase 1: Header-Only Sync (Verbosity 0)** - DEFAULT
-   - Uses `getblock(hash, 0)` to fetch raw hex (~215 bytes per block)
-   - ~595,000x smaller than verbosity 1 for blocks with 4M transactions
-   - Extracts: hash, height, version, prev/merkleroot, time, bits, nonce, tx count
+1. **Phase 1: Header-Only Sync (getblockheader)** - DEFAULT
+   - Uses `getblockheader(hash, true)` to fetch header metadata (~400 bytes)
+   - ~5,750,000x smaller than `getblock` verbosity 0 (which downloads entire 2.3 GB block!)
+   - ~225,000x smaller than `getblock` verbosity 1 for blocks with 2.8M transactions
+   - Returns: hash, height, version, prev/merkleroot, time, bits, nonce, tx count, chainwork
    - Sets `sync_state = "header_only"`
    - Perfect for rapid blockchain sync and chain tip monitoring
 
@@ -73,15 +74,21 @@ mix assets.deploy           # Build and minify for production
    - Sets `sync_state = "completed"`
 
 **Sync Modules**:
-- `Bitblocks.SyncWorker` (lib/bitblocks/sync_worker.ex) - Sequential sync with lazy mode
-  - Defaults to header-only sync (verbosity 0)
+
+- `Bitblocks.SyncWorker` (lib/bitblocks/sync_worker.ex) - **Sequential sync** with lazy mode
+  - Processes one block at a time
+  - Defaults to header-only sync using `getblockheader`
   - Pass `verbosity: :with_txids` or `verbosity: 1` for Phase 2
   - Lazy batch discovery for large ranges (100 blocks at a time)
   - Idempotent - only fetches missing blocks
-- `Bitblocks.BlockHeaderDecoder` (lib/bitblocks/block_header_decoder.ex) - Decodes verbosity 0 hex data
-  - Parses 80-byte Bitcoin block headers
-  - Computes block hash via double SHA256
-  - Extracts transaction count from variable-length integer
+
+- `Bitblocks.Sync.Pipeline` (lib/bitblocks/sync/pipeline.ex) - **Parallel sync** with GenStage
+  - Uses 8 parallel workers for block fetching (configurable)
+  - Three-stage pipeline: BlockProducer → TransactionFetcher → DatabaseWriter
+  - All workers use header-only sync (`getblockheader`) by default
+  - 5-8x faster than sequential mode for large ranges
+  - Batch RPC calls for block hashes
+  - Backpressure management via GenStage
 
 ### Data Layer
 

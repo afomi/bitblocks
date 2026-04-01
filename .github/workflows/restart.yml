@@ -1,0 +1,104 @@
+name: Rolling restart
+
+on:
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      image_tag:
+        required: false
+        type: string
+        default: 'latest'
+
+jobs:
+  restart:
+    name: Rolling restart
+    runs-on: ubuntu-latest
+    concurrency: deploy-group
+    env:
+      AWS_REGION: us-east-1
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Get instance IDs
+        id: instances
+        run: |
+          INSTANCES=$(aws ec2 describe-instances \
+            --filters "Name=tag:Name,Values=bitblocks-*" "Name=instance-state-name,Values=running" \
+            --query 'Reservations[].Instances[].InstanceId' --output text)
+          echo "ids=$INSTANCES" >> $GITHUB_OUTPUT
+          echo "first=$(echo $INSTANCES | awk '{print $1}')" >> $GITHUB_OUTPUT
+
+      - name: Rolling restart
+        run: |
+          TG_ARN=$(aws elbv2 describe-target-groups --names bitblocks-tg \
+            --query 'TargetGroups[0].TargetGroupArn' --output text)
+          ECR_REPO="${{ steps.ecr.outputs.registry }}/bitblocks"
+          IMAGE_TAG="${{ inputs.image_tag || 'latest' }}"
+          IMAGE="${ECR_REPO}:${IMAGE_TAG}"
+
+          for INST in ${{ steps.instances.outputs.ids }}; do
+            echo "==> Restarting $INST"
+
+            ENCODED=$(base64 -w 0 < .github/scripts/deploy.sh)
+            CMD_ID=$(aws ssm send-command \
+              --instance-ids $INST \
+              --document-name "AWS-RunShellScript" \
+              --timeout-seconds 120 \
+              --parameters commands=["echo $ENCODED | base64 -d | bash -s -- $IMAGE"] \
+              --query 'Command.CommandId' --output text)
+
+            echo "  Waiting for container to start..."
+            sleep 20
+            aws ssm wait command-executed --command-id $CMD_ID --instance-id $INST || true
+
+            STATUS=$(aws ssm get-command-invocation \
+              --command-id $CMD_ID --instance-id $INST \
+              --query 'Status' --output text)
+            if [ "$STATUS" != "Success" ]; then
+              echo "  ERROR: Restart failed on $INST"
+              aws ssm get-command-invocation \
+                --command-id $CMD_ID --instance-id $INST \
+                --query 'StandardErrorContent' --output text
+              exit 1
+            fi
+
+            # Run migration on first instance only
+            if [ "$INST" = "${{ steps.instances.outputs.first }}" ]; then
+              echo "  Running migrations..."
+              MIG_ID=$(aws ssm send-command \
+                --instance-ids $INST \
+                --document-name "AWS-RunShellScript" \
+                --timeout-seconds 120 \
+                --parameters commands='["docker exec bitblocks /app/bin/migrate 2>&1"]' \
+                --query 'Command.CommandId' --output text)
+              sleep 15
+              aws ssm wait command-executed --command-id $MIG_ID --instance-id $INST || true
+              MIG_STATUS=$(aws ssm get-command-invocation \
+                --command-id $MIG_ID --instance-id $INST \
+                --query 'Status' --output text)
+              if [ "$MIG_STATUS" != "Success" ]; then
+                echo "  ERROR: Migration failed"
+                aws ssm get-command-invocation \
+                  --command-id $MIG_ID --instance-id $INST \
+                  --query 'StandardOutputContent' --output text
+                exit 1
+              fi
+              echo "  Migrations complete."
+            fi
+
+            echo "  $INST is live."
+          done
+
+          echo "==> Deploy complete."
