@@ -2,13 +2,11 @@ defmodule Bitblocks.TipSyncWorker do
   @moduledoc """
   GenServer that continuously monitors and syncs the blockchain tip.
 
-  Simple logic:
-  - Check chain tip
-  - Find all missing block headers from 0 to tip
-  - Sync them as fast as possible
-  - Repeat every N seconds
+  On each poll cycle it only checks heights from the last known synced
+  height up to the current chain tip — typically just a handful of new
+  blocks per cycle rather than scanning the entire chain.
 
-  Use this for continuous monitoring of new blocks as they're mined.
+  Starts automatically on boot and begins syncing immediately.
   Use SyncWorker or Pipeline for syncing historical block ranges.
   """
   use GenServer
@@ -18,7 +16,7 @@ defmodule Bitblocks.TipSyncWorker do
 
   # Check for new blocks every 10 seconds
   @poll_interval_ms 10_000
-  # Limit concurrent DB queries
+  # Limit concurrent RPC + DB calls per cycle
   @max_concurrent_tasks 10
 
   defmodule State do
@@ -64,6 +62,8 @@ defmodule Bitblocks.TipSyncWorker do
 
   @impl true
   def init(_opts) do
+    # Auto-start on boot after a short delay to allow Repo and RpcCache to be ready.
+    Process.send_after(self(), :auto_start, 2_000)
     {:ok, %State{status: :idle, blocks_synced: 0, errors: []}}
   end
 
@@ -74,62 +74,35 @@ defmodule Bitblocks.TipSyncWorker do
 
   @impl true
   def handle_call(:start_sync, _from, _state) do
-    Logger.info("TipSyncWorker: Starting continuous tip sync")
-
-    # Get current tip
-    current_tip = get_chain_tip()
-
-    # Get last synced block from database
-    last_synced =
-      case Chain.get_latest_block() do
-        nil -> 0
-        block -> block.height
-      end
-
-    new_state = %State{
-      status: :running,
-      last_synced_height: last_synced,
-      current_tip: current_tip,
-      blocks_synced: 0,
-      started_at: DateTime.utc_now(),
-      last_check_at: DateTime.utc_now(),
-      errors: []
-    }
-
-    # Start checking immediately
-    send(self(), :check_tip)
-
-    {:reply, :ok, new_state}
+    {:reply, :ok, running_state()}
   end
 
   @impl true
   def handle_call(:stop_sync, _from, state) do
     Logger.info("TipSyncWorker: Stopping tip sync")
-
-    new_state = %{state | status: :stopped}
-
-    {:reply, :ok, new_state}
+    {:reply, :ok, %{state | status: :stopped}}
   end
 
   @impl true
   def handle_call(:get_status, _from, state) do
-    status_map = Map.from_struct(state)
-    {:reply, status_map, state}
+    {:reply, Map.from_struct(state), state}
   end
 
   @impl true
-  def handle_info({:block_synced, _height}, state) do
-    # Get highest block from DB (assumes no missing blocks)
-    last_synced =
-      case Chain.get_latest_block() do
-        nil -> 0
-        block -> block.height
-      end
+  def handle_info(:auto_start, %State{status: :idle} = _state) do
+    Logger.info("TipSyncWorker: Auto-starting on boot")
+    {:noreply, running_state()}
+  end
 
-    # Update state with latest from DB
-    new_state = %{state | blocks_synced: state.blocks_synced + 1, last_synced_height: last_synced}
+  def handle_info(:auto_start, state) do
+    # Already running or stopped — don't override
+    {:noreply, state}
+  end
 
-    {:noreply, new_state}
+  @impl true
+  def handle_info({:block_synced, height}, state) do
+    new_height = max(state.last_synced_height || 0, height)
+    {:noreply, %{state | blocks_synced: state.blocks_synced + 1, last_synced_height: new_height}}
   end
 
   @impl true
@@ -140,33 +113,50 @@ defmodule Bitblocks.TipSyncWorker do
   @impl true
   def handle_info(:check_tip, state) do
     current_tip = get_chain_tip()
+    from_height = max((state.last_synced_height || 0) - 1, 0)
 
-    Logger.debug("TipSyncWorker: Checking tip at #{current_tip}")
+    if current_tip > from_height do
+      Logger.debug("TipSyncWorker: Checking heights #{from_height}..#{current_tip}")
+      parent = self()
 
-    # Queue up jobs for 0..tip with limited concurrency
-    parent = self()
-
-    # Use Task.async_stream to limit concurrent DB queries
-    Task.start(fn ->
-      0..current_tip
-      |> Task.async_stream(
-        fn height -> sync_single_block(height, parent) end,
-        max_concurrency: @max_concurrent_tasks,
-        timeout: 30_000,
-        on_timeout: :kill_task
-      )
-      |> Stream.run()
-    end)
+      Task.start(fn ->
+        from_height..current_tip
+        |> Task.async_stream(
+          fn height -> sync_single_block(height, parent) end,
+          max_concurrency: @max_concurrent_tasks,
+          timeout: 30_000,
+          on_timeout: :kill_task
+        )
+        |> Stream.run()
+      end)
+    end
 
     new_state = %{state | current_tip: current_tip, last_check_at: DateTime.utc_now()}
-
-    # Schedule next check
     Process.send_after(self(), :check_tip, @poll_interval_ms)
-
     {:noreply, new_state}
   end
 
   # Private Functions
+
+  defp running_state do
+    last_synced =
+      case Chain.get_latest_block() do
+        nil -> 0
+        block -> block.height
+      end
+
+    send(self(), :check_tip)
+
+    %State{
+      status: :running,
+      last_synced_height: last_synced,
+      current_tip: get_chain_tip(),
+      blocks_synced: 0,
+      started_at: DateTime.utc_now(),
+      last_check_at: DateTime.utc_now(),
+      errors: []
+    }
+  end
 
   defp get_chain_tip do
     case Bitblocks.RpcCache.get_blockchain_info() do
@@ -176,21 +166,20 @@ defmodule Bitblocks.TipSyncWorker do
   end
 
   defp sync_single_block(height, parent) do
-    # Check if block exists in DB
     case Repo.get_by(Chain.Block, height: height) do
       %Chain.Block{} ->
-        # Already have it, skip
         :ok
 
       nil ->
-        # Missing, fetch it
         case BitcoinsvCli.getblockhash(height) do
-          {:error, _reason} ->
+          {:error, reason} ->
+            Logger.error("TipSyncWorker: Failed to get block hash for height #{height}: #{inspect(reason)}")
             :error
 
           block_hash when is_binary(block_hash) ->
             case BitcoinsvCli.getblockheader(block_hash, true) do
-              {:error, _reason} ->
+              {:error, reason} ->
+                Logger.error("TipSyncWorker: Failed to fetch header #{height}: #{inspect(reason)}")
                 :error
 
               header when is_map(header) ->
