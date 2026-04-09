@@ -31,15 +31,19 @@ jobs:
         id: ecr
         uses: aws-actions/amazon-ecr-login@v2
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: Build and push image
-        env:
-          ECR_REPO: ${{ steps.ecr.outputs.registry }}/bitblocks
-        run: |
-          docker build -t bitblocks .
-          docker tag bitblocks:latest $ECR_REPO:${{ github.sha }}
-          docker tag bitblocks:latest $ECR_REPO:latest
-          docker push $ECR_REPO:${{ github.sha }}
-          docker push $ECR_REPO:latest
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ steps.ecr.outputs.registry }}/bitblocks:${{ github.sha }}
+            ${{ steps.ecr.outputs.registry }}/bitblocks:latest
+          cache-from: type=registry,ref=${{ steps.ecr.outputs.registry }}/bitblocks:cache
+          cache-to: type=registry,ref=${{ steps.ecr.outputs.registry }}/bitblocks:cache,mode=max
 
   deploy:
     name: Deploy
