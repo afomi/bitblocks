@@ -162,6 +162,11 @@ defmodule BitcoinsvCli do
     bitcoin_rpc("getrawtransaction", [txid, verbose])
   end
 
+  def gettxoutproof(txids, blockhash \\ nil) do
+    params = if blockhash, do: [txids, blockhash], else: [txids]
+    bitcoin_rpc("gettxoutproof", params)
+  end
+
   # [{"txid":txid,"vout":n,"scriptPubKey":hex},...] [<privatekey1>,...] [sighash="ALL"]
   def signrawtransaction(hex) do
     bitcoin_rpc("signrawtransaction", [hex])

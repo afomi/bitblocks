@@ -1,0 +1,82 @@
+defmodule BitblocksWeb.Api.BlockController do
+  use BitblocksWeb, :controller
+
+  alias Bitblocks.Chain
+
+  action_fallback BitblocksWeb.FallbackController
+
+  @doc """
+  List blocks, most recent first.
+
+  GET /api/v1/blocks?page=1&per_page=50
+  """
+  def index(conn, params) do
+    page = parse_int(params["page"], 1)
+    per_page = parse_int(params["per_page"], 50) |> min(100)
+
+    blocks = Chain.list_blocks(page: page, per_page: per_page)
+    total = Chain.count_blocks()
+
+    json(conn, %{
+      data: Enum.map(blocks, &block_to_json/1),
+      meta: %{
+        total: total,
+        page: page,
+        per_page: per_page
+      }
+    })
+  end
+
+  @doc """
+  Get a single block by height or hash.
+
+  GET /api/v1/blocks/:id
+  """
+  def show(conn, %{"id" => id}) do
+    case Chain.get_block(id) do
+      nil -> {:error, :not_found}
+      block -> json(conn, %{data: block_to_json(block)})
+    end
+  end
+
+  @doc """
+  Get the latest block.
+
+  GET /api/v1/blocks/latest
+  """
+  def latest(conn, _params) do
+    case Chain.get_latest_block() do
+      nil -> {:error, :not_found}
+      block -> json(conn, %{data: block_to_json(block)})
+    end
+  end
+
+  defp block_to_json(block) do
+    %{
+      hash: block.hash,
+      height: block.height,
+      version: block.version,
+      merkleroot: block.merkleroot,
+      time: block.time,
+      mediantime: block.mediantime,
+      nonce: block.nonce,
+      bits: block.bits,
+      difficulty: block.difficulty,
+      chainwork: block.chainwork,
+      num_tx: block.num_tx,
+      size: block.size,
+      prevblockhash: block.prevblockhash,
+      nextblockhash: block.nextblockhash,
+      sync_state: block.sync_state
+    }
+  end
+
+  defp parse_int(nil, default), do: default
+  defp parse_int(val, default) when is_binary(val) do
+    case Integer.parse(val) do
+      {n, ""} -> max(n, 1)
+      _ -> default
+    end
+  end
+  defp parse_int(val, _default) when is_integer(val), do: val
+end

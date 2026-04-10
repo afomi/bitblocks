@@ -19,5 +19,10 @@ config :swoosh, local: false
 # Do not print debug messages in production
 config :logger, level: :info
 
+# One transaction fetch at a time — the node RPC is the bottleneck.
+# Backfill will take days; that's fine.
+config :bitblocks, Oban,
+  queues: [default: 10, transactions: 1, blocks: 1]
+
 # Runtime production configuration, including reading
 # of environment variables, is done on config/runtime.exs.

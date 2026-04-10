@@ -11,7 +11,7 @@ defmodule BitblocksWeb.Endpoint do
     same_site: "Lax"
   ]
 
-  # Health check for ALB — responds before force_ssl redirect
+  # Health check for ALB — force_ssl excludes this path in prod.exs
   plug :healthz
 
   socket "/live", Phoenix.LiveView.Socket,

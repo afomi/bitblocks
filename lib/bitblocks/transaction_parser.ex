@@ -19,17 +19,35 @@ defmodule Bitblocks.TransactionParser do
 
   def parse_transaction(%BSV.Tx{} = tx) do
     op_return_outputs = extract_op_returns(tx.outputs)
+    protocols = detect_protocols(op_return_outputs)
 
-    %{
+    result = %{
       version: tx.version,
       lock_time: tx.lock_time,
       input_count: length(tx.inputs),
       output_count: length(tx.outputs),
       op_returns: op_return_outputs,
-      protocols: detect_protocols(op_return_outputs),
+      protocols: protocols,
       is_coinbase: is_coinbase?(tx),
       total_output_satoshis: calculate_total_outputs(tx.outputs)
     }
+
+    if "MAP" in protocols do
+      map_chunks =
+        op_return_outputs
+        |> Enum.flat_map(fn op_return ->
+          op_return.data
+          |> Enum.filter(&match?(%{type: :push_data, utf8: utf8} when is_binary(utf8), &1))
+          |> Enum.map(& &1.utf8)
+        end)
+
+      case Bitblocks.MapParser.parse(map_chunks) do
+        {:ok, map_data} -> Map.put(result, :map, map_data)
+        _ -> result
+      end
+    else
+      result
+    end
   end
 
   @doc """

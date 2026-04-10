@@ -14,10 +14,23 @@ defmodule BitblocksWeb.Router do
     plug :accepts, ["json"]
   end
 
-  # Protocol Registry API
   scope "/api/v1", BitblocksWeb.Api do
     pipe_through :api
 
+    # Blocks
+    get "/blocks/latest", BlockController, :latest
+    get "/blocks/:id", BlockController, :show
+    get "/blocks", BlockController, :index
+
+    # Transactions
+    get "/txs/:txid/proof", ProofController, :show
+    get "/txs/:txid", TransactionController, :show
+    get "/txs", TransactionController, :index
+
+    # Real-time
+    get "/stream/blocks", StreamController, :blocks
+
+    # Protocols
     get "/protocols", ProtocolController, :index
     get "/protocols/stats", ProtocolController, :stats_overview
     get "/protocols/search", ProtocolController, :search
