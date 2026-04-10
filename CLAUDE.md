@@ -156,6 +156,55 @@ The sync process:
 2. `get/1` or `get_original/1` fetches full raw transaction data for each tx in a block
 3. Transactions are stored with raw hex, which can be decoded using `BitcoinsvCli.decoderawtransaction/1`
 
+## Production Operations
+
+### Backfill (blocks + transactions)
+
+After deploy, run via `rpc` on the production host:
+
+```bash
+# Check for gaps in block data
+bin/bitblocks rpc 'Bitblocks.Release.gaps()'
+
+# Backfill missing blocks and queue transaction fetches from height 0.
+# Idempotent — safe to re-run. Picks up where it left off across restarts.
+# Transactions process one at a time (Oban transactions queue = 1 in prod).
+# This will take days; that's expected.
+bin/bitblocks rpc 'Bitblocks.Release.backfill()'
+```
+
+Options:
+
+```bash
+# Skip block sync, only backfill transactions
+bin/bitblocks rpc 'Bitblocks.Release.backfill(skip_blocks: true)'
+
+# Skip transactions, only fill block gaps
+bin/bitblocks rpc 'Bitblocks.Release.backfill(skip_txs: true)'
+
+# Tune batch sizes
+bin/bitblocks rpc 'Bitblocks.Release.backfill(chunk_size: 500, tx_batch: 50)'
+```
+
+Monitor progress:
+
+```bash
+bin/bitblocks rpc 'Bitblocks.Release.db_stats()'
+```
+
+### API
+
+```
+GET /api/v1/blocks              — paginated block list
+GET /api/v1/blocks/latest       — most recent block
+GET /api/v1/blocks/:id          — block by height or hash
+GET /api/v1/txs                 — paginated transactions
+GET /api/v1/txs/:txid           — single transaction by txid
+GET /api/v1/txs/:txid/proof     — merkle proof for a transaction
+GET /api/v1/stream/blocks       — SSE stream of new blocks
+GET /api/v1/protocols           — registered protocols
+```
+
 ## Database Schema Notes
 
 - Blocks table has indexes on height and tx arrays (see migration 20241217061442)
