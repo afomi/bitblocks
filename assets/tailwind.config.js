@@ -15,6 +15,18 @@ module.exports = {
     extend: {
       colors: {
         brand: "#FD4F00",
+        surface: {
+          base: "var(--surface-base)",
+          raised: "var(--surface-raised)",
+          overlay: "var(--surface-overlay)",
+        },
+        neutral: {
+          50: "var(--neutral-50)",
+          400: "var(--neutral-400)",
+          500: "var(--neutral-500)",
+          700: "var(--neutral-700)",
+          800: "var(--neutral-800)",
+        },
       }
     },
   },
