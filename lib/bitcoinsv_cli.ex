@@ -162,6 +162,14 @@ defmodule BitcoinsvCli do
     bitcoin_rpc("getrawtransaction", [txid, verbose])
   end
 
+  def getblocktemplate do
+    bitcoin_rpc("getblocktemplate", [])
+  end
+
+  def submitblock(hex_data) do
+    bitcoin_rpc("submitblock", [hex_data])
+  end
+
   def gettxoutproof(txids, blockhash \\ nil) do
     params = if blockhash, do: [txids, blockhash], else: [txids]
     bitcoin_rpc("gettxoutproof", params)

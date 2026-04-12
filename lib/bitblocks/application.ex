@@ -56,6 +56,8 @@ defmodule Bitblocks.Application do
       Bitblocks.TipSyncWorker,
       # Start block monitor for real-time new block detection
       Bitblocks.BlockMonitor,
+      # Mining proxy — serves block templates to remote hashers
+      Bitblocks.MiningProxy,
       # Generic collections registry
       Bitblocks.Collections,
       # Rexxie NFT collection

@@ -37,6 +37,11 @@ defmodule BitblocksWeb.Router do
     # Real-time
     get "/stream/blocks", StreamController, :blocks
 
+    # Mining
+    get "/mining/work", MiningController, :work
+    get "/mining/status", MiningController, :status
+    post "/mining/submit", MiningController, :submit
+
     # Protocols
     get "/protocols", ProtocolController, :index
     get "/protocols/stats", ProtocolController, :stats_overview
