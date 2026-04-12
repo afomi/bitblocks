@@ -19,8 +19,15 @@ defmodule BitblocksWeb.Router do
 
     # Blocks
     get "/blocks/latest", BlockController, :latest
+    get "/blocks/at_time", BlockController, :at_time
+    get "/blocks/at_height", BlockController, :at_height
+    get "/blocks/time_map", BlockController, :time_map
     get "/blocks/:id", BlockController, :show
     get "/blocks", BlockController, :index
+
+    # Addresses (proxied to WhatsOnChain until we have our own UTXO index)
+    get "/addresses/:address/utxos", AddressController, :utxos
+    get "/addresses/:address/balance", AddressController, :balance
 
     # Transactions
     get "/txs/:txid/proof", ProofController, :show

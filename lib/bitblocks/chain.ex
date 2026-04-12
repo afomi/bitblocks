@@ -135,6 +135,90 @@ defmodule Bitblocks.Chain do
   end
 
   @doc """
+  Returns the block height closest to the given UTC datetime.
+
+  Finds the first block at or after the given time.
+  Useful for translating date ranges into block height ranges
+  (e.g. "show me everything from January 2024" → height 823000..835000).
+
+  ## Examples
+
+      iex> height_at_time(~U[2024-01-01 00:00:00Z])
+      {:ok, 823_000}
+
+      iex> height_at_time(~U[2008-01-01 00:00:00Z])
+      {:error, :not_found}
+  """
+  def height_at_time(%DateTime{} = datetime) do
+    unix = DateTime.to_unix(datetime)
+
+    query =
+      from b in Block,
+        where: b.time >= ^unix,
+        order_by: [asc: b.time],
+        select: b.height,
+        limit: 1
+
+    case Repo.one(query) do
+      nil -> {:error, :not_found}
+      height -> {:ok, height}
+    end
+  end
+
+  @doc """
+  Returns the UTC datetime for a given block height.
+
+  ## Examples
+
+      iex> time_at_height(100_000)
+      {:ok, ~U[2012-06-13 11:14:31Z]}
+
+      iex> time_at_height(999_999_999)
+      {:error, :not_found}
+  """
+  def time_at_height(height) when is_integer(height) do
+    query =
+      from b in Block,
+        where: b.height == ^height,
+        select: b.time,
+        limit: 1
+
+    case Repo.one(query) do
+      nil -> {:error, :not_found}
+      unix -> {:ok, DateTime.from_unix!(unix)}
+    end
+  end
+
+  @doc """
+  Returns a list of {height, time} pairs for a range, sampled at intervals.
+
+  Used to build time↔height lookup tables for UI scrubbers without
+  querying every block. Returns one sample per `step` blocks.
+
+  ## Examples
+
+      iex> height_time_samples(0, 100_000, 10_000)
+      [{0, ~U[2009-01-03 18:15:05Z]}, {10000, ~U[2009-02-12 ...Z]}, ...]
+  """
+  def height_time_samples(start_height, end_height, step \\ 10_000) do
+    # Generate the heights we want to sample
+    heights =
+      start_height
+      |> Stream.iterate(&(&1 + step))
+      |> Stream.take_while(&(&1 <= end_height))
+      |> Enum.to_list()
+
+    query =
+      from b in Block,
+        where: b.height in ^heights,
+        select: {b.height, b.time},
+        order_by: [asc: b.height]
+
+    Repo.all(query)
+    |> Enum.map(fn {height, unix} -> {height, DateTime.from_unix!(unix)} end)
+  end
+
+  @doc """
   Checks if a block exists at the given height.
 
   ## Examples
