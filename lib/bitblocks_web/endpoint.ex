@@ -60,6 +60,7 @@ defmodule BitblocksWeb.Endpoint do
   plug Plug.Head
   plug Plug.Session, @session_options
   plug BitblocksWeb.Plugs.IpBlocker
+  plug BitblocksWeb.Plugs.RateLimiter
   plug BitblocksWeb.Plugs.RequestLogger
   plug BitblocksWeb.Router
 

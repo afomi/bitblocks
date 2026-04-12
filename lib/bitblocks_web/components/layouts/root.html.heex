@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<html lang="en" class="dark [scrollbar-gutter:stable]">
+<html lang="en" class="light [scrollbar-gutter:stable]">
   <script>
     try {
-      if (localStorage.getItem('theme') === 'light') {
-        document.documentElement.classList.remove('dark');
-        document.documentElement.classList.add('light');
+      if (localStorage.getItem('theme') === 'dark') {
+        document.documentElement.classList.remove('light');
+        document.documentElement.classList.add('dark');
       }
     } catch(e) {}
   </script>
@@ -293,7 +293,7 @@
             <script>
               try {
                 var btn = document.currentScript.previousElementSibling;
-                btn.textContent = localStorage.getItem('theme') === 'light' ? '☾' : '☀';
+                btn.textContent = localStorage.getItem('theme') === 'dark' ? '☀' : '☾';
               } catch(e) {}
             </script>
           </div>
