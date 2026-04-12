@@ -102,6 +102,11 @@ defmodule Bitblocks.TipSyncWorker do
   @impl true
   def handle_info({:block_synced, height}, state) do
     new_height = max(state.last_synced_height || 0, height)
+
+    # Queue transaction fetches for recently synced blocks that don't have txs yet.
+    # Only for blocks near the tip — the backfill handles historical blocks.
+    maybe_queue_tx_fetch(height)
+
     {:noreply, %{state | blocks_synced: state.blocks_synced + 1, last_synced_height: new_height}}
   end
 
@@ -214,6 +219,21 @@ defmodule Bitblocks.TipSyncWorker do
                 end
             end
         end
+    end
+  end
+
+  # Queue transaction fetch for a newly synced block.
+  # Only queues if the block is in a state that needs transactions
+  # (header_only or header_synced). Already-completed or queued blocks
+  # are skipped. The FetchTransactionsWorker handles confirmation gating.
+  defp maybe_queue_tx_fetch(height) do
+    case Repo.get_by(Chain.Block, height: height) do
+      %Chain.Block{sync_state: state} = block when state in ["header_only", "header_synced"] ->
+        Logger.info("TipSyncWorker: Queuing tx fetch for block #{height}")
+        Chain.queue_transaction_fetch(block)
+
+      _ ->
+        :ok
     end
   end
 end

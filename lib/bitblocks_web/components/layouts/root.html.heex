@@ -1,5 +1,13 @@
 <!DOCTYPE html>
-<html lang="en" class="[scrollbar-gutter:stable]">
+<html lang="en" class="dark [scrollbar-gutter:stable]">
+  <script>
+    try {
+      if (localStorage.getItem('theme') === 'light') {
+        document.documentElement.classList.remove('dark');
+        document.documentElement.classList.add('light');
+      }
+    } catch(e) {}
+  </script>
   <head>
     <% page_title = assigns[:page_title] || "Bitblocks" %>
     <% meta_description = assigns[:meta_description] || "Explore Bitcoin SV blocks, transactions, protocols, and network status with Bitblocks." %>
@@ -153,7 +161,7 @@
         <strong
           class="font-semibold"
         >
-          Development Notice:
+          Development Notice (April 2026):
         </strong>
         This project is in development and will sync to block 600,000 as an initial milestone.
       </p>
@@ -266,6 +274,28 @@
             >
               GitHub
             </a>
+          </div>
+          <div>
+            <button
+              onclick="
+                var html = document.documentElement;
+                var isLight = html.classList.contains('light');
+                html.classList.toggle('dark', isLight);
+                html.classList.toggle('light', !isLight);
+                localStorage.setItem('theme', isLight ? 'dark' : 'light');
+                this.textContent = isLight ? '☀' : '☾';
+              "
+              class="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors"
+              aria-label="Toggle light/dark mode"
+            >
+              ☾
+            </button>
+            <script>
+              try {
+                var btn = document.currentScript.previousElementSibling;
+                btn.textContent = localStorage.getItem('theme') === 'light' ? '☾' : '☀';
+              } catch(e) {}
+            </script>
           </div>
         </div>
       </div>
