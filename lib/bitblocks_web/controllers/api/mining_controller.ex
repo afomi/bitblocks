@@ -12,9 +12,19 @@ defmodule BitblocksWeb.Api.MiningController do
   Get the current work unit.
 
   GET /api/v1/mining/work
+  GET /api/v1/mining/work?address=1ABC...&message=my+miner
+
+  When `address` is provided, the coinbase tx splits the reward:
+  the configured platform share goes to bitblocks, the rest to the hasher.
+  The `message` (optional) is appended to the coinbase scriptSig.
   """
-  def work(conn, _params) do
-    case MiningProxy.get_work() do
+  def work(conn, params) do
+    opts = %{
+      hasher_address: params["address"],
+      hasher_message: params["message"]
+    }
+
+    case MiningProxy.get_work(opts) do
       nil ->
         conn |> put_status(503) |> json(%{error: "No work available. Mining proxy may be disabled or node unreachable."})
 

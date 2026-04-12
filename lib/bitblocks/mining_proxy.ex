@@ -24,6 +24,11 @@ defmodule Bitblocks.MiningProxy do
 
   @poll_interval Application.compile_env(:bitblocks, [__MODULE__, :poll_interval_ms], 5_000)
 
+  # Platform share of the block reward when a hasher provides their address.
+  # The hasher gets (100 - platform_share_pct)%.
+  # Default 10% — bitblocks provides the template, node infra (~20TB), and submit endpoint.
+  @platform_share_pct Application.compile_env(:bitblocks, [__MODULE__, :platform_share_pct], 10)
+
   defmodule Work do
     @moduledoc false
     defstruct [
@@ -47,9 +52,15 @@ defmodule Bitblocks.MiningProxy do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
   end
 
-  @doc "Returns the current work unit, or nil if no template is available."
-  def get_work do
-    GenServer.call(__MODULE__, :get_work)
+  @doc """
+  Returns the current work unit, or nil if no template is available.
+
+  When `opts` includes a `:hasher_address`, the coinbase tx splits the
+  block reward between bitblocks (platform_share_pct) and the hasher.
+  The hasher can verify the split by inspecting the coinbase_hex in the response.
+  """
+  def get_work(opts \\ %{}) do
+    GenServer.call(__MODULE__, {:get_work, opts})
   end
 
   @doc "Submit a nonce solution for the current work."
@@ -105,8 +116,23 @@ defmodule Bitblocks.MiningProxy do
   end
 
   @impl true
-  def handle_call(:get_work, _from, state) do
-    {:reply, state.current_work, state}
+  def handle_call({:get_work, opts}, _from, state) do
+    work =
+      case {state.current_work, opts[:hasher_address] || opts["hasher_address"]} do
+        {nil, _} ->
+          nil
+
+        {work, nil} ->
+          # No hasher address — use the cached work as-is (full reward to platform)
+          work
+
+        {work, hasher_address} ->
+          # Rebuild coinbase with split outputs for this hasher
+          hasher_message = opts[:hasher_message] || opts["hasher_message"]
+          rebuild_work_with_split(work, hasher_address, hasher_message)
+      end
+
+    {:reply, work, state}
   end
 
   def handle_call(:status, _from, state) do
@@ -179,8 +205,96 @@ defmodule Bitblocks.MiningProxy do
     end
   end
 
+  # -- Work rebuild with reward split -------------------------------------------
+
+  defp rebuild_work_with_split(work, hasher_address, hasher_message) do
+    # We need the original template to rebuild the coinbase.
+    # Since we only cache the work (not the raw template), we re-fetch.
+    # This is called per-request when a hasher provides an address.
+    case BitcoinsvCli.getblocktemplate() do
+      %{"coinbasevalue" => value} = template ->
+        platform_sats = div(value * @platform_share_pct, 100)
+        hasher_sats = value - platform_sats
+
+        message = build_message(hasher_message)
+        coinbase_hex = build_split_coinbase(template, platform_sats, hasher_sats, hasher_address, message)
+
+        # Recompute merkle root with new coinbase
+        all_txids = [txid_from_hex(coinbase_hex) | Enum.map(template["transactions"] || [], & &1["txid"])]
+        merkle_root = compute_merkle_root(all_txids)
+
+        %Work{work
+          | work_id: Base.encode16(:crypto.strong_rand_bytes(8), case: :lower),
+            merkle_root: merkle_root,
+            coinbase_hex: coinbase_hex,
+            created_at: System.system_time(:second)
+        }
+
+      _ ->
+        # Template fetch failed — return the original work (full reward to platform)
+        work
+    end
+  end
+
+  defp build_message(nil), do: config(:coinbase_message, "Bitblocks")
+
+  defp build_message(hasher_msg) do
+    "Bitblocks + #{hasher_msg}" |> String.slice(0, 90)
+  end
+
   # -- Coinbase transaction ----------------------------------------------------
 
+  # Split coinbase: two outputs — platform + hasher
+  defp build_split_coinbase(template, platform_sats, hasher_sats, hasher_address, message) do
+    height = template["height"]
+    platform_address = config(:coinbase_address, nil)
+
+    height_bytes = encode_script_number(height)
+    height_len = byte_size(height_bytes)
+    msg_bytes = message
+    msg_len = byte_size(msg_bytes)
+
+    script_sig = <<height_len>> <> height_bytes <> <<msg_len>> <> msg_bytes
+    script_sig_len = byte_size(script_sig)
+
+    # Output 0: hasher (the majority)
+    hasher_script = address_to_p2pkh_script(hasher_address)
+    hasher_script_len = byte_size(hasher_script)
+
+    # Output 1: platform
+    platform_script =
+      if platform_address do
+        address_to_p2pkh_script(platform_address)
+      else
+        op_return_script("bitblocks")
+      end
+
+    platform_script_len = byte_size(platform_script)
+
+    tx =
+      <<1::little-32>> <>
+        <<1>> <>
+        <<0::256>> <>
+        <<0xFFFFFFFF::little-32>> <>
+        encode_varint(script_sig_len) <>
+        script_sig <>
+        <<0xFFFFFFFF::little-32>> <>
+        # Two outputs
+        <<2>> <>
+        # Output 0: hasher
+        <<hasher_sats::little-64>> <>
+        encode_varint(hasher_script_len) <>
+        hasher_script <>
+        # Output 1: platform
+        <<platform_sats::little-64>> <>
+        encode_varint(platform_script_len) <>
+        platform_script <>
+        <<0::little-32>>
+
+    Base.encode16(tx, case: :lower)
+  end
+
+  # Single-output coinbase: full reward to platform address
   defp build_coinbase(template) do
     height = template["height"]
     value = template["coinbasevalue"]
