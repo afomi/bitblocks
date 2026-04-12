@@ -1,0 +1,181 @@
+<div class="bg-surface-base min-h-screen">
+  <div class="max-w-7xl mx-auto px-4">
+    <section class="border-b border-neutral-800 pt-16 pb-16">
+      <h1 class="text-4xl font-semibold text-neutral-50 tracking-tight mb-2">
+        Blockchain Highlights
+      </h1>
+      <p class="text-neutral-500">
+        Notable transactions, milestones, and stories from the blockchain
+      </p>
+    </section>
+
+    <%!-- Contribution Notice --%>
+    <section class="border-b border-neutral-800 py-6">
+      <p class="text-sm text-neutral-500">
+        <span class="text-neutral-400 font-medium">Community contributions welcome.</span>
+        Know about an interesting transaction or blockchain event?
+        <a
+          href="https://github.com/afomi/bitblocks/blob/main/CONTRIBUTING.md"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="text-brand hover:opacity-80"
+        >
+          Submit a PR
+        </a>
+        to add your story.
+      </p>
+    </section>
+
+    <%!-- Category Filter --%>
+    <section class="border-b border-neutral-800 py-6">
+      <div class="flex gap-3 overflow-x-auto">
+        <span class="text-[10px] font-mono font-medium px-2 py-0.5 bg-brand text-white rounded">
+          ALL
+        </span>
+        <span class="text-[10px] font-mono font-medium px-2 py-0.5 bg-neutral-600 text-white rounded cursor-pointer hover:bg-neutral-500 transition-colors">
+          MILESTONES
+        </span>
+        <span class="text-[10px] font-mono font-medium px-2 py-0.5 bg-neutral-600 text-white rounded cursor-pointer hover:bg-neutral-500 transition-colors">
+          FIRST EVENTS
+        </span>
+        <span class="text-[10px] font-mono font-medium px-2 py-0.5 bg-neutral-600 text-white rounded cursor-pointer hover:bg-neutral-500 transition-colors">
+          CULTURE
+        </span>
+        <span class="text-[10px] font-mono font-medium px-2 py-0.5 bg-neutral-600 text-white rounded cursor-pointer hover:bg-neutral-500 transition-colors">
+          NFTS
+        </span>
+      </div>
+    </section>
+
+    <%!-- Highlights List --%>
+    <%= for highlight <- @highlights do %>
+      <article class="border-b border-neutral-800 py-12">
+        <div class="flex items-start justify-between mb-4">
+          <div>
+            <span class={[
+              "text-[10px] font-mono font-medium px-2 py-0.5 rounded inline-block mb-3",
+              category_color(highlight.category)
+            ]}>
+              <%= highlight.category |> String.upcase() %>
+            </span>
+            <h2 class="text-2xl font-semibold text-neutral-50">
+              <%= highlight.title %>
+            </h2>
+          </div>
+          <time class="text-sm font-mono text-neutral-500 shrink-0 ml-4">
+            <%= Calendar.strftime(highlight.date, "%Y-%m-%d") %>
+          </time>
+        </div>
+
+        <p class="text-neutral-500 leading-relaxed mb-6 max-w-2xl">
+          <%= highlight.content %>
+        </p>
+
+        <%!-- Metadata --%>
+        <div class="border-t border-neutral-800 pt-4">
+          <div class="flex flex-wrap items-center gap-6 text-sm">
+            <%= if highlight.block_height do %>
+              <div>
+                <span class="font-mono text-xs text-neutral-500">Block</span>
+                <.link
+                  navigate={~p"/blocks/#{highlight.block_height}"}
+                  class="ml-2 font-mono text-xs text-neutral-400 hover:text-brand transition-colors duration-150"
+                >
+                  <%= highlight.block_height %>
+                </.link>
+              </div>
+            <% end %>
+
+            <%= if highlight.txid do %>
+              <div>
+                <span class="font-mono text-xs text-neutral-500">TX</span>
+                <.link
+                  navigate={~p"/transactions/#{highlight.txid}"}
+                  class="ml-2 font-mono text-xs text-neutral-400 hover:text-brand transition-colors duration-150"
+                >
+                  <%= String.slice(highlight.txid, 0, 16) %>...
+                </.link>
+              </div>
+            <% end %>
+
+            <div>
+              <span class="font-mono text-xs text-neutral-500">By</span>
+              <span class="ml-2 text-xs text-neutral-400">
+                <%= highlight.author %>
+              </span>
+            </div>
+          </div>
+
+          <%!-- Tags --%>
+          <div class="flex flex-wrap gap-2 mt-4">
+            <%= for tag <- highlight.tags do %>
+              <span class="font-mono text-xs text-neutral-500">
+                #<%= tag %>
+              </span>
+            <% end %>
+          </div>
+        </div>
+      </article>
+    <% end %>
+
+    <%!-- How to Contribute --%>
+    <section class="py-16">
+      <p class="font-mono text-xs text-neutral-500 uppercase tracking-wider mb-4">
+        Contribute
+      </p>
+      <h2 class="text-2xl font-semibold text-neutral-50 mb-6">
+        How to Add a Highlight
+      </h2>
+
+      <p class="text-neutral-500 leading-relaxed mb-6">
+        Want to share a story about an interesting transaction or blockchain event?
+      </p>
+
+      <div class="border-t border-neutral-800">
+        <div class="py-4 border-b border-neutral-800">
+          <span class="text-brand font-mono text-sm">01</span>
+          <p class="text-sm text-neutral-400 mt-2">
+            Fork the
+            <a
+              href="https://github.com/afomi/bitblocks"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="text-brand hover:opacity-80"
+            >
+              Bitblocks repository
+            </a>
+          </p>
+        </div>
+        <div class="py-4 border-b border-neutral-800">
+          <span class="text-brand font-mono text-sm">02</span>
+          <p class="text-sm text-neutral-400 mt-2">
+            Edit
+            <code class="text-xs font-mono bg-surface-raised px-1.5 py-0.5 rounded">
+              lib/bitblocks_web/live/highlights_live.ex
+            </code>
+          </p>
+        </div>
+        <div class="py-4 border-b border-neutral-800">
+          <span class="text-brand font-mono text-sm">03</span>
+          <p class="text-sm text-neutral-400 mt-2">
+            Add your highlight to the
+            <code class="text-xs font-mono bg-surface-raised px-1.5 py-0.5 rounded">
+              get_highlights/0
+            </code>
+            function
+          </p>
+        </div>
+        <div class="py-4 border-b border-neutral-800">
+          <span class="text-brand font-mono text-sm">04</span>
+          <p class="text-sm text-neutral-400 mt-2">
+            Submit a pull request with your story
+          </p>
+        </div>
+      </div>
+
+      <p class="text-sm text-neutral-500 mt-6">
+        Ideas: first token mint, first NFT, notable transactions, record-breaking blocks, community milestones, historical events.
+      </p>
+    </section>
+  </div>
+</div>

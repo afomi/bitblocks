@@ -1,119 +1,107 @@
-<section
-  class="container mx-auto px-4 py-8 max-w-5xl"
+<div
+  class="bg-surface-base min-h-screen"
   role="region"
   aria-labelledby="blocks-heading"
 >
-  <h1 id="blocks-heading" class="text-4xl font-bold mb-6">
-    Blocks
-  </h1>
+  <div class="max-w-7xl mx-auto px-4">
+    <section class="border-b border-neutral-800 pt-16 pb-16">
+      <h1
+        id="blocks-heading"
+        class="text-4xl font-semibold text-neutral-50 tracking-tight mb-2"
+      >
+        Blocks
+      </h1>
+      <p class="text-sm text-neutral-500">
+        Page <%= @page %> of <%= @total_pages %>
+        · <%= format_number(@total_blocks) %> total
+      </p>
+    </section>
 
-  <%= if @live_action in [:new, :edit] do %>
-    <.modal
-      id="block-modal"
-      show
-      on_cancel={JS.patch(~p"/blocks")}
-    >
-      <.live_component
-        module={BitblocksWeb.BlockLive.FormComponent}
-        id={@block.id || :new}
-        title={@page_title}
-        action={@live_action}
-        block={@block}
-        return_to={~p"/blocks"}
-      />
-    </.modal>
-  <% end %>
+    <%= if @live_action in [:new, :edit] do %>
+      <.modal
+        id="block-modal"
+        show
+        on_cancel={JS.patch(~p"/blocks")}
+      >
+        <.live_component
+          module={BitblocksWeb.BlockLive.FormComponent}
+          id={@block.id || :new}
+          title={@page_title}
+          action={@live_action}
+          block={@block}
+          return_to={~p"/blocks"}
+        />
+      </.modal>
+    <% end %>
 
-  <%!-- Block List --%>
-  <div class="bg-white shadow-md rounded-lg overflow-hidden">
-    <div class="divide-y divide-gray-200">
+    <%!-- Block List --%>
+    <div class="border-t border-neutral-800">
       <%= for block <- @blocks do %>
-        <div
-          class="p-4 hover:bg-gray-50 transition-colors"
+        <a
+          href={~p"/blocks/#{block.height}"}
           id={"block-#{block.height}"}
+          class="flex items-center justify-between py-4 border-b border-neutral-800 group"
         >
-          <div class="flex items-start justify-between gap-4">
-            <%!-- Left: Block Height --%>
-            <div class="flex-shrink-0">
-              <.link
-                navigate={~p"/blocks/#{block.height}"}
-                class="text-2xl font-bold text-blue-600 hover:text-blue-700"
-              >
-                <%= format_number(block.height) %>
-              </.link>
-            </div>
-
-            <%!-- Middle: Block Details --%>
-            <div class="flex-1 min-w-0">
-              <%!-- Hash --%>
-              <div class="font-mono text-sm text-gray-600 break-all mb-2">
-                <%= block.hash %>
-              </div>
-
-              <%!-- Stats --%>
-              <div class="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500">
-                <div>
-                  <span class="font-semibold">
-                    <%= format_number(block.num_tx) %>
-                  </span>
-                  <span>
-                    <%= if block.num_tx == 1, do: "transaction", else: "transactions" %>
-                  </span>
-                </div>
-
-                <div>
-                  <span class="font-semibold">
-                    <%= format_bytes(block.size) %>
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            <%!-- Right: Timestamp --%>
-            <div class="flex-shrink-0 text-right text-xs text-gray-500">
-              <%= format_timestamp(block.time) %>
-            </div>
+          <div class="flex items-center gap-6">
+            <span class="text-lg font-semibold text-neutral-50 tabular-nums group-hover:text-brand transition-colors duration-150">
+              <%= format_number(block.height) %>
+            </span>
+            <span class="font-mono text-xs text-neutral-500 hidden sm:inline">
+              <%= String.slice(block.hash, 0, 16) %>…
+            </span>
           </div>
-        </div>
+
+          <div class="flex items-center gap-6">
+            <span class="font-mono text-xs text-neutral-500 tabular-nums">
+              <%= format_number(block.num_tx) %> tx
+            </span>
+            <span
+              :if={block.size}
+              class="font-mono text-xs text-neutral-500 tabular-nums hidden sm:inline"
+            >
+              <%= format_bytes(block.size) %>
+            </span>
+            <span class="font-mono text-xs text-neutral-500 tabular-nums w-20 text-right">
+              <%= format_timestamp(block.time) %>
+            </span>
+          </div>
+        </a>
       <% end %>
+    </div>
+
+    <%!-- Pagination --%>
+    <div class="flex items-center justify-between py-8">
+      <p class="font-mono text-xs text-neutral-500">
+        Page <%= @page %> of <%= @total_pages %>
+      </p>
+
+      <div class="flex gap-3">
+        <%= if @page > 1 do %>
+          <.link
+            patch={~p"/blocks?page=#{@page - 1}"}
+            class="px-6 py-3 bg-surface-raised text-neutral-50 border border-neutral-700 rounded hover:bg-surface-overlay transition-colors font-medium text-sm"
+          >
+            Previous
+          </.link>
+        <% else %>
+          <span class="px-6 py-3 bg-surface-raised text-neutral-500 border border-neutral-800 rounded text-sm cursor-not-allowed">
+            Previous
+          </span>
+        <% end %>
+
+        <%= if @page < @total_pages do %>
+          <.link
+            patch={~p"/blocks?page=#{@page + 1}"}
+            class="px-6 py-3 bg-surface-raised text-neutral-50 border border-neutral-700 rounded hover:bg-surface-overlay transition-colors font-medium text-sm"
+          >
+            Next
+          </.link>
+        <% else %>
+          <span class="px-6 py-3 bg-surface-raised text-neutral-500 border border-neutral-800 rounded text-sm cursor-not-allowed">
+            Next
+          </span>
+        <% end %>
+      </div>
     </div>
   </div>
-
-  <%!-- Pagination --%>
-  <div class="flex justify-between items-center mt-6">
-    <div class="text-sm text-gray-600">
-      Page <%= @page %> of <%= @total_pages %>
-      <span class="text-gray-600">
-        (<%= format_number(@total_blocks) %> total)
-      </span>
-    </div>
-
-    <div class="flex gap-2">
-      <%= if @page > 1 do %>
-        <.link
-          patch={~p"/blocks?page=#{@page - 1}"}
-          class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 font-semibold transition-colors"
-        >
-          Previous
-        </.link>
-      <% else %>
-        <span class="px-4 py-2 bg-gray-100 text-gray-600 rounded-md cursor-not-allowed font-semibold">
-          Previous
-        </span>
-      <% end %>
-
-      <%= if @page < @total_pages do %>
-        <.link
-          patch={~p"/blocks?page=#{@page + 1}"}
-          class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 font-semibold transition-colors"
-        >
-          Next
-        </.link>
-      <% else %>
-        <span class="px-4 py-2 bg-gray-100 text-gray-600 rounded-md cursor-not-allowed font-semibold">
-          Next
-        </span>
-      <% end %>
-    </div>
-  </div>
-</section>
+</div>

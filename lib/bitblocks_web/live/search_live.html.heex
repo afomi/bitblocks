@@ -1,0 +1,160 @@
+<div class="bg-surface-base min-h-screen">
+  <div class="max-w-7xl mx-auto px-4">
+    <section class="border-b border-neutral-800 pt-16 pb-16">
+      <h1 class="text-4xl font-semibold text-neutral-50 tracking-tight mb-8">
+        Search
+      </h1>
+
+      <form
+        phx-submit="search"
+      >
+        <label
+          for="search-query"
+          class="font-mono text-xs text-neutral-500 uppercase tracking-wider mb-3 block"
+        >
+          Block Height, Block Hash, or Transaction ID
+        </label>
+        <div class="flex gap-3">
+          <input
+            type="text"
+            name="query"
+            id="search-query"
+            value={@query}
+            placeholder="Enter block height, hash, or txid..."
+            class="flex-1 px-4 py-3 bg-surface-raised border border-neutral-700 rounded text-neutral-50 font-mono text-sm focus:outline-none focus:border-brand placeholder:text-neutral-500"
+            autofocus
+          />
+          <button
+            type="submit"
+            class="px-6 py-3 bg-brand text-white font-medium rounded hover:opacity-90 transition-colors"
+          >
+            Search
+          </button>
+        </div>
+      </form>
+    </section>
+
+    <%!-- Search Results --%>
+    <%= if @results do %>
+      <section class="border-b border-neutral-800 py-16">
+        <%= case @results do %>
+          <% {:block, block} -> %>
+            <div class="flex items-center justify-between mb-6">
+              <p class="font-mono text-xs text-neutral-500 uppercase tracking-wider">
+                Block Found
+              </p>
+              <a
+                href={~p"/blocks/#{block.height}"}
+                class="text-sm text-neutral-400 hover:text-brand transition-colors duration-150"
+              >
+                View Block →
+              </a>
+            </div>
+
+            <div class="border-t border-neutral-800">
+              <div class="grid grid-cols-2 gap-0">
+                <div class="py-4 border-b border-neutral-800">
+                  <p class="font-mono text-xs text-neutral-500 mb-1">
+                    Height
+                  </p>
+                  <p class="text-lg font-semibold text-neutral-50 tabular-nums">
+                    <%= block.height %>
+                  </p>
+                </div>
+                <div class="py-4 border-b border-neutral-800">
+                  <p class="font-mono text-xs text-neutral-500 mb-1">
+                    Transactions
+                  </p>
+                  <p class="text-lg font-semibold text-neutral-50 tabular-nums">
+                    <%= block.num_tx %>
+                  </p>
+                </div>
+              </div>
+              <div class="py-4 border-b border-neutral-800">
+                <p class="font-mono text-xs text-neutral-500 mb-1">
+                  Hash
+                </p>
+                <p class="font-mono text-xs text-neutral-400 break-all bg-surface-raised p-3 rounded">
+                  <%= block.hash %>
+                </p>
+              </div>
+            </div>
+
+          <% {:transaction, tx} -> %>
+            <div class="flex items-center justify-between mb-6">
+              <p class="font-mono text-xs text-neutral-500 uppercase tracking-wider">
+                Transaction Found
+              </p>
+              <a
+                href={~p"/transactions/#{tx.txid}"}
+                class="text-sm text-neutral-400 hover:text-brand transition-colors duration-150"
+              >
+                View Transaction →
+              </a>
+            </div>
+
+            <div class="border-t border-neutral-800">
+              <div class="py-4 border-b border-neutral-800">
+                <p class="font-mono text-xs text-neutral-500 mb-1">
+                  Transaction ID
+                </p>
+                <p class="font-mono text-xs text-neutral-400 break-all bg-surface-raised p-3 rounded">
+                  <%= tx.txid %>
+                </p>
+              </div>
+              <%= if tx.block_hash do %>
+                <div class="py-4 border-b border-neutral-800">
+                  <p class="font-mono text-xs text-neutral-500 mb-1">
+                    Block Hash
+                  </p>
+                  <p class="font-mono text-xs text-neutral-400 break-all bg-surface-raised p-3 rounded">
+                    <%= tx.block_hash %>
+                  </p>
+                </div>
+              <% end %>
+            </div>
+
+          <% {:error, message} -> %>
+            <div class="bg-surface-raised rounded p-6 border border-neutral-700">
+              <p class="text-sm text-neutral-400">
+                <%= message %>
+              </p>
+            </div>
+        <% end %>
+      </section>
+    <% end %>
+
+    <%!-- Examples --%>
+    <section class="py-16">
+      <p class="font-mono text-xs text-neutral-500 uppercase tracking-wider mb-6">
+        Examples
+      </p>
+      <div class="border-t border-neutral-800">
+        <div class="py-4 border-b border-neutral-800">
+          <p class="text-sm font-medium text-neutral-50 mb-2">
+            Block by Height
+          </p>
+          <code class="text-xs font-mono text-neutral-400 bg-surface-raised p-2 rounded block">
+            100
+          </code>
+        </div>
+        <div class="py-4 border-b border-neutral-800">
+          <p class="text-sm font-medium text-neutral-50 mb-2">
+            Block by Hash
+          </p>
+          <code class="text-xs font-mono text-neutral-400 bg-surface-raised p-2 rounded block break-all">
+            000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f
+          </code>
+        </div>
+        <div class="py-4 border-b border-neutral-800">
+          <p class="text-sm font-medium text-neutral-50 mb-2">
+            Transaction by ID
+          </p>
+          <code class="text-xs font-mono text-neutral-400 bg-surface-raised p-2 rounded block break-all">
+            4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b
+          </code>
+        </div>
+      </div>
+    </section>
+  </div>
+</div>

@@ -1,82 +1,58 @@
-<br>
-<br>
-<br>
-<br>
+<div class="bg-surface-base min-h-screen">
+  <div class="max-w-7xl mx-auto px-4">
+    <%!-- Header with height + navigation --%>
+    <section class="border-b border-neutral-800 pt-16 pb-8">
+      <div class="flex items-center justify-between mb-4">
+        <div>
+          <p class="font-mono text-xs text-neutral-500 uppercase tracking-wider mb-2">
+            Block
+          </p>
+          <h1 class="text-4xl font-semibold text-neutral-50 tabular-nums tracking-tight">
+            <%= @block.height %>
+          </h1>
+        </div>
+        <div class="flex gap-3">
+          <.link
+            navigate={~p"/blocks/#{@block.height - 1}"}
+            class="px-4 py-2 bg-surface-raised text-neutral-400 border border-neutral-700 rounded hover:bg-surface-overlay hover:text-neutral-50 transition-colors text-sm"
+          >
+            ← <%= @block.height - 1 %>
+          </.link>
+          <.link
+            navigate={~p"/blocks/#{@block.height + 1}"}
+            class="px-4 py-2 bg-surface-raised text-neutral-400 border border-neutral-700 rounded hover:bg-surface-overlay hover:text-neutral-50 transition-colors text-sm"
+          >
+            <%= @block.height + 1 %> →
+          </.link>
+        </div>
+      </div>
+      <p class="font-mono text-xs text-neutral-500 break-all">
+        <%= @block.hash %>
+      </p>
+    </section>
 
-<div
-  class="container mx-auto mt-3 ps-3"
->
-  <div
-    class=""
-  >
-    <div
-      class="mb-6"
-    >
-      <h1>Show Block</h1>
-    </div>
-
-    <%!-- Sync State Progress Indicator --%>
-    <div
-      class="mb-6"
-    >
-      <div
-        class="flex items-center justify-between mb-2"
-      >
-        <span
-          class="text-sm font-medium text-gray-700"
-        >
+    <%!-- Sync State --%>
+    <section class="border-b border-neutral-800 py-6">
+      <div class="flex items-center justify-between mb-4">
+        <p class="font-mono text-xs text-neutral-500 uppercase tracking-wider">
           Sync Status
-        </span>
+        </p>
         <button
           phx-click="download_transactions"
-          class="px-4 py-2 bg-slate-700 text-white rounded-lg hover:bg-slate-800 font-semibold disabled:bg-gray-400 disabled:cursor-not-allowed text-sm"
+          class={[
+            "px-4 py-2 rounded text-sm font-medium transition-colors",
+            if(@downloading || @transactions_downloaded,
+              do: "bg-surface-raised text-neutral-500 border border-neutral-800 cursor-not-allowed",
+              else: "bg-brand text-white hover:opacity-90"
+            )
+          ]}
           disabled={@downloading || @transactions_downloaded}
         >
           <%= cond do %>
             <% @transactions_downloaded -> %>
-              <span
-                class="flex items-center gap-2"
-              >
-                <svg
-                  class="w-4 h-4 text-green-400"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                    d="M5 13l4 4L19 7"
-                  />
-                </svg>
-                Downloaded
-              </span>
+              ✓ Downloaded
             <% @downloading -> %>
-              <span
-                class="flex items-center gap-2"
-              >
-                <svg
-                  class="animate-spin h-4 w-4"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                >
-                  <circle
-                    class="opacity-25"
-                    cx="12"
-                    cy="12"
-                    r="10"
-                    stroke="currentColor"
-                    stroke-width="4"
-                  />
-                  <path
-                    class="opacity-75"
-                    fill="currentColor"
-                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                  />
-                </svg>
-                Queuing...
-              </span>
+              Queuing…
             <% @block.sync_state == "header_only" -> %>
               Upgrade & Download Txs
             <% true -> %>
@@ -85,129 +61,34 @@
         </button>
       </div>
 
-      <div
-        class="flex items-center gap-2"
-      >
-        <%!-- Step 1: Header Only --%>
-        <div
-          class="flex-1"
-        >
-          <div class={[
-            "h-2 rounded-full transition-all",
-            if(@block.sync_state == "header_only",
-              do: "bg-blue-500",
-              else: if(@block.sync_state in ["header_synced", "txs_queued", "txs_syncing", "completed"], do: "bg-green-500", else: "bg-gray-300")
-            )
-          ]}>
+      <div class="flex items-center gap-1">
+        <% steps = ["header_only", "header_synced", "txs_queued", "txs_syncing", "completed"] %>
+        <% current_idx = Enum.find_index(steps, &(&1 == @block.sync_state)) || 0 %>
+        <%= for {step, idx} <- Enum.with_index(steps) do %>
+          <div class="flex-1">
+            <div class={[
+              "h-1 rounded-full transition-all",
+              cond do
+                @block.sync_state == "failed" && idx == current_idx -> "bg-red-500"
+                idx < current_idx -> "bg-green-500"
+                idx == current_idx -> "bg-brand"
+                true -> "bg-neutral-800"
+              end
+            ]}>
+            </div>
+            <p class="font-mono text-[10px] text-neutral-500 mt-1.5 text-center">
+              <%= String.replace(step, "_", " ") %>
+            </p>
           </div>
           <div
-            class="text-xs mt-1 text-center"
+            :if={idx < length(steps) - 1}
+            class="text-neutral-700 text-xs px-0.5"
           >
-            Header
+            →
           </div>
-        </div>
-
-        <div
-          class="text-gray-400"
-        >
-          →
-        </div>
-
-        <%!-- Step 2: Header + TxIDs --%>
-        <div
-          class="flex-1"
-        >
-          <div class={[
-            "h-2 rounded-full transition-all",
-            if(@block.sync_state == "header_synced",
-              do: "bg-blue-500",
-              else: if(@block.sync_state in ["txs_queued", "txs_syncing", "completed"], do: "bg-green-500", else: "bg-gray-300")
-            )
-          ]}>
-          </div>
-          <div
-            class="text-xs mt-1 text-center"
-          >
-            TxIDs
-          </div>
-        </div>
-
-        <div
-          class="text-gray-400"
-        >
-          →
-        </div>
-
-        <%!-- Step 3: TXs Queued --%>
-        <div
-          class="flex-1"
-        >
-          <div class={[
-            "h-2 rounded-full transition-all",
-            if(@block.sync_state == "txs_queued",
-              do: "bg-yellow-500",
-              else: if(@block.sync_state in ["txs_syncing", "completed"], do: "bg-green-500", else: "bg-gray-300")
-            )
-          ]}>
-          </div>
-          <div
-            class="text-xs mt-1 text-center"
-          >
-            Queued
-          </div>
-        </div>
-
-        <div
-          class="text-gray-400"
-        >
-          →
-        </div>
-
-        <%!-- Step 4: TXs Syncing --%>
-        <div
-          class="flex-1"
-        >
-          <div class={[
-            "h-2 rounded-full transition-all",
-            if(@block.sync_state == "txs_syncing",
-              do: "bg-blue-500 animate-pulse",
-              else: if(@block.sync_state == "completed", do: "bg-green-500", else: "bg-gray-300")
-            )
-          ]}>
-          </div>
-          <div
-            class="text-xs mt-1 text-center"
-          >
-            Syncing
-          </div>
-        </div>
-
-        <div
-          class="text-gray-400"
-        >
-          →
-        </div>
-
-        <%!-- Step 5: Completed --%>
-        <div
-          class="flex-1"
-        >
-          <div class={[
-            "h-2 rounded-full transition-all",
-            if(@block.sync_state == "completed",
-              do: "bg-green-500",
-              else: if(@block.sync_state == "failed", do: "bg-red-500", else: "bg-gray-300")
-            )
-          ]}>
-          </div>
-          <div
-            class="text-xs mt-1 text-center"
-          >
-            <%= if @block.sync_state == "failed", do: "Failed", else: "Complete" %>
-          </div>
-        </div>
+        <% end %>
       </div>
-    </div>
+    </section>
 
     <%= if @live_action in [:edit] do %>
       <.modal
@@ -227,120 +108,127 @@
       </.modal>
     <% end %>
 
-    <div
-      class="flex gap-8"
-    >
-      <div
-        class="flex-1"
-      >
-
-        <div>
-          <span title="height" class="text-2xl">
-          <%= @block.height %>
-          </span>
-        </div>
-
-        <span title="hash" class="font-mono">
-          <%= @block.hash %>
-        </span>
-
-        <ul class="text-xs">
-          <li>
-            <strong>Bits:</strong>
-            <%= @block.bits %>
-          </li>
-
-          <li>
-            <strong>Chainwork:</strong>
-            <%= @block.chainwork %>
-          </li>
-
-          <li>
-            <strong>Difficulty:</strong>
-            <%= @block.difficulty %>
-          </li>
-
-
-          <li>
-            <strong>Mediantime:</strong>
-            <%= @block.mediantime %>
-          </li>
-
-          <li>
-            <strong>Merkleroot:</strong>
-            <%= @block.merkleroot %>
-          </li>
-
-          <li>
-            <strong>Nextblockhash:</strong>
-            <%= @block.nextblockhash %>
-          </li>
-
-          <li>
-            <strong>Prevblockhash:</strong>
-            <%= @block.prevblockhash %>
-          </li>
-
-          <li>
-            <strong>Nonce:</strong>
-            <%= @block.nonce %>
-          </li>
-
-          <li>
-            <strong>Size:</strong>
-            <%= @block.size %>
-          </li>
-
-          <li>
-            <strong>Time:</strong>
-            <%= @block.time %>
-          </li>
-
-          <li>
-            <strong>Version:</strong>
-            <%= @block.version %>
-          </li>
-
-
-        </ul>
-
-
-        <div class="flex justify-between gap-4 mt-6">
-          <div class="flex-1 text-2xl text-blue-700">
-            <.link navigate={~p"/blocks/#{@block.height - 1}"}>
-              <div class="flex-1 text-xl text-blue-700">
-                Previous Block
-              </div>
-              <%= @block.height - 1 %>
+    <%!-- Block Metadata + Transactions in two columns --%>
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-0 lg:gap-8">
+      <%!-- Left: Metadata --%>
+      <section class="border-b border-neutral-800 py-8 lg:border-b-0">
+        <p class="font-mono text-xs text-neutral-500 uppercase tracking-wider mb-6">
+          Block Data
+        </p>
+        <div class="border-t border-neutral-800">
+          <div class="py-3 border-b border-neutral-800 flex justify-between">
+            <span class="font-mono text-xs text-neutral-500">Time</span>
+            <span class="font-mono text-xs text-neutral-400 tabular-nums">
+              <%= if @block.time, do: DateTime.from_unix!(@block.time) |> Calendar.strftime("%Y-%m-%d %H:%M:%S UTC"), else: "—" %>
+            </span>
+          </div>
+          <div class="py-3 border-b border-neutral-800 flex justify-between">
+            <span class="font-mono text-xs text-neutral-500">Size</span>
+            <span class="font-mono text-xs text-neutral-400 tabular-nums">
+              <%= if @block.size, do: format_number(@block.size), else: "—" %> bytes
+            </span>
+          </div>
+          <div class="py-3 border-b border-neutral-800 flex justify-between">
+            <span class="font-mono text-xs text-neutral-500">Version</span>
+            <span class="font-mono text-xs text-neutral-400"><%= @block.version %></span>
+          </div>
+          <div class="py-3 border-b border-neutral-800 flex justify-between">
+            <span class="font-mono text-xs text-neutral-500">Nonce</span>
+            <span class="font-mono text-xs text-neutral-400 tabular-nums"><%= @block.nonce %></span>
+          </div>
+          <div class="py-3 border-b border-neutral-800 flex justify-between">
+            <span class="font-mono text-xs text-neutral-500">Bits</span>
+            <span class="font-mono text-xs text-neutral-400"><%= @block.bits %></span>
+          </div>
+          <div class="py-3 border-b border-neutral-800 flex justify-between">
+            <span class="font-mono text-xs text-neutral-500">Difficulty</span>
+            <span class="font-mono text-xs text-neutral-400"><%= @block.difficulty %></span>
+          </div>
+          <div class="py-3 border-b border-neutral-800 flex justify-between">
+            <span class="font-mono text-xs text-neutral-500">Median Time</span>
+            <span class="font-mono text-xs text-neutral-400 tabular-nums"><%= @block.mediantime %></span>
+          </div>
+          <div class="py-3 border-b border-neutral-800">
+            <span class="font-mono text-xs text-neutral-500 block mb-1">Merkle Root</span>
+            <span class="font-mono text-xs text-neutral-400 break-all"><%= @block.merkleroot %></span>
+          </div>
+          <div class="py-3 border-b border-neutral-800">
+            <span class="font-mono text-xs text-neutral-500 block mb-1">Chainwork</span>
+            <span class="font-mono text-xs text-neutral-400 break-all"><%= @block.chainwork %></span>
+          </div>
+          <div
+            :if={@block.prevblockhash}
+            class="py-3 border-b border-neutral-800"
+          >
+            <span class="font-mono text-xs text-neutral-500 block mb-1">Previous Block</span>
+            <.link
+              navigate={~p"/blocks/#{@block.height - 1}"}
+              class="font-mono text-xs text-neutral-400 hover:text-brand transition-colors duration-150 break-all"
+            >
+              <%= @block.prevblockhash %>
             </.link>
           </div>
-          <div class="flex-1 text-2xl text-blue-700 text-right">
-            <.link navigate={~p"/blocks/#{@block.height + 1}"}>
-              <div class="flex-1 text-xl text-blue-700">
-                Next Block
-              </div>
-              <%= @block.height + 1 %>
+          <div
+            :if={@block.nextblockhash && @block.nextblockhash != ""}
+            class="py-3 border-b border-neutral-800"
+          >
+            <span class="font-mono text-xs text-neutral-500 block mb-1">Next Block</span>
+            <.link
+              navigate={~p"/blocks/#{@block.height + 1}"}
+              class="font-mono text-xs text-neutral-400 hover:text-brand transition-colors duration-150 break-all"
+            >
+              <%= @block.nextblockhash %>
             </.link>
           </div>
         </div>
-      </div>
+      </section>
 
-      <div class="flex-1">
-        <div class="text-xl">
-          <%= @block.num_tx %> transactions
+      <%!-- Right: Transactions --%>
+      <section class="py-8">
+        <p class="font-mono text-xs text-neutral-500 uppercase tracking-wider mb-2">
+          Transactions
+        </p>
+        <p class="text-2xl font-semibold text-neutral-50 tabular-nums mb-6">
+          <%= @block.num_tx %>
+        </p>
+        <div
+          :if={@block.tx && length(@block.tx) > 0}
+          class="border-t border-neutral-800 max-h-[600px] overflow-y-auto"
+        >
+          <%= for txid <- @block.tx do %>
+            <.link
+              navigate={~p"/transactions/#{txid}"}
+              class="block py-2 border-b border-neutral-800 font-mono text-xs text-neutral-400 hover:text-brand transition-colors duration-150 break-all"
+            >
+              <%= txid %>
+            </.link>
+          <% end %>
         </div>
-        <div>
-        <%= for item <- @block.tx do %>
-          <span class="text-blue-700 font-mono text-xs">
-            <.link navigate={~p"/transactions/#{item}"}><%= item %></.link>
-          </span>
-          <br>
-        <% end %>
-        </div>
-      </div>
+        <p
+          :if={is_nil(@block.tx) || @block.tx == []}
+          class="text-sm text-neutral-500"
+        >
+          Transaction IDs not yet synced for this block.
+        </p>
+      </section>
     </div>
 
-    <span><.link navigate={~p"/blocks/"}>Back</.link></span> |
-    <span><.link patch={~p"/blocks/#{@block}"} class="button">Edit</.link></span>
+    <%!-- Footer nav --%>
+    <section class="border-t border-neutral-800 py-8">
+      <div class="flex items-center justify-between">
+        <.link
+          navigate={~p"/blocks/"}
+          class="text-sm text-neutral-400 hover:text-neutral-50 transition-colors duration-150"
+        >
+          ← All blocks
+        </.link>
+        <.link
+          patch={~p"/blocks/#{@block}"}
+          class="text-sm text-neutral-400 hover:text-neutral-50 transition-colors duration-150"
+        >
+          Edit
+        </.link>
+      </div>
+    </section>
   </div>
 </div>

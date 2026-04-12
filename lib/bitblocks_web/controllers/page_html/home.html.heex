@@ -67,4 +67,16 @@
       block_time={@block_time}
     />
   </div>
+
+  <%!-- Mempool --%>
+  <div class="max-w-2xl mx-auto mb-8 flex justify-center">
+    {live_render(@conn, BitblocksWeb.MempoolLive, id: "mempool")}
+  </div>
+
+  <%!-- Recent Blocks --%>
+  <div class="max-w-2xl mx-auto mb-8">
+    <BitblocksWeb.RecentBlocksComponent.recent_blocks
+      blocks={@recent_blocks}
+    />
+  </div>
 </div>

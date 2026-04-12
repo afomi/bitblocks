@@ -41,6 +41,9 @@ defmodule BitblocksWeb.PageController do
         canonical_path: "/"
       )
 
+    # Recent blocks for the activity feed
+    recent_blocks = Chain.list_blocks(per_page: 7)
+
     render(
       conn,
       :home,
@@ -51,7 +54,8 @@ defmodule BitblocksWeb.PageController do
         block_time: block_time,
         blockchain_info: blockchain_info,
         blocks_count: total_blocks,
-        transactions_count: transactions_count
+        transactions_count: transactions_count,
+        recent_blocks: recent_blocks
       })
     )
   end

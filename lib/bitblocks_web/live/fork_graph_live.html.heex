@@ -1,0 +1,82 @@
+<div class="bg-surface-base min-h-screen">
+  <div class="max-w-7xl mx-auto px-4 py-8 space-y-6">
+    <section class="bg-surface-raised border border-neutral-800 rounded">
+      <div class="flex items-center justify-between px-5 py-3">
+        <h2 class="text-lg font-semibold text-neutral-50">
+          Fork Topology
+        </h2>
+        <button
+          type="button"
+          class="px-3 py-1 text-sm rounded bg-surface-overlay text-neutral-400 hover:text-neutral-50 transition-colors"
+          phx-click="force-poll"
+        >
+          Refresh tips
+        </button>
+      </div>
+      <div
+        id="fork-graph"
+        phx-hook="ForkGraph"
+        data-base-height={@base_height}
+        class="w-full h-[520px]"
+      >
+      </div>
+    </section>
+
+    <section class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+      <article class="lg:col-span-2 bg-surface-raised border border-neutral-800 rounded p-4">
+        <h3 class="font-mono text-xs text-neutral-500 uppercase tracking-wider mb-4">
+          Active chain tips
+        </h3>
+        <div class="overflow-x-auto">
+          <table class="w-full text-left text-sm text-neutral-400">
+            <thead>
+              <tr class="font-mono text-xs uppercase tracking-wider text-neutral-500">
+                <th class="py-2 pr-4">Hash</th>
+                <th class="py-2 pr-4">Height</th>
+                <th class="py-2 pr-4">Status</th>
+                <th class="py-2 pr-4">Branch</th>
+                <th class="py-2 pr-4">Updated</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-neutral-800">
+              <%= for tip <- @tips do %>
+                <tr>
+                  <td class="py-2 pr-4 font-mono text-xs">
+                    <%= String.slice(tip.hash, 0, 16) %>…
+                  </td>
+                  <td class="py-2 pr-4 tabular-nums"><%= tip.height %></td>
+                  <td class="py-2 pr-4">
+                    <span class={status_class(tip.status)}>
+                      <%= tip.status %>
+                    </span>
+                  </td>
+                  <td class="py-2 pr-4">
+                    <%= tip.branch_len %>
+                  </td>
+                  <td class="py-2 pr-4 text-xs text-neutral-500">
+                    <%= tip.updated_at || "—" %>
+                  </td>
+                </tr>
+              <% end %>
+            </tbody>
+          </table>
+        </div>
+      </article>
+
+      <article class="bg-surface-raised border border-neutral-800 rounded p-4">
+        <h3 class="font-mono text-xs text-neutral-500 uppercase tracking-wider mb-4">
+          Fork tape (recent)
+        </h3>
+        <div class="max-h-[220px] overflow-y-auto font-mono text-xs space-y-1 text-neutral-500">
+          <%= if @events == [] do %>
+            <p>No fork contention recorded yet.</p>
+          <% else %>
+            <%= for line <- @events do %>
+              <p><%= line %></p>
+            <% end %>
+          <% end %>
+        </div>
+      </article>
+    </section>
+  </div>
+</div>

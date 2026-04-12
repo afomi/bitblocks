@@ -41,4 +41,12 @@ defmodule BitblocksWeb.BlockLive.Show do
 
   defp page_title(:show), do: "Show Block"
   defp page_title(:edit), do: "Edit Block"
+
+  defp format_number(number) when is_integer(number) do
+    number
+    |> Integer.to_string()
+    |> String.replace(~r/\B(?=(\d{3})+(?!\d))/, ",")
+  end
+
+  defp format_number(number), do: to_string(number)
 end
