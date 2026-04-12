@@ -46,11 +46,8 @@ defmodule BitblocksWeb.MempoolLive do
   def render(assigns) do
     ~H"""
     <div class="flex items-center gap-3">
-      <%= if @error do %>
-        <span class="w-1.5 h-1.5 rounded-full bg-neutral-600"></span>
-        <span class="font-mono text-xs text-neutral-500">
-          mempool unavailable
-        </span>
+      <%= if @error or (@tx_count != nil and @tx_count == 0) do %>
+        <%!-- Hide entirely when mempool is empty or unavailable --%>
       <% else %>
         <span class={[
           "w-1.5 h-1.5 rounded-full",

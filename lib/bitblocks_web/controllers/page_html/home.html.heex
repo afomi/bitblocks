@@ -68,11 +68,6 @@
     />
   </div>
 
-  <%!-- Mempool --%>
-  <div class="max-w-2xl mx-auto mb-8 flex justify-center">
-    {live_render(@conn, BitblocksWeb.MempoolLive, id: "mempool")}
-  </div>
-
   <%!-- Recent Blocks --%>
   <div class="max-w-2xl mx-auto mb-8">
     <BitblocksWeb.RecentBlocksComponent.recent_blocks

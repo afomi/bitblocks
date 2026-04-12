@@ -46,8 +46,8 @@
             <span class="text-lg font-semibold text-neutral-50 tabular-nums group-hover:text-brand transition-colors duration-150">
               <%= format_number(block.height) %>
             </span>
-            <span class="font-mono text-xs text-neutral-500 hidden sm:inline">
-              <%= String.slice(block.hash, 0, 16) %>…
+            <span class="font-mono text-xs text-neutral-500 hidden sm:inline break-all">
+              <%= block.hash %>
             </span>
           </div>
 
