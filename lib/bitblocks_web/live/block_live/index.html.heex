@@ -34,6 +34,16 @@
       </.modal>
     <% end %>
 
+    <%!-- Next Block (in progress) --%>
+    <%= if @page == 1 do %>
+      <% latest_height = if List.first(@blocks), do: List.first(@blocks).height, else: 0 %>
+      <div class="pt-6">
+        <BitblocksWeb.NextBlockComponent.next_block
+          latest_height={latest_height}
+        />
+      </div>
+    <% end %>
+
     <%!-- Block List --%>
     <div class="border-t border-neutral-800">
       <%= for block <- @blocks do %>
