@@ -652,25 +652,35 @@ defmodule Bitblocks.Chain do
 
   ## Examples
 
-      iex> list_transactions_paginated(1, 500)
-      [%Transaction{}, ...]
+      iex> list_transactions_paginated(nil, 50)
+      {[%Transaction{}, ...], next_cursor}
 
-      iex> list_transactions_paginated(1, 500, %{block_hash: "00000..."})
-      [%Transaction{}, ...]
+      iex> list_transactions_paginated(cursor, 50, %{block_hash: "00000..."})
+      {[%Transaction{}, ...], next_cursor}
+
+  Cursor is the last `id` seen. Pass `nil` for the first page.
+  Returns `{transactions, next_cursor}` where `next_cursor` is `nil` when
+  there are no more results.
 
   """
-  def list_transactions_paginated(page \\ 1, per_page \\ 500, filters \\ %{}) do
-    offset = (page - 1) * per_page
-
+  def list_transactions_paginated(cursor \\ nil, per_page \\ 50, filters \\ %{}) do
     query =
       from t in Transaction,
         order_by: [desc: t.id],
-        limit: ^per_page,
-        offset: ^offset
+        limit: ^(per_page + 1)
 
+    query = if cursor, do: from(t in query, where: t.id < ^cursor), else: query
     query = apply_transaction_filters(query, filters)
 
-    Repo.all(query)
+    rows = Repo.all(query)
+
+    if length(rows) > per_page do
+      transactions = Enum.take(rows, per_page)
+      next_cursor = List.last(transactions).id
+      {transactions, next_cursor}
+    else
+      {rows, nil}
+    end
   end
 
   defp apply_transaction_filters(query, filters) do
@@ -680,8 +690,8 @@ defmodule Bitblocks.Chain do
           from t in acc, where: t.block_hash == ^hash
 
         {:txid_search, search} when is_binary(search) and search != "" ->
-          like_pattern = "%#{search}%"
-          from t in acc, where: ilike(t.txid, ^like_pattern)
+          # Prefix match only — leading wildcard prevents index use
+          from t in acc, where: ilike(t.txid, ^"#{search}%")
 
         {:has_inputs, true} ->
           from t in acc, where: fragment("cardinality(?) > 0", t.inputs)
@@ -699,24 +709,6 @@ defmodule Bitblocks.Chain do
           acc
       end
     end)
-  end
-
-  @doc """
-  Returns the total count of transactions with optional filters.
-
-  ## Examples
-
-      iex> count_transactions()
-      1234
-
-      iex> count_transactions(%{block_hash: "00000..."})
-      50
-
-  """
-  def count_transactions(filters \\ %{}) do
-    query = from(t in Transaction)
-    query = apply_transaction_filters(query, filters)
-    Repo.aggregate(query, :count, :id)
   end
 
   @doc """

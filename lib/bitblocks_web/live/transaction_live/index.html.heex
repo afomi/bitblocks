@@ -1,18 +1,14 @@
 <div class="container mx-auto mb-4 ps-3">
   <div class="flex justify-between">
-
-
-
     <div class="w-full">
 
       <div class="flex items-center justify-between mb-4">
         <div>
           <h1 class="text-2xl">Listing Transactions</h1>
           <div class="text-gray-600 dark:text-gray-400">
-            Total: <%= @count %> | Page <%= @page %> of <%= @total_pages %>
             <%= if map_size(@filters) > 0 do %>
               <span class="text-indigo-600 dark:text-indigo-400">
-                (Filtered)
+                Filtered
               </span>
             <% end %>
           </div>
@@ -75,7 +71,7 @@
                   name="filters[txid_search]"
                   id="txid_search"
                   value={Map.get(@filters, :txid_search, "")}
-                  placeholder="Search by TXID"
+                  placeholder="Search by TXID prefix"
                   class="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 dark:bg-gray-700 dark:text-white text-sm"
                 />
               </div>
@@ -184,176 +180,64 @@
             </tr>
           </thead>
           <tbody>
-      <%= for transaction <- @transactions do %>
-        <tr id={"block-#{transaction.id}"}>
-          <td class="whitespace-nowrap py-4 pl-4 pr-3 text-sm font-medium text-gray-900 dark:text-gray-300 sm:pl-0">
-            <%= if transaction.block_height do %>
-              <.link
-                navigate={~p"/blocks/#{transaction.block_height}"}
-                class="text-blue-600 dark:text-blue-400 hover:underline"
-              >
-                <%= transaction.block_height %>
-              </.link>
-            <% else %>
-              <span class="text-gray-400">-</span>
-            <% end %>
-          </td>
-          <td class="whitespace-nowrap py-4 pl-4 pr-3 text-sm font-medium text-blue-500 dark:text-blue-400 sm:pl-0 font-mono">
-            <.link
-              navigate={~p"/transactions/#{transaction.txid}"}
-            >
-              <%= transaction.txid %>
-            </.link>
-          </td>
-          <td class="whitespace-nowrap px-3 py-4 text-sm text-gray-700 dark:text-gray-300 text-center">
-            <%= length(transaction.inputs || []) %>
-          </td>
-          <td class="whitespace-nowrap px-3 py-4 text-sm text-gray-700 dark:text-gray-300 text-center">
-            <%= length(transaction.outputs || []) %>
-          </td>
-        </tr>
-      <% end %>
-      </tbody>
-      </table>
-
-      <!-- Pagination Controls -->
-      <div class="flex items-center justify-between border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-4 py-3 sm:px-6 mt-4">
-        <div class="flex flex-1 justify-between sm:hidden">
-          <%= if @page > 1 do %>
-            <.link
-              patch={build_page_url(@page - 1, @filters)}
-              class="relative inline-flex items-center rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
-            >
-              Previous
-            </.link>
-          <% else %>
-            <span class="relative inline-flex items-center rounded-md border border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-800 px-4 py-2 text-sm font-medium text-gray-400 dark:text-gray-600">
-              Previous
-            </span>
-          <% end %>
-
-          <%= if @page < @total_pages do %>
-            <.link
-              patch={build_page_url(@page + 1, @filters)}
-              class="relative ml-3 inline-flex items-center rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
-            >
-              Next
-            </.link>
-          <% else %>
-            <span class="relative ml-3 inline-flex items-center rounded-md border border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-800 px-4 py-2 text-sm font-medium text-gray-400 dark:text-gray-600">
-              Next
-            </span>
-          <% end %>
-        </div>
-        <div class="hidden sm:flex sm:flex-1 sm:items-center sm:justify-between">
-          <div>
-            <p class="text-sm text-gray-700 dark:text-gray-300">
-              Showing
-              <span class="font-medium"><%= (@page - 1) * @per_page + 1 %></span>
-              to
-              <span class="font-medium"><%= min(@page * @per_page, @count) %></span>
-              of
-              <span class="font-medium"><%= @count %></span>
-              results
-            </p>
-          </div>
-          <div>
-            <nav
-              class="isolate inline-flex -space-x-px rounded-md shadow-sm"
-              aria-label="Pagination"
-            >
-              <%= if @page > 1 do %>
-                <.link
-                  patch={build_page_url(@page - 1, @filters)}
-                  class="relative inline-flex items-center rounded-l-md px-2 py-2 text-gray-400 dark:text-gray-500 ring-1 ring-inset ring-gray-300 dark:ring-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700 focus:z-20 focus:outline-offset-0"
-                >
-                  <span class="sr-only">Previous</span>
-                  <svg
-                    class="h-5 w-5"
-                    viewBox="0 0 20 20"
-                    fill="currentColor"
-                    aria-hidden="true"
-                  >
-                    <path
-                      fill-rule="evenodd"
-                      d="M12.79 5.23a.75.75 0 01-.02 1.06L8.832 10l3.938 3.71a.75.75 0 11-1.04 1.08l-4.5-4.25a.75.75 0 010-1.08l4.5-4.25a.75.75 0 011.06.02z"
-                      clip-rule="evenodd"
-                    />
-                  </svg>
-                </.link>
-              <% else %>
-                <span class="relative inline-flex items-center rounded-l-md px-2 py-2 text-gray-300 dark:text-gray-700 ring-1 ring-inset ring-gray-300 dark:ring-gray-600">
-                  <span class="sr-only">Previous</span>
-                  <svg
-                    class="h-5 w-5"
-                    viewBox="0 0 20 20"
-                    fill="currentColor"
-                    aria-hidden="true"
-                  >
-                    <path
-                      fill-rule="evenodd"
-                      d="M12.79 5.23a.75.75 0 01-.02 1.06L8.832 10l3.938 3.71a.75.75 0 11-1.04 1.08l-4.5-4.25a.75.75 0 010-1.08l4.5-4.25a.75.75 0 011.06.02z"
-                      clip-rule="evenodd"
-                    />
-                  </svg>
-                </span>
-              <% end %>
-
-              <%= for page_num <- max(1, @page - 2)..min(@total_pages, @page + 2) do %>
-                <%= if page_num == @page do %>
-                  <span class="relative z-10 inline-flex items-center bg-indigo-600 dark:bg-indigo-500 px-4 py-2 text-sm font-semibold text-white focus:z-20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600">
-                    <%= page_num %>
-                  </span>
-                <% else %>
-                  <.link
-                    patch={build_page_url(page_num, @filters)}
-                    class="relative inline-flex items-center px-4 py-2 text-sm font-semibold text-gray-900 dark:text-gray-300 ring-1 ring-inset ring-gray-300 dark:ring-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700 focus:z-20 focus:outline-offset-0"
-                  >
-                    <%= page_num %>
+            <%= for transaction <- @transactions do %>
+              <tr id={"tx-#{transaction.id}"}>
+                <td class="whitespace-nowrap py-4 pl-4 pr-3 text-sm font-medium text-gray-900 dark:text-gray-300 sm:pl-0">
+                  <%= if transaction.block_height do %>
+                    <.link
+                      navigate={~p"/blocks/#{transaction.block_height}"}
+                      class="text-blue-600 dark:text-blue-400 hover:underline"
+                    >
+                      <%= transaction.block_height %>
+                    </.link>
+                  <% else %>
+                    <span class="text-gray-400">-</span>
+                  <% end %>
+                </td>
+                <td class="whitespace-nowrap py-4 pl-4 pr-3 text-sm font-medium text-blue-500 dark:text-blue-400 sm:pl-0 font-mono">
+                  <.link navigate={~p"/transactions/#{transaction.txid}"}>
+                    <%= transaction.txid %>
                   </.link>
-                <% end %>
-              <% end %>
+                </td>
+                <td class="whitespace-nowrap px-3 py-4 text-sm text-gray-700 dark:text-gray-300 text-center">
+                  <%= length(transaction.inputs || []) %>
+                </td>
+                <td class="whitespace-nowrap px-3 py-4 text-sm text-gray-700 dark:text-gray-300 text-center">
+                  <%= length(transaction.outputs || []) %>
+                </td>
+              </tr>
+            <% end %>
+          </tbody>
+        </table>
 
-              <%= if @page < @total_pages do %>
-                <.link
-                  patch={build_page_url(@page + 1, @filters)}
-                  class="relative inline-flex items-center rounded-r-md px-2 py-2 text-gray-400 dark:text-gray-500 ring-1 ring-inset ring-gray-300 dark:ring-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700 focus:z-20 focus:outline-offset-0"
-                >
-                  <span class="sr-only">Next</span>
-                  <svg
-                    class="h-5 w-5"
-                    viewBox="0 0 20 20"
-                    fill="currentColor"
-                    aria-hidden="true"
-                  >
-                    <path
-                      fill-rule="evenodd"
-                      d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z"
-                      clip-rule="evenodd"
-                    />
-                  </svg>
-                </.link>
-              <% else %>
-                <span class="relative inline-flex items-center rounded-r-md px-2 py-2 text-gray-300 dark:text-gray-700 ring-1 ring-inset ring-gray-300 dark:ring-gray-600">
-                  <span class="sr-only">Next</span>
-                  <svg
-                    class="h-5 w-5"
-                    viewBox="0 0 20 20"
-                    fill="currentColor"
-                    aria-hidden="true"
-                  >
-                    <path
-                      fill-rule="evenodd"
-                      d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z"
-                      clip-rule="evenodd"
-                    />
-                  </svg>
-                </span>
-              <% end %>
-            </nav>
+        <!-- Cursor-based pagination -->
+        <div class="flex items-center justify-between border-t border-gray-200 dark:border-gray-700 pt-4 mt-4">
+          <div class="text-sm text-gray-500 dark:text-gray-400">
+            <%= if @cursor do %>
+              Showing next <%= length(@transactions) %> results
+            <% else %>
+              Showing latest <%= length(@transactions) %> transactions
+            <% end %>
+          </div>
+          <div class="flex gap-2">
+            <%= if @cursor do %>
+              <.link
+                patch={~p"/transactions"}
+                class="inline-flex items-center px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700"
+              >
+                ← Latest
+              </.link>
+            <% end %>
+            <%= if @next_cursor do %>
+              <.link
+                patch={build_next_url(@next_cursor, @filters)}
+                class="inline-flex items-center px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700"
+              >
+                Older →
+              </.link>
+            <% end %>
           </div>
         </div>
-      </div>
 
       </div>
 

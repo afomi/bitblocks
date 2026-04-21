@@ -1,13 +1,13 @@
-<div class="bg-surface-base min-h-screen text-neutral-200">
+<div class="bg-surface-base min-h-screen text-neutral-400">
   <div class="max-w-3xl mx-auto px-4 py-12">
     <div class="flex items-center gap-4 mb-8">
       <a
         href="/"
-        class="text-neutral-400 hover:text-neutral-200 text-sm"
+        class="text-neutral-500 hover:text-neutral-400 text-sm"
       >
         &larr; Back
       </a>
-      <h1 class="text-3xl font-bold">
+      <h1 class="text-3xl font-bold text-neutral-50">
         Understanding Bitcoin
       </h1>
     </div>
@@ -16,7 +16,7 @@
       Bitcoin is a peer-to-peer electronic cash system described in a
       <a
         href="https://bitcoin.org/bitcoin.pdf"
-        class="text-blue-400 hover:text-blue-300 underline"
+        class="text-brand hover:opacity-80 underline"
         target="_blank"
       >whitepaper</a>
       published in 2008 by Satoshi Nakamoto.
@@ -25,7 +25,7 @@
 
     <%!-- Section: What is a Block? --%>
     <section class="mb-10" id="blocks">
-      <h2 class="text-xl font-semibold mb-3 text-neutral-100">
+      <h2 class="text-xl font-semibold mb-3 text-neutral-50">
         What is a Block?
       </h2>
       <p class="text-neutral-400 leading-relaxed mb-3">
@@ -38,10 +38,10 @@
         <div class="flex items-center gap-0 min-w-max font-mono text-xs">
           <%= for {label, sublabel} <- [{"Block 0", "genesis"}, {"Block 1", ""}, {"Block 2", ""}, {"Block 3", "latest →"}] do %>
             <div class="flex flex-col items-center">
-              <div class="border border-neutral-600 bg-neutral-900 rounded px-3 py-2 text-center w-24">
-                <div class="text-neutral-200 font-semibold"><%= label %></div>
+              <div class="border border-neutral-700 bg-surface-raised rounded px-3 py-2 text-center w-24">
+                <div class="text-neutral-50 font-semibold"><%= label %></div>
                 <div class="text-neutral-500 text-[10px] mt-0.5"><%= sublabel %></div>
-                <div class="text-neutral-600 text-[10px] mt-1">txs + hash</div>
+                <div class="text-neutral-500 text-[10px] mt-1">txs + hash</div>
               </div>
             </div>
             <%= if label != "Block 3" do %>
@@ -49,28 +49,28 @@
             <% end %>
           <% end %>
         </div>
-        <p class="text-neutral-600 text-xs mt-2">
+        <p class="text-neutral-500 text-xs mt-2">
           Each block contains a hash of the previous block.
           Changing any block would break every block after it.
         </p>
       </div>
 
       <p class="text-neutral-400 leading-relaxed mb-3">
-        The very first block, called the <strong class="text-neutral-200">genesis block</strong>, was mined on January 3, 2009.
+        The very first block, called the <strong class="text-neutral-50">genesis block</strong>, was mined on January 3, 2009.
         Every block since then traces back to it.
       </p>
-      <div class="bg-neutral-900 border border-neutral-800 rounded-lg p-4 text-sm">
+      <div class="bg-surface-raised border border-neutral-800 rounded-lg p-4 text-sm">
         <p class="text-neutral-500 mb-2">Explore blocks:</p>
         <a
           href="/blocks"
-          class="text-blue-400 hover:text-blue-300"
+          class="text-brand hover:opacity-80"
         >
           Browse blocks &rarr;
         </a>
         |
         <a
           href="/block-graph?start=0&end=10"
-          class="text-blue-400 hover:text-blue-300"
+          class="text-brand hover:opacity-80"
         >
           Visualize the first 10 blocks in 3D &rarr;
         </a>
@@ -79,29 +79,29 @@
 
     <%!-- Section: What is a Transaction? --%>
     <section class="mb-10" id="transactions">
-      <h2 class="text-xl font-semibold mb-3 text-neutral-100">
+      <h2 class="text-xl font-semibold mb-3 text-neutral-50">
         What is a Transaction?
       </h2>
       <p class="text-neutral-400 leading-relaxed mb-3">
         A transaction transfers value from one or more inputs to one or more outputs.
-        Each input spends a previous output, creating a chain of ownership called the <strong class="text-neutral-200">UTXO set</strong> (Unspent Transaction Outputs).
+        Each input spends a previous output, creating a chain of ownership called the <strong class="text-neutral-50">UTXO set</strong> (Unspent Transaction Outputs).
       </p>
       <p class="text-neutral-400 leading-relaxed mb-3">
-        The first transaction in every block is called the <strong class="text-neutral-200">coinbase transaction</strong>.
+        The first transaction in every block is called the <strong class="text-neutral-50">coinbase transaction</strong>.
         It creates new coins as a reward for the miner.
       </p>
-      <div class="bg-neutral-900 border border-neutral-800 rounded-lg p-4 text-sm">
+      <div class="bg-surface-raised border border-neutral-800 rounded-lg p-4 text-sm">
         <p class="text-neutral-500 mb-2">Explore transactions:</p>
         <a
           href="/transactions"
-          class="text-blue-400 hover:text-blue-300"
+          class="text-brand hover:opacity-80"
         >
           Browse transactions &rarr;
         </a>
         |
         <a
           href="/tx-graph"
-          class="text-blue-400 hover:text-blue-300"
+          class="text-brand hover:opacity-80"
         >
           Trace a transaction's spending chain &rarr;
         </a>
@@ -113,28 +113,28 @@
       class="mb-10"
       id="scripts"
     >
-      <h2 class="text-xl font-semibold mb-3 text-neutral-100">
+      <h2 class="text-xl font-semibold mb-3 text-neutral-50">
         Locking and Unlocking Scripts
       </h2>
       <p class="text-neutral-400 leading-relaxed mb-3">
-        Every transaction output carries a <strong class="text-neutral-200">locking script</strong> (ScriptPubKey) that defines who can spend it.
+        Every transaction output carries a <strong class="text-neutral-50">locking script</strong> (ScriptPubKey) that defines who can spend it.
         The most common form is P2PKH — Pay to Public Key Hash — which requires the spender to provide a matching public key and a valid signature.
       </p>
       <p class="text-neutral-400 leading-relaxed mb-3">
-        To spend an output, a transaction input must provide an <strong class="text-neutral-200">unlocking script</strong> (ScriptSig) that satisfies the locking script.
+        To spend an output, a transaction input must provide an <strong class="text-neutral-50">unlocking script</strong> (ScriptSig) that satisfies the locking script.
         Together they form a small program that the network runs to verify the spend is authorized.
       </p>
       <p class="text-neutral-400 leading-relaxed mb-3">
-        Some outputs use <strong class="text-neutral-200">OP_RETURN</strong> — a special opcode that makes the output unspendable.
+        Some outputs use <strong class="text-neutral-50">OP_RETURN</strong> — a special opcode that makes the output unspendable.
         These outputs carry data instead of value.
       </p>
-      <div class="bg-neutral-900 border border-neutral-800 rounded-lg p-4 text-sm mb-3">
+      <div class="bg-surface-raised border border-neutral-800 rounded-lg p-4 text-sm mb-3">
         <p class="text-neutral-500 mb-2">
           Example — a simple P2PKH payment (genesis block coinbase):
         </p>
         <a
           href="/transactions/4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b"
-          class="font-mono text-blue-400 hover:text-blue-300 break-all"
+          class="font-mono text-brand hover:opacity-80 break-all"
         >
           4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b
         </a>
@@ -143,28 +143,28 @@
 
     <%!-- Section: Data on the Blockchain --%>
     <section class="mb-10" id="data">
-      <h2 class="text-xl font-semibold mb-3 text-neutral-100">
+      <h2 class="text-xl font-semibold mb-3 text-neutral-50">
         Data on the Blockchain
       </h2>
       <p class="text-neutral-400 leading-relaxed mb-3">
-        Bitcoin SV transactions can store data in <strong class="text-neutral-200">OP_RETURN</strong> outputs.
+        Bitcoin SV transactions can store data in <strong class="text-neutral-50">OP_RETURN</strong> outputs.
         This enables protocols like B:// (file storage), MAP (key-value data), and 1Sat Ordinals (inscriptions).
       </p>
       <p class="text-neutral-400 leading-relaxed mb-3">
         Bitblocks detects and parses these protocols, making on-chain data browseable.
       </p>
-      <div class="bg-neutral-900 border border-neutral-800 rounded-lg p-4 text-sm">
+      <div class="bg-surface-raised border border-neutral-800 rounded-lg p-4 text-sm">
         <p class="text-neutral-500 mb-2">Explore protocols:</p>
         <a
           href="/protocols"
-          class="text-blue-400 hover:text-blue-300"
+          class="text-brand hover:opacity-80"
         >
           Protocol Registry &rarr;
         </a>
         |
         <a
           href="/ecosystem"
-          class="text-blue-400 hover:text-blue-300"
+          class="text-brand hover:opacity-80"
         >
           BSV Ecosystem in 3D &rarr;
         </a>
@@ -173,18 +173,18 @@
 
     <%!-- Section: Identity --%>
     <section class="mb-10" id="identity">
-      <h2 class="text-xl font-semibold mb-3 text-neutral-100">
+      <h2 class="text-xl font-semibold mb-3 text-neutral-50">
         Identity on Bitcoin
       </h2>
       <p class="text-neutral-400 leading-relaxed mb-3">
         Decentralized Identifiers (DIDs) let you create a verifiable identity without a central authority.
         Bitblocks supports DID creation, Verifiable Credentials, and vCard-format profiles.
       </p>
-      <div class="bg-neutral-900 border border-neutral-800 rounded-lg p-4 text-sm">
+      <div class="bg-surface-raised border border-neutral-800 rounded-lg p-4 text-sm">
         <p class="text-neutral-500 mb-2">Try it:</p>
         <a
           href="/did"
-          class="text-blue-400 hover:text-blue-300"
+          class="text-brand hover:opacity-80"
         >
           DID Playground &rarr;
         </a>
@@ -193,7 +193,7 @@
 
     <%!-- Section: The Network --%>
     <section class="mb-10" id="network">
-      <h2 class="text-xl font-semibold mb-3 text-neutral-100">
+      <h2 class="text-xl font-semibold mb-3 text-neutral-50">
         The Network
       </h2>
       <p class="text-neutral-400 leading-relaxed mb-3">
@@ -201,18 +201,18 @@
         Miners compete to add the next block to the chain.
         Bitblocks connects to a BSV node via RPC to sync and display blockchain data.
       </p>
-      <div class="bg-neutral-900 border border-neutral-800 rounded-lg p-4 text-sm">
+      <div class="bg-surface-raised border border-neutral-800 rounded-lg p-4 text-sm">
         <p class="text-neutral-500 mb-2">See the network:</p>
         <a
           href="/peers"
-          class="text-blue-400 hover:text-blue-300"
+          class="text-brand hover:opacity-80"
         >
           Peer Map &rarr;
         </a>
         |
         <a
           href="/pulse"
-          class="text-blue-400 hover:text-blue-300"
+          class="text-brand hover:opacity-80"
         >
           Network Pulse &rarr;
         </a>
@@ -221,14 +221,14 @@
 
     <%!-- Further Reading --%>
     <section class="mb-10" id="resources">
-      <h2 class="text-xl font-semibold mb-3 text-neutral-100">
+      <h2 class="text-xl font-semibold mb-3 text-neutral-50">
         Further Reading
       </h2>
       <ul class="space-y-2 text-neutral-400 text-sm">
         <li>
           <a
             href="https://bitcoin.org/bitcoin.pdf"
-            class="text-blue-400 hover:text-blue-300"
+            class="text-brand hover:opacity-80"
             target="_blank"
           >
             Bitcoin Whitepaper (PDF)
@@ -238,7 +238,7 @@
         <li>
           <a
             href="https://learnmeabitcoin.com/browser/node/"
-            class="text-blue-400 hover:text-blue-300"
+            class="text-brand hover:opacity-80"
             target="_blank"
           >
             Learn Me a Bitcoin
@@ -248,7 +248,7 @@
         <li>
           <a
             href="/about"
-            class="text-blue-400 hover:text-blue-300"
+            class="text-brand hover:opacity-80"
           >
             About Bitblocks
           </a>

@@ -4,7 +4,7 @@ defmodule BitblocksWeb.TransactionLive.Index do
   alias Bitblocks.Chain
   alias Bitblocks.Chain.Transaction
 
-  @per_page 500
+  @per_page 50
 
   @impl true
   def mount(_params, _session, socket) do
@@ -16,21 +16,17 @@ defmodule BitblocksWeb.TransactionLive.Index do
 
   @impl true
   def handle_params(params, _url, socket) do
-    page = String.to_integer(params["page"] || "1")
+    cursor = parse_cursor(params["cursor"])
     filters = build_filters(params)
 
-    count = Chain.count_transactions(filters)
-    transactions = Chain.list_transactions_paginated(page, @per_page, filters)
-    total_pages = calculate_total_pages(count, @per_page)
+    {transactions, next_cursor} = Chain.list_transactions_paginated(cursor, @per_page, filters)
 
     socket =
       socket
-      |> assign(:page, page)
-      |> assign(:per_page, @per_page)
+      |> assign(:cursor, cursor)
+      |> assign(:next_cursor, next_cursor)
       |> assign(:filters, filters)
-      |> assign(:count, count)
       |> assign(:transactions, transactions)
-      |> assign(:total_pages, total_pages)
       |> apply_action(socket.assigns.live_action, params)
 
     {:noreply, socket}
@@ -58,12 +54,8 @@ defmodule BitblocksWeb.TransactionLive.Index do
   def handle_event("delete", %{"id" => id}, socket) do
     transaction = Chain.get_transaction!(id)
     {:ok, _} = Chain.delete_transaction(transaction)
-
-    page = socket.assigns.page
-    filters = socket.assigns.filters
-    transactions = Chain.list_transactions_paginated(page, @per_page, filters)
-
-    {:noreply, assign(socket, :transactions, transactions)}
+    {transactions, next_cursor} = Chain.list_transactions_paginated(socket.assigns.cursor, @per_page, socket.assigns.filters)
+    {:noreply, socket |> assign(:transactions, transactions) |> assign(:next_cursor, next_cursor)}
   end
 
   @impl true
@@ -79,7 +71,6 @@ defmodule BitblocksWeb.TransactionLive.Index do
       filter_params
       |> Enum.reject(fn {_k, v} -> v == "" end)
       |> Map.new()
-      |> Map.put("page", "1")
 
     {:noreply, push_patch(socket, to: ~p"/transactions?#{query_params}")}
   end
@@ -90,55 +81,41 @@ defmodule BitblocksWeb.TransactionLive.Index do
   end
 
   defp build_filters(params) do
-    filters = %{}
-
-    filters =
-      if params["block_hash"] && params["block_hash"] != "" do
-        Map.put(filters, :block_hash, params["block_hash"])
-      else
-        filters
-      end
-
-    filters =
-      if params["txid_search"] && params["txid_search"] != "" do
-        Map.put(filters, :txid_search, params["txid_search"])
-      else
-        filters
-      end
-
-    filters =
-      if params["min_inputs"] && params["min_inputs"] != "" do
-        case Integer.parse(params["min_inputs"]) do
-          {num, ""} -> Map.put(filters, :min_inputs, num)
-          _ -> filters
-        end
-      else
-        filters
-      end
-
-    filters =
-      if params["min_outputs"] && params["min_outputs"] != "" do
-        case Integer.parse(params["min_outputs"]) do
-          {num, ""} -> Map.put(filters, :min_outputs, num)
-          _ -> filters
-        end
-      else
-        filters
-      end
-
-    filters
+    %{}
+    |> maybe_put(:block_hash, params["block_hash"])
+    |> maybe_put(:txid_search, params["txid_search"])
+    |> maybe_put_integer(:min_inputs, params["min_inputs"])
+    |> maybe_put_integer(:min_outputs, params["min_outputs"])
   end
 
-  defp calculate_total_pages(count, per_page) do
-    if count == 0, do: 1, else: ceil(count / per_page)
+  defp maybe_put(map, _key, nil), do: map
+  defp maybe_put(map, _key, ""), do: map
+  defp maybe_put(map, key, value), do: Map.put(map, key, value)
+
+  defp maybe_put_integer(map, _key, nil), do: map
+  defp maybe_put_integer(map, _key, ""), do: map
+  defp maybe_put_integer(map, key, value) do
+    case Integer.parse(value) do
+      {num, ""} -> Map.put(map, key, num)
+      _ -> map
+    end
   end
 
-  def build_page_url(page, filters) do
+  defp parse_cursor(nil), do: nil
+  defp parse_cursor(""), do: nil
+  defp parse_cursor(cursor) do
+    case Integer.parse(cursor) do
+      {id, ""} -> id
+      _ -> nil
+    end
+  end
+
+  def build_next_url(next_cursor, filters) do
     query_params =
       filters
       |> Enum.map(fn {k, v} -> {to_string(k), to_string(v)} end)
       |> Map.new()
-      |> Map.put("page", to_string(page))
+      |> Map.put("cursor", to_string(next_cursor))
 
     ~p"/transactions?#{query_params}"
   end
