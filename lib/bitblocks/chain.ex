@@ -700,10 +700,10 @@ defmodule Bitblocks.Chain do
           from t in acc, where: fragment("cardinality(?) > 0", t.outputs)
 
         {:min_inputs, min} when is_integer(min) and min > 0 ->
-          from t in acc, where: fragment("cardinality(?) >= ?", t.inputs, ^min)
+          from t in acc, where: t.input_count >= ^min
 
         {:min_outputs, min} when is_integer(min) and min > 0 ->
-          from t in acc, where: fragment("cardinality(?) >= ?", t.outputs, ^min)
+          from t in acc, where: t.output_count >= ^min
 
         _ ->
           acc
