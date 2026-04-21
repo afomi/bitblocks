@@ -146,14 +146,19 @@ defmodule Bitblocks.Workers.FetchTransactionsWorker do
               _ -> %{}
             end
 
+            inputs = (tx["vin"] || []) |> Enum.map(&Jason.encode!/1)
+            outputs = (tx["vout"] || []) |> Enum.map(&Jason.encode!/1)
+
             {:ok, Map.merge(%{
                txid: tx["txid"],
                raw: raw,
                block_hash: tx["blockhash"],
                block_height: tx["height"],
                version: to_string(tx["version"] || 1),
-               inputs: (tx["vin"] || []) |> Enum.map(&Jason.encode!/1),
-               outputs: (tx["vout"] || []) |> Enum.map(&Jason.encode!/1)
+               inputs: inputs,
+               input_txids: TransactionParser.extract_input_txids(inputs),
+               outputs: outputs,
+               output_addresses: TransactionParser.extract_output_addresses(outputs)
              }, analysis)}
 
           error ->

@@ -11,7 +11,7 @@ defmodule BitblocksWeb.Api.TransactionController do
   GET /api/v1/txs?page=1&per_page=50&block_hash=...
   """
   def index(conn, params) do
-    page = parse_int(params["page"], 1)
+    cursor = parse_int(params["cursor"], nil)
     per_page = parse_int(params["per_page"], 50) |> min(100)
 
     filters =
@@ -19,14 +19,12 @@ defmodule BitblocksWeb.Api.TransactionController do
       |> maybe_put(:block_hash, params["block_hash"])
       |> maybe_put(:txid_search, params["txid"])
 
-    txs = Chain.list_transactions_paginated(page, per_page, filters)
-    total = Chain.count_transactions(filters)
+    {txs, next_cursor} = Chain.list_transactions_paginated(cursor, per_page, filters)
 
     json(conn, %{
       data: Enum.map(txs, &tx_to_json/1),
       meta: %{
-        total: total,
-        page: page,
+        next_cursor: next_cursor,
         per_page: per_page
       }
     })
@@ -70,6 +68,7 @@ defmodule BitblocksWeb.Api.TransactionController do
   defp parse_int(nil, default), do: default
   defp parse_int(val, default) when is_binary(val) do
     case Integer.parse(val) do
+      {n, ""} when is_nil(default) -> n
       {n, ""} -> max(n, 1)
       _ -> default
     end

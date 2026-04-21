@@ -5,7 +5,8 @@ defmodule BitblocksWeb.TxGraphLive do
   alias Bitblocks.Chain.Transaction
   import Ecto.Query
 
-  @max_depth 5
+  @max_depth 3
+  @max_nodes 50
 
   @impl true
   def mount(params, _session, socket) do
@@ -83,7 +84,8 @@ defmodule BitblocksWeb.TxGraphLive do
     end
   end
 
-  defp trace_references(tx, visited, edges, depth) when depth < @max_depth do
+  defp trace_references(tx, visited, edges, depth)
+       when depth < @max_depth and map_size(visited) < @max_nodes do
     if Map.has_key?(visited, tx.txid) do
       {visited, edges}
     else
@@ -167,11 +169,10 @@ defmodule BitblocksWeb.TxGraphLive do
   end
 
   defp find_spending_txs(txid) do
-    # Find transactions whose inputs reference this txid
-    pattern = "%\"txid\":\"#{txid}\"%"
-
+    # input_txids is a GIN-indexed array of parent txids extracted at write time.
+    # ANY() on a GIN-indexed array is O(log n) vs the previous unnest+LIKE full scan.
     from(t in Transaction,
-      where: fragment("EXISTS (SELECT 1 FROM unnest(?) AS input WHERE input LIKE ?)", t.inputs, ^pattern),
+      where: fragment("? = ANY(?)", ^txid, t.input_txids),
       limit: 20
     )
     |> Repo.all()

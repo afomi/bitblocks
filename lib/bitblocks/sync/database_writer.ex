@@ -171,12 +171,17 @@ defmodule Bitblocks.Sync.DatabaseWriter do
     # Write each transaction to the database
     # This is where you can add custom metadata extraction
     Enum.each(transactions, fn tx_data ->
+      inputs = Enum.map(tx_data.vin, &Jason.encode!/1)
+      outputs = Enum.map(tx_data.vout, &Jason.encode!/1)
+
       tx_struct = %Chain.Transaction{
         txid: tx_data.txid,
         raw: tx_data.hex,
         block_hash: block_hash,
-        inputs: Enum.map(tx_data.vin, &Jason.encode!/1),
-        outputs: Enum.map(tx_data.vout, &Jason.encode!/1)
+        inputs: inputs,
+        input_txids: Bitblocks.TransactionParser.extract_input_txids(inputs),
+        outputs: outputs,
+        output_addresses: Bitblocks.TransactionParser.extract_output_addresses(outputs)
       }
 
       # Insert, ignoring conflicts (duplicate txids)

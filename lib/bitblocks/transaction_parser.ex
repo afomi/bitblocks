@@ -382,6 +382,62 @@ defmodule Bitblocks.TransactionParser do
   defp detect_formats(_hex, _utf8), do: []
 
   @doc """
+  Extracts parent txids from a list of JSON-encoded input strings.
+
+  Used to populate the `input_txids` column for indexed spend lookups.
+  Filters out coinbase inputs (all-zero txid).
+
+  ## Examples
+
+      iex> extract_input_txids([~s({"txid":"abc123","vout":0})])
+      ["abc123"]
+
+  """
+  def extract_input_txids(inputs) when is_list(inputs) do
+    inputs
+    |> Enum.flat_map(fn input_str ->
+      case Jason.decode(input_str) do
+        {:ok, %{"txid" => txid}} when is_binary(txid) ->
+          if String.match?(txid, ~r/^0+$/) or txid == "", do: [], else: [txid]
+
+        _ ->
+          []
+      end
+    end)
+    |> Enum.uniq()
+  end
+
+  def extract_input_txids(_), do: []
+
+  @doc """
+  Extracts P2PKH/P2SH addresses from a list of JSON-encoded output strings.
+
+  Used to populate the `output_addresses` column for indexed address lookups.
+  Reads `scriptPubKey.addresses[0]` from each output's RPC JSON.
+
+  ## Examples
+
+      iex> extract_output_addresses([~s({"scriptPubKey":{"addresses":["1A1zP1..."]},"value":0.01})])
+      ["1A1zP1..."]
+
+  """
+  def extract_output_addresses(outputs) when is_list(outputs) do
+    outputs
+    |> Enum.flat_map(fn output_str ->
+      case Jason.decode(output_str) do
+        {:ok, %{"scriptPubKey" => %{"addresses" => [address | _]}}} when is_binary(address) ->
+          [address]
+
+        _ ->
+          []
+      end
+    end)
+    |> Enum.uniq()
+  end
+
+  def extract_output_addresses(_), do: []
+
+  @doc """
   Checks if a transaction is a coinbase transaction.
   """
   def is_coinbase?(%BSV.Tx{} = tx) do

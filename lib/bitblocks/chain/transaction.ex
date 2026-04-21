@@ -6,10 +6,12 @@ defmodule Bitblocks.Chain.Transaction do
     field :raw, :string
     field :version, :string
     field :inputs, {:array, :string}
+    field :input_txids, {:array, :string}
     field :txid, :string
     field :block_hash, :string
     field :block_height, :integer
     field :outputs, {:array, :string}
+    field :output_addresses, {:array, :string}
     field :total_output_satoshis, :integer
     field :total_input_satoshis, :integer
     field :input_count, :integer
@@ -36,7 +38,9 @@ defmodule Bitblocks.Chain.Transaction do
       :block_hash,
       :block_height,
       :inputs,
+      :input_txids,
       :outputs,
+      :output_addresses,
       :total_output_satoshis,
       :total_input_satoshis,
       :input_count,

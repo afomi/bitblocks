@@ -634,20 +634,6 @@ defmodule Bitblocks.Chain do
   end
 
   @doc """
-  Returns the list of transactions.
-
-  ## Examples
-
-      iex> list_transactions()
-      [%Transaction{}, ...]
-
-  """
-  def list_transactions do
-    query = from b in Transaction, limit: 500
-    Repo.all(query)
-  end
-
-  @doc """
   Returns paginated transactions with optional filters.
 
   ## Examples
@@ -694,10 +680,10 @@ defmodule Bitblocks.Chain do
           from t in acc, where: ilike(t.txid, ^"#{search}%")
 
         {:has_inputs, true} ->
-          from t in acc, where: fragment("cardinality(?) > 0", t.inputs)
+          from t in acc, where: t.input_count > 0
 
         {:has_outputs, true} ->
-          from t in acc, where: fragment("cardinality(?) > 0", t.outputs)
+          from t in acc, where: t.output_count > 0
 
         {:min_inputs, min} when is_integer(min) and min > 0 ->
           from t in acc, where: t.input_count >= ^min
