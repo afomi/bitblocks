@@ -137,8 +137,37 @@
             <span class="font-mono text-xs text-neutral-400 tabular-nums"><%= @block.nonce %></span>
           </div>
           <div class="py-3 border-b border-neutral-800 flex justify-between">
-            <span class="font-mono text-xs text-neutral-500">Bits</span>
-            <span class="font-mono text-xs text-neutral-400"><%= @block.bits %></span>
+            <span
+              class="font-mono text-xs text-neutral-500"
+              title="Compact encoding of the difficulty target. Recalculated every 2016 blocks based on actual vs. target time for that window."
+            >
+              Bits
+            </span>
+            <span class="font-mono text-xs text-neutral-400">
+              <%= @block.bits %>
+              <%= if leading = bits_to_leading_zero_chars(@block.bits) do %>
+                <span class="text-neutral-600 ml-1">(<%= leading %> leading zeros)</span>
+              <% end %>
+            </span>
+          </div>
+          <div class="py-3 border-b border-neutral-800 flex justify-between">
+            <span
+              class="font-mono text-xs text-neutral-500"
+              title="Height where bits will be recalculated based on hashrate over the prior 2016 blocks"
+            >
+              Next Adjustment
+            </span>
+            <span class="font-mono text-xs text-neutral-400">
+              <% next = div(@block.height, 2016) * 2016 + 2016 %>
+              <% blocks_away = next - @block.height %>
+              <.link
+                navigate={~p"/blocks/#{next}"}
+                class="hover:text-brand transition-colors"
+              >
+                <%= next %>
+              </.link>
+              <span class="text-neutral-600 ml-1">(<%= blocks_away %> blocks)</span>
+            </span>
           </div>
           <div class="py-3 border-b border-neutral-800 flex justify-between">
             <span class="font-mono text-xs text-neutral-500">Difficulty</span>
@@ -168,16 +197,15 @@
               <%= @block.prevblockhash %>
             </.link>
           </div>
-          <div
-            :if={@block.nextblockhash && @block.nextblockhash != ""}
-            class="py-3 border-b border-neutral-800"
-          >
+          <div class="py-3 border-b border-neutral-800">
             <span class="font-mono text-xs text-neutral-500 block mb-1">Next Block</span>
             <.link
               navigate={~p"/blocks/#{@block.height + 1}"}
               class="font-mono text-xs text-neutral-400 hover:text-brand transition-colors duration-150 break-all"
             >
-              <%= @block.nextblockhash %>
+              <%= if @block.nextblockhash && @block.nextblockhash != "",
+                do: @block.nextblockhash,
+                else: "→ Block #{@block.height + 1}" %>
             </.link>
           </div>
         </div>

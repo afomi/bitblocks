@@ -1,6 +1,8 @@
 defmodule BitblocksWeb.BlockLive.Show do
   use BitblocksWeb, :live_view
 
+  import Bitwise
+
   alias Bitblocks.Chain
 
   @impl true
@@ -57,4 +59,33 @@ defmodule BitblocksWeb.BlockLive.Show do
   end
 
   defp format_number(number), do: to_string(number)
+
+  # Decode compact bits into leading zero hex characters required in a valid hash.
+  # Bits format: first byte = exponent (byte length of target), next 3 bytes = mantissa.
+  # Each leading zero byte = 2 zero hex chars. We also count leading zero nibbles in the mantissa.
+  defp bits_to_leading_zero_chars(nil), do: nil
+
+  defp bits_to_leading_zero_chars(bits) when is_binary(bits) do
+    case Integer.parse(bits, 16) do
+      {compact, ""} ->
+        exponent = compact >>> 24
+        mantissa = compact &&& 0x00FFFFFF
+        zero_bytes = 32 - exponent
+        mantissa_zero_nibbles = count_leading_zero_nibbles(mantissa, 6)
+        zero_bytes * 2 + mantissa_zero_nibbles
+
+      _ ->
+        nil
+    end
+  end
+
+  defp count_leading_zero_nibbles(0, _), do: 0
+  defp count_leading_zero_nibbles(value, nibbles_remaining) when nibbles_remaining > 0 do
+    if (value >>> ((nibbles_remaining - 1) * 4) &&& 0xF) == 0 do
+      1 + count_leading_zero_nibbles(value, nibbles_remaining - 1)
+    else
+      0
+    end
+  end
+  defp count_leading_zero_nibbles(_, 0), do: 0
 end
