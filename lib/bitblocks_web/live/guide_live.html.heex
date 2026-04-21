@@ -85,6 +85,39 @@
       </div>
     </section>
 
+    <%!-- Section: Locking and Unlocking Scripts --%>
+    <section
+      class="mb-10"
+      id="scripts"
+    >
+      <h2 class="text-xl font-semibold mb-3 text-neutral-100">
+        Locking and Unlocking Scripts
+      </h2>
+      <p class="text-neutral-400 leading-relaxed mb-3">
+        Every transaction output carries a <strong class="text-neutral-200">locking script</strong> (ScriptPubKey) that defines who can spend it.
+        The most common form is P2PKH — Pay to Public Key Hash — which requires the spender to provide a matching public key and a valid signature.
+      </p>
+      <p class="text-neutral-400 leading-relaxed mb-3">
+        To spend an output, a transaction input must provide an <strong class="text-neutral-200">unlocking script</strong> (ScriptSig) that satisfies the locking script.
+        Together they form a small program that the network runs to verify the spend is authorized.
+      </p>
+      <p class="text-neutral-400 leading-relaxed mb-3">
+        Some outputs use <strong class="text-neutral-200">OP_RETURN</strong> — a special opcode that makes the output unspendable.
+        These outputs carry data instead of value.
+      </p>
+      <div class="bg-neutral-900 border border-neutral-800 rounded-lg p-4 text-sm mb-3">
+        <p class="text-neutral-500 mb-2">
+          Example — a simple P2PKH payment (genesis block coinbase):
+        </p>
+        <a
+          href="/transactions/4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b"
+          class="font-mono text-blue-400 hover:text-blue-300 break-all"
+        >
+          4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b
+        </a>
+      </div>
+    </section>
+
     <%!-- Section: Data on the Blockchain --%>
     <section class="mb-10" id="data">
       <h2 class="text-xl font-semibold mb-3 text-neutral-100">

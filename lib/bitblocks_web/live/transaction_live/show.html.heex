@@ -258,9 +258,12 @@
         <h2 class="text-xl font-semibold">
           Outputs (<%= length(tx.outputs) %>)
         </h2>
-        <div class="text-xs text-gray-500">
-          Where the value goes to
-        </div>
+        <a
+          href="/guide#scripts"
+          class="text-xs text-gray-400 hover:text-blue-500 transition-colors"
+        >
+          What is a locking script? →
+        </a>
       </div>
 
       <div class="space-y-4">
@@ -291,9 +294,6 @@
                 </span>
                 <div class="font-mono text-xs bg-gray-50 p-2 rounded mt-1 break-all">
                   <%= BSV.Script.to_asm(output.script) |> String.slice(0, 100) %><%= if String.length(BSV.Script.to_asm(output.script)) > 100, do: "..." %>
-                </div>
-                <div class="text-xs text-gray-400 mt-1">
-                  Sets conditions that must be met to spend this output in the future
                 </div>
               </div>
             </div>
