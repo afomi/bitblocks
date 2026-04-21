@@ -132,19 +132,32 @@ defmodule BitblocksWeb.TransactionLive.Show do
 
   defp format_satoshis(satoshis) when is_number(satoshis) do
     bsv = satoshis / 100_000_000
-
-    cond do
-      satoshis < 100_000_000 ->
-        # Show in satoshis if less than 1 BSV
-        "#{:erlang.float_to_binary(satoshis * 1.0, decimals: 0)} sats"
-
-      true ->
-        # Show in BSV with proper decimal formatting
-        "#{:erlang.float_to_binary(bsv, decimals: 8)} BSV"
-    end
+    bsv_str = :erlang.float_to_binary(bsv, decimals: 8)
+    sats_str = satoshis |> round() |> Integer.to_string() |> format_integer_commas()
+    "#{bsv_str} BSV (#{sats_str} sats)"
   end
 
   defp format_satoshis(_), do: "0 sats"
+
+  defp format_integer_commas(str) do
+    str
+    |> String.reverse()
+    |> String.replace(~r/(\d{3})(?=\d)/, "\\1,")
+    |> String.reverse()
+  end
+
+  def output_type_label(:p2pkh), do: "P2PKH"
+  def output_type_label(:p2pk), do: "P2PK"
+  def output_type_label(:p2sh), do: "P2SH"
+  def output_type_label(:op_return), do: "OP_RETURN"
+  def output_type_label(:unknown), do: "Script"
+
+  def script_type_summary(outputs) do
+    outputs
+    |> Enum.map(&Bitblocks.TransactionParser.determine_script_type(&1.script))
+    |> Enum.frequencies()
+    |> Enum.sort_by(fn {_type, count} -> -count end)
+  end
 
   defp page_title(:show), do: "Show Transaction"
   defp page_title(:edit), do: "Edit Transaction"

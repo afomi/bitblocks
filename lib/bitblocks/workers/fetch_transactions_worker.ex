@@ -40,6 +40,7 @@ defmodule Bitblocks.Workers.FetchTransactionsWorker do
   alias Bitblocks.Repo
   alias Bitblocks.Chain
   alias Bitblocks.Chain.Block
+  alias Bitblocks.TransactionParser
 
   # How many transactions to fetch and write per batch.
   # Bounds memory: 100 raw transactions ≈ 10-50 MB depending on tx size.
@@ -139,16 +140,21 @@ defmodule Bitblocks.Workers.FetchTransactionsWorker do
       Enum.map(txids, fn txid ->
         case BitcoinsvCli.getrawtransaction(txid, 1) do
           tx when is_map(tx) ->
-            {:ok,
-             %{
+            raw = tx["hex"]
+            analysis = case TransactionParser.analyze(raw) do
+              {:ok, meta} -> meta
+              _ -> %{}
+            end
+
+            {:ok, Map.merge(%{
                txid: tx["txid"],
-               raw: tx["hex"],
+               raw: raw,
                block_hash: tx["blockhash"],
                block_height: tx["height"],
                version: to_string(tx["version"] || 1),
                inputs: (tx["vin"] || []) |> Enum.map(&Jason.encode!/1),
                outputs: (tx["vout"] || []) |> Enum.map(&Jason.encode!/1)
-             }}
+             }, analysis)}
 
           error ->
             Logger.warning("Failed to fetch tx #{txid}: #{inspect(error)}")

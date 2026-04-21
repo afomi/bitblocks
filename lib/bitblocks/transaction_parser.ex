@@ -4,6 +4,48 @@ defmodule Bitblocks.TransactionParser do
   particularly OP_RETURN outputs which contain data payloads.
   """
 
+  # Bump when script classification or protocol detection logic changes.
+  # Used by analyze/1 and the Release.analyze_transactions/1 backfill.
+  @script_analysis_version 1
+
+  def script_analysis_version, do: @script_analysis_version
+
+  @doc """
+  Derives deterministic cached metadata from a raw transaction hex string.
+  Pure function of `raw` — identical input always produces identical output.
+
+  Returns `{:ok, map}` suitable for storing in the transactions table:
+    - script_analysis_version
+    - output_types  (%{"p2pkh" => 9, "op_return" => 1})
+    - protocols     (["MAP", "AIP"])
+    - coinbase      (bool)
+  """
+  def analyze(raw) when is_binary(raw) do
+    case BSV.Tx.from_binary(raw, encoding: :hex) do
+      {:ok, tx} ->
+        op_return_outputs = extract_op_returns(tx.outputs)
+        protocols = detect_protocols(op_return_outputs)
+
+        output_types =
+          tx.outputs
+          |> Enum.map(&determine_script_type(&1.script))
+          |> Enum.frequencies()
+          |> Map.new(fn {type, count} -> {Atom.to_string(type), count} end)
+
+        {:ok, %{
+          script_analysis_version: @script_analysis_version,
+          output_types: output_types,
+          protocols: protocols,
+          coinbase: is_coinbase?(tx)
+        }}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  def analyze(_), do: {:error, :invalid_raw}
+
   @doc """
   Parses a transaction and extracts all OP_RETURN data and protocol information.
   """
@@ -247,28 +289,27 @@ defmodule Bitblocks.TransactionParser do
 
   defp extract_address_from_chunk(_), do: nil
 
+  # Known Bitcom protocol addresses — prefix of first OP_RETURN push chunk.
+  @protocol_prefixes [
+    {"19HxigV4QyBv3tHpQVcUEQyq1pzZVdoAut", "B://"},
+    {"1PuQa7K62MiKCtssSLKy1kh56WWU7MtUR5", "MAP"},
+    {"15PciHG22SNLQJXMoSUaWVi7WSqc7hCfva", "AIP"},
+    {"1HA1P2exomAwCUycZHr8WeyFoy5vuQASE3", "HAIP"},
+    {"19nknDdM3ueaAt7nFLFQ3aS3PVHVnJoMmU", "Twetch"},
+    {"1LtyME6b5AnMopQrBPLk4FGN8UBuhxKqrn", "RelayX"}
+  ]
+
   defp check_protocol_prefix(utf8) do
+    address_match =
+      Enum.find_value(@protocol_prefixes, fn {prefix, name} ->
+        if String.starts_with?(utf8, prefix), do: [name]
+      end)
+
     cond do
-      String.starts_with?(utf8, "19HxigV4QyBv3tHpQVcUEQyq1pzZVdoAut") ->
-        ["B://"]
-
-      String.starts_with?(utf8, "1PuQa7K62MiKCtssSLKy1kh56WWU7MtUR5") ->
-        ["MAP"]
-
-      String.starts_with?(utf8, "15PciHG22SNLQJXMoSUaWVi7WSqc7hCfva") ->
-        ["AIP"]
-
-      String.starts_with?(utf8, "1HA1P2exomAwCUycZHr8WeyFoy5vuQASE3") ->
-        ["HAIP"]
-
-      String.starts_with?(utf8, "ord") ->
-        ["1SAT Ordinals"]
-
-      String.contains?(utf8, "bitcom") ->
-        ["Bitcom"]
-
-      true ->
-        []
+      address_match -> address_match
+      String.starts_with?(utf8, "ord") -> ["1SAT Ordinals"]
+      String.contains?(utf8, "bitcom") -> ["Bitcom"]
+      true -> []
     end
   end
 
@@ -286,25 +327,20 @@ defmodule Bitblocks.TransactionParser do
   end
 
   defp check_hex_protocols(data_chunks) do
-    protocols = []
-
-    # Look for OP_RETURN patterns
     hex_data =
-      Enum.map(data_chunks, fn
+      Enum.map_join(data_chunks, fn
         %{hex: hex} -> hex
         _ -> ""
       end)
-      |> Enum.join("")
 
-    cond do
-      # "ord" in hex
-      String.contains?(hex_data, "6f7264") ->
-        protocols ++ ["1SAT Ordinals"]
-
-      true ->
-        protocols
-    end
+    []
+    |> maybe_add("1SAT Ordinals", String.contains?(hex_data, "6f7264"))
+    # Run: OP_0 OP_RETURN envelope starts with hex "72756e" ("run")
+    |> maybe_add("Run", String.starts_with?(hex_data, "72756e"))
   end
+
+  defp maybe_add(list, _name, false), do: list
+  defp maybe_add(list, name, true), do: list ++ [name]
 
   @doc """
   Decodes a chunk of data based on detected format.
@@ -438,7 +474,7 @@ defmodule Bitblocks.TransactionParser do
     end
   end
 
-  defp determine_script_type(script) do
+  def determine_script_type(script) do
     case script.chunks do
       [%{op: 106} | _] ->
         :op_return

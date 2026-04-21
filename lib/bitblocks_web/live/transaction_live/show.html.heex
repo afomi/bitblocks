@@ -129,53 +129,20 @@
         Details
       </h2>
 
-      <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
+      <div class="grid grid-cols-2 md:grid-cols-3 gap-4 mb-4">
         <div>
           <div class="text-sm text-gray-600">
-            Version
+            Flow
           </div>
-          <div class="font-semibold">
-            <%= tx.version %>
+          <div class="font-semibold tabular-nums">
+            <%= length(tx.inputs) %> → <%= length(tx.outputs) %>
           </div>
-        </div>
-
-        <div>
-          <div class="text-sm text-gray-600">
-            Lock Time
-          </div>
-          <div class="font-semibold">
-            <%= tx.lock_time %>
-          </div>
-        </div>
-
-        <div>
-          <div class="text-sm text-gray-600">
-            Inputs
-          </div>
-          <div class="font-semibold">
-            <%= length(tx.inputs) %>
-          </div>
-        </div>
-
-        <div>
-          <div class="text-sm text-gray-600">
-            Outputs
-          </div>
-          <div class="font-semibold">
-            <%= length(tx.outputs) %>
+          <div class="text-xs text-gray-400">
+            inputs → outputs
           </div>
         </div>
 
         <%= if @parsed_data do %>
-          <div>
-            <div class="text-sm text-gray-600">
-              OP_RETURNs
-            </div>
-            <div class="font-semibold">
-              <%= length(@parsed_data.op_returns) %>
-            </div>
-          </div>
-
           <div>
             <div class="text-sm text-gray-600">
               Total Output
@@ -185,6 +152,34 @@
             </div>
           </div>
         <% end %>
+
+        <%= if tx.lock_time > 0 do %>
+          <div>
+            <div class="text-sm text-gray-600">
+              Lock Time
+            </div>
+            <div class="font-semibold tabular-nums">
+              <%= tx.lock_time %>
+            </div>
+            <div class="text-xs text-gray-400">
+              <%= if tx.lock_time < 500_000_000, do: "spendable after block #{tx.lock_time}", else: "spendable after unix time #{tx.lock_time}" %>
+            </div>
+          </div>
+        <% end %>
+      </div>
+
+      <%!-- Script type breakdown --%>
+      <div>
+        <div class="text-sm text-gray-600 mb-2">
+          Output types
+        </div>
+        <div class="flex flex-wrap gap-2">
+          <%= for {type, count} <- BitblocksWeb.TransactionLive.Show.script_type_summary(tx.outputs) do %>
+            <span class="px-2 py-1 bg-gray-100 text-gray-700 text-xs font-mono rounded">
+              <%= BitblocksWeb.TransactionLive.Show.output_type_label(type) %> × <%= count %>
+            </span>
+          <% end %>
+        </div>
       </div>
     </div>
 
@@ -269,6 +264,11 @@
       <div class="space-y-4">
         <%= for {output, idx} <- Enum.with_index(tx.outputs) do %>
           <div class="border border-gray-200 rounded-lg p-4">
+            <div class="flex items-center justify-between mb-3">
+              <span class="font-mono text-xs text-gray-400">
+                <%= @transaction.txid %>_<%= idx %>
+              </span>
+            </div>
             <div class="flex items-center justify-between mb-3">
               <span class="text-sm font-semibold text-gray-700">
                 Output #<%= idx %>

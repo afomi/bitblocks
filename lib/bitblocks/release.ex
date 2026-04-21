@@ -259,6 +259,83 @@ defmodule Bitblocks.Release do
   end
 
   @doc """
+  Backfill script analysis for transactions missing it or analyzed by an older version.
+
+  Processes in batches of `batch_size` (default 500), updating output_types,
+  protocols, coinbase, and script_analysis_version directly in the DB.
+  Idempotent — safe to re-run. Skips transactions without raw hex.
+
+  ## Usage
+
+      bin/bitblocks rpc 'Bitblocks.Release.analyze_transactions()'
+      bin/bitblocks rpc 'Bitblocks.Release.analyze_transactions(batch_size: 1000)'
+  """
+  def analyze_transactions(opts \\ []) do
+    alias Bitblocks.{Repo, Chain.Transaction, TransactionParser}
+    import Ecto.Query
+
+    batch_size = Keyword.get(opts, :batch_size, 500)
+    current_version = TransactionParser.script_analysis_version()
+
+    total_needing_analysis =
+      from(t in Transaction,
+        where: not is_nil(t.raw),
+        where: is_nil(t.script_analysis_version) or t.script_analysis_version < ^current_version,
+        select: count()
+      )
+      |> Repo.one()
+
+    Logger.info("analyze_transactions: #{total_needing_analysis} transactions to analyze (version #{current_version})")
+
+    if total_needing_analysis == 0 do
+      Logger.info("analyze_transactions: nothing to do")
+      :ok
+    else
+      do_analyze_batch(0, total_needing_analysis, batch_size, current_version)
+    end
+  end
+
+  defp do_analyze_batch(processed, total, batch_size, current_version) do
+    alias Bitblocks.{Repo, Chain.Transaction, TransactionParser}
+    import Ecto.Query
+
+    txs =
+      from(t in Transaction,
+        where: not is_nil(t.raw),
+        where: is_nil(t.script_analysis_version) or t.script_analysis_version < ^current_version,
+        order_by: [asc: t.id],
+        limit: ^batch_size,
+        select: [:id, :raw]
+      )
+      |> Repo.all()
+
+    if txs == [] do
+      Logger.info("analyze_transactions: complete (#{processed}/#{total})")
+      :ok
+    else
+      Enum.each(txs, fn tx ->
+        case TransactionParser.analyze(tx.raw) do
+          {:ok, meta} ->
+            from(t in Transaction, where: t.id == ^tx.id)
+            |> Repo.update_all(set: [
+              output_types: meta.output_types,
+              protocols: meta.protocols,
+              coinbase: meta.coinbase,
+              script_analysis_version: meta.script_analysis_version
+            ])
+
+          {:error, reason} ->
+            Logger.warning("analyze_transactions: failed for tx #{tx.id}: #{inspect(reason)}")
+        end
+      end)
+
+      new_processed = processed + length(txs)
+      Logger.info("analyze_transactions: #{new_processed}/#{total}")
+      do_analyze_batch(new_processed, total, batch_size, current_version)
+    end
+  end
+
+  @doc """
   Check referential integrity between Postgres and S3 CDN.
 
   ## Usage

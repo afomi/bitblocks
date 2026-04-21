@@ -15,6 +15,14 @@ defmodule Bitblocks.Chain.Transaction do
     field :input_count, :integer
     field :output_count, :integer
 
+    # Script analysis — derived deterministically from raw.
+    # script_analysis_version tracks which analyzer version produced these fields.
+    # Bump Bitblocks.TransactionAnalyzer.current_version() to trigger reanalysis.
+    field :output_types, :map
+    field :protocols, {:array, :string}
+    field :coinbase, :boolean
+    field :script_analysis_version, :integer
+
     timestamps()
   end
 
@@ -32,7 +40,11 @@ defmodule Bitblocks.Chain.Transaction do
       :total_output_satoshis,
       :total_input_satoshis,
       :input_count,
-      :output_count
+      :output_count,
+      :output_types,
+      :protocols,
+      :coinbase,
+      :script_analysis_version
     ])
     |> validate_required([:txid, :raw, :version, :block_hash, :inputs, :outputs])
   end
