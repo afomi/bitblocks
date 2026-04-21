@@ -45,7 +45,7 @@ defmodule BitblocksWeb.Api.TransactionController do
   end
 
   defp tx_to_json(tx) do
-    %{
+    base = %{
       txid: tx.txid,
       block_hash: tx.block_hash,
       block_height: tx.block_height,
@@ -56,6 +56,11 @@ defmodule BitblocksWeb.Api.TransactionController do
       total_output_satoshis: tx.total_output_satoshis,
       fee: Chain.Transaction.miner_fee(tx)
     }
+
+    case Bitblocks.TxCdn.cdn_url(tx.txid) do
+      nil -> base
+      url -> Map.put(base, :cdn_url, url)
+    end
   end
 
   defp maybe_put(map, _key, nil), do: map

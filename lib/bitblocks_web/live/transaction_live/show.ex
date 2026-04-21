@@ -10,11 +10,22 @@ defmodule BitblocksWeb.TransactionLive.Show do
 
   @impl true
   def handle_params(%{"id" => id}, _, socket) do
-    transaction = Chain.get_transaction!(id)
+    transaction = Chain.get_transaction(id)
 
+    if is_nil(transaction) do
+      {:noreply,
+       socket
+       |> put_flash(:error, "Transaction not found: #{id}")
+       |> push_navigate(to: ~p"/transactions")}
+    else
+      handle_transaction_params(transaction, id, socket)
+    end
+  end
+
+  defp handle_transaction_params(transaction, id, socket) do
     # If transaction exists but hasn't been fully synced (no txid), fetch it on-demand
     transaction =
-      if transaction && is_nil(transaction.txid) do
+      if is_nil(transaction.txid) do
         case fetch_transaction_on_demand(id) do
           {:ok, tx} -> tx
           {:error, _} -> transaction

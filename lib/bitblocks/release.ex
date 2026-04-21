@@ -76,13 +76,7 @@ defmodule Bitblocks.Release do
 
   ## Usage
 
-  Via fly.io:
-      fly ssh console -a bitblocks -C "/app/bin/bitblocks rpc 'Bitblocks.Release.sync_blocks(100001, 200000)'"
-
-  Via remote console:
-      fly ssh console -a bitblocks
-      app/bin/bitblocks remote
-      Bitblocks.Release.sync_blocks(100001, 200000)
+      bin/bitblocks rpc 'Bitblocks.Release.sync_blocks(100001, 200000)'
   """
   def sync_blocks(start_height, end_height)
       when is_integer(start_height) and is_integer(end_height) do
@@ -104,8 +98,7 @@ defmodule Bitblocks.Release do
 
   ## Usage
 
-  Via fly.io:
-      fly ssh console -a bitblocks -C "/app/bin/bitblocks rpc 'Bitblocks.Release.sync_block_transactions(100001)'"
+      bin/bitblocks rpc 'Bitblocks.Release.sync_block_transactions(100001)'
   """
   def sync_block_transactions(block_height) when is_integer(block_height) do
     Logger.info("Starting transaction sync for block: #{block_height}")
@@ -126,8 +119,7 @@ defmodule Bitblocks.Release do
 
   ## Usage
 
-  Via fly.io:
-      fly ssh console -a bitblocks -C "/app/bin/bitblocks rpc 'Bitblocks.Release.blockchain_info()'"
+      bin/bitblocks rpc 'Bitblocks.Release.blockchain_info()'
   """
   def blockchain_info do
     try do
@@ -147,8 +139,7 @@ defmodule Bitblocks.Release do
 
   ## Usage
 
-  Via fly.io:
-      fly ssh console -a bitblocks -C "/app/bin/bitblocks rpc 'Bitblocks.Release.pipeline_sync(250000, 260000)'"
+      bin/bitblocks rpc 'Bitblocks.Release.pipeline_sync(250000, 260000)'
   """
   def pipeline_sync(start_height, end_height)
       when is_integer(start_height) and is_integer(end_height) do
@@ -170,8 +161,7 @@ defmodule Bitblocks.Release do
 
   ## Usage
 
-  Via fly.io:
-      fly ssh console -a bitblocks -C "/app/bin/bitblocks rpc 'Bitblocks.Release.pipeline_status()'"
+      bin/bitblocks rpc 'Bitblocks.Release.pipeline_status()'
   """
   def pipeline_status do
     status = Bitblocks.Sync.Pipeline.status()
@@ -193,8 +183,7 @@ defmodule Bitblocks.Release do
 
   ## Usage
 
-  Via fly.io:
-      fly ssh console -a bitblocks -C "/app/bin/bitblocks rpc 'Bitblocks.Release.pipeline_stop()'"
+      bin/bitblocks rpc 'Bitblocks.Release.pipeline_stop()'
   """
   def pipeline_stop do
     Logger.info("Stopping pipeline...")
@@ -209,8 +198,7 @@ defmodule Bitblocks.Release do
 
   ## Usage
 
-  Via fly.io:
-      fly ssh console -a bitblocks -C "/app/bin/bitblocks rpc 'Bitblocks.Release.db_stats()'"
+      bin/bitblocks rpc 'Bitblocks.Release.db_stats()'
   """
   def db_stats do
     alias Bitblocks.{Repo, Chain}
@@ -231,48 +219,122 @@ defmodule Bitblocks.Release do
   end
 
   @doc """
-  Backfill missing blocks and transactions from height 0 to the chain tip.
+  Reports transaction sync progress as a breakdown of blocks by sync_state.
+
+  Use this to monitor how many blocks still need transaction data fetched,
+  and how many are fully synced.
+
+  ## Usage
+
+      bin/bitblocks rpc 'Bitblocks.Release.tx_sync_status()'
+  """
+  def tx_sync_status do
+    alias Bitblocks.{Repo, Chain.Block}
+    import Ecto.Query
+
+    counts =
+      from(b in Block, group_by: b.sync_state, select: {b.sync_state, count()})
+      |> Repo.all()
+      |> Map.new()
+
+    total = Enum.reduce(counts, 0, fn {_, n}, acc -> acc + n end)
+
+    completed = Map.get(counts, "completed", 0)
+    incomplete = total - completed
+
+    IO.puts("\n=== TX Sync Status ===")
+
+    counts
+    |> Enum.sort_by(fn {state, _} -> state end)
+    |> Enum.each(fn {state, count} ->
+      pct = if total > 0, do: Float.round(count / total * 100, 1), else: 0.0
+      IO.puts("  #{String.pad_trailing(state, 16)} #{count} (#{pct}%)")
+    end)
+
+    IO.puts("  #{String.pad_trailing("TOTAL", 16)} #{total}")
+    IO.puts("  #{String.pad_trailing("incomplete", 16)} #{incomplete}")
+    IO.puts("======================\n")
+
+    %{counts: counts, total: total, completed: completed, incomplete: incomplete}
+  end
+
+  @doc """
+  Check referential integrity between Postgres and S3 CDN.
+
+  ## Usage
+
+      bin/bitblocks eval 'Bitblocks.Release.cdn_check()'
+  """
+  def cdn_check do
+    case Bitblocks.TxCdn.integrity_check() do
+      {:ok, result} ->
+        IO.inspect(result, label: "CDN Integrity")
+
+        if result.match do
+          IO.puts("✓ DB and S3 counts match (#{result.db})")
+        else
+          IO.puts("✗ Mismatch: DB=#{result.db} S3=#{result.s3} diff=#{result.diff}")
+        end
+
+        result
+
+      {:error, :not_configured} ->
+        IO.puts("CDN not configured (AWS_S3_BUCKET_TXS not set)")
+        {:error, :not_configured}
+
+      {:error, reason} ->
+        IO.puts("CDN check failed: #{inspect(reason)}")
+        {:error, reason}
+    end
+  end
+
+  @doc """
+  Backfill missing blocks and transactions from height 0 to the chain tip (or a bounded range).
 
   Works in two passes:
   1. Syncs any missing block headers (fills gaps)
   2. Queues transaction fetches for blocks that don't have them yet
 
   Processes in chunks to avoid overwhelming the node or Oban queue.
-  Idempotent — safe to run repeatedly. Progress is visible via db_stats().
+  Idempotent — safe to run repeatedly. Progress is visible via tx_sync_status().
 
   ## Options
-    - chunk_size: blocks per batch (default 1000)
+    - from: start height (default 0)
+    - to: end height (default: chain tip)
+    - chunk_size: blocks per batch for header sync (default 1000)
     - tx_batch: how many tx fetch jobs to enqueue at once (default 100)
     - skip_blocks: skip block header sync, only backfill transactions
     - skip_txs: skip transaction backfill, only fill block gaps
 
   ## Usage
 
-      Bitblocks.Release.backfill()
-      Bitblocks.Release.backfill(chunk_size: 500, tx_batch: 50)
-      Bitblocks.Release.backfill(skip_blocks: true)
+      bin/bitblocks rpc 'Bitblocks.Release.backfill()'
+      bin/bitblocks rpc 'Bitblocks.Release.backfill(to: 599999, skip_blocks: true)'
+      bin/bitblocks rpc 'Bitblocks.Release.backfill(chunk_size: 500, tx_batch: 50)'
   """
   def backfill(opts \\ []) do
     alias Bitblocks.Chain
 
+    from = Keyword.get(opts, :from, 0)
     chunk_size = Keyword.get(opts, :chunk_size, 1000)
     tx_batch = Keyword.get(opts, :tx_batch, 100)
     skip_blocks = Keyword.get(opts, :skip_blocks, false)
     skip_txs = Keyword.get(opts, :skip_txs, false)
 
     latest = Chain.get_latest_block()
-    tip = if latest, do: latest.height, else: 0
+    chain_tip = if latest, do: latest.height, else: 0
+    to = Keyword.get(opts, :to, chain_tip)
 
-    Logger.info("Backfill: chain tip at height #{tip}")
+    Logger.info("Backfill: #{from}..#{to} (chain tip: #{chain_tip})")
 
     # Pass 1: fill missing block headers
     unless skip_blocks do
-      backfill_blocks(0, tip, chunk_size)
+      backfill_blocks(from, to, chunk_size)
     end
 
     # Pass 2: queue transaction fetches for blocks missing txs
     unless skip_txs do
-      backfill_transactions(0, tip, tx_batch)
+      backfill_transactions(from, to, tx_batch)
     end
 
     Logger.info("Backfill: complete")

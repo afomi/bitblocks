@@ -195,8 +195,13 @@ defmodule Bitblocks.Sync.DatabaseWriter do
       changeset = Chain.Transaction.changeset(%Chain.Transaction{}, tx_data)
 
       case Repo.insert(changeset, on_conflict: :nothing, conflict_target: :txid) do
-        {:ok, _tx} -> :ok
-        {:error, error} -> Logger.error("Failed to store transaction: #{inspect(error)}")
+        {:ok, tx} ->
+          # Replicate to CDN (S3) from the DB record — not the in-flight data.
+          # The DB record has been validated by the changeset and is the source of truth.
+          Bitblocks.TxCdn.put_transaction_from_db(tx)
+
+        {:error, error} ->
+          Logger.error("Failed to store transaction: #{inspect(error)}")
       end
     end)
 

@@ -10,14 +10,22 @@ defmodule BitblocksWeb.BlockLive.Show do
 
   @impl true
   def handle_params(%{"id" => id}, _, socket) do
-    block = Chain.get_block!(id)
-    transactions_downloaded = Chain.block_transactions_downloaded?(block)
+    case Chain.get_block(id) do
+      nil ->
+        {:noreply,
+         socket
+         |> put_flash(:error, "Block not found: #{id}")
+         |> push_navigate(to: ~p"/blocks")}
 
-    {:noreply,
-     socket
-     |> assign(:page_title, page_title(socket.assigns.live_action))
-     |> assign(:block, block)
-     |> assign(:transactions_downloaded, transactions_downloaded)}
+      block ->
+        transactions_downloaded = Chain.block_transactions_downloaded?(block)
+
+        {:noreply,
+         socket
+         |> assign(:page_title, page_title(socket.assigns.live_action))
+         |> assign(:block, block)
+         |> assign(:transactions_downloaded, transactions_downloaded)}
+    end
   end
 
   @impl true

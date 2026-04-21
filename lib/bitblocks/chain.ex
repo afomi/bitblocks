@@ -81,12 +81,15 @@ defmodule Bitblocks.Chain do
     end
   end
 
-  def get_block(id_or_height_or_hash) do
-    try do
-      get_block!(id_or_height_or_hash)
-    rescue
-      Ecto.NoResultsError ->
-        nil
+  def get_block(id_or_height_or_hash) when is_integer(id_or_height_or_hash) do
+    Repo.get(Block, id_or_height_or_hash) ||
+      Repo.one(from b in Block, where: b.height == ^id_or_height_or_hash, limit: 1)
+  end
+
+  def get_block(height_or_hash) when is_binary(height_or_hash) do
+    case Integer.parse(height_or_hash) do
+      {height, ""} -> Repo.one(from b in Block, where: b.height == ^height, limit: 1)
+      _ -> Repo.one(from b in Block, where: b.hash == ^height_or_hash, limit: 1)
     end
   end
 
@@ -98,6 +101,14 @@ defmodule Bitblocks.Chain do
   def get_transaction!(txid) when is_binary(txid) do
     query = from t in Transaction, where: t.txid == ^txid, limit: 1
     Repo.one(query) || raise Ecto.NoResultsError, queryable: Transaction
+  end
+
+  def get_transaction(id_or_txid) when is_integer(id_or_txid) do
+    Repo.get(Transaction, id_or_txid)
+  end
+
+  def get_transaction(txid) when is_binary(txid) do
+    Repo.one(from t in Transaction, where: t.txid == ^txid, limit: 1)
   end
 
   @doc """

@@ -1,0 +1,264 @@
+<div class="bg-surface-base min-h-screen">
+  <div class="max-w-7xl mx-auto px-4">
+    <section class="border-b border-neutral-800 pt-10 pb-6">
+      <h1 class="text-4xl font-semibold text-neutral-50 tracking-tight mb-3">
+        Pricing
+      </h1>
+      <p class="text-neutral-500 leading-relaxed max-w-lg">
+        Free for exploration.
+        Paid for production.
+        Every transaction on the BSV chain, globally distributed.
+      </p>
+    </section>
+
+    <%!-- Tiers --%>
+    <section class="py-8">
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <%!-- Free --%>
+        <div class="bg-surface-raised rounded p-6 border border-neutral-800">
+          <p class="font-mono text-xs text-neutral-500 uppercase tracking-wider mb-2">
+            Free
+          </p>
+          <div class="flex items-baseline gap-1 mb-4">
+            <span class="text-3xl font-semibold text-neutral-50">
+              $0
+            </span>
+          </div>
+          <p class="text-sm text-neutral-500 mb-6">
+            For exploration, learning, and prototyping.
+          </p>
+          <div class="border-t border-neutral-800">
+            <div class="py-2.5 border-b border-neutral-800 flex justify-between">
+              <span class="text-sm text-neutral-400">API requests</span>
+              <span class="font-mono text-sm text-neutral-50">20/min</span>
+            </div>
+            <div class="py-2.5 border-b border-neutral-800 flex justify-between">
+              <span class="text-sm text-neutral-400">Block data</span>
+              <span class="font-mono text-sm text-neutral-50">✓</span>
+            </div>
+            <div class="py-2.5 border-b border-neutral-800 flex justify-between">
+              <span class="text-sm text-neutral-400">Transaction lookup</span>
+              <span class="font-mono text-sm text-neutral-50">✓</span>
+            </div>
+            <div class="py-2.5 border-b border-neutral-800 flex justify-between">
+              <span class="text-sm text-neutral-400">SSE stream</span>
+              <span class="font-mono text-sm text-neutral-50">✓</span>
+            </div>
+            <div class="py-2.5 border-b border-neutral-800 flex justify-between">
+              <span class="text-sm text-neutral-400">Merkle proofs</span>
+              <span class="font-mono text-sm text-neutral-50">✓</span>
+            </div>
+            <div class="py-2.5 border-b border-neutral-800 flex justify-between">
+              <span class="text-sm text-neutral-400">Mining templates</span>
+              <span class="font-mono text-sm text-neutral-50">✓</span>
+            </div>
+          </div>
+        </div>
+
+        <%!-- Pro --%>
+        <div class="bg-surface-raised rounded p-6 border border-brand">
+          <p class="font-mono text-xs text-brand uppercase tracking-wider mb-2">
+            Pro
+          </p>
+          <div class="flex items-baseline gap-1 mb-4">
+            <span class="text-3xl font-semibold text-neutral-50">
+              $29
+            </span>
+            <span class="text-sm text-neutral-500">/mo</span>
+          </div>
+          <p class="text-sm text-neutral-500 mb-6">
+            For applications in production.
+          </p>
+          <div class="border-t border-neutral-800">
+            <div class="py-2.5 border-b border-neutral-800 flex justify-between">
+              <span class="text-sm text-neutral-400">API requests</span>
+              <span class="font-mono text-sm text-neutral-50">1,000/min</span>
+            </div>
+            <div class="py-2.5 border-b border-neutral-800 flex justify-between">
+              <span class="text-sm text-neutral-400">Everything in Free</span>
+              <span class="font-mono text-sm text-neutral-50">✓</span>
+            </div>
+            <div class="py-2.5 border-b border-neutral-800 flex justify-between">
+              <span class="text-sm text-neutral-400">Webhooks</span>
+              <span class="font-mono text-sm text-neutral-50">✓</span>
+            </div>
+            <div class="py-2.5 border-b border-neutral-800 flex justify-between">
+              <span class="text-sm text-neutral-400">Address monitoring</span>
+              <span class="font-mono text-sm text-neutral-50">10 addresses</span>
+            </div>
+            <div class="py-2.5 border-b border-neutral-800 flex justify-between">
+              <span class="text-sm text-neutral-400">Protocol filtering</span>
+              <span class="font-mono text-sm text-neutral-50">✓</span>
+            </div>
+            <div class="py-2.5 border-b border-neutral-800 flex justify-between">
+              <span class="text-sm text-neutral-400">Data packs</span>
+              <span class="font-mono text-sm text-neutral-50">100k blocks</span>
+            </div>
+          </div>
+        </div>
+
+        <%!-- Business --%>
+        <div class="bg-surface-raised rounded p-6 border border-neutral-800">
+          <p class="font-mono text-xs text-neutral-500 uppercase tracking-wider mb-2">
+            Business
+          </p>
+          <div class="flex items-baseline gap-1 mb-4">
+            <span class="text-3xl font-semibold text-neutral-50">
+              $199
+            </span>
+            <span class="text-sm text-neutral-500">/mo</span>
+          </div>
+          <p class="text-sm text-neutral-500 mb-6">
+            For organizations that need reliability and scale.
+          </p>
+          <div class="border-t border-neutral-800">
+            <div class="py-2.5 border-b border-neutral-800 flex justify-between">
+              <span class="text-sm text-neutral-400">API requests</span>
+              <span class="font-mono text-sm text-neutral-50">unlimited</span>
+            </div>
+            <div class="py-2.5 border-b border-neutral-800 flex justify-between">
+              <span class="text-sm text-neutral-400">Everything in Pro</span>
+              <span class="font-mono text-sm text-neutral-50">✓</span>
+            </div>
+            <div class="py-2.5 border-b border-neutral-800 flex justify-between">
+              <span class="text-sm text-neutral-400">SLA</span>
+              <span class="font-mono text-sm text-neutral-50">99.9%</span>
+            </div>
+            <div class="py-2.5 border-b border-neutral-800 flex justify-between">
+              <span class="text-sm text-neutral-400">Address monitoring</span>
+              <span class="font-mono text-sm text-neutral-50">unlimited</span>
+            </div>
+            <div class="py-2.5 border-b border-neutral-800 flex justify-between">
+              <span class="text-sm text-neutral-400">Custom protocol parsing</span>
+              <span class="font-mono text-sm text-neutral-50">✓</span>
+            </div>
+            <div class="py-2.5 border-b border-neutral-800 flex justify-between">
+              <span class="text-sm text-neutral-400">Data packs</span>
+              <span class="font-mono text-sm text-neutral-50">full chain</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <%!-- Enterprise --%>
+    <section class="border-t border-neutral-800 py-8">
+      <div class="bg-surface-raised rounded p-6 border border-neutral-700">
+        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div>
+            <p class="font-mono text-xs text-neutral-500 uppercase tracking-wider mb-2">
+              Enterprise
+            </p>
+            <h2 class="text-2xl font-semibold text-neutral-50 mb-2">
+              Custom
+            </h2>
+            <p class="text-sm text-neutral-500 leading-relaxed max-w-md">
+              Dedicated infrastructure, compliance reporting, audit trails, custom protocol parsing, on-prem data delivery, and SLA guarantees for web-scale operations.
+            </p>
+          </div>
+          <a
+            href="mailto:enterprise@bitblocks.app"
+            class="shrink-0 px-6 py-3 bg-brand text-white font-medium rounded hover:opacity-90 transition-colors text-center"
+          >
+            Contact us
+          </a>
+        </div>
+        <div class="border-t border-neutral-800 mt-6 pt-4 grid grid-cols-2 sm:grid-cols-4 gap-4">
+          <div>
+            <p class="font-mono text-xs text-neutral-500 mb-1">Infrastructure</p>
+            <p class="text-sm text-neutral-400">Dedicated indexing</p>
+          </div>
+          <div>
+            <p class="font-mono text-xs text-neutral-500 mb-1">SLA</p>
+            <p class="text-sm text-neutral-400">99.95% uptime</p>
+          </div>
+          <div>
+            <p class="font-mono text-xs text-neutral-500 mb-1">Compliance</p>
+            <p class="text-sm text-neutral-400">Audit trails + reporting</p>
+          </div>
+          <div>
+            <p class="font-mono text-xs text-neutral-500 mb-1">Support</p>
+            <p class="text-sm text-neutral-400">Dedicated + priority</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <%!-- Pay with BSV --%>
+    <section class="border-t border-neutral-800 py-8">
+      <p class="font-mono text-xs text-neutral-500 uppercase tracking-wider mb-2">
+        Coming soon
+      </p>
+      <h2 class="text-2xl font-semibold text-neutral-50 mb-3">
+        Pay with BSV
+      </h2>
+      <p class="text-neutral-500 leading-relaxed max-w-lg">
+        Deposit satoshis, spend them per-request.
+        No subscription, no credit card.
+        100,000 API calls for ~$0.05.
+      </p>
+    </section>
+
+    <%!-- API endpoints included --%>
+    <section class="border-t border-neutral-800 py-8">
+      <p class="font-mono text-xs text-neutral-500 uppercase tracking-wider mb-2">
+        All tiers include
+      </p>
+      <h2 class="text-lg font-semibold text-neutral-50 mb-3">
+        API Endpoints
+      </h2>
+      <div class="border-t border-neutral-800">
+        <div class="py-2.5 border-b border-neutral-800 grid grid-cols-1 sm:grid-cols-3 gap-1 sm:gap-8">
+          <code class="text-sm font-mono text-neutral-50 sm:col-span-1">
+            /api/v1/blocks
+          </code>
+          <span class="text-sm text-neutral-500 sm:col-span-2">
+            Block data, latest block, height ↔ time translation
+          </span>
+        </div>
+        <div class="py-2.5 border-b border-neutral-800 grid grid-cols-1 sm:grid-cols-3 gap-1 sm:gap-8">
+          <code class="text-sm font-mono text-neutral-50 sm:col-span-1">
+            /api/v1/txs
+          </code>
+          <span class="text-sm text-neutral-500 sm:col-span-2">
+            Transaction lookup, merkle proofs, filtered queries
+          </span>
+        </div>
+        <div class="py-2.5 border-b border-neutral-800 grid grid-cols-1 sm:grid-cols-3 gap-1 sm:gap-8">
+          <code class="text-sm font-mono text-neutral-50 sm:col-span-1">
+            /api/v1/addresses
+          </code>
+          <span class="text-sm text-neutral-500 sm:col-span-2">
+            UTXO set and balance for any address
+          </span>
+        </div>
+        <div class="py-2.5 border-b border-neutral-800 grid grid-cols-1 sm:grid-cols-3 gap-1 sm:gap-8">
+          <code class="text-sm font-mono text-neutral-50 sm:col-span-1">
+            /api/v1/stream/blocks
+          </code>
+          <span class="text-sm text-neutral-500 sm:col-span-2">
+            Server-Sent Events for real-time block and sync events
+          </span>
+        </div>
+        <div class="py-2.5 border-b border-neutral-800 grid grid-cols-1 sm:grid-cols-3 gap-1 sm:gap-8">
+          <code class="text-sm font-mono text-neutral-50 sm:col-span-1">
+            /api/v1/protocols
+          </code>
+          <span class="text-sm text-neutral-500 sm:col-span-2">
+            On-chain protocol registry and search
+          </span>
+        </div>
+        <div class="py-2.5 border-b border-neutral-800 grid grid-cols-1 sm:grid-cols-3 gap-1 sm:gap-8">
+          <code class="text-sm font-mono text-neutral-50 sm:col-span-1">
+            /api/v1/mining
+          </code>
+          <span class="text-sm text-neutral-500 sm:col-span-2">
+            Block templates and solution submission
+          </span>
+        </div>
+      </div>
+    </section>
+
+    <div class="h-8"></div>
+  </div>
+</div>

@@ -73,6 +73,7 @@ defmodule BitblocksWeb.Router do
     live "/protocols", ProtocolsLive
     live "/collections/rexxies", RexxiesLive
     live "/about", AboutLive
+    live "/pricing", PricingLive
     live "/guide", GuideLive
     live "/did", DIDLive
 
