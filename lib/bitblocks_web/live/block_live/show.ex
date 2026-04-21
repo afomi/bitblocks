@@ -5,9 +5,11 @@ defmodule BitblocksWeb.BlockLive.Show do
 
   alias Bitblocks.Chain
 
+  @tx_page_size 50
+
   @impl true
   def mount(_params, _session, socket) do
-    {:ok, assign(socket, :downloading, false)}
+    {:ok, assign(socket, downloading: false, tx_page: 1)}
   end
 
   @impl true
@@ -26,8 +28,14 @@ defmodule BitblocksWeb.BlockLive.Show do
          socket
          |> assign(:page_title, page_title(socket.assigns.live_action))
          |> assign(:block, block)
-         |> assign(:transactions_downloaded, transactions_downloaded)}
+         |> assign(:transactions_downloaded, transactions_downloaded)
+         |> assign(:tx_page, 1)}
     end
+  end
+
+  @impl true
+  def handle_event("tx_page", %{"page" => page}, socket) do
+    {:noreply, assign(socket, :tx_page, String.to_integer(page))}
   end
 
   @impl true
@@ -48,6 +56,8 @@ defmodule BitblocksWeb.BlockLive.Show do
          |> put_flash(:error, "Failed to queue job: #{inspect(reason)}")}
     end
   end
+
+  def tx_page_size, do: @tx_page_size
 
   defp page_title(:show), do: "Show Block"
   defp page_title(:edit), do: "Edit Block"

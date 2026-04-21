@@ -219,18 +219,45 @@
         <p class="text-2xl font-semibold text-neutral-50 tabular-nums mb-6">
           <%= @block.num_tx %>
         </p>
-        <div
-          :if={@block.tx && length(@block.tx) > 0}
-          class="border-t border-neutral-800 max-h-[600px] overflow-y-auto"
-        >
-          <%= for txid <- @block.tx do %>
-            <.link
-              navigate={~p"/transactions/#{txid}"}
-              class="block py-2 border-b border-neutral-800 font-mono text-xs text-neutral-400 hover:text-brand transition-colors duration-150 break-all"
+        <div :if={@block.tx && length(@block.tx) > 0}>
+          <% page_size = BitblocksWeb.BlockLive.Show.tx_page_size() %>
+          <% total_txs = length(@block.tx) %>
+          <% total_pages = ceil(total_txs / page_size) %>
+          <% page_txids = Enum.slice(@block.tx, (@tx_page - 1) * page_size, page_size) %>
+          <div class="border-t border-neutral-800">
+            <%= for txid <- page_txids do %>
+              <.link
+                navigate={~p"/transactions/#{txid}"}
+                class="block py-2 border-b border-neutral-800 font-mono text-xs text-neutral-400 hover:text-brand transition-colors duration-150 break-all"
+              >
+                <%= txid %>
+              </.link>
+            <% end %>
+          </div>
+          <div
+            :if={total_pages > 1}
+            class="flex items-center justify-between mt-4"
+          >
+            <button
+              phx-click="tx_page"
+              phx-value-page={@tx_page - 1}
+              disabled={@tx_page <= 1}
+              class="font-mono text-xs text-neutral-400 hover:text-neutral-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
             >
-              <%= txid %>
-            </.link>
-          <% end %>
+              ← prev
+            </button>
+            <span class="font-mono text-xs text-neutral-500">
+              <%= @tx_page %> / <%= total_pages %>
+            </span>
+            <button
+              phx-click="tx_page"
+              phx-value-page={@tx_page + 1}
+              disabled={@tx_page >= total_pages}
+              class="font-mono text-xs text-neutral-400 hover:text-neutral-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            >
+              next →
+            </button>
+          </div>
         </div>
         <p
           :if={is_nil(@block.tx) || @block.tx == []}
