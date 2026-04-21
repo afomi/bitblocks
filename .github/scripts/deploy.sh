@@ -19,6 +19,10 @@ docker pull "$IMAGE"
 docker stop bitblocks 2>/dev/null || true
 docker rm bitblocks 2>/dev/null || true
 INSTANCE_ID=$(ec2-metadata -i | cut -d' ' -f2)
+PRIVATE_IP=$(curl -s http://169.254.169.254/latest/meta-data/local-ipv4)
 docker run -d --name bitblocks --restart unless-stopped --env-file /opt/bitblocks.env --network host \
   --log-driver=awslogs --log-opt awslogs-region=us-east-1 --log-opt awslogs-group=/app/bitblocks --log-opt awslogs-stream="$INSTANCE_ID" \
+  -e RELEASE_DISTRIBUTION=sname \
+  -e RELEASE_NODE="bitblocks@${PRIVATE_IP}" \
+  -e DNS_CLUSTER_QUERY="bitblocks.internal.local" \
   "$IMAGE"
