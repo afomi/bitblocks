@@ -26,6 +26,8 @@ defmodule BitblocksWeb.SyncLive do
     {blocks_count, transactions_count} = get_db_counts()
     sync_jobs = get_recent_sync_jobs()
 
+    backfill_status = get_backfill_status()
+
     socket =
       assign(socket,
         page_title: "Blockchain Sync",
@@ -38,6 +40,7 @@ defmodule BitblocksWeb.SyncLive do
         sync_status: status,
         pipeline_status: pipeline_status,
         tip_sync_status: tip_sync_status,
+        backfill_status: backfill_status,
         form_errors: [],
         tx_form_errors: [],
         chain_tip: chain_tip,
@@ -236,6 +239,22 @@ defmodule BitblocksWeb.SyncLive do
   end
 
   @impl true
+  def handle_event("start_backfill", _params, socket) do
+    case %{"batch_size" => 100}
+         |> Bitblocks.Workers.BackfillTransactionsWorker.new()
+         |> Oban.insert() do
+      {:ok, _job} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Transaction backfill started. Running in background.")
+         |> assign(backfill_status: get_backfill_status())}
+
+      {:error, _reason} ->
+        {:noreply, put_flash(socket, :info, "Backfill already running.")}
+    end
+  end
+
+  @impl true
   def handle_info({:sync_progress, progress}, socket) do
     status = safe_get_status(SyncWorker)
     pipeline_status = safe_get_pipeline_status()
@@ -316,11 +335,13 @@ defmodule BitblocksWeb.SyncLive do
   @impl true
   def handle_info(:poll_tip_sync, socket) do
     tip_sync_status = safe_get_tip_sync_status()
+    backfill_status = get_backfill_status()
     {blocks_count, transactions_count} = get_db_counts()
 
     socket =
       assign(socket,
         tip_sync_status: tip_sync_status,
+        backfill_status: backfill_status,
         blocks_count: blocks_count,
         transactions_count: transactions_count
       )
@@ -918,82 +939,127 @@ defmodule BitblocksWeb.SyncLive do
         </form>
       </div>
 
-      <%!-- Transaction Sync Form --%>
+      <%!-- Transaction Backfill --%>
       <div
-        class="bg-white shadow-md rounded-lg p-6 mb-6"
+        class="bg-white dark:bg-gray-800 shadow-md rounded-lg p-6 mb-6"
       >
         <h2
-          class="text-2xl font-semibold mb-4"
+          class="text-2xl font-semibold mb-4 text-gray-900 dark:text-white"
         >
-          Queue Transaction Downloads
+          Transaction Backfill
         </h2>
 
         <p
-          class="text-sm text-gray-600 mb-4"
+          class="text-sm text-gray-600 dark:text-gray-400 mb-4"
         >
-          Download full transaction data for blocks in a range.
-          Works with blocks in any state - <span class="font-mono bg-gray-100 px-2 py-1 rounded">header_only</span> blocks will be automatically upgraded first.
-          You can also upgrade individual blocks by clicking "Upgrade & Download Txs" on the <.link navigate={~p"/blocks"} class="text-blue-600 underline hover:text-blue-800">block detail page</.link>.
+          Walks every block from 0 to tip, fetching missing transaction data.
+          Runs in the background, survives restarts.
+          Progress is permanent — completed blocks are never revisited.
         </p>
 
-        <%= if @tx_form_errors != [] do %>
-          <div
-            class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4"
-          >
-            <%= for error <- @tx_form_errors do %>
-              <p>
-                <%= error %>
-              </p>
-            <% end %>
-          </div>
-        <% end %>
-
-        <form
-          phx-submit="queue_transactions"
-          class="space-y-4"
+        <div
+          class="bg-gray-50 dark:bg-gray-900 rounded-lg p-4 mb-4"
         >
           <div
-            class="grid grid-cols-2 gap-4"
+            class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm"
           >
             <div>
-              <label
-                class="block text-sm font-medium mb-2"
+              <div
+                class="text-gray-600 dark:text-gray-400"
               >
-                Start Block
-              </label>
-              <input
-                type="number"
-                name="tx_start_block"
-                placeholder="e.g., 1"
-                min="0"
-                class="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-                required
-              />
+                Status
+              </div>
+              <div
+                class="font-semibold"
+              >
+                <%= case @backfill_status.state do %>
+                  <% :running -> %>
+                    <span
+                      class="text-blue-600"
+                    >
+                      ● Running
+                    </span>
+                  <% :idle -> %>
+                    <span
+                      class="text-gray-500"
+                    >
+                      ○ Idle
+                    </span>
+                  <% :done -> %>
+                    <span
+                      class="text-green-600"
+                    >
+                      ✓ Complete
+                    </span>
+                <% end %>
+              </div>
             </div>
             <div>
-              <label
-                class="block text-sm font-medium mb-2"
+              <div
+                class="text-gray-600 dark:text-gray-400"
               >
-                End Block
-              </label>
-              <input
-                type="number"
-                name="tx_end_block"
-                placeholder="e.g., 50"
-                min="0"
-                class="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-                required
-              />
+                Blocks Completed
+              </div>
+              <div
+                class="font-semibold font-mono text-lg"
+              >
+                <%= format_number(@backfill_status.completed) %>
+              </div>
+            </div>
+            <div>
+              <div
+                class="text-gray-600 dark:text-gray-400"
+              >
+                Remaining
+              </div>
+              <div
+                class="font-semibold font-mono text-lg"
+              >
+                <%= format_number(@backfill_status.remaining) %>
+              </div>
+            </div>
+            <div>
+              <div
+                class="text-gray-600 dark:text-gray-400"
+              >
+                Progress
+              </div>
+              <div
+                class="font-semibold font-mono text-lg"
+              >
+                <%= @backfill_status.percent %>%
+              </div>
             </div>
           </div>
 
+          <%= if @backfill_status.remaining > 0 do %>
+            <div
+              class="mt-3 w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2"
+            >
+              <div
+                class="bg-green-600 h-2 rounded-full transition-all duration-500"
+                style={"width: #{@backfill_status.percent}%"}
+              >
+              </div>
+            </div>
+          <% end %>
+        </div>
+
+        <%= if @backfill_status.state != :running do %>
           <button
-            type="submit"
+            phx-click="start_backfill"
             class="px-6 py-3 bg-green-700 text-white rounded hover:bg-green-800 font-semibold"
           >
-            Queue Transaction Downloads
+            Start Backfill
           </button>
-        </form>
+        <% else %>
+          <span
+            class="text-sm text-gray-500 dark:text-gray-400"
+          >
+            Backfill is running in the background.
+            This page refreshes automatically.
+          </span>
+        <% end %>
       </div>
 
       <%!-- Continuous Tip Sync --%>
@@ -1420,6 +1486,45 @@ defmodule BitblocksWeb.SyncLive do
       _, _ ->
         %{status: :idle, last_synced_height: nil, current_tip: nil, blocks_synced: 0}
     end
+  end
+
+  defp get_backfill_status do
+    import Ecto.Query
+
+    total = Bitblocks.Repo.aggregate(Bitblocks.Chain.Block, :count, :id)
+
+    completed =
+      from(b in Bitblocks.Chain.Block, where: b.sync_state == "completed", select: count())
+      |> Bitblocks.Repo.one()
+
+    remaining = total - completed
+
+    percent =
+      if total > 0, do: Float.round(completed / total * 100, 1), else: 0.0
+
+    # Check if a backfill job is currently running
+    running =
+      from(j in Oban.Job,
+        where: j.worker == "Bitblocks.Workers.BackfillTransactionsWorker",
+        where: j.state in ["available", "executing", "scheduled"],
+        select: count()
+      )
+      |> Bitblocks.Repo.one()
+
+    state =
+      cond do
+        running > 0 -> :running
+        remaining == 0 and total > 0 -> :done
+        true -> :idle
+      end
+
+    %{
+      total: total,
+      completed: completed,
+      remaining: remaining,
+      percent: percent,
+      state: state
+    }
   end
 
   defp job_progress_percent(%{total_blocks: 0}), do: "0.00"

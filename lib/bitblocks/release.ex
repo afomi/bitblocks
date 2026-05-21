@@ -259,6 +259,61 @@ defmodule Bitblocks.Release do
   end
 
   @doc """
+  One-line sync status: blocks synced, gaps, tx progress.
+
+  ## Usage
+
+      bin/bitblocks rpc 'Bitblocks.Release.status()'
+  """
+  def status do
+    alias Bitblocks.{Repo, Chain, Chain.Block}
+    import Ecto.Query
+
+    total_blocks = Repo.aggregate(Block, :count, :id)
+    total_txs = Repo.aggregate(Chain.Transaction, :count, :id)
+    latest = Chain.get_latest_block()
+    tip = if latest, do: latest.height, else: 0
+
+    completed =
+      from(b in Block, where: b.sync_state == "completed", select: count())
+      |> Repo.one()
+
+    gaps = Chain.missing_block_ranges(0, tip)
+    missing_blocks = Enum.reduce(gaps, 0, fn {s, e}, acc -> acc + (e - s + 1) end)
+
+    # Find the lowest incomplete block (the "ratchet position")
+    lowest_incomplete =
+      from(b in Block,
+        where: b.sync_state != "completed",
+        order_by: [asc: b.height],
+        limit: 1,
+        select: b.height
+      )
+      |> Repo.one()
+
+    IO.puts("\n=== Bitblocks Status ===")
+    IO.puts("  Chain tip:          #{tip}")
+    IO.puts("  Blocks in DB:       #{total_blocks}")
+    IO.puts("  Missing blocks:     #{missing_blocks} (#{length(gaps)} gaps)")
+    IO.puts("  Blocks completed:   #{completed}/#{total_blocks} (txs fully synced)")
+    IO.puts("  Blocks remaining:   #{total_blocks - completed}")
+    IO.puts("  Lowest incomplete:  #{lowest_incomplete || "none — all done!"}")
+    IO.puts("  Transactions in DB: #{total_txs}")
+    IO.puts("========================\n")
+
+    %{
+      tip: tip,
+      blocks: total_blocks,
+      missing_blocks: missing_blocks,
+      gaps: length(gaps),
+      completed: completed,
+      remaining: total_blocks - completed,
+      lowest_incomplete: lowest_incomplete,
+      transactions: total_txs
+    }
+  end
+
+  @doc """
   Backfill script analysis for transactions missing it or analyzed by an older version.
 
   Processes in batches of `batch_size` (default 500), updating output_types,
@@ -390,6 +445,10 @@ defmodule Bitblocks.Release do
       bin/bitblocks rpc 'Bitblocks.Release.backfill(chunk_size: 500, tx_batch: 50)'
   """
   def backfill(opts \\ []) do
+    # If only backfilling txs, prefer the background worker
+    if Keyword.get(opts, :skip_blocks, false) do
+      IO.puts("Hint: use backfill_txs() instead — it runs in the background and survives restarts.")
+    end
     alias Bitblocks.Chain
 
     from = Keyword.get(opts, :from, 0)
@@ -416,6 +475,42 @@ defmodule Bitblocks.Release do
 
     Logger.info("Backfill: complete")
     :ok
+  end
+
+  @doc """
+  Start a background transaction backfill job.
+
+  Runs as an Oban job — fire and forget. Survives restarts.
+  Processes blocks in batches, re-enqueuing itself for each batch.
+  Progress is ratcheted: completed blocks are never revisited.
+
+  ## Options
+    - batch_size: blocks per batch (default 100)
+
+  ## Usage
+
+      bin/bitblocks rpc 'Bitblocks.Release.backfill_txs()'
+      bin/bitblocks rpc 'Bitblocks.Release.backfill_txs(batch_size: 50)'
+
+  ## Monitoring
+
+      bin/bitblocks rpc 'Bitblocks.Release.status()'
+  """
+  def backfill_txs(opts \\ []) do
+    batch_size = Keyword.get(opts, :batch_size, 100)
+
+    case %{"batch_size" => batch_size}
+         |> Bitblocks.Workers.BackfillTransactionsWorker.new()
+         |> Oban.insert() do
+      {:ok, job} ->
+        IO.puts("Backfill job queued (Oban job ##{job.id})")
+        IO.puts("Monitor with: Bitblocks.Release.status()")
+        :ok
+
+      {:error, reason} ->
+        IO.puts("Failed to queue: #{inspect(reason)}")
+        {:error, reason}
+    end
   end
 
   @doc """
@@ -486,17 +581,18 @@ defmodule Bitblocks.Release do
     end
   end
 
-  # Queue transaction fetch jobs in batches
+  # Queue transaction fetch jobs in batches.
+  # Includes blocks stuck in failed/txs_queued/txs_syncing from prior runs.
   defp backfill_transactions(from, tip, batch_size) do
     alias Bitblocks.{Repo, Chain.Block}
     import Ecto.Query
 
-    # Count blocks that need transactions
-    # (header_only or header_synced — not yet completed)
+    needs_tx_states = ["header_only", "header_synced", "pending", "failed", "txs_queued", "txs_syncing"]
+
     needs_txs_count =
       from(b in Block,
         where: b.height >= ^from and b.height <= ^tip,
-        where: b.sync_state in ["header_only", "header_synced"],
+        where: b.sync_state in ^needs_tx_states,
         select: count()
       )
       |> Repo.one()
@@ -506,19 +602,31 @@ defmodule Bitblocks.Release do
     if needs_txs_count == 0 do
       :ok
     else
-      # Process in batches, oldest first
-      backfill_tx_batch(from, tip, batch_size, 0, needs_txs_count)
+      backfill_tx_batch(from, tip, batch_size, 0, needs_txs_count, needs_tx_states)
     end
   end
 
-  defp backfill_tx_batch(from, tip, batch_size, queued_so_far, total) do
+  defp backfill_tx_batch(from, tip, batch_size, queued_so_far, total, needs_tx_states) do
     alias Bitblocks.{Repo, Chain, Chain.Block}
     import Ecto.Query
+
+    # Reset stuck blocks back to header_only so queue_transaction_fetch
+    # will accept them and Oban uniqueness won't skip them.
+    {reset_count, _} =
+      from(b in Block,
+        where: b.height >= ^from and b.height <= ^tip,
+        where: b.sync_state in ["failed", "txs_queued", "txs_syncing"]
+      )
+      |> Repo.update_all(set: [sync_state: "header_only"])
+
+    if reset_count > 0 do
+      Logger.info("Backfill txs: reset #{reset_count} stuck blocks to header_only")
+    end
 
     blocks =
       from(b in Block,
         where: b.height >= ^from and b.height <= ^tip,
-        where: b.sync_state in ["header_only", "header_synced"],
+        where: b.sync_state in ^needs_tx_states,
         order_by: [asc: b.height],
         limit: ^batch_size
       )
@@ -537,11 +645,11 @@ defmodule Bitblocks.Release do
           "(through height #{last_height})"
       )
 
-      # Wait for the batch to drain before queuing more
-      # so we don't flood Oban with 900k jobs at once
-      wait_for_oban_drain(60_000)
+      # Wait for the batch to actually drain — no timeout.
+      # backfill is a long-running rpc task; let it take as long as needed.
+      wait_for_oban_drain(:infinity)
 
-      backfill_tx_batch(last_height + 1, tip, batch_size, new_total, total)
+      backfill_tx_batch(last_height + 1, tip, batch_size, new_total, total, needs_tx_states)
     end
   end
 
@@ -565,7 +673,6 @@ defmodule Bitblocks.Release do
     start = System.monotonic_time(:millisecond)
 
     Stream.repeatedly(fn ->
-      # Check how many transaction jobs are still executing or available
       import Ecto.Query
       pending =
         from(j in Oban.Job,
@@ -578,9 +685,15 @@ defmodule Bitblocks.Release do
       elapsed = System.monotonic_time(:millisecond) - start
 
       cond do
-        pending == 0 -> :drained
-        elapsed > timeout -> :timeout
-        true -> Process.sleep(1_000); :waiting
+        pending == 0 ->
+          :drained
+
+        timeout != :infinity and elapsed > timeout ->
+          :timeout
+
+        true ->
+          Process.sleep(2_000)
+          :waiting
       end
     end)
     |> Enum.find(&(&1 != :waiting))
