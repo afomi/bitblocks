@@ -14,7 +14,7 @@ defmodule BitblocksWeb.SyncLive do
     idle_status = %{status: :idle, blocks_synced: 0, total_blocks: 0, current_block: 0, errors_count: 0}
     idle_pipeline = %{status: :idle, start_height: nil, end_height: nil, current_height: nil, blocks_processed: 0, progress_percent: 0.0, errors_count: 0}
     idle_tip = %{status: :idle, last_synced_height: nil, current_tip: nil, blocks_synced: 0}
-    idle_backfill = %{total: 0, completed: 0, remaining: 0, percent: 0.0, state: :idle}
+    idle_backfill = %{total: 0, completed: 0, remaining: 0, in_flight: 0, tx_jobs: 0, failed: 0, percent: 0.0, state: :idle}
 
     socket =
       assign(socket,
@@ -953,76 +953,83 @@ defmodule BitblocksWeb.SyncLive do
           class="bg-gray-50 dark:bg-gray-900 rounded-lg p-4 mb-4"
         >
           <div
-            class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm"
+            class="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm"
           >
             <div>
-              <div
-                class="text-gray-600 dark:text-gray-400"
-              >
+              <div class="text-gray-600 dark:text-gray-400">
                 Status
               </div>
-              <div
-                class="font-semibold"
-              >
+              <div class="font-semibold">
                 <%= case @backfill_status.state do %>
                   <% :running -> %>
-                    <span
-                      class="text-blue-600"
-                    >
+                    <span class="text-blue-600">
                       ● Running
                     </span>
                   <% :idle -> %>
-                    <span
-                      class="text-gray-500"
-                    >
+                    <span class="text-gray-500">
                       ○ Idle
                     </span>
                   <% :done -> %>
-                    <span
-                      class="text-green-600"
-                    >
+                    <span class="text-green-600">
                       ✓ Complete
                     </span>
                 <% end %>
               </div>
             </div>
             <div>
-              <div
-                class="text-gray-600 dark:text-gray-400"
-              >
-                Blocks Completed
+              <div class="text-gray-600 dark:text-gray-400">
+                Completed
               </div>
-              <div
-                class="font-semibold font-mono text-lg"
-              >
+              <div class="font-semibold font-mono text-lg">
                 <%= format_number(@backfill_status.completed) %>
+                <span class="text-xs text-gray-500 font-normal">
+                  / <%= format_number(@backfill_status.total) %>
+                </span>
               </div>
             </div>
             <div>
-              <div
-                class="text-gray-600 dark:text-gray-400"
-              >
-                Remaining
-              </div>
-              <div
-                class="font-semibold font-mono text-lg"
-              >
-                <%= format_number(@backfill_status.remaining) %>
-              </div>
-            </div>
-            <div>
-              <div
-                class="text-gray-600 dark:text-gray-400"
-              >
+              <div class="text-gray-600 dark:text-gray-400">
                 Progress
               </div>
-              <div
-                class="font-semibold font-mono text-lg"
-              >
+              <div class="font-semibold font-mono text-lg">
                 <%= @backfill_status.percent %>%
               </div>
             </div>
           </div>
+
+          <%= if @backfill_status.state == :running do %>
+            <div
+              class="grid grid-cols-3 gap-4 text-sm mt-3 pt-3 border-t border-gray-200 dark:border-gray-700"
+            >
+              <div>
+                <div class="text-gray-600 dark:text-gray-400">
+                  In Flight
+                </div>
+                <div class="font-semibold font-mono">
+                  <%= format_number(@backfill_status.in_flight) %> blocks
+                </div>
+              </div>
+              <div>
+                <div class="text-gray-600 dark:text-gray-400">
+                  Tx Jobs Queued
+                </div>
+                <div class="font-semibold font-mono">
+                  <%= format_number(@backfill_status.tx_jobs) %>
+                </div>
+              </div>
+              <div>
+                <div class="text-gray-600 dark:text-gray-400">
+                  Failed
+                </div>
+                <div class={[
+                  "font-semibold font-mono",
+                  if(@backfill_status.failed > 0, do: "text-red-600", else: "text-gray-500")
+                ]}>
+                  <%= format_number(@backfill_status.failed) %>
+                </div>
+              </div>
+            </div>
+          <% end %>
 
           <%= if @backfill_status.remaining > 0 do %>
             <div
@@ -1445,13 +1452,32 @@ defmodule BitblocksWeb.SyncLive do
 
     total = Bitblocks.StatsCache.blocks_count()
 
-    completed =
-      from(b in Bitblocks.Chain.Block, where: b.sync_state == "completed", select: count())
-      |> Bitblocks.Repo.one()
+    # One query: count blocks by sync_state category
+    state_counts =
+      from(b in Bitblocks.Chain.Block,
+        group_by: b.sync_state,
+        select: {b.sync_state, count(b.id)}
+      )
+      |> Bitblocks.Repo.all()
+      |> Map.new()
 
-    running =
+    completed = Map.get(state_counts, "completed", 0)
+    in_flight = Map.get(state_counts, "txs_syncing", 0) + Map.get(state_counts, "txs_queued", 0)
+    failed = Map.get(state_counts, "failed", 0)
+
+    # Is the backfill orchestrator job running?
+    orchestrator_running =
       from(j in Oban.Job,
         where: j.worker == "Bitblocks.Workers.BackfillTransactionsWorker",
+        where: j.state in ["available", "executing", "scheduled"],
+        select: count()
+      )
+      |> Bitblocks.Repo.one()
+
+    # How many individual tx-fetch jobs are queued/running?
+    tx_jobs =
+      from(j in Oban.Job,
+        where: j.queue == "transactions",
         where: j.state in ["available", "executing", "scheduled"],
         select: count()
       )
@@ -1462,12 +1488,21 @@ defmodule BitblocksWeb.SyncLive do
 
     state =
       cond do
-        running > 0 -> :running
+        orchestrator_running > 0 or tx_jobs > 0 -> :running
         remaining == 0 and total > 0 -> :done
         true -> :idle
       end
 
-    %{total: total, completed: completed, remaining: remaining, percent: percent, state: state}
+    %{
+      total: total,
+      completed: completed,
+      remaining: remaining,
+      in_flight: in_flight,
+      tx_jobs: tx_jobs,
+      failed: failed,
+      percent: percent,
+      state: state
+    }
   end
 
   defp job_progress_percent(%{total_blocks: 0}), do: "0.00"
