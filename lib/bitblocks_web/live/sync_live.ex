@@ -16,7 +16,7 @@ defmodule BitblocksWeb.SyncLive do
         blocks_count: 0,
         transactions_count: 0,
         block_states: %{},
-        oban_summary: %{headers: 0, tx_fetch: 0, tip: false}
+        oban_summary: %{jobs: [], headers: 0, tx_fetch: 0, tip: false}
       )
 
     if connected?(socket) do
