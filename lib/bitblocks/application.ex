@@ -15,14 +15,6 @@ defmodule Bitblocks.Application do
     BitblocksWeb.Plugs.RequestLogger.start_link()
     Bitblocks.TelemetryHandlers.attach()
 
-    # Clean up stale sync jobs from previous runs
-    # This is done before starting children to ensure database is ready
-    Task.start(fn ->
-      # Wait a bit for Repo to be ready
-      Process.sleep(1000)
-      Bitblocks.Chain.cleanup_stale_sync_jobs()
-    end)
-
     children = [
       BitblocksWeb.Telemetry,
       {TelemetryMetricsPrometheus.Core,

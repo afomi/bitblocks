@@ -905,6 +905,33 @@ defmodule Bitblocks.Chain do
     end
   end
 
+  @doc """
+  Resets blocks stuck in txs_queued/txs_syncing to failed.
+
+  Called on application startup. If a block is mid-sync when the app stops,
+  its worker is gone — mark it failed so it can be retried explicitly.
+  """
+  def recover_orphaned_blocks do
+    require Logger
+
+    {count, _} =
+      from(b in Block,
+        where: b.sync_state in ["txs_queued", "txs_syncing"]
+      )
+      |> Repo.update_all(
+        set: [
+          sync_state: "failed",
+          tx_sync_error: "orphaned by app restart"
+        ]
+      )
+
+    if count > 0 do
+      Logger.warning("Marked #{count} orphaned block(s) as failed (stuck in txs_queued/txs_syncing at startup)")
+    end
+
+    count
+  end
+
   # ---------------------------------------------------------------------------
   # Spend Index — Phase 1 of progressive tx metadata
   # ---------------------------------------------------------------------------
