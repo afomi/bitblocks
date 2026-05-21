@@ -213,52 +213,6 @@ defmodule Bitblocks.Release do
   end
 
   # ---------------------------------------------------------------------------
-  # Legacy Sync Functions (deprecated — use sync_headers/2 instead)
-  # ---------------------------------------------------------------------------
-
-  @doc """
-  Syncs a range of blocks from the Bitcoin node.
-
-  ## Usage
-
-      bin/bitblocks rpc 'Bitblocks.Release.sync_blocks(100001, 200000)'
-  """
-  def sync_blocks(start_height, end_height)
-      when is_integer(start_height) and is_integer(end_height) do
-    Logger.info("Starting block sync: #{start_height}..#{end_height}")
-
-    try do
-      Bitblocks.Sync.get_blocks(start_height..end_height)
-      Logger.info("Completed block sync: #{start_height}..#{end_height}")
-      :ok
-    rescue
-      error ->
-        Logger.error("Error syncing blocks: #{inspect(error)}")
-        {:error, error}
-    end
-  end
-
-  @doc """
-  Syncs transaction data for a specific block.
-
-  ## Usage
-
-      bin/bitblocks rpc 'Bitblocks.Release.sync_block_transactions(100001)'
-  """
-  def sync_block_transactions(block_height) when is_integer(block_height) do
-    Logger.info("Starting transaction sync for block: #{block_height}")
-
-    try do
-      Bitblocks.Sync.get(block_height)
-      Logger.info("Completed transaction sync for block: #{block_height}")
-      :ok
-    rescue
-      error ->
-        Logger.error("Error syncing transactions for block #{block_height}: #{inspect(error)}")
-        {:error, error}
-    end
-  end
-
   @doc """
   Gets the current blockchain info from the Bitcoin node.
 
@@ -277,65 +231,6 @@ defmodule Bitblocks.Release do
         Logger.error("Error getting blockchain info: #{inspect(error)}")
         {:error, error}
     end
-  end
-
-  @doc """
-  Start parallel pipeline sync (faster than sync_blocks).
-
-  ## Usage
-
-      bin/bitblocks rpc 'Bitblocks.Release.pipeline_sync(250000, 260000)'
-  """
-  def pipeline_sync(start_height, end_height)
-      when is_integer(start_height) and is_integer(end_height) do
-    Logger.info("Starting parallel pipeline sync: #{start_height}..#{end_height}")
-
-    case Bitblocks.Sync.Pipeline.start_sync(start_height, end_height) do
-      :ok ->
-        Logger.info("Pipeline started successfully")
-        :ok
-
-      {:error, reason} ->
-        Logger.error("Failed to start pipeline: #{inspect(reason)}")
-        {:error, reason}
-    end
-  end
-
-  @doc """
-  Get the current status of the sync pipeline.
-
-  ## Usage
-
-      bin/bitblocks rpc 'Bitblocks.Release.pipeline_status()'
-  """
-  def pipeline_status do
-    status = Bitblocks.Sync.Pipeline.status()
-
-    IO.puts("\n=== Pipeline Status ===")
-    IO.puts("Status: #{status.status}")
-    IO.puts("Range: #{status.start_height || "N/A"} to #{status.end_height || "N/A"}")
-    IO.puts("Blocks processed: #{status.blocks_processed || 0}")
-    IO.puts("Current height: #{status.current_height || "N/A"}")
-    IO.puts("Progress: #{status.progress_percent || 0}%")
-    IO.puts("Errors: #{status.errors_count || 0}")
-    IO.puts("=====================\n")
-
-    status
-  end
-
-  @doc """
-  Stop the sync pipeline.
-
-  ## Usage
-
-      bin/bitblocks rpc 'Bitblocks.Release.pipeline_stop()'
-  """
-  def pipeline_stop do
-    Logger.info("Stopping pipeline...")
-
-    Bitblocks.Sync.Pipeline.stop_sync()
-    Logger.info("Pipeline stop requested")
-    :ok
   end
 
   @doc """
@@ -566,60 +461,23 @@ defmodule Bitblocks.Release do
   end
 
   @doc """
-  Backfill missing blocks and transactions from height 0 to the chain tip (or a bounded range).
+  Backfill missing blocks and transactions from height 0 to the chain tip.
 
-  Works in two passes:
-  1. Syncs any missing block headers (fills gaps)
-  2. Queues transaction fetches for blocks that don't have them yet
-
-  Processes in chunks to avoid overwhelming the node or Oban queue.
-  Idempotent — safe to run repeatedly. Progress is visible via tx_sync_status().
-
-  ## Options
-    - from: start height (default 0)
-    - to: end height (default: chain tip)
-    - chunk_size: blocks per batch for header sync (default 1000)
-    - tx_batch: how many tx fetch jobs to enqueue at once (default 100)
-    - skip_blocks: skip block header sync, only backfill transactions
-    - skip_txs: skip transaction backfill, only fill block gaps
+  Delegates to sync_headers/2 which fills header gaps and auto-queues
+  transaction fetches for each new block.
 
   ## Usage
 
       bin/bitblocks rpc 'Bitblocks.Release.backfill()'
-      bin/bitblocks rpc 'Bitblocks.Release.backfill(to: 599999, skip_blocks: true)'
-      bin/bitblocks rpc 'Bitblocks.Release.backfill(chunk_size: 500, tx_batch: 50)'
+      bin/bitblocks rpc 'Bitblocks.Release.backfill(from: 100_000, to: 200_000)'
   """
   def backfill(opts \\ []) do
-    # If only backfilling txs, prefer the background worker
-    if Keyword.get(opts, :skip_blocks, false) do
-      IO.puts("Hint: use backfill_txs() instead — it runs in the background and survives restarts.")
-    end
-    alias Bitblocks.Chain
-
     from = Keyword.get(opts, :from, 0)
-    chunk_size = Keyword.get(opts, :chunk_size, 1000)
-    tx_batch = Keyword.get(opts, :tx_batch, 100)
-    skip_blocks = Keyword.get(opts, :skip_blocks, false)
-    skip_txs = Keyword.get(opts, :skip_txs, false)
-
-    latest = Chain.get_latest_block()
+    latest = Bitblocks.Chain.get_latest_block()
     chain_tip = if latest, do: latest.height, else: 0
     to = Keyword.get(opts, :to, chain_tip)
 
-    Logger.info("Backfill: #{from}..#{to} (chain tip: #{chain_tip})")
-
-    # Pass 1: fill missing block headers
-    unless skip_blocks do
-      backfill_blocks(from, to, chunk_size)
-    end
-
-    # Pass 2: queue transaction fetches for blocks missing txs
-    unless skip_txs do
-      backfill_transactions(from, to, tx_batch)
-    end
-
-    Logger.info("Backfill: complete")
-    :ok
+    sync_headers(from, to)
   end
 
   @doc """
@@ -642,20 +500,8 @@ defmodule Bitblocks.Release do
       bin/bitblocks rpc 'Bitblocks.Release.status()'
   """
   def backfill_txs(opts \\ []) do
-    batch_size = Keyword.get(opts, :batch_size, 100)
-
-    case %{"batch_size" => batch_size}
-         |> Bitblocks.Workers.BackfillTransactionsWorker.new()
-         |> Oban.insert() do
-      {:ok, job} ->
-        IO.puts("Backfill job queued (Oban job ##{job.id})")
-        IO.puts("Monitor with: Bitblocks.Release.status()")
-        :ok
-
-      {:error, reason} ->
-        IO.puts("Failed to queue: #{inspect(reason)}")
-        {:error, reason}
-    end
+    IO.puts("backfill_txs is now handled by sync_headers — delegating.")
+    backfill(opts)
   end
 
   @doc """
@@ -692,156 +538,6 @@ defmodule Bitblocks.Release do
     end
 
     %{tip: tip, missing: total_missing, gaps: length(ranges), ranges: ranges}
-  end
-
-  # Sync missing blocks in chunks via SyncWorker
-  defp backfill_blocks(from, tip, chunk_size) do
-    alias Bitblocks.Chain
-
-    ranges = Chain.missing_block_ranges(from, tip)
-
-    total_missing =
-      Enum.reduce(ranges, 0, fn {s, e}, acc -> acc + (e - s + 1) end)
-
-    Logger.info("Backfill blocks: #{total_missing} missing in #{length(ranges)} gaps")
-
-    if total_missing == 0 do
-      Logger.info("Backfill blocks: no gaps found")
-      :ok
-    else
-      # Process each gap range through SyncWorker in chunks
-      Enum.each(ranges, fn {range_start, range_end} ->
-        range_start
-        |> Stream.iterate(&(&1 + chunk_size))
-        |> Stream.take_while(&(&1 <= range_end))
-        |> Enum.each(fn chunk_start ->
-          chunk_end = min(chunk_start + chunk_size - 1, range_end)
-          count = chunk_end - chunk_start + 1
-          Logger.info("Backfill blocks: syncing #{chunk_start}..#{chunk_end} (#{count} blocks)")
-
-          Bitblocks.SyncWorker.start_sync({chunk_start, chunk_end})
-          wait_for_sync(30_000)
-        end)
-      end)
-    end
-  end
-
-  # Queue transaction fetch jobs in batches.
-  # Includes blocks stuck in failed/txs_queued/txs_syncing from prior runs.
-  defp backfill_transactions(from, tip, batch_size) do
-    alias Bitblocks.{Repo, Chain.Block}
-    import Ecto.Query
-
-    needs_tx_states = ["header_only", "header_synced", "pending", "failed", "txs_queued", "txs_syncing"]
-
-    needs_txs_count =
-      from(b in Block,
-        where: b.height >= ^from and b.height <= ^tip,
-        where: b.sync_state in ^needs_tx_states,
-        select: count()
-      )
-      |> Repo.one()
-
-    Logger.info("Backfill txs: #{needs_txs_count} blocks need transactions")
-
-    if needs_txs_count == 0 do
-      :ok
-    else
-      backfill_tx_batch(from, tip, batch_size, 0, needs_txs_count, needs_tx_states)
-    end
-  end
-
-  defp backfill_tx_batch(from, tip, batch_size, queued_so_far, total, needs_tx_states) do
-    alias Bitblocks.{Repo, Chain, Chain.Block}
-    import Ecto.Query
-
-    # Reset stuck blocks back to header_only so queue_transaction_fetch
-    # will accept them and Oban uniqueness won't skip them.
-    {reset_count, _} =
-      from(b in Block,
-        where: b.height >= ^from and b.height <= ^tip,
-        where: b.sync_state in ["failed", "txs_queued", "txs_syncing"]
-      )
-      |> Repo.update_all(set: [sync_state: "header_only"])
-
-    if reset_count > 0 do
-      Logger.info("Backfill txs: reset #{reset_count} stuck blocks to header_only")
-    end
-
-    blocks =
-      from(b in Block,
-        where: b.height >= ^from and b.height <= ^tip,
-        where: b.sync_state in ^needs_tx_states,
-        order_by: [asc: b.height],
-        limit: ^batch_size
-      )
-      |> Repo.all()
-
-    if blocks == [] do
-      Logger.info("Backfill txs: all batches queued (#{queued_so_far}/#{total})")
-      :ok
-    else
-      Enum.each(blocks, &Chain.queue_transaction_fetch/1)
-      new_total = queued_so_far + length(blocks)
-      last_height = List.last(blocks).height
-
-      Logger.info(
-        "Backfill txs: queued #{new_total}/#{total} " <>
-          "(through height #{last_height})"
-      )
-
-      # Wait for the batch to actually drain — no timeout.
-      # backfill is a long-running rpc task; let it take as long as needed.
-      wait_for_oban_drain(:infinity)
-
-      backfill_tx_batch(last_height + 1, tip, batch_size, new_total, total, needs_tx_states)
-    end
-  end
-
-  defp wait_for_sync(timeout) do
-    start = System.monotonic_time(:millisecond)
-
-    Stream.repeatedly(fn ->
-      status = Bitblocks.SyncWorker.get_status()
-      elapsed = System.monotonic_time(:millisecond) - start
-
-      cond do
-        status.status in [:completed, :stopped, :idle] -> :done
-        elapsed > timeout -> :timeout
-        true -> Process.sleep(500); :waiting
-      end
-    end)
-    |> Enum.find(&(&1 != :waiting))
-  end
-
-  defp wait_for_oban_drain(timeout) do
-    start = System.monotonic_time(:millisecond)
-
-    Stream.repeatedly(fn ->
-      import Ecto.Query
-      pending =
-        from(j in Oban.Job,
-          where: j.queue == "transactions",
-          where: j.state in ["available", "executing", "scheduled"],
-          select: count()
-        )
-        |> Bitblocks.Repo.one()
-
-      elapsed = System.monotonic_time(:millisecond) - start
-
-      cond do
-        pending == 0 ->
-          :drained
-
-        timeout != :infinity and elapsed > timeout ->
-          :timeout
-
-        true ->
-          Process.sleep(2_000)
-          :waiting
-      end
-    end)
-    |> Enum.find(&(&1 != :waiting))
   end
 
   # Private helpers
