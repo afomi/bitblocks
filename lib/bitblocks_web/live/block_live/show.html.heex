@@ -2,27 +2,49 @@
   <div class="max-w-7xl mx-auto px-4">
     <%!-- Header with height + navigation --%>
     <section class="border-b border-neutral-800 pt-16 pb-8">
-      <div class="flex items-center justify-between mb-4">
-        <div>
-          <p class="font-mono text-xs text-neutral-500 uppercase tracking-wider mb-2">
-            Block
-          </p>
+      <div class="mb-4">
+        <p class="font-mono text-xs text-neutral-500 uppercase tracking-wider mb-2">
+          Block
+        </p>
+        <div class="flex items-center gap-4">
+          <.link
+            navigate={~p"/blocks/#{@block.height - 1}"}
+            class="text-neutral-600 hover:text-neutral-50 transition-colors"
+            title={"Block #{@block.height - 1}"}
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="currentColor"
+              class="w-8 h-8"
+            >
+              <path
+                fill-rule="evenodd"
+                d="M7.72 12.53a.75.75 0 0 1 0-1.06l7.5-7.5a.75.75 0 1 1 1.06 1.06L9.31 12l6.97 6.97a.75.75 0 1 1-1.06 1.06l-7.5-7.5Z"
+                clip-rule="evenodd"
+              />
+            </svg>
+          </.link>
           <h1 class="text-4xl font-semibold text-neutral-50 tabular-nums tracking-tight">
             <%= @block.height %>
           </h1>
-        </div>
-        <div class="flex gap-3">
-          <.link
-            navigate={~p"/blocks/#{@block.height - 1}"}
-            class="px-4 py-2 bg-surface-raised text-neutral-400 border border-neutral-700 rounded hover:bg-surface-overlay hover:text-neutral-50 transition-colors text-sm"
-          >
-            ← <%= @block.height - 1 %>
-          </.link>
           <.link
             navigate={~p"/blocks/#{@block.height + 1}"}
-            class="px-4 py-2 bg-surface-raised text-neutral-400 border border-neutral-700 rounded hover:bg-surface-overlay hover:text-neutral-50 transition-colors text-sm"
+            class="text-neutral-600 hover:text-neutral-50 transition-colors"
+            title={"Block #{@block.height + 1}"}
           >
-            <%= @block.height + 1 %> →
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="currentColor"
+              class="w-8 h-8"
+            >
+              <path
+                fill-rule="evenodd"
+                d="M16.28 11.47a.75.75 0 0 1 0 1.06l-7.5 7.5a.75.75 0 0 1-1.06-1.06L14.69 12 7.72 5.03a.75.75 0 0 1 1.06-1.06l7.5 7.5Z"
+                clip-rule="evenodd"
+              />
+            </svg>
           </.link>
         </div>
       </div>
