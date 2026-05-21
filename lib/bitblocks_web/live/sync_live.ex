@@ -1,19 +1,11 @@
 defmodule BitblocksWeb.SyncLive do
   use BitblocksWeb, :live_view
 
-  alias Bitblocks.SyncWorker
-  alias Phoenix.PubSub
-
   # Destructive actions (clear blocks/transactions) are only available in dev/test.
   @dev_mode Application.compile_env(:bitblocks, :env, :prod) != :prod
 
   @impl true
   def mount(_params, _session, socket) do
-    require Logger
-
-    idle_status = %{status: :idle, blocks_synced: 0, total_blocks: 0, current_block: 0, errors_count: 0}
-    idle_pipeline = %{status: :idle, start_height: nil, end_height: nil, current_height: nil, blocks_processed: 0, progress_percent: 0.0, errors_count: 0}
-    idle_tip = %{status: :idle, last_synced_height: nil, current_tip: nil, blocks_synced: 0}
     idle_backfill = %{total: 0, completed: 0, remaining: 0, in_flight: 0, tx_jobs: 0, failed: 0, percent: 0.0, state: :idle}
 
     socket =
@@ -21,33 +13,22 @@ defmodule BitblocksWeb.SyncLive do
         page_title: "Blockchain Sync",
         dev_mode: @dev_mode,
         scope_type: "range",
-        sync_mode: "sequential",
         start_block: "",
         end_block: "",
         tx_start_block: "",
         tx_end_block: "",
-        sync_status: idle_status,
-        pipeline_status: idle_pipeline,
-        tip_sync_status: idle_tip,
         backfill_status: idle_backfill,
         form_errors: [],
         tx_form_errors: [],
         chain_tip: nil,
         blocks_count: 0,
         transactions_count: 0,
-        sync_jobs: [],
-        current_block_inflight: nil,
-        current_block_duration_ms: nil,
-        last_block_duration_ms: nil
+        sync_jobs: []
       )
 
     if connected?(socket) do
-      Logger.info("SyncLive: Connected, loading data")
-      PubSub.subscribe(Bitblocks.PubSub, "sync_progress")
-      PubSub.subscribe(Bitblocks.PubSub, "sync_pipeline")
-
       send(self(), :load_data)
-      Process.send_after(self(), :poll_tip_sync, 10000)
+      Process.send_after(self(), :poll_status, 10_000)
     end
 
     {:ok, socket}
@@ -84,47 +65,22 @@ defmodule BitblocksWeb.SyncLive do
     {:noreply, assign(socket, scope_type: scope_type, form_errors: [])}
   end
 
-  @impl true
-  def handle_event("sync_mode_changed", %{"value" => sync_mode}, socket) do
-    {:noreply, assign(socket, sync_mode: sync_mode, form_errors: [])}
-  end
 
   @impl true
   def handle_event("start_sync", params, socket) do
-    require Logger
-    Logger.info("SyncLive: Received start_sync event with params: #{inspect(params)}")
-    sync_mode = socket.assigns.sync_mode
-
-    Logger.info(
-      "SyncLive: Using sync_mode: #{sync_mode}, scope_type: #{socket.assigns.scope_type}"
-    )
-
     case build_scope(socket.assigns.scope_type, params) do
-      {:ok, scope} ->
-        Logger.info("SyncLive: Built scope: #{inspect(scope)}")
+      {:ok, {from, to}} ->
+        case %{"mode" => "range", "from" => from, "to" => to}
+             |> Bitblocks.Workers.SyncHeadersWorker.new()
+             |> Oban.insert() do
+          {:ok, _job} ->
+            {:noreply,
+             socket
+             |> put_flash(:info, "Header sync queued for blocks #{from}..#{to}")
+             |> assign(form_errors: [])}
 
-        result =
-          case sync_mode do
-            "parallel" ->
-              Logger.info("SyncLive: Starting parallel sync")
-              start_parallel_sync(scope)
-
-            "sequential" ->
-              Logger.info("SyncLive: Starting sequential sync")
-
-              case SyncWorker.start_sync(scope) do
-                :ok -> :ok
-                {:error, :already_running} -> {:error, "Sync is already running"}
-                {:error, reason} -> {:error, "Failed to start sync: #{inspect(reason)}"}
-              end
-          end
-
-        case result do
-          :ok ->
-            {:noreply, assign(socket, form_errors: [])}
-
-          {:error, message} ->
-            {:noreply, assign(socket, form_errors: [message])}
+          {:error, _} ->
+            {:noreply, assign(socket, form_errors: ["Sync job already queued for this range"])}
         end
 
       {:error, errors} ->
@@ -134,30 +90,44 @@ defmodule BitblocksWeb.SyncLive do
 
   @impl true
   def handle_event("stop_sync", _params, socket) do
-    # Stop both sync methods
-    SyncWorker.stop_sync()
-    Bitblocks.Sync.Pipeline.stop_sync()
-    {:noreply, socket}
+    import Ecto.Query
+
+    {cancelled, _} =
+      from(j in Oban.Job,
+        where: j.worker == "Bitblocks.Workers.SyncHeadersWorker",
+        where: j.state in ["available", "scheduled", "executing"]
+      )
+      |> Bitblocks.Repo.update_all(set: [state: "cancelled", cancelled_at: DateTime.utc_now()])
+
+    {:noreply, put_flash(socket, :info, "Cancelled #{cancelled} sync job(s)")}
   end
 
   @impl true
   def handle_event("start_tip_sync", _params, socket) do
-    case Bitblocks.TipSyncWorker.start_sync() do
-      :ok ->
-        {:noreply, put_flash(socket, :info, "Started continuous tip sync")}
+    case %{"mode" => "tip"}
+         |> Bitblocks.Workers.SyncHeadersWorker.new()
+         |> Oban.insert() do
+      {:ok, _job} ->
+        {:noreply, put_flash(socket, :info, "Tip sync started")}
 
-      {:error, :already_running} ->
-        {:noreply, put_flash(socket, :info, "Tip sync is already running")}
-
-      {:error, reason} ->
-        {:noreply, put_flash(socket, :error, "Failed to start tip sync: #{inspect(reason)}")}
+      {:error, _} ->
+        {:noreply, put_flash(socket, :info, "Tip sync already running")}
     end
   end
 
   @impl true
   def handle_event("stop_tip_sync", _params, socket) do
-    Bitblocks.TipSyncWorker.stop_sync()
-    {:noreply, put_flash(socket, :info, "Stopped tip sync")}
+    import Ecto.Query
+
+    {cancelled, _} =
+      from(j in Oban.Job,
+        where: j.worker == "Bitblocks.Workers.SyncHeadersWorker",
+        where: j.state in ["available", "scheduled"],
+        where: fragment("args->>'mode' = 'tip'")
+      )
+      |> Bitblocks.Repo.update_all(set: [state: "cancelled", cancelled_at: DateTime.utc_now()])
+
+    {:noreply, put_flash(socket, :info, "Stopped tip sync (#{cancelled} job(s) cancelled)")}
   end
 
   @impl true
@@ -232,13 +202,16 @@ defmodule BitblocksWeb.SyncLive do
 
   @impl true
   def handle_event("start_backfill", _params, socket) do
-    case %{"batch_size" => 100}
-         |> Bitblocks.Workers.BackfillTransactionsWorker.new()
+    chain_tip = get_chain_tip()
+    to = if chain_tip, do: chain_tip.blocks, else: 0
+
+    case %{"mode" => "range", "from" => 0, "to" => to}
+         |> Bitblocks.Workers.SyncHeadersWorker.new()
          |> Oban.insert() do
       {:ok, _job} ->
         {:noreply,
          socket
-         |> put_flash(:info, "Transaction backfill started. Running in background.")
+         |> put_flash(:info, "Backfill started: syncing headers + transactions for blocks 0..#{to}")
          |> assign(backfill_status: get_backfill_status())}
 
       {:error, _reason} ->
@@ -252,9 +225,6 @@ defmodule BitblocksWeb.SyncLive do
 
     socket =
       assign(socket,
-        sync_status: safe_get_status(SyncWorker),
-        pipeline_status: safe_get_pipeline_status(),
-        tip_sync_status: safe_get_tip_sync_status(),
         backfill_status: get_backfill_status(),
         chain_tip: get_chain_tip(),
         blocks_count: blocks_count,
@@ -266,80 +236,17 @@ defmodule BitblocksWeb.SyncLive do
   end
 
   @impl true
-  def handle_info({:sync_progress, progress}, socket) do
-    current_block_duration_ms =
-      if progress[:current_block_inflight] && progress[:current_block_started_at] do
-        DateTime.diff(DateTime.utc_now(), progress.current_block_started_at, :millisecond)
-      else
-        nil
-      end
-
-    {blocks_count, transactions_count} = get_db_counts()
-
-    {:noreply,
-     assign(socket,
-       sync_status: progress,
-       blocks_count: blocks_count,
-       transactions_count: transactions_count,
-       current_block_inflight: progress[:current_block_inflight],
-       current_block_duration_ms: current_block_duration_ms,
-       last_block_duration_ms: progress[:last_block_duration_ms]
-     )}
-  end
-
-  @impl true
-  def handle_info({:pipeline_progress, _progress}, socket) do
-    pipeline_status = safe_get_pipeline_status()
-    {blocks_count, transactions_count} = get_db_counts()
-
-    {:noreply,
-     assign(socket,
-       pipeline_status: pipeline_status,
-       blocks_count: blocks_count,
-       transactions_count: transactions_count
-     )}
-  end
-
-  @impl true
-  def handle_info(:pipeline_started, socket) do
-    {:noreply, assign(socket, pipeline_status: safe_get_pipeline_status())}
-  end
-
-  @impl true
-  def handle_info(:pipeline_stopped, socket) do
-    {:noreply, assign(socket, pipeline_status: safe_get_pipeline_status())}
-  end
-
-  @impl true
-  def handle_info(:pipeline_completed, socket) do
-    {blocks_count, transactions_count} = get_db_counts()
-
-    {:noreply,
-     assign(socket,
-       pipeline_status: safe_get_pipeline_status(),
-       blocks_count: blocks_count,
-       transactions_count: transactions_count
-     )}
-  end
-
-  @impl true
-  def handle_info({:block_error, _height, _error}, socket) do
-    {:noreply, assign(socket, pipeline_status: safe_get_pipeline_status())}
-  end
-
-  @impl true
-  def handle_info(:poll_tip_sync, socket) do
+  def handle_info(:poll_status, socket) do
     {blocks_count, transactions_count} = get_db_counts()
 
     socket =
       assign(socket,
-        tip_sync_status: safe_get_tip_sync_status(),
         backfill_status: get_backfill_status(),
         blocks_count: blocks_count,
         transactions_count: transactions_count
       )
 
-    Process.send_after(self(), :poll_tip_sync, 10000)
+    Process.send_after(self(), :poll_status, 10_000)
     {:noreply, socket}
   end
 
@@ -385,14 +292,6 @@ defmodule BitblocksWeb.SyncLive do
 
   defp build_scope(_, _) do
     {:error, ["Please select a valid sync scope"]}
-  end
-
-  defp start_parallel_sync({start_block, end_block}) do
-    case Bitblocks.Sync.Pipeline.start_sync(start_block, end_block) do
-      :ok -> :ok
-      {:error, :already_running} -> {:error, "Pipeline is already running"}
-      {:error, reason} -> {:error, "Failed to start pipeline: #{inspect(reason)}"}
-    end
   end
 
   @impl true
@@ -444,445 +343,102 @@ defmodule BitblocksWeb.SyncLive do
         </div>
       </div>
 
-      <%!-- Current Sync Status --%>
-      <%= if @sync_status.status != :idle || @pipeline_status.status != :idle do %>
-        <div
-          class="bg-white shadow-md rounded-lg p-6 mb-6"
-        >
-          <h2
-            class="text-2xl font-semibold mb-4"
-          >
-            Current Sync Status
-          </h2>
-
-          <div
-            class="space-y-4"
-          >
-            <%!-- Show Pipeline Status if Running --%>
-            <%= if @pipeline_status.status == :running do %>
-              <div
-                class="flex items-center gap-4"
-              >
-                <span
-                  class="font-medium"
-                >
-                  Mode:
-                </span>
-                <span
-                  class="text-blue-600 font-semibold"
-                >
-                  Parallel (5 workers)
-                </span>
-              </div>
-            <% end %>
-
-            <%!-- Status Badge --%>
-            <div
-              class="flex items-center gap-4"
-            >
-              <span
-                class="font-medium"
-              >
-                Status:
-              </span>
-              <span class={[
-                "px-3 py-1 rounded-full text-sm font-semibold",
-                status_class(
-                  if(@pipeline_status.status != :idle,
-                    do: @pipeline_status.status,
-                    else: @sync_status.status
-                  )
-                )
-              ]}>
-                <%= status_text(
-                  if(@pipeline_status.status != :idle,
-                    do: @pipeline_status.status,
-                    else: @sync_status.status
-                  )
-                ) %>
-              </span>
-            </div>
-
-            <%!-- Scope Info --%>
-            <%= if @pipeline_status.status != :idle do %>
-              <div
-                class="flex items-center gap-4"
-              >
-                <span
-                  class="font-medium"
-                >
-                  Range:
-                </span>
-                <span>
-                  Blocks <%= @pipeline_status.start_height %> to <%= @pipeline_status.end_height %>
-                </span>
-              </div>
-            <% else %>
-              <div
-                class="flex items-center gap-4"
-              >
-                <span
-                  class="font-medium"
-                >
-                  Scope:
-                </span>
-                <span>
-                  <%= scope_description(@sync_status.scope) %>
-                </span>
-              </div>
-            <% end %>
-
-            <%!-- Progress Bar --%>
-            <div>
-              <div
-                class="flex justify-between mb-2"
-              >
-                <span
-                  class="font-medium"
-                >
-                  Progress
-                </span>
-                <%= if @pipeline_status.status != :idle do %>
-                  <span
-                    class="text-sm text-gray-600"
-                  >
-                    <%= @pipeline_status.blocks_processed || 0 %> / <%= (@pipeline_status.end_height || 0) - (@pipeline_status.start_height || 0) + 1 %> blocks
-                    (<%= @pipeline_status.progress_percent || 0 %>%)
-                  </span>
-                <% else %>
-                  <span
-                    class="text-sm text-gray-600"
-                  >
-                    <%= @sync_status.blocks_synced %> / <%= @sync_status.total_blocks %> blocks
-                    (<%= progress_percent(@sync_status) %>%)
-                  </span>
-                <% end %>
-              </div>
-              <div
-                class="w-full bg-gray-200 rounded-full h-6"
-              >
-                <div
-                  class="bg-blue-600 h-6 rounded-full transition-all duration-300"
-                  style={
-                    if(@pipeline_status.status != :idle,
-                      do: "width: #{@pipeline_status.progress_percent || 0}%",
-                      else: "width: #{progress_percent(@sync_status)}%"
-                    )
-                  }
-                >
-                </div>
-              </div>
-            </div>
-
-            <%!-- Real-Time Block Sync Progress (Sequential Mode) --%>
-            <%= if @sync_status.status == :running && @current_block_inflight do %>
-              <div
-                class="bg-blue-50 border-l-4 border-blue-500 p-4 rounded animate-pulse"
-              >
-                <div
-                  class="flex items-center justify-between mb-2"
-                >
-                  <span
-                    class="font-semibold text-blue-900"
-                  >
-                    Syncing Block <%= @current_block_inflight %>
-                  </span>
-                  <span class={[
-                    "px-2 py-1 rounded text-xs font-mono",
-                    duration_class(@current_block_duration_ms)
-                  ]}>
-                    <%= format_block_duration(@current_block_duration_ms) %>
-                  </span>
-                </div>
-                <div
-                  class="w-full bg-blue-200 rounded-full h-2"
-                >
-                  <div
-                    class="bg-blue-600 h-2 rounded-full transition-all duration-300"
-                    style={"width: #{min((@current_block_duration_ms || 0) / max((@last_block_duration_ms || 300), 300) * 100, 100)}%"}
-                  >
-                  </div>
-                </div>
-                <%= if @last_block_duration_ms do %>
-                  <div
-                    class="text-xs text-blue-700 mt-1"
-                  >
-                    Previous block: <%= format_block_duration(@last_block_duration_ms) %>
-                  </div>
-                <% end %>
-              </div>
-            <% end %>
-
-            <%!-- Current Block Info --%>
-            <%= if @pipeline_status.status != :idle do %>
-              <div
-                class="grid grid-cols-2 gap-4 text-sm"
-              >
-                <div>
-                  <span
-                    class="font-medium"
-                  >
-                    Current Height:
-                  </span>
-                  <%= @pipeline_status.current_height || 0 %>
-                </div>
-                <div>
-                  <span
-                    class="font-medium"
-                  >
-                    Blocks Processed:
-                  </span>
-                  <%= @pipeline_status.blocks_processed || 0 %>
-                </div>
-                <div>
-                  <span
-                    class="font-medium"
-                  >
-                    Errors:
-                  </span>
-                  <%= @pipeline_status.errors_count || 0 %>
-                </div>
-              </div>
-            <% else %>
-              <div
-                class="grid grid-cols-2 gap-4 text-sm"
-              >
-                <div>
-                  <span
-                    class="font-medium"
-                  >
-                    Current Block:
-                  </span>
-                  <%= @sync_status.current_block %>
-                </div>
-                <div>
-                  <span
-                    class="font-medium"
-                  >
-                    Transactions in Block:
-                  </span>
-                  <%= @sync_status.current_block_tx_count || 0 %>
-                </div>
-                <div>
-                  <span
-                    class="font-medium"
-                  >
-                    Errors:
-                  </span>
-                  <%= @sync_status.errors_count || 0 %>
-                </div>
-              </div>
-            <% end %>
-
-            <%!-- Stop Button --%>
-            <%= if @sync_status.status == :running || @pipeline_status.status == :running do %>
-              <button
-                phx-click="stop_sync"
-                class="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
-              >
-                Stop Sync
-              </button>
-            <% end %>
-          </div>
-        </div>
-      <% end %>
-
-      <%!-- Sync Configuration Form --%>
+      <%!-- Sync Configuration --%>
       <div
-        class="bg-white shadow-md rounded-lg p-6 mb-6"
+        class="bg-white dark:bg-gray-800 shadow-md rounded-lg p-6 mb-6"
       >
         <h2
-          class="text-2xl font-semibold mb-4"
+          class="text-2xl font-semibold mb-4 text-gray-900 dark:text-white"
         >
-          Configure New Block Sync
+          Sync Blocks
         </h2>
+
+        <p
+          class="text-sm text-gray-600 dark:text-gray-400 mb-4"
+        >
+          Fetches block headers and queues transaction downloads.
+          Fills gaps automatically — safe to re-run.
+        </p>
 
         <%= if @form_errors != [] do %>
           <div
             class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4"
           >
             <%= for error <- @form_errors do %>
-              <p>
-                <%= error %>
-              </p>
+              <p><%= error %></p>
             <% end %>
           </div>
         <% end %>
 
         <form
           phx-submit="start_sync"
-          class="space-y-6"
+          class="space-y-4"
         >
-          <%!-- Sync Mode Selection --%>
-          <div>
-            <label
-              class="block text-sm font-medium mb-2"
-            >
-              Sync Mode
-            </label>
-            <div
-              class="space-y-3"
-            >
-              <label
-                class="flex items-center"
-              >
-                <input
-                  type="radio"
-                  name="sync_mode"
-                  value="parallel"
-                  checked={@sync_mode == "parallel"}
-                  phx-click="sync_mode_changed"
-                  class="mr-2"
-                />
-                <span
-                  class="font-medium"
-                >
-                  Parallel (Fast)
-                </span>
-                <span
-                  class="ml-2 text-sm text-gray-600"
-                >
-                  - Uses 5 concurrent workers for faster syncing
-                </span>
-              </label>
-              <label
-                class="flex items-center"
-              >
-                <input
-                  type="radio"
-                  name="sync_mode"
-                  value="sequential"
-                  checked={@sync_mode == "sequential"}
-                  phx-click="sync_mode_changed"
-                  class="mr-2"
-                />
-                <span
-                  class="font-medium"
-                >
-                  Sequential (Slow)
-                </span>
-                <span
-                  class="ml-2 text-sm text-gray-600"
-                >
-                  - Processes one block at a time (legacy mode)
-                </span>
-              </label>
-            </div>
-          </div>
-
           <%!-- Scope Selection --%>
-          <div>
-            <label
-              class="block text-sm font-medium mb-2"
-            >
-              Sync Scope
+          <div class="space-y-2">
+            <label class="flex items-center">
+              <input
+                type="radio"
+                name="scope_type"
+                value="all"
+                checked={@scope_type == "all"}
+                phx-click="scope_type_changed"
+                class="mr-2"
+              />
+              <span class="font-medium">All</span>
+              <span class="ml-2 text-sm text-gray-600 dark:text-gray-400">
+                — genesis to chain tip
+              </span>
             </label>
-            <div
-              class="space-y-3"
-            >
-              <label
-                class="flex items-center"
-              >
-                <input
-                  type="radio"
-                  name="scope_type"
-                  value="all"
-                  checked={@scope_type == "all"}
-                  phx-click="scope_type_changed"
-                  class="mr-2"
-                />
-                <span
-                  class="font-medium"
-                >
-                  ALL
-                </span>
-                <span
-                  class="ml-2 text-sm text-gray-600"
-                >
-                  - Sync entire blockchain from genesis to current tip
-                </span>
-              </label>
-
-              <label
-                class="flex items-center"
-              >
-                <input
-                  type="radio"
-                  name="scope_type"
-                  value="range"
-                  checked={@scope_type == "range"}
-                  phx-click="scope_type_changed"
-                  class="mr-2"
-                />
-                <span
-                  class="font-medium"
-                >
-                  Range
-                </span>
-                <span
-                  class="ml-2 text-sm text-gray-600"
-                >
-                  - Sync specific block range
-                </span>
-              </label>
-
-              <label
-                class="flex items-center"
-              >
-                <input
-                  type="radio"
-                  name="scope_type"
-                  value="from_block"
-                  checked={@scope_type == "from_block"}
-                  phx-click="scope_type_changed"
-                  class="mr-2"
-                />
-                <span
-                  class="font-medium"
-                >
-                  From Block to Tip
-                </span>
-                <span
-                  class="ml-2 text-sm text-gray-600"
-                >
-                  - Sync from specific block to current chain tip (continuous)
-                </span>
-              </label>
-            </div>
+            <label class="flex items-center">
+              <input
+                type="radio"
+                name="scope_type"
+                value="range"
+                checked={@scope_type == "range"}
+                phx-click="scope_type_changed"
+                class="mr-2"
+              />
+              <span class="font-medium">Range</span>
+              <span class="ml-2 text-sm text-gray-600 dark:text-gray-400">
+                — specific block range
+              </span>
+            </label>
+            <label class="flex items-center">
+              <input
+                type="radio"
+                name="scope_type"
+                value="from_block"
+                checked={@scope_type == "from_block"}
+                phx-click="scope_type_changed"
+                class="mr-2"
+              />
+              <span class="font-medium">From block to tip</span>
+            </label>
           </div>
 
-          <%!-- Block Range Inputs --%>
+          <%!-- Range Inputs --%>
           <%= if @scope_type == "range" do %>
-            <div
-              class="grid grid-cols-2 gap-4"
-            >
+            <div class="grid grid-cols-2 gap-4">
               <div>
-                <label
-                  class="block text-sm font-medium mb-2"
-                >
-                  Start Block
-                </label>
+                <label class="block text-sm font-medium mb-1">Start Block</label>
                 <input
                   type="number"
                   name="start_block"
-                  placeholder="e.g., 100000"
+                  placeholder="0"
                   min="0"
-                  class="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                   required
                 />
               </div>
               <div>
-                <label
-                  class="block text-sm font-medium mb-2"
-                >
-                  End Block
-                </label>
+                <label class="block text-sm font-medium mb-1">End Block</label>
                 <input
                   type="number"
                   name="end_block"
-                  placeholder="e.g., 200000"
+                  placeholder="100000"
                   min="0"
-                  class="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                   required
                 />
               </div>
@@ -891,43 +447,33 @@ defmodule BitblocksWeb.SyncLive do
 
           <%= if @scope_type == "from_block" do %>
             <div>
-              <label
-                class="block text-sm font-medium mb-2"
-              >
-                Start Block
-              </label>
+              <label class="block text-sm font-medium mb-1">Start Block</label>
               <input
                 type="number"
                 name="start_block"
-                placeholder="e.g., 800000"
+                placeholder="800000"
                 min="0"
-                class="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                 required
               />
-              <p
-                class="text-sm text-gray-600 mt-1"
-              >
-                Will continuously sync from this block to the current chain tip
-              </p>
             </div>
           <% end %>
 
-          <%!-- Submit Button --%>
-          <button
-            type="submit"
-            disabled={@sync_status.status == :running || @pipeline_status.status == :running}
-            class={[
-              "px-6 py-3 rounded font-semibold",
-              if(@sync_status.status == :running || @pipeline_status.status == :running,
-                do: "bg-gray-400 text-gray-700 cursor-not-allowed",
-                else: "bg-blue-600 text-white hover:bg-blue-700"
-              )
-            ]}
-          >
-            <%= if @sync_status.status == :running || @pipeline_status.status == :running,
-              do: "Sync In Progress...",
-              else: "Start Sync" %>
-          </button>
+          <div class="flex gap-3">
+            <button
+              type="submit"
+              class="px-6 py-3 bg-blue-600 text-white rounded hover:bg-blue-700 font-semibold"
+            >
+              Start Sync
+            </button>
+            <button
+              type="button"
+              phx-click="stop_sync"
+              class="px-6 py-3 bg-red-600 text-white rounded hover:bg-red-700 font-semibold"
+            >
+              Stop All
+            </button>
+          </div>
         </form>
       </div>
 
@@ -1072,103 +618,25 @@ defmodule BitblocksWeb.SyncLive do
         </h2>
 
         <p
-          class="text-sm text-gray-600 mb-4"
+          class="text-sm text-gray-600 dark:text-gray-400 mb-4"
         >
-          Automatically monitor and sync new blocks as they're mined.
-          Checks every 10 seconds for new blocks at the chain tip.
-          Use this for staying up-to-date with the latest blocks.
+          Watches the chain tip and syncs new blocks as they're mined.
+          Re-checks every 30 seconds.
         </p>
 
-        <div
-          class="bg-gray-50 rounded-lg p-4 mb-4"
-        >
-          <div
-            class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm"
+        <div class="flex gap-3">
+          <button
+            phx-click="start_tip_sync"
+            class="px-6 py-3 bg-blue-600 text-white rounded hover:bg-blue-700 font-semibold"
           >
-            <div>
-              <div
-                class="text-gray-600"
-              >
-                Status
-              </div>
-              <div
-                class="font-semibold"
-              >
-                <%= if @tip_sync_status.status == :running do %>
-                  <span
-                    class="text-green-600"
-                  >
-                    ● Running
-                  </span>
-                <% else %>
-                  <span
-                    class="text-gray-600"
-                  >
-                    ○ Stopped
-                  </span>
-                <% end %>
-              </div>
-            </div>
-
-            <div>
-              <div
-                class="text-gray-600"
-              >
-                Current Tip
-              </div>
-              <div
-                class="font-semibold font-mono text-lg"
-              >
-                <%= @tip_sync_status[:current_tip] || "—" %>
-              </div>
-            </div>
-
-            <div>
-              <div
-                class="text-gray-600"
-              >
-                Last Synced
-              </div>
-              <div
-                class="font-semibold font-mono text-lg"
-              >
-                <%= @tip_sync_status[:last_synced_height] || "—" %>
-              </div>
-            </div>
-
-            <div>
-              <div
-                class="text-gray-600"
-              >
-                Blocks Synced
-              </div>
-              <div
-                class="font-semibold font-mono text-lg"
-              >
-                <%= @tip_sync_status[:blocks_synced] || 0 %>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div
-          class="flex gap-3"
-        >
-          <%= if @tip_sync_status.status == :running do %>
-            <button
-              phx-click="stop_tip_sync"
-              class="px-6 py-3 bg-red-600 text-white rounded hover:bg-red-700 font-semibold"
-            >
-              Stop Tip Sync
-            </button>
-          <% else %>
-            <button
-              phx-click="start_tip_sync"
-              class="px-6 py-3 bg-blue-600 text-white rounded hover:bg-blue-700 font-semibold"
-            >
-              Start Tip Sync
-            </button>
-          <% end %>
+            Start Tip Sync
+          </button>
+          <button
+            phx-click="stop_tip_sync"
+            class="px-6 py-3 bg-red-600 text-white rounded hover:bg-red-700 font-semibold"
+          >
+            Stop Tip Sync
+          </button>
         </div>
       </div>
 
@@ -1347,55 +815,6 @@ defmodule BitblocksWeb.SyncLive do
     """
   end
 
-  defp status_class(:idle), do: "bg-gray-200 text-gray-800"
-  defp status_class(:running), do: "bg-blue-100 text-blue-800"
-  defp status_class(:stopped), do: "bg-yellow-100 text-yellow-800"
-  defp status_class(:completed), do: "bg-green-100 text-green-800"
-
-  defp status_text(:idle), do: "Idle"
-  defp status_text(:running), do: "Running"
-  defp status_text(:stopped), do: "Stopped"
-  defp status_text(:completed), do: "Completed"
-
-  defp scope_description({start_block, end_block}),
-    do: "Blocks #{start_block} to #{end_block}"
-
-  defp scope_description(_), do: "Unknown"
-
-  # Progress percent calculation
-  defp progress_percent(%{total_blocks: 0}), do: 0
-  defp progress_percent(%{total_blocks: nil}), do: 0
-  defp progress_percent(%{blocks_synced: nil}), do: 0
-
-  defp progress_percent(%{blocks_synced: synced, total_blocks: total})
-       when is_number(synced) and is_number(total) and total > 0 do
-    (synced / total * 100) |> Float.round(2)
-  end
-
-  defp progress_percent(_), do: 0
-
-  # Format duration in milliseconds to human-readable string (for real-time block sync)
-  defp format_block_duration(nil), do: "--"
-  defp format_block_duration(ms) when ms < 1000, do: "#{ms}ms"
-
-  defp format_block_duration(ms) when ms < 60_000 do
-    seconds = Float.round(ms / 1000, 1)
-    "#{seconds}s"
-  end
-
-  defp format_block_duration(ms) do
-    minutes = div(ms, 60_000)
-    seconds = div(rem(ms, 60_000), 1000)
-    "#{minutes}m #{seconds}s"
-  end
-
-  # Color-code duration based on speed
-  defp duration_class(nil), do: "bg-gray-200 text-gray-800"
-  defp duration_class(ms) when ms < 300, do: "bg-green-100 text-green-800"
-  defp duration_class(ms) when ms < 1000, do: "bg-blue-100 text-blue-800"
-  defp duration_class(ms) when ms < 5000, do: "bg-yellow-100 text-yellow-800"
-  defp duration_class(_ms), do: "bg-red-100 text-red-800"
-
   defp format_number(number) when is_integer(number) do
     number
     |> Integer.to_string()
@@ -1414,37 +833,6 @@ defmodule BitblocksWeb.SyncLive do
         order_by: [desc: s.started_at],
         limit: 10
     )
-  end
-
-  @idle_status %{status: :idle, blocks_synced: 0, total_blocks: 0, current_block: 0, errors_count: 0}
-  @idle_pipeline %{status: :idle, start_height: nil, end_height: nil, current_height: nil, blocks_processed: 0, progress_percent: 0.0, errors_count: 0}
-
-  defp safe_get_status(worker) do
-    try do
-      GenServer.call(worker, :get_status, 2_000)
-    catch
-      :exit, _ -> @idle_status
-    end
-  end
-
-  defp safe_get_pipeline_status do
-    try do
-      GenServer.call(Bitblocks.Sync.Pipeline, :status, 2_000)
-    catch
-      :exit, _ -> @idle_pipeline
-    end
-  end
-
-  defp safe_get_tip_sync_status do
-    try do
-      Bitblocks.TipSyncWorker.get_status()
-    catch
-      :exit, {:noproc, _} ->
-        %{status: :idle, last_synced_height: nil, current_tip: nil, blocks_synced: 0}
-
-      _, _ ->
-        %{status: :idle, last_synced_height: nil, current_tip: nil, blocks_synced: 0}
-    end
   end
 
   defp get_backfill_status do

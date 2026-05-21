@@ -68,8 +68,82 @@ defmodule Bitblocks.Release do
     Application.ensure_loaded(@app)
   end
 
-  # Blockchain Sync Functions
-  # These should be called via `rpc` to run in the running app context
+  # ---------------------------------------------------------------------------
+  # Two-Job Sync Model
+  # ---------------------------------------------------------------------------
+
+  @doc """
+  Sync block headers (and queue tx downloads) for a height range.
+
+  Fills gaps automatically — safe to re-run.
+
+  ## Usage
+
+      bin/bitblocks rpc 'Bitblocks.Release.sync_headers(0, 100_000)'
+  """
+  def sync_headers(from, to)
+      when is_integer(from) and is_integer(to) and from >= 0 and to >= from do
+    case %{"mode" => "range", "from" => from, "to" => to}
+         |> Bitblocks.Workers.SyncHeadersWorker.new()
+         |> Oban.insert() do
+      {:ok, job} ->
+        IO.puts("Header sync queued (Oban ##{job.id}): #{from}..#{to}")
+        {:ok, job}
+
+      {:error, reason} ->
+        IO.puts("Failed to queue: #{inspect(reason)}")
+        {:error, reason}
+    end
+  end
+
+  @doc """
+  Start continuous tip sync.
+
+  Watches for new blocks every 30 seconds.
+
+  ## Usage
+
+      bin/bitblocks rpc 'Bitblocks.Release.start_tip_sync()'
+  """
+  def start_tip_sync do
+    case %{"mode" => "tip"}
+         |> Bitblocks.Workers.SyncHeadersWorker.new()
+         |> Oban.insert() do
+      {:ok, job} ->
+        IO.puts("Tip sync started (Oban ##{job.id})")
+        {:ok, job}
+
+      {:error, reason} ->
+        IO.puts("Tip sync already running or failed: #{inspect(reason)}")
+        {:error, reason}
+    end
+  end
+
+  @doc """
+  Stop continuous tip sync.
+
+  ## Usage
+
+      bin/bitblocks rpc 'Bitblocks.Release.stop_tip_sync()'
+  """
+  def stop_tip_sync do
+    import Ecto.Query
+
+    {cancelled, _} =
+      from(j in Oban.Job,
+        where: j.worker == "Bitblocks.Workers.SyncHeadersWorker",
+        where: j.state in ["available", "scheduled"],
+        where: fragment("args->>'mode' = 'tip'")
+      )
+      |> Bitblocks.Repo.update_all(set: [state: "cancelled", cancelled_at: DateTime.utc_now()])
+
+    IO.puts("Cancelled #{cancelled} tip sync job(s)")
+    {:ok, cancelled}
+  end
+
+  # ---------------------------------------------------------------------------
+  # Legacy Sync Functions (deprecated — use sync_headers/2 instead)
+  # ---------------------------------------------------------------------------
 
   @doc """
   Syncs a range of blocks from the Bitcoin node.
