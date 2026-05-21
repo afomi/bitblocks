@@ -16,6 +16,7 @@ defmodule BitblocksWeb.SyncLive do
         blocks_count: 0,
         transactions_count: 0,
         block_states: %{},
+        syncing_blocks: [],
         oban_summary: %{jobs: [], headers: 0, tx_fetch: 0, tip: false},
         refresh_pending: false
       )
@@ -205,6 +206,7 @@ defmodule BitblocksWeb.SyncLive do
       blocks_count: blocks_count,
       transactions_count: transactions_count,
       block_states: get_block_states(),
+      syncing_blocks: Bitblocks.Chain.blocks_syncing_transactions(),
       oban_summary: get_oban_summary()
     )
   end
@@ -298,6 +300,11 @@ defmodule BitblocksWeb.SyncLive do
           </div>
         </div>
       </div>
+
+      <%!-- Syncing Blocks --%>
+      <BitblocksWeb.BlockSyncCardComponent.block_sync_cards
+        blocks={@syncing_blocks}
+      />
 
       <%!-- Active Jobs --%>
       <div class="bg-white dark:bg-gray-800 shadow-md rounded-lg p-6 mb-6">

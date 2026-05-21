@@ -346,6 +346,31 @@ defmodule Bitblocks.Chain do
   def block_transactions_downloaded?(_), do: false
 
   @doc """
+  Returns blocks that are actively syncing transactions, with download progress.
+
+  Returns a list of maps with block info and the count of transactions
+  already downloaded vs total expected.
+  """
+  def blocks_syncing_transactions do
+    from(b in Block,
+      where: b.sync_state in ["txs_queued", "txs_syncing"],
+      left_join: t in Transaction,
+      on: t.block_hash == b.hash,
+      group_by: [b.id, b.hash, b.height, b.num_tx, b.sync_state, b.tx_sync_started_at],
+      select: %{
+        hash: b.hash,
+        height: b.height,
+        num_tx: b.num_tx,
+        sync_state: b.sync_state,
+        tx_sync_started_at: b.tx_sync_started_at,
+        downloaded: count(t.id)
+      },
+      order_by: [asc: b.height]
+    )
+    |> Repo.all()
+  end
+
+  @doc """
   Queues an Oban job to fetch transactions for a block.
 
   Accepts a Block struct and updates its sync_state to "txs_queued" before
