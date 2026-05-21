@@ -406,35 +406,51 @@ defmodule Bitblocks.Chain do
   @doc """
   Queues transaction fetch jobs for a range of block heights.
 
-  Queues jobs for blocks that don't already have all their transactions downloaded.
-  Checks blocks in "header_synced", "pending", or "completed" state and verifies
-  if they actually have their transactions.
+  Finds blocks that need transactions (by sync_state) and queues Oban jobs
+  in batches of 200 to avoid loading the full range into memory.
 
   ## Examples
 
       iex> queue_transaction_fetch_for_range(0, 1000)
-      {:ok, 1001}
+      {:ok, 150}
   """
   def queue_transaction_fetch_for_range(start_height, end_height) do
-    query =
-      from b in Block,
+    batch_size = 200
+
+    do_queue_tx_range(start_height, end_height, batch_size, 0)
+  end
+
+  defp do_queue_tx_range(start_height, end_height, batch_size, acc) do
+    # Only fetch blocks that actually need transactions.
+    # "completed" and "txs_syncing" blocks are excluded.
+    # "txs_queued" blocks are also excluded — they already have a pending job.
+    # "failed" blocks ARE included so they can be retried.
+    needs_tx_states = ["header_only", "header_synced", "pending", "failed"]
+
+    blocks =
+      from(b in Block,
         where: b.height >= ^start_height and b.height <= ^end_height,
-        select: b
+        where: b.sync_state in ^needs_tx_states,
+        order_by: [asc: b.height],
+        limit: ^batch_size
+      )
+      |> Repo.all()
 
-    blocks = Repo.all(query)
+    if blocks == [] do
+      {:ok, acc}
+    else
+      results = Enum.map(blocks, &queue_transaction_fetch/1)
 
-    # Filter out blocks that already have all transactions downloaded
-    blocks_needing_txs = Enum.reject(blocks, &block_transactions_downloaded?/1)
+      successful =
+        Enum.count(results, fn
+          {:ok, _} -> true
+          _ -> false
+        end)
 
-    results = Enum.map(blocks_needing_txs, &queue_transaction_fetch/1)
-
-    successful =
-      Enum.count(results, fn
-        {:ok, _} -> true
-        _ -> false
-      end)
-
-    {:ok, successful}
+      # Next batch starts after the last block we just processed
+      next_start = List.last(blocks).height + 1
+      do_queue_tx_range(next_start, end_height, batch_size, acc + successful)
+    end
   end
 
   @doc """
