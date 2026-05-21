@@ -48,17 +48,6 @@ defmodule BitblocksWeb.BlockLive.Show do
   end
 
   @impl true
-  def handle_info({:block_updated, updated_block}, socket) do
-    transactions_downloaded = Chain.block_transactions_downloaded?(updated_block)
-
-    {:noreply,
-     socket
-     |> assign(:block, updated_block)
-     |> assign(:transactions_downloaded, transactions_downloaded)
-     |> assign(:downloading, !transactions_downloaded)}
-  end
-
-  @impl true
   def handle_event("download_transactions", _params, socket) do
     block = socket.assigns.block
 
@@ -75,6 +64,17 @@ defmodule BitblocksWeb.BlockLive.Show do
          socket
          |> put_flash(:error, "Failed to queue job: #{inspect(reason)}")}
     end
+  end
+
+  @impl true
+  def handle_info({:block_updated, updated_block}, socket) do
+    transactions_downloaded = Chain.block_transactions_downloaded?(updated_block)
+
+    {:noreply,
+     socket
+     |> assign(:block, updated_block)
+     |> assign(:transactions_downloaded, transactions_downloaded)
+     |> assign(:downloading, !transactions_downloaded)}
   end
 
   def tx_page_size, do: @tx_page_size

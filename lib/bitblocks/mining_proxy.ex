@@ -207,7 +207,7 @@ defmodule Bitblocks.MiningProxy do
 
   # -- Work rebuild with reward split -------------------------------------------
 
-  defp rebuild_work_with_split(work, hasher_address, hasher_message) do
+  defp rebuild_work_with_split(%Work{} = work, hasher_address, hasher_message) do
     # We need the original template to rebuild the coinbase.
     # Since we only cache the work (not the raw template), we re-fetch.
     # This is called per-request when a hasher provides an address.
@@ -223,7 +223,7 @@ defmodule Bitblocks.MiningProxy do
         all_txids = [txid_from_hex(coinbase_hex) | Enum.map(template["transactions"] || [], & &1["txid"])]
         merkle_root = compute_merkle_root(all_txids)
 
-        %Work{work
+        %{work
           | work_id: Base.encode16(:crypto.strong_rand_bytes(8), case: :lower),
             merkle_root: merkle_root,
             coinbase_hex: coinbase_hex,
