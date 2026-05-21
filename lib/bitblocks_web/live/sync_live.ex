@@ -16,12 +16,13 @@ defmodule BitblocksWeb.SyncLive do
         blocks_count: 0,
         transactions_count: 0,
         block_states: %{},
-        oban_summary: %{jobs: [], headers: 0, tx_fetch: 0, tip: false}
+        oban_summary: %{jobs: [], headers: 0, tx_fetch: 0, tip: false},
+        refresh_pending: false
       )
 
     if connected?(socket) do
+      Phoenix.PubSub.subscribe(Bitblocks.PubSub, "blocks")
       send(self(), :load_data)
-      Process.send_after(self(), :poll_status, 5_000)
     end
 
     {:ok, socket}
@@ -173,9 +174,22 @@ defmodule BitblocksWeb.SyncLive do
   end
 
   @impl true
-  def handle_info(:poll_status, socket) do
-    Process.send_after(self(), :poll_status, 5_000)
-    {:noreply, refresh_status(socket)}
+  def handle_info({:block_updated, _block}, socket) do
+    # Debounce: schedule a refresh 500ms from now.
+    # Multiple block updates within that window share one refresh.
+    unless socket.assigns[:refresh_pending] do
+      Process.send_after(self(), :do_refresh, 500)
+    end
+
+    {:noreply, assign(socket, refresh_pending: true)}
+  end
+
+  @impl true
+  def handle_info(:do_refresh, socket) do
+    {:noreply,
+     socket
+     |> assign(refresh_pending: false)
+     |> refresh_status()}
   end
 
   @impl true
@@ -290,9 +304,6 @@ defmodule BitblocksWeb.SyncLive do
         <div class="flex items-center justify-between mb-4">
           <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
             Jobs
-            <span class="text-sm font-normal text-gray-500 dark:text-gray-400 ml-2">
-              refreshes every 5s
-            </span>
           </h2>
           <div class="flex items-center gap-3">
             <%!-- Tip Sync toggle --%>

@@ -142,6 +142,26 @@ defmodule Bitblocks.Release do
   end
 
   @doc """
+  Clear all pending/scheduled/retryable Oban jobs.
+
+  ## Usage
+
+      bin/bitblocks rpc 'Bitblocks.Release.clear_jobs()'
+  """
+  def clear_jobs do
+    import Ecto.Query
+
+    {count, _} =
+      from(j in Oban.Job,
+        where: j.state in ["available", "scheduled", "retryable"]
+      )
+      |> Bitblocks.Repo.delete_all()
+
+    IO.puts("Deleted #{count} pending job(s)")
+    {:ok, count}
+  end
+
+  @doc """
   Show a detailed sync status: block states + Oban job counts.
 
   ## Usage
