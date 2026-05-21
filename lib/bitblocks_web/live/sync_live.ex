@@ -323,17 +323,25 @@ defmodule BitblocksWeb.SyncLive do
             No active jobs.
           </p>
         <% else %>
-          <div class="space-y-1">
+          <div class="space-y-1" id="oban-jobs">
             <%= for job <- @oban_summary.jobs do %>
-              <div class={[
-                "flex items-center justify-between py-2 px-3 rounded text-sm",
-                if(job.state in ["completed", "discarded", "cancelled"],
-                  do: "bg-gray-50/50 dark:bg-gray-900/25 opacity-60",
-                  else: "bg-gray-50 dark:bg-gray-900/50")
-              ]}>
+              <div
+                id={"job-#{job.id}"}
+                class={[
+                  "flex items-center justify-between py-2 px-3 rounded text-sm transition-all duration-500 ease-in-out",
+                  case job.state do
+                    s when s in ["completed", "discarded", "cancelled"] ->
+                      "bg-green-50 dark:bg-green-900/10 opacity-40"
+                    "executing" ->
+                      "bg-blue-50 dark:bg-blue-900/20"
+                    _ ->
+                      "bg-gray-50 dark:bg-gray-900/50"
+                  end
+                ]}
+              >
                 <div class="flex items-center gap-3">
                   <span class={[
-                    "inline-block w-2 h-2 rounded-full",
+                    "inline-block w-2 h-2 rounded-full transition-colors duration-500",
                     case job.state do
                       "executing" -> "bg-blue-500 animate-pulse"
                       "available" -> "bg-amber-500"
@@ -369,7 +377,7 @@ defmodule BitblocksWeb.SyncLive do
                 </div>
                 <div class="flex items-center gap-3 text-xs text-gray-500 dark:text-gray-400">
                   <span class={[
-                    "px-1.5 py-0.5 rounded",
+                    "px-1.5 py-0.5 rounded transition-colors duration-500",
                     case job.state do
                       "executing" -> "bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300"
                       "available" -> "bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300"
