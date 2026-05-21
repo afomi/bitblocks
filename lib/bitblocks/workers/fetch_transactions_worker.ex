@@ -181,8 +181,11 @@ defmodule Bitblocks.Workers.FetchTransactionsWorker do
       changeset = Chain.Transaction.changeset(%Chain.Transaction{}, tx_data)
 
       case Repo.insert(changeset, on_conflict: :nothing, conflict_target: :txid) do
-        {:ok, _tx} -> :ok
-        {:error, error} -> Logger.error("Failed to store tx: #{inspect(error)}")
+        {:ok, tx} ->
+          Chain.record_spends(tx)
+
+        {:error, error} ->
+          Logger.error("Failed to store tx: #{inspect(error)}")
       end
     end)
   end

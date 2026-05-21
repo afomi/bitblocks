@@ -7,6 +7,7 @@ defmodule Bitblocks.Chain do
   alias Bitblocks.Repo
 
   alias Bitblocks.Chain.Block
+  alias Bitblocks.Chain.Spend
   alias Bitblocks.Chain.Transaction
 
   @doc """
@@ -679,6 +680,9 @@ defmodule Bitblocks.Chain do
           # Prefix match only — leading wildcard prevents index use
           from t in acc, where: ilike(t.txid, ^"#{search}%")
 
+        {:protocol, protocol} when is_binary(protocol) and protocol != "" ->
+          from t in acc, where: ^protocol == fragment("ANY(?)", t.protocols)
+
         {:has_inputs, true} ->
           from t in acc, where: t.input_count > 0
 
@@ -884,6 +888,188 @@ defmodule Bitblocks.Chain do
 
       true ->
         false
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Spend Index — Phase 1 of progressive tx metadata
+  # ---------------------------------------------------------------------------
+
+  @doc """
+  Returns true if the outpoint (txid, vout) has been spent.
+
+  ## Examples
+
+      iex> output_spent?("abc123...", 0)
+      true
+
+      iex> output_spent?("def456...", 1)
+      false
+
+  """
+  def output_spent?(txid, vout) when is_binary(txid) and is_integer(vout) do
+    query =
+      from s in Spend,
+        where: s.txid == ^txid and s.vout == ^vout,
+        select: count(s.id)
+
+    Repo.one(query) > 0
+  end
+
+  @doc """
+  Returns the spending transaction info for an outpoint, or nil if unspent.
+
+  ## Examples
+
+      iex> get_spending_tx("abc123...", 0)
+      %Spend{spending_txid: "xyz...", spending_vin: 0}
+
+      iex> get_spending_tx("def456...", 1)
+      nil
+
+  """
+  def get_spending_tx(txid, vout) when is_binary(txid) and is_integer(vout) do
+    Repo.one(
+      from s in Spend,
+        where: s.txid == ^txid and s.vout == ^vout,
+        limit: 1
+    )
+  end
+
+  @doc """
+  Returns the spend status of every output for a given txid.
+
+  Returns a list of maps: `[%{vout: 0, spent: true, spending_txid: "..."}, ...]`
+  Requires knowing the output count for the transaction.
+  """
+  def output_spend_statuses(txid) when is_binary(txid) do
+    case get_transaction(txid) do
+      nil ->
+        []
+
+      tx ->
+        count = tx.output_count || 0
+
+        spends =
+          Repo.all(
+            from s in Spend,
+              where: s.txid == ^txid,
+              select: {s.vout, s.spending_txid}
+          )
+          |> Map.new()
+
+        Enum.map(0..(count - 1), fn vout ->
+          case Map.get(spends, vout) do
+            nil -> %{vout: vout, spent: false, spending_txid: nil}
+            spending_txid -> %{vout: vout, spent: true, spending_txid: spending_txid}
+          end
+        end)
+    end
+  end
+
+  @doc """
+  Records spends from a transaction's inputs into the spend index.
+
+  Parses each input's JSON to extract (txid, vout) and records that this
+  transaction spent those outpoints. Skips coinbase inputs.
+
+  Returns `{inserted_count, skipped_count}`.
+  """
+  def record_spends(%Transaction{txid: spending_txid, inputs: inputs})
+      when is_binary(spending_txid) and is_list(inputs) do
+    entries =
+      inputs
+      |> Enum.with_index()
+      |> Enum.flat_map(fn {input_json, vin} ->
+        case Jason.decode(input_json) do
+          {:ok, %{"txid" => prev_txid, "vout" => vout}}
+              when is_binary(prev_txid) and is_integer(vout) ->
+            # Skip coinbase inputs (all-zero txid)
+            if String.match?(prev_txid, ~r/^0+$/) do
+              []
+            else
+              [%{
+                txid: prev_txid,
+                vout: vout,
+                spending_txid: spending_txid,
+                spending_vin: vin
+              }]
+            end
+
+          _ ->
+            []
+        end
+      end)
+
+    inserted =
+      Enum.count(entries, fn entry ->
+        case %Spend{}
+             |> Spend.changeset(entry)
+             |> Repo.insert(
+               on_conflict: :nothing,
+               conflict_target: [:txid, :vout]
+             ) do
+          {:ok, %{id: nil}} -> false
+          {:ok, _} -> true
+          _ -> false
+        end
+      end)
+
+    {inserted, length(entries) - inserted}
+  end
+
+  def record_spends(_), do: {0, 0}
+
+  @doc """
+  Bulk-populates the spend index from all existing transactions.
+
+  Processes transactions in batches. Idempotent — uses ON CONFLICT DO NOTHING.
+  Returns the total number of spend records inserted.
+
+  ## Examples
+
+      iex> backfill_spend_index(batch_size: 500)
+      {:ok, 12345}
+
+  """
+  def backfill_spend_index(opts \\ []) do
+    require Logger
+    batch_size = Keyword.get(opts, :batch_size, 500)
+
+    Logger.info("Starting spend index backfill (batch_size=#{batch_size})")
+
+    total =
+      do_backfill_spend_index(0, batch_size, 0)
+
+    Logger.info("Spend index backfill complete: #{total} records inserted")
+    {:ok, total}
+  end
+
+  defp do_backfill_spend_index(last_id, batch_size, acc) do
+    txs =
+      Repo.all(
+        from t in Transaction,
+          where: t.id > ^last_id,
+          where: not is_nil(t.inputs),
+          where: t.coinbase == false or is_nil(t.coinbase),
+          order_by: [asc: t.id],
+          limit: ^batch_size,
+          select: struct(t, [:id, :txid, :inputs])
+      )
+
+    case txs do
+      [] ->
+        acc
+
+      batch ->
+        inserted =
+          Enum.reduce(batch, 0, fn tx, count ->
+            {n, _} = record_spends(tx)
+            count + n
+          end)
+
+        new_last_id = List.last(batch).id
+        do_backfill_spend_index(new_last_id, batch_size, acc + inserted)
     end
   end
 end

@@ -433,6 +433,16 @@ defmodule Bitblocks.ProtocolRegistry do
         verification_status: :verified,
         description: "Hash Author Identity Protocol: Hash-based verification for data integrity.",
         author: "unwriter"
+      },
+      %{
+        address: "meta",
+        name: "Metanet",
+        category: :data_storage,
+        verification_status: :verified,
+        description:
+          "Metanet protocol: a directed acyclic graph (DAG) layered on BSV transactions for on-chain content hierarchies.",
+        documentation_url: "https://metanet.planaria.network/",
+        author: "nchain"
       }
     ]
 

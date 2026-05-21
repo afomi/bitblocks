@@ -1,7 +1,7 @@
 defmodule BitblocksWeb.Api.ProtocolController do
   use BitblocksWeb, :controller
 
-  alias Bitblocks.ProtocolRegistry
+  alias Bitblocks.{Chain, ProtocolParser, ProtocolRegistry}
   alias Bitblocks.ProtocolRegistry.Protocol
 
   action_fallback BitblocksWeb.FallbackController
@@ -57,6 +57,69 @@ defmodule BitblocksWeb.Api.ProtocolController do
           stats: stats_to_json(stats),
           audits: Enum.map(audits, &audit_to_json/1)
         })
+    end
+  end
+
+  @doc """
+  Paginated feed of transactions for a protocol, with parsed data.
+
+  GET /api/v1/protocols/:address/feed
+
+  Query parameters:
+    - cursor: Cursor for pagination (last seen transaction id)
+    - per_page: Results per page (default 25, max 100)
+  """
+  def feed(conn, %{"address" => address} = params) do
+    case ProtocolRegistry.get_protocol_by_address(address) do
+      nil ->
+        conn
+        |> put_status(:not_found)
+        |> json(%{error: "Protocol not found", address: address})
+
+      protocol ->
+        cursor = parse_feed_cursor(params["cursor"])
+        per_page = parse_feed_per_page(params["per_page"])
+
+        {txs, next_cursor} =
+          Chain.list_transactions_paginated(cursor, per_page, %{protocol: protocol.name})
+
+        items =
+          Enum.map(txs, fn tx ->
+            base = %{
+              txid: tx.txid,
+              block_height: tx.block_height,
+              block_hash: tx.block_hash
+            }
+
+            case ProtocolParser.parse_transaction(tx, protocol.name) do
+              {:ok, parsed} -> Map.put(base, :parsed, parsed)
+              {:error, _} -> base
+            end
+          end)
+
+        json(conn, %{
+          data: items,
+          protocol: %{name: protocol.name, address: protocol.address},
+          meta: %{next_cursor: next_cursor, per_page: per_page}
+        })
+    end
+  end
+
+  defp parse_feed_cursor(nil), do: nil
+
+  defp parse_feed_cursor(val) when is_binary(val) do
+    case Integer.parse(val) do
+      {n, ""} -> n
+      _ -> nil
+    end
+  end
+
+  defp parse_feed_per_page(nil), do: 25
+
+  defp parse_feed_per_page(val) when is_binary(val) do
+    case Integer.parse(val) do
+      {n, ""} when n > 0 and n <= 100 -> n
+      _ -> 25
     end
   end
 

@@ -6,7 +6,7 @@ defmodule Bitblocks.TransactionParser do
 
   # Bump when script classification or protocol detection logic changes.
   # Used by analyze/1 and the Release.analyze_transactions/1 backfill.
-  @script_analysis_version 1
+  @script_analysis_version 3
 
   def script_analysis_version, do: @script_analysis_version
 
@@ -211,15 +211,27 @@ defmodule Bitblocks.TransactionParser do
   end
 
   defp detect_protocol(data_chunks) when is_list(data_chunks) do
-    # Check first chunk for protocol identifiers
-    prefix_protocols =
-      case List.first(data_chunks) do
-        %{utf8: utf8} when is_binary(utf8) ->
-          check_protocol_prefix(utf8)
+    # Extract utf8 strings from parsed chunks
+    utf8_chunks =
+      data_chunks
+      |> Enum.filter(&match?(%{type: :push_data, utf8: utf8} when is_binary(utf8), &1))
+      |> Enum.map(& &1.utf8)
 
-        _ ->
-          []
-      end
+    # Split on pipe separators and check each segment's first chunk.
+    # This detects all protocols in piped OP_RETURN data (B:// | MAP | AIP).
+    piped_protocols =
+      utf8_chunks
+      |> Enum.chunk_by(&(&1 == "|"))
+      |> Enum.reject(&(&1 == ["|"]))
+      |> Enum.flat_map(fn segment ->
+        case List.first(segment) do
+          nil -> []
+          addr -> check_protocol_prefix(addr)
+        end
+      end)
+
+    # Detect protocols from MAP app field (e.g. app=twetch → "Twetch")
+    map_app_protocols = detect_from_map_app(utf8_chunks)
 
     # Check for hex-based protocols
     hex_protocols = check_hex_protocols(data_chunks)
@@ -227,7 +239,8 @@ defmodule Bitblocks.TransactionParser do
     # Check for vCard data
     vcard_protocols = check_vcard_protocol(data_chunks)
 
-    prefix_protocols ++ hex_protocols ++ vcard_protocols
+    (piped_protocols ++ map_app_protocols ++ hex_protocols ++ vcard_protocols)
+    |> Enum.uniq()
   end
 
   defp detect_protocol_with_info(data_chunks, output_index) when is_list(data_chunks) do
@@ -299,6 +312,13 @@ defmodule Bitblocks.TransactionParser do
     {"1LtyME6b5AnMopQrBPLk4FGN8UBuhxKqrn", "RelayX"}
   ]
 
+  # MAP app field values that map to a protocol name.
+  # Used to detect protocols like Twetch that are identified by app metadata
+  # rather than by their own Bitcom address in the OP_RETURN.
+  @map_app_protocols %{
+    "twetch" => "Twetch"
+  }
+
   defp check_protocol_prefix(utf8) do
     address_match =
       Enum.find_value(@protocol_prefixes, fn {prefix, name} ->
@@ -307,10 +327,35 @@ defmodule Bitblocks.TransactionParser do
 
     cond do
       address_match -> address_match
+      utf8 == "meta" -> ["Metanet"]
       String.starts_with?(utf8, "ord") -> ["1SAT Ordinals"]
       String.contains?(utf8, "bitcom") -> ["Bitcom"]
       true -> []
     end
+  end
+
+  # Detect protocols from the MAP app field in piped OP_RETURN data.
+  # E.g. when MAP SET contains app=twetch, we add "Twetch" to detected protocols.
+  @map_address "1PuQa7K62MiKCtssSLKy1kh56WWU7MtUR5"
+
+  defp detect_from_map_app(utf8_chunks) do
+    segments =
+      utf8_chunks
+      |> Enum.chunk_by(&(&1 == "|"))
+      |> Enum.reject(&(&1 == ["|"]))
+
+    Enum.flat_map(segments, fn
+      [@map_address, "SET" | pairs] ->
+        pairs
+        |> Enum.chunk_every(2)
+        |> Enum.find_value([], fn
+          ["app", app_name] -> List.wrap(Map.get(@map_app_protocols, app_name))
+          _ -> nil
+        end)
+
+      _ ->
+        []
+    end)
   end
 
   defp check_vcard_protocol(data_chunks) do

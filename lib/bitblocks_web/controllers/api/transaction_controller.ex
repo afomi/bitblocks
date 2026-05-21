@@ -18,6 +18,7 @@ defmodule BitblocksWeb.Api.TransactionController do
       %{}
       |> maybe_put(:block_hash, params["block_hash"])
       |> maybe_put(:txid_search, params["txid"])
+      |> maybe_put(:protocol, params["protocol"])
 
     {txs, next_cursor} = Chain.list_transactions_paginated(cursor, per_page, filters)
 

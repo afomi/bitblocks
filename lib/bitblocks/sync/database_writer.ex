@@ -185,7 +185,10 @@ defmodule Bitblocks.Sync.DatabaseWriter do
       }
 
       # Insert, ignoring conflicts (duplicate txids)
-      Repo.insert(tx_struct |> Ecto.Changeset.change(%{}), on_conflict: :nothing)
+      case Repo.insert(tx_struct |> Ecto.Changeset.change(%{}), on_conflict: :nothing) do
+        {:ok, tx} -> Chain.record_spends(tx)
+        _ -> :ok
+      end
     end)
   end
 
@@ -201,6 +204,7 @@ defmodule Bitblocks.Sync.DatabaseWriter do
 
       case Repo.insert(changeset, on_conflict: :nothing, conflict_target: :txid) do
         {:ok, tx} ->
+          Chain.record_spends(tx)
           # Replicate to CDN (S3) from the DB record — not the in-flight data.
           # The DB record has been validated by the changeset and is the source of truth.
           Bitblocks.TxCdn.put_transaction_from_db(tx)

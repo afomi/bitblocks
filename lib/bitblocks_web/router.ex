@@ -29,6 +29,9 @@ defmodule BitblocksWeb.Router do
     get "/addresses/:address/utxos", AddressController, :utxos
     get "/addresses/:address/balance", AddressController, :balance
 
+    # UTXOs — outpoint ownership lookup (proxied to WhatsOnChain until local UTXO set exists)
+    get "/utxo/:txid/:vout/owner", UtxoController, :owner
+
     # Transactions
     get "/txs/:txid/proof", ProofController, :show
     get "/txs/:txid", TransactionController, :show
@@ -42,10 +45,16 @@ defmodule BitblocksWeb.Router do
     get "/mining/status", MiningController, :status
     post "/mining/submit", MiningController, :submit
 
+    # Metanet
+    get "/metanet/roots", MetanetController, :roots
+    get "/metanet/:txid/children", MetanetController, :children
+    get "/metanet/:txid", MetanetController, :show
+
     # Protocols
     get "/protocols", ProtocolController, :index
     get "/protocols/stats", ProtocolController, :stats_overview
     get "/protocols/search", ProtocolController, :search
+    get "/protocols/:address/feed", ProtocolController, :feed
     get "/protocols/:address", ProtocolController, :show
     post "/protocols/identify", ProtocolController, :identify
   end
@@ -71,6 +80,7 @@ defmodule BitblocksWeb.Router do
 
     live "/search", SearchLive
     live "/protocols", ProtocolsLive
+    live "/metanet", MetanetLive
     live "/collections/rexxies", RexxiesLive
     live "/about", AboutLive
     live "/pricing", PricingLive

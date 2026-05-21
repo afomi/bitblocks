@@ -1,0 +1,229 @@
+<div class="min-h-screen bg-neutral-950 text-neutral-200">
+  <div class="max-w-4xl mx-auto px-4 py-8">
+    <div class="flex items-center gap-4 mb-6">
+      <a
+        href="/"
+        class="text-neutral-400 hover:text-neutral-200 text-sm"
+      >
+        &larr; Back
+      </a>
+      <h1 class="text-2xl font-bold">
+        Metanet Explorer
+      </h1>
+    </div>
+
+    <p class="text-neutral-400 text-sm mb-6">
+      Navigate the Metanet DAG.
+      Enter a transaction ID to see its node content, parent, and children.
+    </p>
+
+    <%!-- Search form --%>
+    <form
+      phx-submit="explore"
+      class="flex gap-3 mb-6"
+    >
+      <input
+        type="text"
+        name="txid"
+        value={@txid}
+        placeholder="Enter transaction ID..."
+        class="flex-1 px-4 py-2 bg-neutral-800 border border-neutral-700 rounded-lg text-sm font-mono text-neutral-200 focus:outline-none focus:ring-1 focus:ring-blue-500"
+      />
+      <button
+        type="submit"
+        class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm transition-colors"
+      >
+        Explore
+      </button>
+    </form>
+
+    <%!-- Error --%>
+    <%= if @error do %>
+      <div class="bg-red-900/30 border border-red-800 rounded-lg px-4 py-3 mb-6 text-sm text-red-300">
+        <%= @error %>
+      </div>
+    <% end %>
+
+    <%!-- Loading --%>
+    <%= if @loading do %>
+      <div class="text-amber-400 animate-pulse mb-6 text-sm">
+        Loading Metanet node...
+      </div>
+    <% end %>
+
+    <%!-- MURL breadcrumb --%>
+    <%= if @murl do %>
+      <div class="mb-6">
+        <div class="text-xs text-neutral-500 mb-1">
+          MURL
+        </div>
+        <div class="flex items-center gap-1 text-sm font-mono">
+          <span class="text-neutral-500">
+            mnp://
+          </span>
+          <%= for {segment, idx} <- Enum.with_index(@path) do %>
+            <%= if idx > 0 do %>
+              <span class="text-neutral-600">
+                /
+              </span>
+            <% end %>
+            <button
+              phx-click="navigate"
+              phx-value-txid={segment.txid}
+              class={"hover:text-blue-400 transition-colors " <> if(segment.txid == @txid, do: "text-blue-400 font-semibold", else: "text-neutral-300")}
+            >
+              <%= segment[:name] || String.slice(segment.txid, 0, 8) <> "..." %>
+            </button>
+          <% end %>
+        </div>
+      </div>
+    <% end %>
+
+    <%!-- Node details --%>
+    <%= if @node do %>
+      <div class="space-y-4">
+        <%!-- Node card --%>
+        <div class="bg-neutral-900 border border-neutral-800 rounded-lg p-5">
+          <div class="flex items-center gap-3 mb-4">
+            <h2 class="text-lg font-semibold">
+              <%= @node[:name] || "Unnamed node" %>
+            </h2>
+            <%= if @node.is_root do %>
+              <span class="text-xs px-2 py-0.5 rounded bg-amber-500/20 text-amber-400">
+                root
+              </span>
+            <% end %>
+            <%= if @node[:content_type] do %>
+              <span class="text-xs px-2 py-0.5 rounded bg-neutral-700 text-neutral-300">
+                <%= @node.content_type %>
+              </span>
+            <% end %>
+          </div>
+
+          <div class="space-y-2 text-sm">
+            <div class="flex items-start gap-3">
+              <span class="text-neutral-500 w-24 shrink-0">
+                TxID
+              </span>
+              <a
+                href={"/transactions/#{@node.txid}"}
+                class="font-mono text-blue-400 hover:text-blue-300 break-all"
+              >
+                <%= @node.txid %>
+              </a>
+            </div>
+
+            <%= if @node[:node_id] do %>
+              <div class="flex items-start gap-3">
+                <span class="text-neutral-500 w-24 shrink-0">
+                  Node ID
+                </span>
+                <span class="font-mono text-neutral-300 break-all">
+                  <%= @node.node_id %>
+                </span>
+              </div>
+            <% end %>
+
+            <div class="flex items-start gap-3">
+              <span class="text-neutral-500 w-24 shrink-0">
+                P_node
+              </span>
+              <span class="font-mono text-neutral-300 break-all">
+                <%= @node.p_node %>
+              </span>
+            </div>
+
+            <%= if @node[:block_height] do %>
+              <div class="flex items-start gap-3">
+                <span class="text-neutral-500 w-24 shrink-0">
+                  Block
+                </span>
+                <a
+                  href={"/blocks/#{@node.block_height}"}
+                  class="text-blue-400 hover:text-blue-300"
+                >
+                  <%= @node.block_height %>
+                </a>
+              </div>
+            <% end %>
+          </div>
+        </div>
+
+        <%!-- Content section --%>
+        <%= if @node[:content] do %>
+          <div class="bg-neutral-900 border border-neutral-800 rounded-lg p-5">
+            <h3 class="text-sm font-semibold text-neutral-400 mb-3">
+              Content
+            </h3>
+            <div class="font-mono text-sm text-neutral-200 whitespace-pre-wrap break-all bg-neutral-950 rounded p-4">
+              <%= @node.content %>
+            </div>
+          </div>
+        <% end %>
+
+        <%!-- Parent link --%>
+        <%= if @parent do %>
+          <div class="bg-neutral-900 border border-neutral-800 rounded-lg p-4">
+            <h3 class="text-sm font-semibold text-neutral-400 mb-2">
+              Parent
+            </h3>
+            <button
+              phx-click="navigate"
+              phx-value-txid={@parent.txid}
+              class="flex items-center gap-3 w-full text-left hover:bg-neutral-800 rounded px-3 py-2 -mx-3 transition-colors"
+            >
+              <span class="font-mono text-sm text-blue-400">
+                <%= String.slice(@parent.txid, 0, 24) %>...
+              </span>
+              <span class="text-sm text-neutral-400">
+                <%= @parent[:name] || "unnamed" %>
+              </span>
+              <%= if @parent.is_root do %>
+                <span class="text-xs px-2 py-0.5 rounded bg-amber-500/20 text-amber-400">
+                  root
+                </span>
+              <% end %>
+            </button>
+          </div>
+        <% end %>
+
+        <%!-- Children list --%>
+        <div class="bg-neutral-900 border border-neutral-800 rounded-lg p-4">
+          <h3 class="text-sm font-semibold text-neutral-400 mb-2">
+            Children
+            <span class="text-neutral-600 font-normal">
+              (<%= length(@children) %>)
+            </span>
+          </h3>
+          <%= if length(@children) > 0 do %>
+            <div class="space-y-1">
+              <%= for child <- @children do %>
+                <button
+                  phx-click="navigate"
+                  phx-value-txid={child.txid}
+                  class="flex items-center gap-3 w-full text-left hover:bg-neutral-800 rounded px-3 py-2 -mx-3 transition-colors"
+                >
+                  <span class="font-mono text-sm text-blue-400">
+                    <%= String.slice(child.txid, 0, 16) %>...
+                  </span>
+                  <span class="text-sm text-neutral-300">
+                    <%= child[:name] || "unnamed" %>
+                  </span>
+                  <%= if child[:content_type] do %>
+                    <span class="text-xs text-neutral-500">
+                      <%= child.content_type %>
+                    </span>
+                  <% end %>
+                </button>
+              <% end %>
+            </div>
+          <% else %>
+            <p class="text-sm text-neutral-600">
+              No child nodes.
+            </p>
+          <% end %>
+        </div>
+      </div>
+    <% end %>
+  </div>
+</div>
