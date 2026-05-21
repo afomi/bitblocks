@@ -27,6 +27,11 @@ defmodule Bitblocks.Workers.SyncHeadersWorker do
   @batch_size 500
   @tip_delay_seconds 30
 
+  # Max tx fetch jobs to enqueue per header batch.
+  # Keeps the Oban transactions queue from flooding.
+  # Remaining header_only blocks get picked up by subsequent runs.
+  @max_tx_enqueue 10
+
   # -- perform -----------------------------------------------------------------
 
   @impl Oban.Worker
@@ -89,9 +94,29 @@ defmodule Bitblocks.Workers.SyncHeadersWorker do
         :ok
 
       true ->
-        Logger.debug("SyncHeaders: up to date at #{our_tip}")
+        # Up to date — use this cycle to drain any header_only backlog
+        drain_pending_tx_fetches()
         reschedule_tip(@tip_delay_seconds)
         :ok
+    end
+  end
+
+  # Enqueue tx fetch for blocks stuck in header_only/header_synced.
+  # Runs during idle tip cycles to steadily drain the backlog.
+  defp drain_pending_tx_fetches do
+    import Ecto.Query
+
+    blocks =
+      from(b in Chain.Block,
+        where: b.sync_state in ["header_only", "header_synced"],
+        order_by: [asc: b.height],
+        limit: ^@max_tx_enqueue
+      )
+      |> Repo.all()
+
+    if blocks != [] do
+      Logger.info("SyncHeaders: draining #{length(blocks)} pending tx fetches")
+      Enum.each(blocks, &Chain.queue_transaction_fetch/1)
     end
   end
 
@@ -139,8 +164,11 @@ defmodule Bitblocks.Workers.SyncHeadersWorker do
         end
       end)
 
-    # Step 3: enqueue tx fetch for newly inserted blocks
-    Enum.each(inserted, &Chain.queue_transaction_fetch/1)
+    # Step 3: enqueue tx fetch for a limited number of newly inserted blocks.
+    # The rest stay in header_only and get picked up by the next run.
+    inserted
+    |> Enum.take(@max_tx_enqueue)
+    |> Enum.each(&Chain.queue_transaction_fetch/1)
 
     if inserted != [] do
       Logger.info("SyncHeaders: stored #{length(inserted)} headers (#{from}..#{to})")
