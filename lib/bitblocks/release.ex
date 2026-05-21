@@ -141,6 +141,77 @@ defmodule Bitblocks.Release do
     {:ok, cancelled}
   end
 
+  @doc """
+  Show a detailed sync status: block states + Oban job counts.
+
+  ## Usage
+
+      bin/bitblocks rpc 'Bitblocks.Release.sync_status()'
+  """
+  def sync_status do
+    import Ecto.Query
+    alias Bitblocks.{Repo, Chain.Block}
+
+    # Block state breakdown
+    state_counts =
+      from(b in Block, group_by: b.sync_state, select: {b.sync_state, count(b.id)})
+      |> Repo.all()
+      |> Enum.sort_by(fn {_, c} -> -c end)
+
+    total = Enum.reduce(state_counts, 0, fn {_, c}, acc -> acc + c end)
+
+    IO.puts("\n=== Block Sync States ===")
+    for {state, count} <- state_counts do
+      pct = if total > 0, do: Float.round(count / total * 100, 1), else: 0
+      IO.puts("  #{String.pad_trailing(state, 16)} #{count} (#{pct}%)")
+    end
+    IO.puts("  #{String.pad_trailing("TOTAL", 16)} #{total}")
+
+    # Oban job counts by worker + state
+    job_counts =
+      from(j in Oban.Job,
+        where: j.worker in [
+          "Bitblocks.Workers.SyncHeadersWorker",
+          "Bitblocks.Workers.FetchTransactionsWorker"
+        ],
+        group_by: [j.worker, j.state],
+        select: {j.worker, j.state, count(j.id)}
+      )
+      |> Repo.all()
+
+    IO.puts("\n=== Oban Jobs ===")
+    if job_counts == [] do
+      IO.puts("  No active sync jobs")
+    else
+      for {worker, state, count} <- Enum.sort(job_counts) do
+        short_worker = worker |> String.split(".") |> List.last()
+        IO.puts("  #{String.pad_trailing(short_worker, 28)} #{String.pad_trailing(state, 12)} #{count}")
+      end
+    end
+
+    # Oldest executing tx job (is anything stuck?)
+    oldest_executing =
+      from(j in Oban.Job,
+        where: j.worker == "Bitblocks.Workers.FetchTransactionsWorker",
+        where: j.state == "executing",
+        order_by: [asc: j.attempted_at],
+        limit: 1,
+        select: {j.id, j.attempted_at, j.args}
+      )
+      |> Repo.one()
+
+    if oldest_executing do
+      {id, started, args} = oldest_executing
+      elapsed = DateTime.diff(DateTime.utc_now(), started, :second)
+      IO.puts("\n=== Oldest Executing Tx Job ===")
+      IO.puts("  Oban ##{id}, block_hash: #{args["block_hash"]}")
+      IO.puts("  Running for #{elapsed}s")
+    end
+
+    IO.puts("")
+    :ok
+  end
+
   # ---------------------------------------------------------------------------
   # Legacy Sync Functions (deprecated — use sync_headers/2 instead)
   # ---------------------------------------------------------------------------
