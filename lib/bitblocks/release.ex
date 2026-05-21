@@ -162,6 +162,62 @@ defmodule Bitblocks.Release do
   end
 
   @doc """
+  Recover blocks stuck in txs_queued or txs_syncing with no Oban job to process them.
+
+  Resets them to header_synced and re-enqueues FetchTransactionsWorker jobs.
+
+  ## Usage
+
+      bin/bitblocks rpc 'Bitblocks.Release.recover_stuck_blocks()'
+  """
+  def recover_stuck_blocks do
+    import Ecto.Query
+
+    # Find blocks in txs_queued/txs_syncing that have no active Oban job
+    active_hashes =
+      from(j in Oban.Job,
+        where: j.worker == "Bitblocks.Workers.FetchTransactionsWorker",
+        where: j.state in ["available", "scheduled", "executing", "retryable"],
+        select: fragment("args->>'block_hash'")
+      )
+      |> Bitblocks.Repo.all()
+      |> MapSet.new()
+
+    stuck_blocks =
+      from(b in Bitblocks.Chain.Block,
+        where: b.sync_state in ["txs_queued", "txs_syncing"],
+        select: %{id: b.id, hash: b.hash, height: b.height, sync_state: b.sync_state}
+      )
+      |> Bitblocks.Repo.all()
+      |> Enum.reject(fn b -> MapSet.member?(active_hashes, b.hash) end)
+
+    if stuck_blocks == [] do
+      IO.puts("No stuck blocks found")
+      {:ok, 0}
+    else
+      IO.puts("Found #{length(stuck_blocks)} stuck block(s), re-queuing...")
+
+      # Reset to header_synced and re-queue
+      stuck_ids = Enum.map(stuck_blocks, & &1.id)
+
+      {updated, _} =
+        from(b in Bitblocks.Chain.Block, where: b.id in ^stuck_ids)
+        |> Bitblocks.Repo.update_all(set: [sync_state: "header_synced"])
+
+      queued =
+        Enum.count(stuck_blocks, fn b ->
+          case Bitblocks.Chain.queue_transaction_fetch(b.hash) do
+            {:ok, _} -> true
+            _ -> false
+          end
+        end)
+
+      IO.puts("Reset #{updated} block(s) to header_synced, queued #{queued} job(s)")
+      {:ok, queued}
+    end
+  end
+
+  @doc """
   Show a detailed sync status: block states + Oban job counts.
 
   ## Usage
