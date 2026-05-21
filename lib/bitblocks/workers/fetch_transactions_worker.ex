@@ -136,44 +136,57 @@ defmodule Bitblocks.Workers.FetchTransactionsWorker do
   end
 
   defp fetch_batch(txids) do
-    results =
-      Enum.map(txids, fn txid ->
-        case BitcoinsvCli.getrawtransaction(txid, 1) do
-          tx when is_map(tx) ->
-            raw = tx["hex"]
-            analysis = case TransactionParser.analyze(raw) do
-              {:ok, meta} -> meta
-              _ -> %{}
+    case BitcoinsvCli.batch_getrawtransaction(txids, 1) do
+      {:ok, results} ->
+        {successful, failed} =
+          Enum.reduce(txids, {[], []}, fn txid, {ok_acc, err_acc} ->
+            case Map.get(results, txid) do
+              {:error, reason} ->
+                Logger.warning("Failed to fetch tx #{txid}: #{inspect(reason)}")
+                {ok_acc, [txid | err_acc]}
+
+              nil ->
+                Logger.warning("No result for tx #{txid}")
+                {ok_acc, [txid | err_acc]}
+
+              tx when is_map(tx) ->
+                raw = tx["hex"]
+
+                analysis =
+                  case TransactionParser.analyze(raw) do
+                    {:ok, meta} -> meta
+                    _ -> %{}
+                  end
+
+                inputs = (tx["vin"] || []) |> Enum.map(&Jason.encode!/1)
+                outputs = (tx["vout"] || []) |> Enum.map(&Jason.encode!/1)
+
+                parsed =
+                  Map.merge(
+                    %{
+                      txid: tx["txid"],
+                      raw: raw,
+                      block_hash: tx["blockhash"],
+                      block_height: tx["height"],
+                      version: to_string(tx["version"] || 1),
+                      inputs: inputs,
+                      input_txids: TransactionParser.extract_input_txids(inputs),
+                      outputs: outputs,
+                      output_addresses: TransactionParser.extract_output_addresses(outputs)
+                    },
+                    analysis
+                  )
+
+                {[parsed | ok_acc], err_acc}
             end
+          end)
 
-            inputs = (tx["vin"] || []) |> Enum.map(&Jason.encode!/1)
-            outputs = (tx["vout"] || []) |> Enum.map(&Jason.encode!/1)
+        {Enum.reverse(successful), Enum.reverse(failed)}
 
-            {:ok, Map.merge(%{
-               txid: tx["txid"],
-               raw: raw,
-               block_hash: tx["blockhash"],
-               block_height: tx["height"],
-               version: to_string(tx["version"] || 1),
-               inputs: inputs,
-               input_txids: TransactionParser.extract_input_txids(inputs),
-               outputs: outputs,
-               output_addresses: TransactionParser.extract_output_addresses(outputs)
-             }, analysis)}
-
-          error ->
-            Logger.warning("Failed to fetch tx #{txid}: #{inspect(error)}")
-            {:error, txid}
-        end
-      end)
-
-    {successful, failed} =
-      Enum.split_with(results, fn
-        {:ok, _} -> true
-        _ -> false
-      end)
-
-    {Enum.map(successful, fn {:ok, tx} -> tx end), Enum.map(failed, fn {:error, id} -> id end)}
+      {:error, reason} ->
+        Logger.error("Batch getrawtransaction failed: #{inspect(reason)}")
+        {[], txids}
+    end
   end
 
   defp store_batch(transactions) do

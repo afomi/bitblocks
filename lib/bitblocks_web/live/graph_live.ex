@@ -25,7 +25,14 @@ defmodule BitblocksWeb.GraphLive do
             assign(socket, :graph_data, {:error, "Transaction not found"})
 
           tx ->
-            assign(socket, :graph_data, build_graph(tx, depth))
+            try do
+              assign(socket, :graph_data, build_graph(tx, depth))
+            rescue
+              e ->
+                require Logger
+                Logger.error("Graph build failed for #{txid}: #{Exception.message(e)}")
+                assign(socket, :graph_data, {:error, "Failed to build graph: #{Exception.message(e)}"})
+            end
         end
       else
         socket
@@ -44,7 +51,14 @@ defmodule BitblocksWeb.GraphLive do
           {:error, "Transaction not found"}
 
         tx ->
-          build_graph(tx, depth)
+          try do
+            build_graph(tx, depth)
+          rescue
+            e ->
+              require Logger
+              Logger.error("Graph build failed for #{txid}: #{Exception.message(e)}")
+              {:error, "Failed to build graph: #{Exception.message(e)}"}
+          end
       end
 
     {:noreply,
@@ -81,47 +95,51 @@ defmodule BitblocksWeb.GraphLive do
 
   defp traverse_inputs(tx, current_depth, max_depth, nodes, edges)
        when current_depth < max_depth do
-    {:ok, decoded_tx} = BSV.Tx.from_binary(tx.raw, encoding: :hex)
+    case BSV.Tx.from_binary(tx.raw || "", encoding: :hex) do
+      {:ok, decoded_tx} ->
+        Enum.reduce(decoded_tx.inputs, {nodes, edges}, fn input, {acc_nodes, acc_edges} ->
+          prev_txid = BSV.OutPoint.get_txid(input.outpoint)
 
-    Enum.reduce(decoded_tx.inputs, {nodes, edges}, fn input, {acc_nodes, acc_edges} ->
-      prev_txid = BSV.OutPoint.get_txid(input.outpoint)
+          # Skip coinbase transactions
+          if prev_txid == "0000000000000000000000000000000000000000000000000000000000000000" do
+            {acc_nodes, acc_edges}
+          else
+            # Add node for previous transaction (negative levels = left side)
+            acc_nodes = [
+              %{
+                id: prev_txid,
+                label: String.slice(prev_txid, 0, 8) <> "...",
+                type: "transaction",
+                # Negative for left side (inputs)
+                level: -(current_depth + 1)
+              }
+              | acc_nodes
+            ]
 
-      # Skip coinbase transactions
-      if prev_txid == "0000000000000000000000000000000000000000000000000000000000000000" do
-        {acc_nodes, acc_edges}
-      else
-        # Add node for previous transaction (negative levels = left side)
-        acc_nodes = [
-          %{
-            id: prev_txid,
-            label: String.slice(prev_txid, 0, 8) <> "...",
-            type: "transaction",
-            # Negative for left side (inputs)
-            level: -(current_depth + 1)
-          }
-          | acc_nodes
-        ]
+            # Add edge
+            edge_id = "#{prev_txid}-#{tx.txid}"
 
-        # Add edge
-        edge_id = "#{prev_txid}-#{tx.txid}"
+            acc_edges = [
+              %{
+                id: edge_id,
+                from: prev_txid,
+                to: tx.txid,
+                label: "out:#{input.outpoint.vout}"
+              }
+              | acc_edges
+            ]
 
-        acc_edges = [
-          %{
-            id: edge_id,
-            from: prev_txid,
-            to: tx.txid,
-            label: "out:#{input.outpoint.vout}"
-          }
-          | acc_edges
-        ]
+            # Recursively traverse if we haven't hit max depth
+            case Chain.get_transaction_by_txid(prev_txid) do
+              nil -> {acc_nodes, acc_edges}
+              prev_tx -> traverse_inputs(prev_tx, current_depth + 1, max_depth, acc_nodes, acc_edges)
+            end
+          end
+        end)
 
-        # Recursively traverse if we haven't hit max depth
-        case Chain.get_transaction_by_txid(prev_txid) do
-          nil -> {acc_nodes, acc_edges}
-          prev_tx -> traverse_inputs(prev_tx, current_depth + 1, max_depth, acc_nodes, acc_edges)
-        end
-      end
-    end)
+      _error ->
+        {nodes, edges}
+    end
   end
 
   defp traverse_inputs(_tx, _current_depth, _max_depth, nodes, edges), do: {nodes, edges}
