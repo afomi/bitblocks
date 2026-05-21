@@ -19,10 +19,10 @@ config :swoosh, local: false
 # Do not print debug messages in production
 config :logger, level: :info
 
-# Two concurrent transaction fetches — node RPC is the bottleneck.
-# Increase to 3 if node handles load well; decrease if RPC timeouts appear.
+# Transaction concurrency tuned for t3.medium (4GB RAM).
+# Decrease if RPC timeouts appear; increase if node handles load well.
 config :bitblocks, Oban,
-  queues: [default: 10, transactions: 2, blocks: 1]
+  queues: [default: 10, transactions: 4, blocks: 1]
 
 # Runtime production configuration, including reading
 # of environment variables, is done on config/runtime.exs.

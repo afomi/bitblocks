@@ -8,8 +8,8 @@ defmodule Bitblocks.MemoryMonitor do
   require Logger
 
   @check_interval :timer.seconds(30)
-  @warning_threshold_mb 1500
-  @critical_threshold_mb 1800
+  @warning_threshold_mb 3000
+  @critical_threshold_mb 3600
 
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
@@ -33,7 +33,7 @@ defmodule Bitblocks.MemoryMonitor do
     cond do
       total_mb >= @critical_threshold_mb ->
         Logger.error("""
-        CRITICAL: Memory usage at #{total_mb} MB (#{percentage(total_mb, 2048)}% of 2GB limit)
+        CRITICAL: Memory usage at #{total_mb} MB (#{percentage(total_mb, 4096)}% of 4GB limit)
 
         Top memory consumers:
         #{format_top_processes(10)}
