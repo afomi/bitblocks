@@ -87,9 +87,10 @@ defmodule Bitblocks.ChainTest do
       block_hash: nil
     }
 
-    test "list_transactions/0 returns all transactions" do
+    test "list_transactions_paginated/0 returns all transactions" do
       transaction = transaction_fixture()
-      assert Chain.list_transactions() == [transaction]
+      {transactions, _meta} = Chain.list_transactions_paginated()
+      assert transactions == [transaction]
     end
 
     test "get_transaction!/1 returns the transaction with given id" do
