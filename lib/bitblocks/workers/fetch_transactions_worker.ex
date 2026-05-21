@@ -110,8 +110,16 @@ defmodule Bitblocks.Workers.FetchTransactionsWorker do
     batch_txids = Enum.slice(block.tx, offset, @batch_size)
     batch_end = offset + length(batch_txids)
 
-    # Fetch this batch from the node
-    {successful, failed} = fetch_batch(batch_txids)
+    # Filter out txids already in the database to avoid re-fetching
+    needed_txids = filter_already_fetched(batch_txids)
+
+    # Fetch only what we need from the node
+    {successful, failed} =
+      if needed_txids == [] do
+        {[], []}
+      else
+        fetch_batch(needed_txids)
+      end
 
     # Write successful transactions to the database
     if successful != [] do
@@ -204,6 +212,24 @@ defmodule Bitblocks.Workers.FetchTransactionsWorker do
   end
 
   # -- Resumability ------------------------------------------------------------
+
+  # Filter out txids that already exist in the database.
+  # Returns only the txids that still need to be fetched.
+  defp filter_already_fetched(txids) when txids == [], do: []
+
+  defp filter_already_fetched(txids) do
+    import Ecto.Query
+
+    existing =
+      from(t in Chain.Transaction,
+        where: t.txid in ^txids,
+        select: t.txid
+      )
+      |> Repo.all()
+      |> MapSet.new()
+
+    Enum.reject(txids, &MapSet.member?(existing, &1))
+  end
 
   # Count how many of this block's transactions are already in the database.
   # This lets us skip re-fetching on resume.
