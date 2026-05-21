@@ -14,6 +14,11 @@ defmodule BitblocksWeb.BlockLive.Show do
 
   @impl true
   def handle_params(%{"id" => id}, _, socket) do
+    # Unsubscribe from previous block if navigating between blocks
+    if old = socket.assigns[:block] do
+      Phoenix.PubSub.unsubscribe(Bitblocks.PubSub, "block:#{old.hash}")
+    end
+
     case Chain.get_block(id) do
       nil ->
         {:noreply,
@@ -22,6 +27,10 @@ defmodule BitblocksWeb.BlockLive.Show do
          |> push_navigate(to: ~p"/blocks")}
 
       block ->
+        if connected?(socket) do
+          Phoenix.PubSub.subscribe(Bitblocks.PubSub, "block:#{block.hash}")
+        end
+
         transactions_downloaded = Chain.block_transactions_downloaded?(block)
 
         {:noreply,
@@ -36,6 +45,17 @@ defmodule BitblocksWeb.BlockLive.Show do
   @impl true
   def handle_event("tx_page", %{"page" => page}, socket) do
     {:noreply, assign(socket, :tx_page, String.to_integer(page))}
+  end
+
+  @impl true
+  def handle_info({:block_updated, updated_block}, socket) do
+    transactions_downloaded = Chain.block_transactions_downloaded?(updated_block)
+
+    {:noreply,
+     socket
+     |> assign(:block, updated_block)
+     |> assign(:transactions_downloaded, transactions_downloaded)
+     |> assign(:downloading, !transactions_downloaded)}
   end
 
   @impl true

@@ -10,6 +10,21 @@ defmodule Bitblocks.Chain do
   alias Bitblocks.Chain.Spend
   alias Bitblocks.Chain.Transaction
 
+  @pubsub Bitblocks.PubSub
+
+  @doc ~S"""
+  Broadcasts a block state change to all subscribers.
+
+  Any LiveView showing this block can subscribe to `"block:#{hash}"` or
+  `"blocks"` (for list views) to get real-time updates.
+
+  Payload: `{:block_updated, %Block{}}`.
+  """
+  def broadcast_block_update(%Block{} = block) do
+    Phoenix.PubSub.broadcast(@pubsub, "block:#{block.hash}", {:block_updated, block})
+    Phoenix.PubSub.broadcast(@pubsub, "blocks", {:block_updated, block})
+  end
+
   @doc """
   Returns the list of blocks with pagination.
 
@@ -347,10 +362,12 @@ defmodule Bitblocks.Chain do
   """
   def queue_transaction_fetch(%Block{hash: hash} = block) do
     # Update block to txs_queued state (works for any current state)
-    {:ok, _block} =
+    {:ok, updated_block} =
       block
       |> Ecto.Changeset.change(%{sync_state: "txs_queued"})
       |> Repo.update()
+
+    broadcast_block_update(updated_block)
 
     # Enqueue job
     %{block_hash: hash}
@@ -469,6 +486,7 @@ defmodule Bitblocks.Chain do
   def upgrade_block_to_header_synced(height_or_hash) do
     with {:ok, block} <- fetch_block(height_or_hash),
          {:ok, upgraded_block} <- do_upgrade_block_to_header_synced(block) do
+      broadcast_block_update(upgraded_block)
       {:ok, upgraded_block}
     else
       {:error, reason} -> {:error, reason}

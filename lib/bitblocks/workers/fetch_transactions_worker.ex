@@ -260,31 +260,52 @@ defmodule Bitblocks.Workers.FetchTransactionsWorker do
   defp ensure_has_txids(block), do: {:ok, block}
 
   defp transition_to_syncing(block) do
-    block
-    |> Ecto.Changeset.change(%{
-      sync_state: "txs_syncing",
-      tx_sync_started_at: DateTime.utc_now() |> DateTime.truncate(:second)
-    })
-    |> Repo.update()
+    case block
+         |> Ecto.Changeset.change(%{
+           sync_state: "txs_syncing",
+           tx_sync_started_at: DateTime.utc_now() |> DateTime.truncate(:second)
+         })
+         |> Repo.update() do
+      {:ok, updated} = result ->
+        Chain.broadcast_block_update(updated)
+        result
+
+      error ->
+        error
+    end
   end
 
   defp transition_to_completed(block) do
-    block
-    |> Ecto.Changeset.change(%{
-      sync_state: "completed",
-      tx_sync_completed_at: DateTime.utc_now() |> DateTime.truncate(:second)
-    })
-    |> Repo.update()
+    case block
+         |> Ecto.Changeset.change(%{
+           sync_state: "completed",
+           tx_sync_completed_at: DateTime.utc_now() |> DateTime.truncate(:second)
+         })
+         |> Repo.update() do
+      {:ok, updated} = result ->
+        Chain.broadcast_block_update(updated)
+        result
+
+      error ->
+        error
+    end
   end
 
   defp transition_to_failed(block, error) do
-    block
-    |> Ecto.Changeset.change(%{
-      sync_state: "failed",
-      tx_sync_error: inspect(error),
-      tx_sync_attempts: (block.tx_sync_attempts || 0) + 1
-    })
-    |> Repo.update()
+    case block
+         |> Ecto.Changeset.change(%{
+           sync_state: "failed",
+           tx_sync_error: inspect(error),
+           tx_sync_attempts: (block.tx_sync_attempts || 0) + 1
+         })
+         |> Repo.update() do
+      {:ok, updated} = result ->
+        Chain.broadcast_block_update(updated)
+        result
+
+      error_result ->
+        error_result
+    end
   end
 
   # -- Formatting --------------------------------------------------------------
