@@ -177,6 +177,10 @@ defmodule Bitblocks.TipSyncWorker do
 
       nil ->
         case BitcoinsvCli.getblockhash(height) do
+          {:error, %{"code" => -8}} ->
+            Logger.debug("TipSyncWorker: height #{height} not yet mined")
+            :error
+
           {:error, reason} ->
             Logger.error("TipSyncWorker: Failed to get block hash for height #{height}: #{inspect(reason)}")
             :error

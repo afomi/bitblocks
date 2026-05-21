@@ -11,12 +11,14 @@
             navigate={~p"/blocks/#{@block.height - 1}"}
             class="text-neutral-600 hover:text-neutral-50 transition-colors"
             title={"Block #{@block.height - 1}"}
+            aria-label={"Previous block: #{@block.height - 1}"}
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"
               viewBox="0 0 24 24"
               fill="currentColor"
               class="w-8 h-8"
+              aria-hidden="true"
             >
               <path
                 fill-rule="evenodd"
@@ -32,12 +34,14 @@
             navigate={~p"/blocks/#{@block.height + 1}"}
             class="text-neutral-600 hover:text-neutral-50 transition-colors"
             title={"Block #{@block.height + 1}"}
+            aria-label={"Next block: #{@block.height + 1}"}
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"
               viewBox="0 0 24 24"
               fill="currentColor"
               class="w-8 h-8"
+              aria-hidden="true"
             >
               <path
                 fill-rule="evenodd"

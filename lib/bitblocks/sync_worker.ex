@@ -341,6 +341,10 @@ defmodule Bitblocks.SyncWorker do
 
     try do
       case bitcoin_cli().getblockhash(block_height) do
+        {:error, %{"code" => -8}} ->
+          Logger.debug("Block height #{block_height} out of range (not yet mined)")
+          {:error, :height_out_of_range}
+
         {:error, reason} ->
           Logger.error("Failed to get block hash for height #{block_height}: #{inspect(reason)}")
           {:error, reason}
