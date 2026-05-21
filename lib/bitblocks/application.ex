@@ -48,14 +48,6 @@ defmodule Bitblocks.Application do
       # Note: Txbox requires additional configuration for mAPI miner integration
       # See config/runtime.exs for mAPI token configuration
       {Txbox, []},
-      # Start sync worker for historical blockchain sync (legacy)
-      Bitblocks.SyncWorker,
-      # Start sync pipeline for parallel blockchain sync (new)
-      Bitblocks.Sync.Pipeline,
-      # Start tip sync worker for continuous chain tip monitoring
-      Bitblocks.TipSyncWorker,
-      # Start block monitor for real-time new block detection
-      Bitblocks.BlockMonitor,
       # Mining proxy — serves block templates to remote hashers
       Bitblocks.MiningProxy,
       # Generic collections registry

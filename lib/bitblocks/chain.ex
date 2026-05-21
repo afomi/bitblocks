@@ -880,51 +880,6 @@ defmodule Bitblocks.Chain do
     end
   end
 
-  @doc """
-  Checks if a sync worker process is actually running.
-
-  Uses the process registry to verify if the named GenServer is alive.
-  This is more reliable than checking the database status.
-
-  Returns true if the SyncWorker or Pipeline process is running.
-
-  ## Examples
-
-      iex> sync_actually_running?()
-      true
-
-  """
-  def sync_actually_running? do
-    sync_worker_running? = Process.whereis(Bitblocks.SyncWorker) != nil
-    pipeline_running? = Process.whereis(Bitblocks.Sync.Pipeline) != nil
-
-    # Check if either process exists AND is in running state
-    cond do
-      sync_worker_running? ->
-        try do
-          case GenServer.call(Bitblocks.SyncWorker, :get_status, 1_000) do
-            %{status: :running} -> true
-            _ -> false
-          end
-        catch
-          _, _ -> false
-        end
-
-      pipeline_running? ->
-        try do
-          case GenServer.call(Bitblocks.Sync.Pipeline, :status, 1_000) do
-            %{status: :running} -> true
-            _ -> false
-          end
-        catch
-          _, _ -> false
-        end
-
-      true ->
-        false
-    end
-  end
-
   # ---------------------------------------------------------------------------
   # Spend Index — Phase 1 of progressive tx metadata
   # ---------------------------------------------------------------------------

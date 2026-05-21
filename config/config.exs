@@ -99,7 +99,7 @@ config :bitblocks, Oban,
     Oban.Plugins.Pruner,
     {Oban.Plugins.Cron,
      crontab: [
-       # Add cron jobs here if needed
+       {"* * * * *", Bitblocks.Workers.SyncHeadersWorker, args: %{"mode" => "tip"}}
      ]}
   ],
   queues: [

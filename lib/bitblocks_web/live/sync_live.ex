@@ -70,7 +70,8 @@ defmodule BitblocksWeb.SyncLive do
             {:noreply,
              socket
              |> put_flash(:info, "Header sync queued for blocks #{from}..#{to}")
-             |> assign(form_errors: [])}
+             |> assign(form_errors: [])
+             |> refresh_status()}
 
           {:error, _} ->
             {:noreply, assign(socket, form_errors: ["Sync job already queued for this range"])}
@@ -92,20 +93,22 @@ defmodule BitblocksWeb.SyncLive do
       )
       |> Bitblocks.Repo.update_all(set: [state: "cancelled", cancelled_at: DateTime.utc_now()])
 
-    {:noreply, put_flash(socket, :info, "Cancelled #{cancelled} sync job(s)")}
+    {:noreply,
+     socket
+     |> put_flash(:info, "Cancelled #{cancelled} sync job(s)")
+     |> refresh_status()}
   end
 
   @impl true
   def handle_event("start_tip_sync", _params, socket) do
-    case %{"mode" => "tip"}
-         |> Bitblocks.Workers.SyncHeadersWorker.new()
-         |> Oban.insert() do
-      {:ok, _job} ->
-        {:noreply, put_flash(socket, :info, "Tip sync started")}
+    %{"mode" => "tip"}
+    |> Bitblocks.Workers.SyncHeadersWorker.new()
+    |> Oban.insert()
 
-      {:error, _} ->
-        {:noreply, put_flash(socket, :info, "Tip sync already running")}
-    end
+    {:noreply,
+     socket
+     |> put_flash(:info, "Tip sync started")
+     |> refresh_status()}
   end
 
   @impl true
@@ -120,7 +123,10 @@ defmodule BitblocksWeb.SyncLive do
       )
       |> Bitblocks.Repo.update_all(set: [state: "cancelled", cancelled_at: DateTime.utc_now()])
 
-    {:noreply, put_flash(socket, :info, "Stopped tip sync (#{cancelled} job(s) cancelled)")}
+    {:noreply,
+     socket
+     |> put_flash(:info, "Cancelled #{cancelled} tip sync job(s)")
+     |> refresh_status()}
   end
 
   @impl true
@@ -281,87 +287,101 @@ defmodule BitblocksWeb.SyncLive do
 
       <%!-- Active Jobs --%>
       <div class="bg-white dark:bg-gray-800 shadow-md rounded-lg p-6 mb-6">
-        <h2 class="text-lg font-semibold mb-4 text-gray-900 dark:text-white">
-          Active Jobs
-        </h2>
-        <div class="space-y-3 text-sm">
-          <%!-- Tip Sync --%>
-          <div class="flex items-center justify-between py-2 border-b border-gray-100 dark:border-gray-700">
-            <div class="flex items-center gap-3">
-              <span class={[
-                "inline-block w-2 h-2 rounded-full",
-                if(@oban_summary.tip, do: "bg-green-500 animate-pulse", else: "bg-gray-400")
-              ]}></span>
-              <span class="font-medium text-gray-900 dark:text-white">
-                Tip Sync
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+            Jobs
+            <span class="text-sm font-normal text-gray-500 dark:text-gray-400 ml-2">
+              refreshes every 10s
+            </span>
+          </h2>
+          <div class="flex items-center gap-3">
+            <%!-- Tip Sync toggle --%>
+            <%= if @oban_summary.tip do %>
+              <span class="flex items-center gap-1.5 text-xs text-green-600">
+                <span class="inline-block w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
+                Tip sync active
               </span>
-              <span class="text-gray-500 dark:text-gray-400">
-                — watches for new blocks every 30s
-              </span>
-            </div>
-            <div class="flex gap-2">
-              <%= if @oban_summary.tip do %>
-                <button
-                  phx-click="stop_tip_sync"
-                  class="px-3 py-1 text-xs bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-200 rounded hover:bg-red-200"
-                >
-                  Stop
-                </button>
-              <% else %>
-                <button
-                  phx-click="start_tip_sync"
-                  class="px-3 py-1 text-xs bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-200 rounded hover:bg-blue-200"
-                >
-                  Start
-                </button>
-              <% end %>
-            </div>
-          </div>
-
-          <%!-- Header Sync --%>
-          <div class="flex items-center justify-between py-2 border-b border-gray-100 dark:border-gray-700">
-            <div class="flex items-center gap-3">
-              <span class={[
-                "inline-block w-2 h-2 rounded-full",
-                if(@oban_summary.headers > 0, do: "bg-blue-500 animate-pulse", else: "bg-gray-400")
-              ]}></span>
-              <span class="font-medium text-gray-900 dark:text-white">
-                Header Sync
-              </span>
-              <%= if @oban_summary.headers > 0 do %>
-                <span class="text-blue-600 dark:text-blue-400">
-                  <%= @oban_summary.headers %> job(s) active
-                </span>
-              <% else %>
-                <span class="text-gray-500 dark:text-gray-400">
-                  — idle
-                </span>
-              <% end %>
-            </div>
-          </div>
-
-          <%!-- Transaction Fetch --%>
-          <div class="flex items-center justify-between py-2">
-            <div class="flex items-center gap-3">
-              <span class={[
-                "inline-block w-2 h-2 rounded-full",
-                if(@oban_summary.tx_fetch > 0, do: "bg-amber-500 animate-pulse", else: "bg-gray-400")
-              ]}></span>
-              <span class="font-medium text-gray-900 dark:text-white">
-                Transaction Fetch
-              </span>
-              <%= if @oban_summary.tx_fetch > 0 do %>
-                <span class="text-amber-600 dark:text-amber-400">
-                  <%= @oban_summary.tx_fetch %> job(s) queued/running
-                </span>
-              <% else %>
-                <span class="text-gray-500 dark:text-gray-400">
-                  — idle
-                </span>
-              <% end %>
-            </div>
+              <button
+                phx-click="stop_tip_sync"
+                class="px-3 py-1 text-xs bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300 rounded hover:bg-red-200"
+              >
+                Stop
+              </button>
+            <% else %>
+              <button
+                phx-click="start_tip_sync"
+                class="px-3 py-1 text-xs bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300 rounded hover:bg-green-200"
+              >
+                Start Tip Sync
+              </button>
+            <% end %>
           </div>
         </div>
+
+        <%= if @oban_summary.jobs == [] do %>
+          <p class="text-sm text-gray-500 dark:text-gray-400 py-4">
+            No active jobs.
+          </p>
+        <% else %>
+          <div class="space-y-1">
+            <%= for job <- @oban_summary.jobs do %>
+              <div class="flex items-center justify-between py-2 px-3 rounded text-sm bg-gray-50 dark:bg-gray-900/50">
+                <div class="flex items-center gap-3">
+                  <span class={[
+                    "inline-block w-2 h-2 rounded-full",
+                    case job.state do
+                      "executing" -> "bg-blue-500 animate-pulse"
+                      "available" -> "bg-amber-500"
+                      "scheduled" -> "bg-gray-400"
+                      "retryable" -> "bg-red-400"
+                      _ -> "bg-gray-400"
+                    end
+                  ]}></span>
+                  <span class="font-mono text-xs text-gray-900 dark:text-gray-100">
+                    <%= job.short_worker %>
+                  </span>
+                  <span class="text-xs text-gray-500 dark:text-gray-400">
+                    <%= job.queue %>
+                  </span>
+                  <%= if job.args["mode"] do %>
+                    <span class="text-xs px-1.5 py-0.5 rounded bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300">
+                      <%= job.args["mode"] %>
+                    </span>
+                  <% end %>
+                  <%= if job.args["from"] do %>
+                    <span class="text-xs text-gray-500 dark:text-gray-400 font-mono">
+                      <%= job.args["from"] %>...<%= job.args["to"] %>
+                    </span>
+                  <% end %>
+                  <%= if job.args["block_hash"] do %>
+                    <span class="text-xs text-gray-500 dark:text-gray-400 font-mono">
+                      <%= String.slice(job.args["block_hash"], 0..11) %>...
+                    </span>
+                  <% end %>
+                </div>
+                <div class="flex items-center gap-3 text-xs text-gray-500 dark:text-gray-400">
+                  <span class={[
+                    "px-1.5 py-0.5 rounded",
+                    case job.state do
+                      "executing" -> "bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300"
+                      "available" -> "bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300"
+                      "scheduled" -> "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300"
+                      "retryable" -> "bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300"
+                      _ -> "bg-gray-100 text-gray-600"
+                    end
+                  ]}>
+                    <%= job.state %>
+                  </span>
+                  <%= if job.attempt > 1 do %>
+                    <span>
+                      attempt <%= job.attempt %>/<%= job.max_attempts %>
+                    </span>
+                  <% end %>
+                </div>
+              </div>
+            <% end %>
+          </div>
+        <% end %>
       </div>
 
       <%!-- Sync Range Form --%>
@@ -523,32 +543,41 @@ defmodule BitblocksWeb.SyncLive do
   defp get_oban_summary do
     import Ecto.Query
 
-    jobs =
+    # Active jobs — show individually
+    active_jobs =
       from(j in Oban.Job,
-        where: j.worker in [
-          "Bitblocks.Workers.SyncHeadersWorker",
-          "Bitblocks.Workers.FetchTransactionsWorker"
-        ],
-        where: j.state in ["available", "executing", "scheduled"],
-        group_by: j.worker,
-        select: {j.worker, count(j.id)}
+        where: j.state in ["available", "executing", "scheduled", "retryable"],
+        order_by: [asc: j.inserted_at],
+        limit: 50,
+        select: %{
+          id: j.id,
+          worker: j.worker,
+          state: j.state,
+          queue: j.queue,
+          args: j.args,
+          inserted_at: j.inserted_at,
+          attempted_at: j.attempted_at,
+          attempt: j.attempt,
+          max_attempts: j.max_attempts
+        }
       )
       |> Bitblocks.Repo.all()
-      |> Map.new()
+      |> Enum.map(fn job ->
+        short_worker = job.worker |> String.split(".") |> List.last()
+        Map.put(job, :short_worker, short_worker)
+      end)
 
-    tip_running =
-      from(j in Oban.Job,
-        where: j.worker == "Bitblocks.Workers.SyncHeadersWorker",
-        where: j.state in ["available", "executing", "scheduled"],
-        where: fragment("args->>'mode' = 'tip'"),
-        select: count()
-      )
-      |> Bitblocks.Repo.one()
+    # Tip sync specifically
+    tip = Enum.any?(active_jobs, fn j ->
+      j.worker == "Bitblocks.Workers.SyncHeadersWorker" and
+        j.args["mode"] == "tip"
+    end)
 
     %{
-      headers: Map.get(jobs, "Bitblocks.Workers.SyncHeadersWorker", 0),
-      tx_fetch: Map.get(jobs, "Bitblocks.Workers.FetchTransactionsWorker", 0),
-      tip: tip_running > 0
+      jobs: active_jobs,
+      tip: tip,
+      headers: Enum.count(active_jobs, &(&1.worker == "Bitblocks.Workers.SyncHeadersWorker")),
+      tx_fetch: Enum.count(active_jobs, &(&1.worker == "Bitblocks.Workers.FetchTransactionsWorker"))
     }
   end
 end
