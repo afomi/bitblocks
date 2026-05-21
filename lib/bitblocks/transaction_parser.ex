@@ -6,7 +6,7 @@ defmodule Bitblocks.TransactionParser do
 
   # Bump when script classification or protocol detection logic changes.
   # Used by analyze/1 and the Release.analyze_transactions/1 backfill.
-  @script_analysis_version 3
+  @script_analysis_version 4
 
   def script_analysis_version, do: @script_analysis_version
 
@@ -328,6 +328,7 @@ defmodule Bitblocks.TransactionParser do
     cond do
       address_match -> address_match
       utf8 == "meta" -> ["Metanet"]
+      utf8 == "orderbook" -> ["OrderBook"]
       String.starts_with?(utf8, "ord") -> ["1SAT Ordinals"]
       String.contains?(utf8, "bitcom") -> ["Bitcom"]
       true -> []

@@ -21,7 +21,7 @@ defmodule BitblocksWeb.SyncLive do
 
     if connected?(socket) do
       send(self(), :load_data)
-      Process.send_after(self(), :poll_status, 10_000)
+      Process.send_after(self(), :poll_status, 5_000)
     end
 
     {:ok, socket}
@@ -174,7 +174,7 @@ defmodule BitblocksWeb.SyncLive do
 
   @impl true
   def handle_info(:poll_status, socket) do
-    Process.send_after(self(), :poll_status, 10_000)
+    Process.send_after(self(), :poll_status, 5_000)
     {:noreply, refresh_status(socket)}
   end
 
@@ -291,7 +291,7 @@ defmodule BitblocksWeb.SyncLive do
           <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
             Jobs
             <span class="text-sm font-normal text-gray-500 dark:text-gray-400 ml-2">
-              refreshes every 10s
+              refreshes every 5s
             </span>
           </h2>
           <div class="flex items-center gap-3">
@@ -325,7 +325,12 @@ defmodule BitblocksWeb.SyncLive do
         <% else %>
           <div class="space-y-1">
             <%= for job <- @oban_summary.jobs do %>
-              <div class="flex items-center justify-between py-2 px-3 rounded text-sm bg-gray-50 dark:bg-gray-900/50">
+              <div class={[
+                "flex items-center justify-between py-2 px-3 rounded text-sm",
+                if(job.state in ["completed", "discarded", "cancelled"],
+                  do: "bg-gray-50/50 dark:bg-gray-900/25 opacity-60",
+                  else: "bg-gray-50 dark:bg-gray-900/50")
+              ]}>
                 <div class="flex items-center gap-3">
                   <span class={[
                     "inline-block w-2 h-2 rounded-full",
@@ -334,10 +339,13 @@ defmodule BitblocksWeb.SyncLive do
                       "available" -> "bg-amber-500"
                       "scheduled" -> "bg-gray-400"
                       "retryable" -> "bg-red-400"
+                      "completed" -> "bg-green-500"
+                      "cancelled" -> "bg-gray-400"
+                      "discarded" -> "bg-red-500"
                       _ -> "bg-gray-400"
                     end
                   ]}></span>
-                  <span class="font-mono text-xs text-gray-900 dark:text-gray-100">
+                  <span class="font-mono text-xs text-gray-900 dark:text-gray-100 shrink-0">
                     <%= job.short_worker %>
                   </span>
                   <span class="text-xs text-gray-500 dark:text-gray-400">
@@ -367,6 +375,9 @@ defmodule BitblocksWeb.SyncLive do
                       "available" -> "bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300"
                       "scheduled" -> "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300"
                       "retryable" -> "bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300"
+                      "completed" -> "bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300"
+                      "cancelled" -> "bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400"
+                      "discarded" -> "bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300"
                       _ -> "bg-gray-100 text-gray-600"
                     end
                   ]}>
@@ -543,11 +554,16 @@ defmodule BitblocksWeb.SyncLive do
   defp get_oban_summary do
     import Ecto.Query
 
-    # Active jobs — show individually
-    active_jobs =
+    recent_cutoff = DateTime.add(DateTime.utc_now(), -60, :second)
+
+    # Active + recently finished jobs
+    jobs =
       from(j in Oban.Job,
-        where: j.state in ["available", "executing", "scheduled", "retryable"],
-        order_by: [asc: j.inserted_at],
+        where:
+          j.state in ["available", "executing", "scheduled", "retryable"] or
+            (j.state in ["completed", "discarded", "cancelled"] and
+               j.completed_at >= ^recent_cutoff),
+        order_by: [desc: j.state == "executing", asc: j.inserted_at],
         limit: 50,
         select: %{
           id: j.id,
@@ -557,6 +573,7 @@ defmodule BitblocksWeb.SyncLive do
           args: j.args,
           inserted_at: j.inserted_at,
           attempted_at: j.attempted_at,
+          completed_at: j.completed_at,
           attempt: j.attempt,
           max_attempts: j.max_attempts
         }
@@ -567,17 +584,20 @@ defmodule BitblocksWeb.SyncLive do
         Map.put(job, :short_worker, short_worker)
       end)
 
-    # Tip sync specifically
-    tip = Enum.any?(active_jobs, fn j ->
+    # Tip sync specifically (only count active, not completed)
+    tip = Enum.any?(jobs, fn j ->
       j.worker == "Bitblocks.Workers.SyncHeadersWorker" and
-        j.args["mode"] == "tip"
+        j.args["mode"] == "tip" and
+        j.state in ["available", "executing", "scheduled"]
     end)
 
+    active = Enum.filter(jobs, &(&1.state in ["available", "executing", "scheduled", "retryable"]))
+
     %{
-      jobs: active_jobs,
+      jobs: jobs,
       tip: tip,
-      headers: Enum.count(active_jobs, &(&1.worker == "Bitblocks.Workers.SyncHeadersWorker")),
-      tx_fetch: Enum.count(active_jobs, &(&1.worker == "Bitblocks.Workers.FetchTransactionsWorker"))
+      headers: Enum.count(active, &(&1.worker == "Bitblocks.Workers.SyncHeadersWorker")),
+      tx_fetch: Enum.count(active, &(&1.worker == "Bitblocks.Workers.FetchTransactionsWorker"))
     }
   end
 end

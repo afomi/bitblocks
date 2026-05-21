@@ -136,9 +136,38 @@ defmodule Bitblocks.TransactionParserTest do
     end
   end
 
+  describe "detect_protocols/1 with OrderBook flag" do
+    test "detects OrderBook from orderbook flag as first chunk" do
+      chunks = [
+        make_chunk("orderbook"),
+        make_chunk("list"),
+        make_chunk("token_abc_0"),
+        make_chunk("100"),
+        make_chunk("5000"),
+        make_chunk("1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa"),
+        make_chunk("token_abc:0")
+      ]
+
+      protocols = TransactionParser.detect_protocols([%{data: chunks}])
+
+      assert "OrderBook" in protocols
+    end
+
+    test "does not detect OrderBook for non-orderbook first chunk" do
+      chunks = [
+        make_chunk("notorderbook"),
+        make_chunk("list")
+      ]
+
+      protocols = TransactionParser.detect_protocols([%{data: chunks}])
+
+      refute "OrderBook" in protocols
+    end
+  end
+
   describe "script_analysis_version/0" do
-    test "returns version 3 for Metanet detection" do
-      assert TransactionParser.script_analysis_version() == 3
+    test "returns version 4 for OrderBook detection" do
+      assert TransactionParser.script_analysis_version() == 4
     end
   end
 

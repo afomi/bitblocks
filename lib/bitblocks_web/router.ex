@@ -39,6 +39,7 @@ defmodule BitblocksWeb.Router do
 
     # Real-time
     get "/stream/blocks", StreamController, :blocks
+    get "/stream/order-book", StreamController, :order_book
 
     # Mining
     get "/mining/work", MiningController, :work
@@ -49,6 +50,13 @@ defmodule BitblocksWeb.Router do
     get "/metanet/roots", MetanetController, :roots
     get "/metanet/:txid/children", MetanetController, :children
     get "/metanet/:txid", MetanetController, :show
+
+    # Order Book
+    get "/order-book/listings", OrderBookController, :index
+    get "/order-book/stats", OrderBookController, :stats
+    get "/order-book/tokens/:token_id", OrderBookController, :token_listings
+    get "/order-book/sellers/:address", OrderBookController, :seller_listings
+    get "/order-book/listings/:txid", OrderBookController, :show
 
     # Protocols
     get "/protocols", ProtocolController, :index
@@ -80,6 +88,7 @@ defmodule BitblocksWeb.Router do
 
     live "/search", SearchLive
     live "/protocols", ProtocolsLive
+    live "/order-book", OrderBookLive
     live "/metanet", MetanetLive
     live "/collections/rexxies", RexxiesLive
     live "/about", AboutLive

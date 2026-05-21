@@ -1,0 +1,258 @@
+<div class="container mx-auto px-4 py-8 max-w-7xl">
+  <h1 class="text-4xl font-bold mb-2">
+    Open Order Book
+  </h1>
+  <p class="text-gray-600 mb-8">
+    Permissionless marketplace for BSV-20 Ordinal tokens.
+  </p>
+
+  <%!-- Stats Banner --%>
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+    <div class="bg-white border border-gray-200 rounded-lg p-4 text-center">
+      <div class="text-2xl font-bold text-blue-600">
+        <%= @stats.total_active %>
+      </div>
+      <div class="text-sm text-gray-500">
+        Active Listings
+      </div>
+    </div>
+    <div class="bg-white border border-gray-200 rounded-lg p-4 text-center">
+      <div class="text-2xl font-bold text-green-600">
+        <%= @stats.total_filled %>
+      </div>
+      <div class="text-sm text-gray-500">
+        Trades Completed
+      </div>
+    </div>
+    <div class="bg-white border border-gray-200 rounded-lg p-4 text-center">
+      <div class="text-2xl font-bold text-gray-600">
+        <%= @stats.total_cancelled %>
+      </div>
+      <div class="text-sm text-gray-500">
+        Cancelled
+      </div>
+    </div>
+    <div class="bg-white border border-gray-200 rounded-lg p-4 text-center">
+      <div class="text-2xl font-bold text-purple-600">
+        <%= @stats.unique_tokens %>
+      </div>
+      <div class="text-sm text-gray-500">
+        Unique Tokens
+      </div>
+    </div>
+  </div>
+
+  <%!-- Filters --%>
+  <div class="bg-white border border-gray-200 rounded-lg p-4 mb-6">
+    <form
+      phx-change="filter"
+      class="grid grid-cols-1 md:grid-cols-5 gap-4 items-end"
+    >
+      <div>
+        <label
+          for="token-filter"
+          class="block text-sm font-medium text-gray-700 mb-1"
+        >
+          Token ID
+        </label>
+        <input
+          type="text"
+          id="token-filter"
+          name="token_id"
+          value={@token_filter}
+          placeholder="e.g. abc123_0"
+          class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+        />
+      </div>
+      <div>
+        <label
+          for="seller-filter"
+          class="block text-sm font-medium text-gray-700 mb-1"
+        >
+          Seller
+        </label>
+        <input
+          type="text"
+          id="seller-filter"
+          name="seller"
+          value={@seller_filter}
+          placeholder="Address"
+          class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+        />
+      </div>
+      <div>
+        <label
+          for="min-price"
+          class="block text-sm font-medium text-gray-700 mb-1"
+        >
+          Min Price (sats)
+        </label>
+        <input
+          type="number"
+          id="min-price"
+          name="min_price"
+          value={@min_price}
+          placeholder="0"
+          class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+        />
+      </div>
+      <div>
+        <label
+          for="max-price"
+          class="block text-sm font-medium text-gray-700 mb-1"
+        >
+          Max Price (sats)
+        </label>
+        <input
+          type="number"
+          id="max-price"
+          name="max_price"
+          value={@max_price}
+          placeholder="999999"
+          class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+        />
+      </div>
+      <div>
+        <button
+          type="button"
+          phx-click="clear_filters"
+          class="w-full px-3 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-md text-sm transition-colors"
+        >
+          Clear Filters
+        </button>
+      </div>
+    </form>
+  </div>
+
+  <%!-- Listings Table --%>
+  <%= if Enum.empty?(@listings) do %>
+    <div class="bg-gray-50 border border-gray-200 rounded-lg p-12 text-center">
+      <div class="text-gray-400 text-5xl mb-4">
+        &empty;
+      </div>
+      <h3 class="text-lg font-semibold text-gray-600 mb-2">
+        No active listings
+      </h3>
+      <p class="text-sm text-gray-500">
+        When sellers publish token listings to the BSV network, they will appear here.
+      </p>
+    </div>
+  <% else %>
+    <div class="bg-white border border-gray-200 rounded-lg overflow-hidden">
+      <table class="w-full">
+        <thead class="bg-gray-50 border-b border-gray-200">
+          <tr>
+            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
+              Token
+            </th>
+            <th class="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">
+              Quantity
+            </th>
+            <th class="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">
+              Price (sats)
+            </th>
+            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
+              Seller
+            </th>
+            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
+              Status
+            </th>
+            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
+              Listed
+            </th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-100">
+          <%= for listing <- @listings do %>
+            <tr class="hover:bg-gray-50 transition-colors">
+              <td class="px-4 py-3">
+                <div class="font-mono text-sm text-gray-900">
+                  <%= listing.token_id %>
+                </div>
+                <div class="font-mono text-xs text-gray-400">
+                  <%= truncate_address(listing.txid) %>
+                </div>
+              </td>
+              <td class="px-4 py-3 text-right">
+                <span class="font-semibold text-gray-900">
+                  <%= listing.quantity_remaining %>
+                </span>
+                <%= if listing.quantity_remaining != listing.quantity do %>
+                  <span class="text-xs text-gray-400">
+                    / <%= listing.quantity %>
+                  </span>
+                <% end %>
+              </td>
+              <td class="px-4 py-3 text-right font-mono text-sm">
+                <%= format_satoshis(listing.price_satoshis) %>
+              </td>
+              <td class="px-4 py-3">
+                <span
+                  class="font-mono text-sm text-gray-600"
+                  title={listing.seller_address}
+                >
+                  <%= truncate_address(listing.seller_address) %>
+                </span>
+              </td>
+              <td class="px-4 py-3">
+                <span class={[
+                  "px-2 py-1 rounded-full text-xs font-semibold",
+                  status_class(listing.status)
+                ]}>
+                  <%= listing.status %>
+                </span>
+              </td>
+              <td class="px-4 py-3 text-sm text-gray-500">
+                <%= format_time(listing.inserted_at) %>
+              </td>
+            </tr>
+          <% end %>
+        </tbody>
+      </table>
+    </div>
+  <% end %>
+
+  <%!-- API Reference --%>
+  <div class="mt-8 bg-gray-50 border border-gray-200 rounded-lg p-6">
+    <h2 class="text-xl font-bold mb-4">
+      Order Book API
+    </h2>
+    <div class="space-y-3 font-mono text-sm">
+      <div class="bg-white p-3 rounded border">
+        <span class="text-green-700">GET</span>
+        <span class="text-gray-700">/api/v1/order-book/listings</span>
+        <span class="text-gray-500 ml-2">
+          — Active listings (filters: token_id, seller, min_price, max_price)
+        </span>
+      </div>
+      <div class="bg-white p-3 rounded border">
+        <span class="text-green-700">GET</span>
+        <span class="text-gray-700">/api/v1/order-book/listings/:txid</span>
+        <span class="text-gray-500 ml-2">
+          — Single listing detail
+        </span>
+      </div>
+      <div class="bg-white p-3 rounded border">
+        <span class="text-green-700">GET</span>
+        <span class="text-gray-700">/api/v1/order-book/tokens/:token_id</span>
+        <span class="text-gray-500 ml-2">
+          — Listings for a token
+        </span>
+      </div>
+      <div class="bg-white p-3 rounded border">
+        <span class="text-green-700">GET</span>
+        <span class="text-gray-700">/api/v1/order-book/stats</span>
+        <span class="text-gray-500 ml-2">
+          — Aggregate statistics
+        </span>
+      </div>
+      <div class="bg-white p-3 rounded border">
+        <span class="text-green-700">GET</span>
+        <span class="text-gray-700">/api/v1/stream/order-book</span>
+        <span class="text-gray-500 ml-2">
+          — SSE stream of order book events
+        </span>
+      </div>
+    </div>
+  </div>
+</div>

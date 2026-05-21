@@ -43,6 +43,24 @@ defmodule Bitblocks.ProtocolParserTest do
     end
   end
 
+  # Constructed script: OP_RETURN "orderbook" "list" "token_abc_0" "100" "5000" "1Addr" "token_abc:0"
+  @orderbook_listing_script "6a096f72646572626f6f6b046c6973740b746f6b656e5f6162635f300331303004353030300531416464720b746f6b656e5f6162633a30"
+
+  describe "parse_script/2 with OrderBook" do
+    test "parses an OrderBook listing from script hex" do
+      assert {:ok, result} = ProtocolParser.parse_script(@orderbook_listing_script, "OrderBook")
+
+      assert result.op == "list"
+      assert result.token_id == "token_abc_0"
+      assert result.quantity == "100"
+      assert result.price_satoshis == "5000"
+      assert result.seller_address == "1Addr"
+      assert result.token_utxo == "token_abc:0"
+      assert result.expires_at == nil
+      assert result.min_quantity == nil
+    end
+  end
+
   describe "parse_script/2 with unsupported protocol" do
     test "returns error for unknown protocol" do
       assert {:error, :unsupported_protocol} =

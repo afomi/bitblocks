@@ -131,6 +131,12 @@ defmodule Bitblocks.ProtocolParser do
     Bitblocks.MetanetParser.parse(data_chunks)
   end
 
+  defp build_protocol_data(data_chunks, "OrderBook") do
+    # OrderBook uses raw OP_RETURN chunks (not piped):
+    # "orderbook" <op> <fields...>
+    Bitblocks.OrderBookParser.parse(data_chunks)
+  end
+
   defp build_protocol_data(_data_chunks, _protocol), do: {:error, :unsupported_protocol}
 
   defp find_segment(segments, address) do
