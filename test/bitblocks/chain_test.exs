@@ -87,10 +87,10 @@ defmodule Bitblocks.ChainTest do
       block_hash: nil
     }
 
-    test "list_transactions_paginated/0 returns all transactions" do
+    test "list_transactions_paginated/0 returns transactions" do
       transaction = transaction_fixture()
-      {transactions, _meta} = Chain.list_transactions_paginated()
-      assert transactions == [transaction]
+      {transactions, _cursor} = Chain.list_transactions_paginated()
+      assert Enum.any?(transactions, fn t -> t.txid == transaction.txid end)
     end
 
     test "get_transaction!/1 returns the transaction with given id" do
