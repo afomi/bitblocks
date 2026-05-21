@@ -8,6 +8,7 @@
 import Config
 
 config :bitblocks,
+  env: config_env(),
   ecto_repos: [Bitblocks.Repo],
   generators: [timestamp_type: :utc_datetime],
   bitcoin_url: System.get_env("BITCOIN_NODE_URL"),

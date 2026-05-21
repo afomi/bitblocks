@@ -58,7 +58,11 @@ defmodule Bitblocks.StatsCache do
     # Create ETS table for fast reads
     :ets.new(__MODULE__, [:set, :public, :named_table, read_concurrency: true])
 
-    # Initial load
+    # Seed with zeros so the first read never falls through to a raw COUNT
+    :ets.insert(__MODULE__, {:blocks_count, 0})
+    :ets.insert(__MODULE__, {:transactions_count, 0})
+
+    # Async refresh will fill in real values
     schedule_refresh(0)
 
     {:ok, %{}}

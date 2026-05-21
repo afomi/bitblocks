@@ -4,6 +4,9 @@ defmodule BitblocksWeb.SyncLive do
   alias Bitblocks.SyncWorker
   alias Phoenix.PubSub
 
+  # Destructive actions (clear blocks/transactions) are only available in dev/test.
+  @dev_mode Application.compile_env(:bitblocks, :env, :prod) != :prod
+
   @impl true
   def mount(_params, _session, socket) do
     require Logger
@@ -16,6 +19,7 @@ defmodule BitblocksWeb.SyncLive do
     socket =
       assign(socket,
         page_title: "Blockchain Sync",
+        dev_mode: @dev_mode,
         scope_type: "range",
         sync_mode: "sequential",
         start_block: "",
@@ -67,9 +71,7 @@ defmodule BitblocksWeb.SyncLive do
   end
 
   defp get_db_counts do
-    blocks = Bitblocks.Repo.aggregate(Bitblocks.Chain.Block, :count, :id)
-    transactions = Bitblocks.Repo.aggregate(Bitblocks.Chain.Transaction, :count, :id)
-    {blocks, transactions}
+    {Bitblocks.StatsCache.blocks_count(), Bitblocks.StatsCache.transactions_count()}
   end
 
   @impl true
@@ -159,29 +161,25 @@ defmodule BitblocksWeb.SyncLive do
   end
 
   @impl true
-  def handle_event("clear_blocks", _params, socket) do
+  def handle_event("clear_blocks", _params, %{assigns: %{dev_mode: true}} = socket) do
     {count, _} = Bitblocks.Repo.delete_all(Bitblocks.Chain.Block)
     {blocks_count, transactions_count} = get_db_counts()
 
-    socket =
-      socket
-      |> put_flash(:info, "Deleted #{count} blocks")
-      |> assign(blocks_count: blocks_count, transactions_count: transactions_count)
-
-    {:noreply, socket}
+    {:noreply,
+     socket
+     |> put_flash(:info, "Deleted #{count} blocks")
+     |> assign(blocks_count: blocks_count, transactions_count: transactions_count)}
   end
 
   @impl true
-  def handle_event("clear_transactions", _params, socket) do
+  def handle_event("clear_transactions", _params, %{assigns: %{dev_mode: true}} = socket) do
     {count, _} = Bitblocks.Repo.delete_all(Bitblocks.Chain.Transaction)
     {blocks_count, transactions_count} = get_db_counts()
 
-    socket =
-      socket
-      |> put_flash(:info, "Deleted #{count} transactions")
-      |> assign(blocks_count: blocks_count, transactions_count: transactions_count)
-
-    {:noreply, socket}
+    {:noreply,
+     socket
+     |> put_flash(:info, "Deleted #{count} transactions")
+     |> assign(blocks_count: blocks_count, transactions_count: transactions_count)}
   end
 
   @impl true
@@ -250,6 +248,8 @@ defmodule BitblocksWeb.SyncLive do
 
   @impl true
   def handle_info(:load_data, socket) do
+    {blocks_count, transactions_count} = get_db_counts()
+
     socket =
       assign(socket,
         sync_status: safe_get_status(SyncWorker),
@@ -257,8 +257,8 @@ defmodule BitblocksWeb.SyncLive do
         tip_sync_status: safe_get_tip_sync_status(),
         backfill_status: get_backfill_status(),
         chain_tip: get_chain_tip(),
-        blocks_count: elem(get_db_counts(), 0),
-        transactions_count: elem(get_db_counts(), 1),
+        blocks_count: blocks_count,
+        transactions_count: transactions_count,
         sync_jobs: get_recent_sync_jobs()
       )
 
@@ -267,32 +267,24 @@ defmodule BitblocksWeb.SyncLive do
 
   @impl true
   def handle_info({:sync_progress, progress}, socket) do
-    status = safe_get_status(SyncWorker)
-    pipeline_status = safe_get_pipeline_status()
-    {blocks_count, transactions_count} = get_db_counts()
-    sync_jobs = get_recent_sync_jobs()
-
-    # Calculate current block duration if in-flight
     current_block_duration_ms =
-      if progress.current_block_inflight && progress.current_block_started_at do
+      if progress[:current_block_inflight] && progress[:current_block_started_at] do
         DateTime.diff(DateTime.utc_now(), progress.current_block_started_at, :millisecond)
       else
         nil
       end
 
-    socket =
-      assign(socket,
-        sync_status: status,
-        pipeline_status: pipeline_status,
-        blocks_count: blocks_count,
-        transactions_count: transactions_count,
-        sync_jobs: sync_jobs,
-        current_block_inflight: progress.current_block_inflight,
-        current_block_duration_ms: current_block_duration_ms,
-        last_block_duration_ms: progress.last_block_duration_ms
-      )
+    {blocks_count, transactions_count} = get_db_counts()
 
-    {:noreply, socket}
+    {:noreply,
+     assign(socket,
+       sync_status: progress,
+       blocks_count: blocks_count,
+       transactions_count: transactions_count,
+       current_block_inflight: progress[:current_block_inflight],
+       current_block_duration_ms: current_block_duration_ms,
+       last_block_duration_ms: progress[:last_block_duration_ms]
+     )}
   end
 
   @impl true
@@ -300,66 +292,54 @@ defmodule BitblocksWeb.SyncLive do
     pipeline_status = safe_get_pipeline_status()
     {blocks_count, transactions_count} = get_db_counts()
 
-    socket =
-      assign(socket,
-        pipeline_status: pipeline_status,
-        blocks_count: blocks_count,
-        transactions_count: transactions_count
-      )
-
-    {:noreply, socket}
+    {:noreply,
+     assign(socket,
+       pipeline_status: pipeline_status,
+       blocks_count: blocks_count,
+       transactions_count: transactions_count
+     )}
   end
 
   @impl true
   def handle_info(:pipeline_started, socket) do
-    pipeline_status = safe_get_pipeline_status()
-    {:noreply, assign(socket, pipeline_status: pipeline_status)}
+    {:noreply, assign(socket, pipeline_status: safe_get_pipeline_status())}
   end
 
   @impl true
   def handle_info(:pipeline_stopped, socket) do
-    pipeline_status = safe_get_pipeline_status()
-    {:noreply, assign(socket, pipeline_status: pipeline_status)}
+    {:noreply, assign(socket, pipeline_status: safe_get_pipeline_status())}
   end
 
   @impl true
   def handle_info(:pipeline_completed, socket) do
-    pipeline_status = safe_get_pipeline_status()
     {blocks_count, transactions_count} = get_db_counts()
 
-    socket =
-      assign(socket,
-        pipeline_status: pipeline_status,
-        blocks_count: blocks_count,
-        transactions_count: transactions_count
-      )
-
-    {:noreply, socket}
+    {:noreply,
+     assign(socket,
+       pipeline_status: safe_get_pipeline_status(),
+       blocks_count: blocks_count,
+       transactions_count: transactions_count
+     )}
   end
 
   @impl true
   def handle_info({:block_error, _height, _error}, socket) do
-    pipeline_status = safe_get_pipeline_status()
-    {:noreply, assign(socket, pipeline_status: pipeline_status)}
+    {:noreply, assign(socket, pipeline_status: safe_get_pipeline_status())}
   end
 
   @impl true
   def handle_info(:poll_tip_sync, socket) do
-    tip_sync_status = safe_get_tip_sync_status()
-    backfill_status = get_backfill_status()
     {blocks_count, transactions_count} = get_db_counts()
 
     socket =
       assign(socket,
-        tip_sync_status: tip_sync_status,
-        backfill_status: backfill_status,
+        tip_sync_status: safe_get_tip_sync_status(),
+        backfill_status: get_backfill_status(),
         blocks_count: blocks_count,
         transactions_count: transactions_count
       )
 
-    # Schedule next poll
     Process.send_after(self(), :poll_tip_sync, 10000)
-
     {:noreply, socket}
   end
 
@@ -434,8 +414,9 @@ defmodule BitblocksWeb.SyncLive do
         transactions_count={@transactions_count}
       />
 
-      <%!-- Database Management --%>
+      <%!-- Database Management (dev only) --%>
       <div
+        :if={@dev_mode}
         class="bg-white dark:bg-gray-800 shadow-md rounded-lg p-6 mb-6"
       >
         <h2
@@ -1428,62 +1409,22 @@ defmodule BitblocksWeb.SyncLive do
     )
   end
 
+  @idle_status %{status: :idle, blocks_synced: 0, total_blocks: 0, current_block: 0, errors_count: 0}
+  @idle_pipeline %{status: :idle, start_height: nil, end_height: nil, current_height: nil, blocks_processed: 0, progress_percent: 0.0, errors_count: 0}
+
   defp safe_get_status(worker) do
     try do
-      GenServer.call(worker, :get_status, 30_000)
+      GenServer.call(worker, :get_status, 2_000)
     catch
-      :exit, {:timeout, _} ->
-        %{status: :idle, blocks_synced: 0, total_blocks: 0, current_block: 0, errors_count: 0}
-
-      :exit, {:noproc, _} ->
-        %{status: :idle, blocks_synced: 0, total_blocks: 0, current_block: 0, errors_count: 0}
-
-      kind, reason ->
-        require Logger
-        Logger.warning("Failed to get sync status: #{inspect(kind)}, #{inspect(reason)}")
-        %{status: :idle, blocks_synced: 0, total_blocks: 0, current_block: 0, errors_count: 0}
+      :exit, _ -> @idle_status
     end
   end
 
   defp safe_get_pipeline_status do
     try do
-      GenServer.call(Bitblocks.Sync.Pipeline, :status, 30_000)
+      GenServer.call(Bitblocks.Sync.Pipeline, :status, 2_000)
     catch
-      :exit, {:timeout, _} ->
-        %{
-          status: :idle,
-          start_height: nil,
-          end_height: nil,
-          current_height: nil,
-          blocks_processed: 0,
-          progress_percent: 0.0,
-          errors_count: 0
-        }
-
-      :exit, {:noproc, _} ->
-        %{
-          status: :idle,
-          start_height: nil,
-          end_height: nil,
-          current_height: nil,
-          blocks_processed: 0,
-          progress_percent: 0.0,
-          errors_count: 0
-        }
-
-      kind, reason ->
-        require Logger
-        Logger.warning("Failed to get pipeline status: #{inspect(kind)}, #{inspect(reason)}")
-
-        %{
-          status: :idle,
-          start_height: nil,
-          end_height: nil,
-          current_height: nil,
-          blocks_processed: 0,
-          progress_percent: 0.0,
-          errors_count: 0
-        }
+      :exit, _ -> @idle_pipeline
     end
   end
 
@@ -1502,18 +1443,12 @@ defmodule BitblocksWeb.SyncLive do
   defp get_backfill_status do
     import Ecto.Query
 
-    total = Bitblocks.Repo.aggregate(Bitblocks.Chain.Block, :count, :id)
+    total = Bitblocks.StatsCache.blocks_count()
 
     completed =
       from(b in Bitblocks.Chain.Block, where: b.sync_state == "completed", select: count())
       |> Bitblocks.Repo.one()
 
-    remaining = total - completed
-
-    percent =
-      if total > 0, do: Float.round(completed / total * 100, 1), else: 0.0
-
-    # Check if a backfill job is currently running
     running =
       from(j in Oban.Job,
         where: j.worker == "Bitblocks.Workers.BackfillTransactionsWorker",
@@ -1522,6 +1457,9 @@ defmodule BitblocksWeb.SyncLive do
       )
       |> Bitblocks.Repo.one()
 
+    remaining = total - completed
+    percent = if total > 0, do: Float.round(completed / total * 100, 1), else: 0.0
+
     state =
       cond do
         running > 0 -> :running
@@ -1529,13 +1467,7 @@ defmodule BitblocksWeb.SyncLive do
         true -> :idle
       end
 
-    %{
-      total: total,
-      completed: completed,
-      remaining: remaining,
-      percent: percent,
-      state: state
-    }
+    %{total: total, completed: completed, remaining: remaining, percent: percent, state: state}
   end
 
   defp job_progress_percent(%{total_blocks: 0}), do: "0.00"
