@@ -8,25 +8,10 @@ defmodule BitblocksWeb.SyncLive do
   def mount(_params, _session, socket) do
     require Logger
 
-    if connected?(socket) do
-      Logger.info("SyncLive: Connected, subscribing to PubSub topics")
-      PubSub.subscribe(Bitblocks.PubSub, "sync_progress")
-      PubSub.subscribe(Bitblocks.PubSub, "sync_pipeline")
-
-      # Poll tip sync status every 10 seconds
-      Process.send_after(self(), :poll_tip_sync, 10000)
-    else
-      Logger.info("SyncLive: Not connected yet (initial HTTP request)")
-    end
-
-    status = safe_get_status(SyncWorker)
-    pipeline_status = safe_get_pipeline_status()
-    tip_sync_status = safe_get_tip_sync_status()
-    chain_tip = get_chain_tip()
-    {blocks_count, transactions_count} = get_db_counts()
-    sync_jobs = get_recent_sync_jobs()
-
-    backfill_status = get_backfill_status()
+    idle_status = %{status: :idle, blocks_synced: 0, total_blocks: 0, current_block: 0, errors_count: 0}
+    idle_pipeline = %{status: :idle, start_height: nil, end_height: nil, current_height: nil, blocks_processed: 0, progress_percent: 0.0, errors_count: 0}
+    idle_tip = %{status: :idle, last_synced_height: nil, current_tip: nil, blocks_synced: 0}
+    idle_backfill = %{total: 0, completed: 0, remaining: 0, percent: 0.0, state: :idle}
 
     socket =
       assign(socket,
@@ -37,20 +22,29 @@ defmodule BitblocksWeb.SyncLive do
         end_block: "",
         tx_start_block: "",
         tx_end_block: "",
-        sync_status: status,
-        pipeline_status: pipeline_status,
-        tip_sync_status: tip_sync_status,
-        backfill_status: backfill_status,
+        sync_status: idle_status,
+        pipeline_status: idle_pipeline,
+        tip_sync_status: idle_tip,
+        backfill_status: idle_backfill,
         form_errors: [],
         tx_form_errors: [],
-        chain_tip: chain_tip,
-        blocks_count: blocks_count,
-        transactions_count: transactions_count,
-        sync_jobs: sync_jobs,
+        chain_tip: nil,
+        blocks_count: 0,
+        transactions_count: 0,
+        sync_jobs: [],
         current_block_inflight: nil,
         current_block_duration_ms: nil,
         last_block_duration_ms: nil
       )
+
+    if connected?(socket) do
+      Logger.info("SyncLive: Connected, loading data")
+      PubSub.subscribe(Bitblocks.PubSub, "sync_progress")
+      PubSub.subscribe(Bitblocks.PubSub, "sync_pipeline")
+
+      send(self(), :load_data)
+      Process.send_after(self(), :poll_tip_sync, 10000)
+    end
 
     {:ok, socket}
   end
@@ -252,6 +246,23 @@ defmodule BitblocksWeb.SyncLive do
       {:error, _reason} ->
         {:noreply, put_flash(socket, :info, "Backfill already running.")}
     end
+  end
+
+  @impl true
+  def handle_info(:load_data, socket) do
+    socket =
+      assign(socket,
+        sync_status: safe_get_status(SyncWorker),
+        pipeline_status: safe_get_pipeline_status(),
+        tip_sync_status: safe_get_tip_sync_status(),
+        backfill_status: get_backfill_status(),
+        chain_tip: get_chain_tip(),
+        blocks_count: elem(get_db_counts(), 0),
+        transactions_count: elem(get_db_counts(), 1),
+        sync_jobs: get_recent_sync_jobs()
+      )
+
+    {:noreply, socket}
   end
 
   @impl true
