@@ -118,7 +118,7 @@ defmodule Bitblocks.Workers.FetchTransactionsWorker do
       if needed_txids == [] do
         {[], []}
       else
-        fetch_batch(needed_txids)
+        fetch_batch(needed_txids, block)
       end
 
     # Write successful transactions to the database
@@ -143,7 +143,7 @@ defmodule Bitblocks.Workers.FetchTransactionsWorker do
     fetch_in_batches(block, batch_end, total, started_at)
   end
 
-  defp fetch_batch(txids) do
+  defp fetch_batch(txids, block) do
     case BitcoinsvCli.batch_getrawtransaction(txids, 1) do
       {:ok, results} ->
         {successful, failed} =
@@ -174,8 +174,8 @@ defmodule Bitblocks.Workers.FetchTransactionsWorker do
                     %{
                       txid: tx["txid"],
                       raw: raw,
-                      block_hash: tx["blockhash"],
-                      block_height: tx["height"],
+                      block_hash: tx["blockhash"] || block.hash,
+                      block_height: tx["height"] || block.height,
                       version: to_string(tx["version"] || 1),
                       inputs: inputs,
                       input_txids: TransactionParser.extract_input_txids(inputs),

@@ -625,6 +625,27 @@ defmodule Bitblocks.Release do
   end
 
   @doc """
+  Backfill block_height on transactions that have block_hash but no block_height.
+
+  ## Usage
+
+      bin/bitblocks rpc 'Bitblocks.Release.backfill_tx_block_heights()'
+  """
+  def backfill_tx_block_heights do
+    {count, _} =
+      Bitblocks.Repo.query!("""
+        UPDATE transactions t
+        SET block_height = b.height
+        FROM blocks b
+        WHERE t.block_hash = b.hash
+          AND t.block_height IS NULL
+      """)
+
+    IO.puts("Updated #{count} transaction(s) with block_height")
+    {:ok, count}
+  end
+
+  @doc """
   Reports gaps in the block chain — missing height ranges.
 
   ## Usage
