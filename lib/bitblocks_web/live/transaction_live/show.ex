@@ -36,16 +36,9 @@ defmodule BitblocksWeb.TransactionLive.Show do
 
     # Get the block for this transaction
     block =
-      cond do
-        transaction && not is_nil(transaction.block_hash) ->
-          Chain.get_block(transaction.block_hash) ||
-            if transaction.block_height, do: Chain.get_block(transaction.block_height), else: nil
-
-        transaction && transaction.block_height ->
+      if transaction do
+        Chain.get_block(transaction.block_hash) ||
           Chain.get_block(transaction.block_height)
-
-        true ->
-          nil
       end
 
     # Parse the transaction for OP_RETURN data

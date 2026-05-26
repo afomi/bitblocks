@@ -183,16 +183,12 @@
             <%= for transaction <- @transactions do %>
               <tr id={"tx-#{transaction.id}"}>
                 <td class="whitespace-nowrap py-4 pl-4 pr-3 text-sm font-medium text-gray-900 dark:text-gray-300 sm:pl-0">
-                  <%= if transaction.block_height do %>
-                    <.link
-                      navigate={~p"/blocks/#{transaction.block_height}"}
-                      class="text-blue-600 dark:text-blue-400 hover:underline"
-                    >
-                      <%= transaction.block_height %>
-                    </.link>
-                  <% else %>
-                    <span class="text-gray-400">-</span>
-                  <% end %>
+                  <.link
+                    navigate={~p"/blocks/#{transaction.block_height}"}
+                    class="text-blue-600 dark:text-blue-400 hover:underline"
+                  >
+                    <%= transaction.block_height %>
+                  </.link>
                 </td>
                 <td class="whitespace-nowrap py-4 pl-4 pr-3 text-sm font-medium text-blue-500 dark:text-blue-400 sm:pl-0 font-mono">
                   <.link navigate={~p"/transactions/#{transaction.txid}"}>

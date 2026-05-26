@@ -62,10 +62,13 @@ defmodule Bitblocks.StatsCache do
     :ets.insert(__MODULE__, {:blocks_count, 0})
     :ets.insert(__MODULE__, {:transactions_count, 0})
 
+    # Subscribe to block updates so counts refresh when blocks complete
+    Phoenix.PubSub.subscribe(Bitblocks.PubSub, "blocks")
+
     # Async refresh will fill in real values
     schedule_refresh(0)
 
-    {:ok, %{}}
+    {:ok, %{refresh_pending: false}}
   end
 
   @impl true
@@ -78,6 +81,22 @@ defmodule Bitblocks.StatsCache do
   def handle_info(:refresh, state) do
     do_refresh()
     schedule_refresh(@refresh_interval)
+    {:noreply, %{state | refresh_pending: false}}
+  end
+
+  @impl true
+  def handle_info({:block_updated, _block}, %{refresh_pending: true} = state) do
+    {:noreply, state}
+  end
+
+  def handle_info({:block_updated, _block}, state) do
+    # Debounce: wait 2 seconds so a burst of block updates triggers one refresh
+    schedule_refresh(2_000)
+    {:noreply, %{state | refresh_pending: true}}
+  end
+
+  @impl true
+  def handle_info(_msg, state) do
     {:noreply, state}
   end
 
