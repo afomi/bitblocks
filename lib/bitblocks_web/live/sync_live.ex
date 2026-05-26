@@ -18,6 +18,8 @@ defmodule BitblocksWeb.SyncLive do
         block_states: %{},
         syncing_blocks: [],
         oban_summary: %{jobs: [], headers: 0, tx_fetch: 0, tip: false},
+        backfill_active: false,
+        services: [],
         refresh_pending: false
       )
 
@@ -154,6 +156,39 @@ defmodule BitblocksWeb.SyncLive do
   end
 
   @impl true
+  def handle_event("start_backfill_txs", _params, socket) do
+    case %{}
+         |> Bitblocks.Workers.BackfillTransactionsWorker.new()
+         |> Oban.insert() do
+      {:ok, _job} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Transaction backfill started")
+         |> refresh_status()}
+
+      {:error, _reason} ->
+        {:noreply, put_flash(socket, :info, "Transaction backfill already running.")}
+    end
+  end
+
+  @impl true
+  def handle_event("stop_backfill_txs", _params, socket) do
+    import Ecto.Query
+
+    {cancelled, _} =
+      from(j in Oban.Job,
+        where: j.worker == "Bitblocks.Workers.BackfillTransactionsWorker",
+        where: j.state in ["available", "scheduled", "executing"]
+      )
+      |> Bitblocks.Repo.update_all(set: [state: "cancelled", cancelled_at: DateTime.utc_now()])
+
+    {:noreply,
+     socket
+     |> put_flash(:info, "Cancelled #{cancelled} backfill job(s)")
+     |> refresh_status()}
+  end
+
+  @impl true
   def handle_event("start_backfill", _params, socket) do
     chain_tip = get_chain_tip()
     to = if chain_tip, do: chain_tip.blocks, else: 0
@@ -200,6 +235,13 @@ defmodule BitblocksWeb.SyncLive do
 
   defp refresh_status(socket) do
     {blocks_count, transactions_count} = get_db_counts()
+    oban_summary = get_oban_summary()
+
+    backfill_active =
+      Enum.any?(oban_summary.jobs, fn j ->
+        j.worker == "Bitblocks.Workers.BackfillTransactionsWorker" and
+          j.state in ["available", "executing", "scheduled"]
+      end)
 
     assign(socket,
       chain_tip: get_chain_tip(),
@@ -207,7 +249,9 @@ defmodule BitblocksWeb.SyncLive do
       transactions_count: transactions_count,
       block_states: get_block_states(),
       syncing_blocks: Bitblocks.Chain.blocks_syncing_transactions(),
-      oban_summary: get_oban_summary()
+      oban_summary: oban_summary,
+      backfill_active: backfill_active,
+      services: get_services_status()
     )
   end
 
@@ -333,6 +377,27 @@ defmodule BitblocksWeb.SyncLive do
                 Start Tip Sync
               </button>
             <% end %>
+
+            <%!-- Backfill toggle --%>
+            <%= if @backfill_active do %>
+              <span class="flex items-center gap-1.5 text-xs text-blue-600">
+                <span class="inline-block w-2 h-2 rounded-full bg-blue-500 animate-pulse"></span>
+                Backfill active
+              </span>
+              <button
+                phx-click="stop_backfill_txs"
+                class="px-3 py-1 text-xs bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300 rounded hover:bg-red-200"
+              >
+                Stop
+              </button>
+            <% else %>
+              <button
+                phx-click="start_backfill_txs"
+                class="px-3 py-1 text-xs bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300 rounded hover:bg-blue-200"
+              >
+                Backfill Txs
+              </button>
+            <% end %>
           </div>
         </div>
 
@@ -419,6 +484,44 @@ defmodule BitblocksWeb.SyncLive do
             <% end %>
           </div>
         <% end %>
+      </div>
+
+      <%!-- Background Services --%>
+      <div class="bg-white dark:bg-gray-800 shadow-md rounded-lg p-6 mb-6">
+        <h2 class="text-lg font-semibold mb-4 text-gray-900 dark:text-white">
+          Background Services
+        </h2>
+        <div class="space-y-1">
+          <%= for svc <- @services do %>
+            <div class="flex items-center justify-between py-2 px-3 rounded text-sm bg-gray-50 dark:bg-gray-900/50">
+              <div class="flex items-center gap-3">
+                <span class={[
+                  "inline-block w-2 h-2 rounded-full",
+                  if(svc.alive, do: "bg-green-500", else: "bg-red-500")
+                ]}></span>
+                <span class="font-mono text-xs text-gray-900 dark:text-gray-100">
+                  <%= svc.name %>
+                </span>
+              </div>
+              <div class="flex items-center gap-4 text-xs text-gray-500 dark:text-gray-400">
+                <%= if svc.detail do %>
+                  <span>
+                    <%= svc.detail %>
+                  </span>
+                <% end %>
+                <span class={[
+                  "px-1.5 py-0.5 rounded",
+                  if(svc.alive,
+                    do: "bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300",
+                    else: "bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300"
+                  )
+                ]}>
+                  <%= if svc.alive, do: "running", else: "down" %>
+                </span>
+              </div>
+            </div>
+          <% end %>
+        </div>
       </div>
 
       <%!-- Sync Range Form --%>
@@ -625,5 +728,52 @@ defmodule BitblocksWeb.SyncLive do
       headers: Enum.count(active, &(&1.worker == "Bitblocks.Workers.SyncHeadersWorker")),
       tx_fetch: Enum.count(active, &(&1.worker == "Bitblocks.Workers.FetchTransactionsWorker"))
     }
+  end
+
+  defp get_services_status do
+    [
+      service_status("StatsCache", Bitblocks.StatsCache, fn ->
+        "#{format_number(Bitblocks.StatsCache.blocks_count())} blocks, #{format_number(Bitblocks.StatsCache.transactions_count())} txs"
+      end),
+      service_status("RpcCache", Bitblocks.RpcCache, fn ->
+        case Bitblocks.RpcCache.get_blockchain_info() do
+          %{"blocks" => blocks} -> "tip #{format_number(blocks)}"
+          _ -> nil
+        end
+      end),
+      service_status("ForkTracker", Bitblocks.ForkTracker, fn ->
+        snap = Bitblocks.ForkTracker.snapshot()
+        tips = length(Map.get(snap, :tips, []))
+        "#{tips} tip(s)"
+      end),
+      service_status("MemoryMonitor", Bitblocks.MemoryMonitor, fn ->
+        info = Bitblocks.MemoryMonitor.get_memory_info()
+        mb = div(info.total, 1_048_576)
+        "#{mb} MB"
+      end),
+      service_status("MiningProxy", Bitblocks.MiningProxy, fn ->
+        status = Bitblocks.MiningProxy.status()
+        if status.enabled, do: "height #{status.height}", else: "disabled"
+      end),
+      service_status("Collections", Bitblocks.Collections, fn ->
+        count = length(Bitblocks.Collections.list())
+        "#{count} registered"
+      end)
+    ]
+  end
+
+  defp service_status(name, module, detail_fn) do
+    alive = Process.whereis(module) != nil
+
+    detail =
+      if alive do
+        try do
+          detail_fn.()
+        rescue
+          _ -> nil
+        end
+      end
+
+    %{name: name, alive: alive, detail: detail}
   end
 end

@@ -11,7 +11,7 @@ defmodule BitblocksWeb.AboutLive do
        Seo.public_page(
          page_title: "About Bitblocks",
          meta_description:
-           "Learn what Bitblocks is, why it focuses on Bitcoin SV, and how it approaches scalable block exploration and protocol visibility.",
+           "Bitblocks is a block explorer for a scalable public ledger. Browse blocks, transactions, and on-chain protocols in real time.",
          canonical_path: "/about"
        )
      )}
@@ -27,7 +27,8 @@ defmodule BitblocksWeb.AboutLive do
             About Bitblocks
           </h1>
           <p class="text-lg text-neutral-400 leading-relaxed">
-            Bitblocks is a Bitcoin SV blockchain explorer that provides real-time access to blocks, transactions, and protocol data on the BSV network.
+            A block explorer for a scalable public ledger.
+            Real-time access to blocks, transactions, and on-chain protocols.
           </p>
         </section>
 
@@ -39,51 +40,52 @@ defmodule BitblocksWeb.AboutLive do
             </p>
             <div class="space-y-1">
               <a
-                href="#bitcoin-sv"
+                href="#what-it-does"
                 class="block text-sm text-neutral-500 hover:text-neutral-50 transition-colors duration-150 py-1"
               >
-                Bitcoin SV
+                What it does
               </a>
               <a
                 href="#scalable-blocks"
                 class="block text-sm text-neutral-500 hover:text-neutral-50 transition-colors duration-150 py-1"
               >
-                Scalable Blocks
+                Scalable blocks
               </a>
               <a
-                href="#bitcoin-script"
+                href="#on-chain-programs"
                 class="block text-sm text-neutral-500 hover:text-neutral-50 transition-colors duration-150 py-1"
               >
-                Bitcoin Script
+                On-chain programs
               </a>
               <a
                 href="#learn-more"
                 class="block text-sm text-neutral-500 hover:text-neutral-50 transition-colors duration-150 py-1"
               >
-                Learn More
+                Learn more
               </a>
             </div>
           </nav>
 
           <%!-- Main content --%>
           <div class="flex-1 min-w-0">
-            <%!-- Bitcoin SV Section --%>
+            <%!-- What it does --%>
             <section
-              id="bitcoin-sv"
+              id="what-it-does"
               class="border-b border-neutral-800 pb-8 mb-8 scroll-mt-8"
             >
               <p class="font-mono text-xs text-neutral-500 uppercase tracking-wider mb-2">
-                Network
+                Explorer
               </p>
               <h2 class="text-2xl font-semibold text-neutral-50 mb-3">
-                Bitcoin SV
+                What it does
               </h2>
               <div class="text-neutral-500 leading-relaxed space-y-2">
                 <p>
-                  Bitcoin SV (Satoshi Vision) is the original Bitcoin protocol, restored and stabilized to fulfill Satoshi Nakamoto's vision of peer-to-peer electronic cash.
+                  Bitblocks indexes a public ledger and makes its contents browsable.
+                  Blocks, transactions, scripts, and protocol data are synced from a node and presented through a web interface and API.
                 </p>
                 <p>
-                  BSV maintains Bitcoin's fundamental design while removing artificial limitations, enabling massive on-chain scaling and unlimited possibilities for applications.
+                  The ledger it indexes is Bitcoin SV — a network that kept the original protocol's unbounded design, making it possible to explore blocks with millions of transactions and on-chain data of any size.
                 </p>
               </div>
             </section>
@@ -97,113 +99,91 @@ defmodule BitblocksWeb.AboutLive do
                 Scale
               </p>
               <h2 class="text-2xl font-semibold text-neutral-50 mb-3">
-                Scalable Blocks
+                Scalable blocks
               </h2>
               <p class="text-neutral-500 leading-relaxed mb-3">
-                Unlike other blockchains with artificial block size limits, BSV has unbounded block sizes that scale with network demand.
+                Most blockchains cap block size, which caps throughput.
+                The ledger Bitblocks indexes has no such cap — blocks grow with demand.
               </p>
               <div class="border-t border-neutral-800">
                 <div class="py-2 border-b border-neutral-800">
                   <p class="text-sm text-neutral-400">
-                    Massive transaction throughput (millions of transactions per block)
+                    Millions of transactions per block
                   </p>
                 </div>
                 <div class="py-2 border-b border-neutral-800">
                   <p class="text-sm text-neutral-400">
-                    Extremely low transaction fees (fractions of a cent)
+                    Sub-cent transaction fees
                   </p>
                 </div>
                 <div class="py-2 border-b border-neutral-800">
                   <p class="text-sm text-neutral-400">
-                    On-chain data storage and complex applications
+                    Arbitrary data stored on-chain
                   </p>
                 </div>
                 <div class="py-2 border-b border-neutral-800">
                   <p class="text-sm text-neutral-400">
-                    Global scale for enterprise and consumer applications
+                    Multi-gigabyte blocks already produced in practice
                   </p>
                 </div>
               </div>
               <p class="text-neutral-500 leading-relaxed mt-3">
-                BSV has proven this capability with multi-gigabyte blocks, demonstrating that blockchain can scale to meet real-world demands.
+                This changes what a block explorer needs to handle.
+                Bitblocks is built for blocks that contain real workloads, not just financial transfers.
               </p>
             </section>
 
-            <%!-- Bitcoin Script Section --%>
+            <%!-- On-chain Programs Section --%>
             <section
-              id="bitcoin-script"
+              id="on-chain-programs"
               class="border-b border-neutral-800 pb-8 mb-8 scroll-mt-8"
             >
               <p class="font-mono text-xs text-neutral-500 uppercase tracking-wider mb-2">
                 Programmability
               </p>
               <h2 class="text-2xl font-semibold text-neutral-50 mb-3">
-                Bitcoin Script
+                On-chain programs
               </h2>
               <p class="text-neutral-500 leading-relaxed mb-3">
-                Bitcoin Script is the original smart contract language built into Bitcoin.
-                It's a simple, stack-based programming language that defines the conditions under which bitcoins can be spent.
-                BSV has restored the full power of Bitcoin Script by:
+                Every transaction contains a script — a small program that defines the conditions for spending.
+                With the full original instruction set available, these scripts can express:
               </p>
               <div class="border-t border-neutral-800">
                 <div class="py-2 border-b border-neutral-800">
                   <p class="text-sm text-neutral-400">
-                    Re-enabling originally disabled opcodes
+                    Tokens and digital assets
                   </p>
                 </div>
                 <div class="py-2 border-b border-neutral-800">
                   <p class="text-sm text-neutral-400">
-                    Removing arbitrary script size limitations
+                    Multi-party conditions and escrow
                   </p>
                 </div>
                 <div class="py-2 border-b border-neutral-800">
                   <p class="text-sm text-neutral-400">
-                    Supporting complex smart contracts and logic
+                    On-chain data protocols (Metanet, MAP, B)
                   </p>
                 </div>
                 <div class="py-2 border-b border-neutral-800">
                   <p class="text-sm text-neutral-400">
-                    Enabling tokens, NFTs, and sophisticated applications
+                    Application logic without script size limits
                   </p>
                 </div>
               </div>
+              <p class="text-neutral-500 leading-relaxed mt-3">
+                Bitblocks parses these protocols and makes them visible — not just the raw hex, but the structured data inside.
+              </p>
             </section>
 
-            <%!-- Additional Links --%>
+            <%!-- Learn More --%>
             <section
               id="learn-more"
               class="pb-8 scroll-mt-8"
             >
               <h2 class="text-lg font-semibold text-neutral-50 mb-3">
-                Learn More
+                Learn more
               </h2>
               <div class="border-t border-neutral-800">
-                <a
-                  href="https://wiki.bitcoinsv.io/"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  class="flex items-center justify-between py-3 border-b border-neutral-800 group"
-                >
-                  <span class="text-sm text-neutral-400 group-hover:text-neutral-50 transition-colors duration-150">
-                    Bitcoin SV Wiki
-                  </span>
-                  <span class="text-neutral-700 group-hover:text-brand transition-colors duration-150">
-                    →
-                  </span>
-                </a>
-                <a
-                  href="https://bitcoinsv.com/"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  class="flex items-center justify-between py-3 border-b border-neutral-800 group"
-                >
-                  <span class="text-sm text-neutral-400 group-hover:text-neutral-50 transition-colors duration-150">
-                    BitcoinSV.com
-                  </span>
-                  <span class="text-neutral-700 group-hover:text-brand transition-colors duration-150">
-                    →
-                  </span>
-                </a>
                 <a
                   href="https://github.com/afomi/bitblocks"
                   target="_blank"
@@ -212,6 +192,19 @@ defmodule BitblocksWeb.AboutLive do
                 >
                   <span class="text-sm text-neutral-400 group-hover:text-neutral-50 transition-colors duration-150">
                     Bitblocks on GitHub
+                  </span>
+                  <span class="text-neutral-700 group-hover:text-brand transition-colors duration-150">
+                    →
+                  </span>
+                </a>
+                <a
+                  href="https://wiki.bitcoinsv.io/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="flex items-center justify-between py-3 border-b border-neutral-800 group"
+                >
+                  <span class="text-sm text-neutral-400 group-hover:text-neutral-50 transition-colors duration-150">
+                    Bitcoin SV Wiki
                   </span>
                   <span class="text-neutral-700 group-hover:text-brand transition-colors duration-150">
                     →

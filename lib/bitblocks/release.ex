@@ -142,6 +142,50 @@ defmodule Bitblocks.Release do
   end
 
   @doc """
+  Start sequential transaction backfill from the lowest incomplete block.
+
+  Processes one block at a time using batch RPC, then moves to the next.
+
+  ## Usage
+
+      bin/bitblocks rpc 'Bitblocks.Release.start_backfill_transactions()'
+  """
+  def start_backfill_transactions do
+    case %{}
+         |> Bitblocks.Workers.BackfillTransactionsWorker.new()
+         |> Oban.insert() do
+      {:ok, job} ->
+        IO.puts("Backfill started (Oban ##{job.id})")
+        {:ok, job}
+
+      {:error, reason} ->
+        IO.puts("Backfill already running or failed: #{inspect(reason)}")
+        {:error, reason}
+    end
+  end
+
+  @doc """
+  Stop transaction backfill.
+
+  ## Usage
+
+      bin/bitblocks rpc 'Bitblocks.Release.stop_backfill_transactions()'
+  """
+  def stop_backfill_transactions do
+    import Ecto.Query
+
+    {cancelled, _} =
+      from(j in Oban.Job,
+        where: j.worker == "Bitblocks.Workers.BackfillTransactionsWorker",
+        where: j.state in ["available", "scheduled", "executing"]
+      )
+      |> Bitblocks.Repo.update_all(set: [state: "cancelled", cancelled_at: DateTime.utc_now()])
+
+    IO.puts("Cancelled #{cancelled} backfill job(s)")
+    {:ok, cancelled}
+  end
+
+  @doc """
   Clear all pending/scheduled/retryable Oban jobs.
 
   ## Usage
