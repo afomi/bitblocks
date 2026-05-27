@@ -184,6 +184,7 @@
               <tr id={"tx-#{transaction.id}"}>
                 <td class="whitespace-nowrap py-4 pl-4 pr-3 text-sm font-medium text-gray-900 dark:text-gray-300 sm:pl-0">
                   <.link
+                    :if={transaction.block_height}
                     navigate={~p"/blocks/#{transaction.block_height}"}
                     class="text-blue-600 dark:text-blue-400 hover:underline"
                   >

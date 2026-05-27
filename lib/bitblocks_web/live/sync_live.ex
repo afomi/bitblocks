@@ -769,8 +769,8 @@ defmodule BitblocksWeb.SyncLive do
       if alive do
         try do
           detail_fn.()
-        rescue
-          _ -> nil
+        catch
+          _, _ -> nil
         end
       end
 
