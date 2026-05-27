@@ -1,17 +1,16 @@
 defmodule Bitblocks.Workers.SyncHeadersWorker do
   @moduledoc """
-  Ensures block headers exist in the database.
+  Ensures block headers exist in the database. Headers only — no
+  transaction fetching. Transaction downloads are handled separately
+  by `BackfillTransactionsWorker` (sequential, one block at a time).
 
   Two modes:
 
     * **Range** — fill gaps in a height range, then exit.
       `%{"mode" => "range", "from" => 0, "to" => 50_000}`
 
-    * **Tip** — check chain tip, sync new blocks, re-enqueue in 30 s.
+    * **Tip** — check chain tip, sync new headers, re-enqueue in 30 s.
       `%{"mode" => "tip"}`
-
-  For each newly inserted header, a `FetchTransactionsWorker` job is
-  enqueued automatically via `Chain.queue_transaction_fetch/1`.
   """
 
   use Oban.Worker,
@@ -26,9 +25,6 @@ defmodule Bitblocks.Workers.SyncHeadersWorker do
 
   @batch_size 500
   @tip_delay_seconds 30
-
-  # How many blocks to process for tx fetch per drain cycle.
-  @drain_batch 20
 
   # -- perform -----------------------------------------------------------------
 
@@ -51,8 +47,6 @@ defmodule Bitblocks.Workers.SyncHeadersWorker do
 
     if total_missing == 0 do
       Logger.info("SyncHeaders: range #{from}..#{to} — no gaps")
-      # No gaps in headers — drain any pending tx fetches
-      drain_pending_tx_fetches()
       :ok
     else
       Logger.info(
@@ -94,175 +88,11 @@ defmodule Bitblocks.Workers.SyncHeadersWorker do
         :ok
 
       true ->
-        # Up to date — use this cycle to drain any header_only backlog
-        drain_pending_tx_fetches()
+        # Up to date — headers only. Transaction fetching is handled
+        # by BackfillTransactionsWorker (sequential, one block at a time).
         reschedule_tip(@tip_delay_seconds)
         :ok
     end
-  end
-
-  # Fetch transactions inline for blocks in header_only/header_synced.
-  # Tight loop: upgrade block → fetch txs → store → next. No Oban per-block overhead.
-  defp drain_pending_tx_fetches do
-    import Ecto.Query
-
-    blocks =
-      from(b in Block,
-        where: b.sync_state in ["header_only", "header_synced"],
-        order_by: [asc: b.height],
-        limit: ^@drain_batch
-      )
-      |> Repo.all()
-
-    if blocks != [] do
-      Logger.info("SyncHeaders: fetching txs for #{length(blocks)} blocks inline")
-
-      completed =
-        Enum.count(blocks, fn block ->
-          case sync_block_transactions(block) do
-            :ok -> true
-            _ -> false
-          end
-        end)
-
-      Logger.info("SyncHeaders: completed #{completed}/#{length(blocks)} blocks")
-    end
-  end
-
-  # Fetch all transactions for a single block. Inline, no Oban job.
-  # 1. Upgrade to get txid list (if needed)
-  # 2. Skip txids already in DB
-  # 3. Fetch remaining txs from RPC
-  # 4. Store and mark block completed
-  defp sync_block_transactions(%Block{} = block) do
-    with {:ok, block} <- ensure_txids(block),
-         {:ok, block} <- mark_syncing(block) do
-      txids = block.tx || []
-      existing = existing_txids_for_block(block.hash)
-      missing = txids -- existing
-
-      if missing == [] do
-        mark_completed(block)
-        :ok
-      else
-        case fetch_and_store_txs(missing, block) do
-          :ok ->
-            mark_completed(block)
-            :ok
-
-          {:error, reason} ->
-            mark_failed(block, reason)
-            {:error, reason}
-        end
-      end
-    else
-      {:error, reason} ->
-        Logger.error("SyncHeaders: tx sync failed for block #{block.height}: #{inspect(reason)}")
-        {:error, reason}
-    end
-  end
-
-  defp ensure_txids(%Block{tx: tx} = block) when is_list(tx) and tx != [] do
-    {:ok, block}
-  end
-
-  defp ensure_txids(%Block{hash: hash}) do
-    case Chain.upgrade_block_to_header_synced(hash) do
-      {:ok, upgraded} -> {:ok, upgraded}
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
-  defp existing_txids_for_block(block_hash) do
-    import Ecto.Query
-
-    from(t in Chain.Transaction,
-      where: t.block_hash == ^block_hash,
-      select: t.txid
-    )
-    |> Repo.all()
-  end
-
-  defp fetch_and_store_txs(txids, block) do
-    alias Bitblocks.TransactionParser
-
-    errors =
-      Enum.filter(txids, fn txid ->
-        case BitcoinsvCli.getrawtransaction(txid, 1) do
-          tx when is_map(tx) ->
-            raw = tx["hex"]
-
-            analysis =
-              case TransactionParser.analyze(raw) do
-                {:ok, meta} -> meta
-                _ -> %{}
-              end
-
-            inputs = (tx["vin"] || []) |> Enum.map(&Jason.encode!/1)
-            outputs = (tx["vout"] || []) |> Enum.map(&Jason.encode!/1)
-
-            tx_data =
-              Map.merge(
-                %{
-                  txid: tx["txid"],
-                  raw: raw,
-                  block_hash: tx["blockhash"] || block.hash,
-                  block_height: tx["height"] || block.height,
-                  version: to_string(tx["version"] || 1),
-                  inputs: inputs,
-                  input_txids: TransactionParser.extract_input_txids(inputs),
-                  outputs: outputs,
-                  output_addresses: TransactionParser.extract_output_addresses(outputs)
-                },
-                analysis
-              )
-
-            changeset = Chain.Transaction.changeset(%Chain.Transaction{}, tx_data)
-
-            case Repo.insert(changeset, on_conflict: :nothing, conflict_target: :txid) do
-              {:ok, stored_tx} -> Chain.record_spends(stored_tx)
-              _ -> :ok
-            end
-
-            false
-
-          error ->
-            Logger.warning("SyncHeaders: failed to fetch tx #{txid}: #{inspect(error)}")
-            true
-        end
-      end)
-
-    if errors == [], do: :ok, else: {:error, "#{length(errors)} tx(s) failed"}
-  end
-
-  defp mark_syncing(block) do
-    block
-    |> Ecto.Changeset.change(%{
-      sync_state: "txs_syncing",
-      tx_sync_started_at: DateTime.utc_now() |> DateTime.truncate(:second)
-    })
-    |> Repo.update()
-    |> tap(fn {:ok, b} -> Chain.broadcast_block_update(b); _ -> :ok end)
-  end
-
-  defp mark_completed(block) do
-    block
-    |> Ecto.Changeset.change(%{
-      sync_state: "completed",
-      tx_sync_completed_at: DateTime.utc_now() |> DateTime.truncate(:second)
-    })
-    |> Repo.update()
-    |> tap(fn {:ok, b} -> Chain.broadcast_block_update(b); _ -> :ok end)
-  end
-
-  defp mark_failed(block, error) do
-    block
-    |> Ecto.Changeset.change(%{
-      sync_state: "failed",
-      tx_sync_error: inspect(error)
-    })
-    |> Repo.update()
-    |> tap(fn {:ok, b} -> Chain.broadcast_block_update(b); _ -> :ok end)
   end
 
   defp reschedule_tip(delay) do
