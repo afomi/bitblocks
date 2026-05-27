@@ -151,17 +151,26 @@ defmodule Bitblocks.Release do
       bin/bitblocks rpc 'Bitblocks.Release.start_backfill_transactions()'
   """
   def start_backfill_transactions do
-    case %{}
-         |> Bitblocks.Workers.BackfillTransactionsWorker.new()
-         |> Oban.insert() do
-      {:ok, job} ->
-        IO.puts("Backfill started (Oban ##{job.id})")
-        {:ok, job}
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
 
-      {:error, reason} ->
-        IO.puts("Backfill already running or failed: #{inspect(reason)}")
-        {:error, reason}
-    end
+    Bitblocks.Repo.insert_all(
+      "oban_jobs",
+      [
+        %{
+          queue: "transactions",
+          worker: "Bitblocks.Workers.BackfillTransactionsWorker",
+          args: %{},
+          state: "available",
+          max_attempts: 3,
+          inserted_at: now,
+          scheduled_at: now
+        }
+      ],
+      on_conflict: :nothing
+    )
+
+    IO.puts("Backfill job inserted")
+    :ok
   end
 
   @doc """
