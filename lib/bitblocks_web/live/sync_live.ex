@@ -18,7 +18,7 @@ defmodule BitblocksWeb.SyncLive do
         block_states: %{},
         syncing_blocks: [],
         oban_summary: %{jobs: [], headers: 0, tx_fetch: 0, tip: false},
-        backfill_active: false,
+        sync_server: %{running: false, current_block: nil, blocks_completed: 0},
         services: [],
         refresh_pending: false
       )
@@ -156,35 +156,22 @@ defmodule BitblocksWeb.SyncLive do
   end
 
   @impl true
-  def handle_event("start_backfill_txs", _params, socket) do
-    case %{}
-         |> Bitblocks.Workers.BackfillTransactionsWorker.new()
-         |> Oban.insert() do
-      {:ok, _job} ->
-        {:noreply,
-         socket
-         |> put_flash(:info, "Transaction backfill started")
-         |> refresh_status()}
-
-      {:error, _reason} ->
-        {:noreply, put_flash(socket, :info, "Transaction backfill already running.")}
-    end
-  end
-
-  @impl true
-  def handle_event("stop_backfill_txs", _params, socket) do
-    import Ecto.Query
-
-    {cancelled, _} =
-      from(j in Oban.Job,
-        where: j.worker == "Bitblocks.Workers.BackfillTransactionsWorker",
-        where: j.state in ["available", "scheduled", "executing"]
-      )
-      |> Bitblocks.Repo.update_all(set: [state: "cancelled", cancelled_at: DateTime.utc_now()])
+  def handle_event("start_sync_server", _params, socket) do
+    Bitblocks.SyncServer.start_sync()
 
     {:noreply,
      socket
-     |> put_flash(:info, "Cancelled #{cancelled} backfill job(s)")
+     |> put_flash(:info, "Sync started")
+     |> refresh_status()}
+  end
+
+  @impl true
+  def handle_event("stop_sync_server", _params, socket) do
+    Bitblocks.SyncServer.stop_sync()
+
+    {:noreply,
+     socket
+     |> put_flash(:info, "Sync stopped")
      |> refresh_status()}
   end
 
@@ -235,13 +222,13 @@ defmodule BitblocksWeb.SyncLive do
 
   defp refresh_status(socket) do
     {blocks_count, transactions_count} = get_db_counts()
-    oban_summary = get_oban_summary()
 
-    backfill_active =
-      Enum.any?(oban_summary.jobs, fn j ->
-        j.worker == "Bitblocks.Workers.BackfillTransactionsWorker" and
-          j.state in ["available", "executing", "scheduled"]
-      end)
+    sync_server =
+      try do
+        Bitblocks.SyncServer.status()
+      catch
+        _, _ -> %{running: false, current_block: nil, blocks_completed: 0}
+      end
 
     assign(socket,
       chain_tip: get_chain_tip(),
@@ -249,8 +236,8 @@ defmodule BitblocksWeb.SyncLive do
       transactions_count: transactions_count,
       block_states: get_block_states(),
       syncing_blocks: Bitblocks.Chain.blocks_syncing_transactions(),
-      oban_summary: oban_summary,
-      backfill_active: backfill_active,
+      oban_summary: get_oban_summary(),
+      sync_server: sync_server,
       services: get_services_status()
     )
   end
@@ -378,24 +365,28 @@ defmodule BitblocksWeb.SyncLive do
               </button>
             <% end %>
 
-            <%!-- Backfill toggle --%>
-            <%= if @backfill_active do %>
+            <%!-- Sync Server toggle --%>
+            <%= if @sync_server.running do %>
               <span class="flex items-center gap-1.5 text-xs text-blue-600">
                 <span class="inline-block w-2 h-2 rounded-full bg-blue-500 animate-pulse"></span>
-                Backfill active
+                Syncing txs
+                <%= if @sync_server.current_block do %>
+                  — block <%= @sync_server.current_block.height %>
+                <% end %>
+                (<%= @sync_server.blocks_completed %> done)
               </span>
               <button
-                phx-click="stop_backfill_txs"
+                phx-click="stop_sync_server"
                 class="px-3 py-1 text-xs bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300 rounded hover:bg-red-200"
               >
                 Stop
               </button>
             <% else %>
               <button
-                phx-click="start_backfill_txs"
+                phx-click="start_sync_server"
                 class="px-3 py-1 text-xs bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300 rounded hover:bg-blue-200"
               >
-                Backfill Txs
+                Sync Txs
               </button>
             <% end %>
           </div>
