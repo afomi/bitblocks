@@ -155,6 +155,80 @@ defmodule BitblocksWeb.Api.OrderBookControllerTest do
     end
   end
 
+  describe "GET /api/v1/order-book/tokens/:token_id/market" do
+    test "returns a market summary as JSON", %{conn: conn, protocol: protocol} do
+      create_listing(protocol, %{
+        parsed_data: %{
+          "op" => "list",
+          "token_id" => @test_token_id,
+          "quantity" => "100",
+          "price_satoshis" => "5000",
+          "seller_address" => @test_seller,
+          "token_utxo" => "filled:0"
+        },
+        state: %{
+          "status" => "filled",
+          "quantity_remaining" => "0",
+          "fills" => [%{"txid" => random_txid(), "quantity" => "100"}]
+        },
+        spent: true
+      })
+
+      _active = create_listing(protocol)
+
+      conn = get(conn, ~p"/api/v1/order-book/tokens/#{@test_token_id}/market")
+
+      response = json_response(conn, 200)
+      assert response["token_id"] == @test_token_id
+      assert response["data"]["total_volume"] == 500_000
+      assert response["data"]["num_trades"] == 1
+      assert response["data"]["num_active_listings"] == 1
+      assert response["data"]["floor_price"] == 5000
+    end
+  end
+
+  describe "GET /api/v1/order-book/tokens/:token_id/trades" do
+    test "returns recent trades as JSON", %{conn: conn, protocol: protocol} do
+      create_listing(protocol, %{
+        parsed_data: %{
+          "op" => "list",
+          "token_id" => @test_token_id,
+          "quantity" => "100",
+          "price_satoshis" => "5000",
+          "seller_address" => @test_seller,
+          "token_utxo" => "filled:0"
+        },
+        state: %{
+          "status" => "filled",
+          "quantity_remaining" => "0",
+          "fills" => [
+            %{"txid" => "trade_1", "quantity" => "40"},
+            %{"txid" => "trade_2", "quantity" => "60"}
+          ]
+        },
+        spent: true
+      })
+
+      conn = get(conn, ~p"/api/v1/order-book/tokens/#{@test_token_id}/trades")
+
+      response = json_response(conn, 200)
+      assert response["token_id"] == @test_token_id
+      assert response["count"] == 2
+
+      trade = hd(response["data"])
+      assert trade["price_satoshis"] == 5000
+      assert trade["total_satoshis"] == trade["quantity"] * trade["price_satoshis"]
+    end
+
+    test "returns empty for a token with no fills", %{conn: conn} do
+      conn = get(conn, ~p"/api/v1/order-book/tokens/no_fills_token/trades")
+
+      response = json_response(conn, 200)
+      assert response["count"] == 0
+      assert response["data"] == []
+    end
+  end
+
   describe "GET /api/v1/order-book/stats" do
     test "returns aggregate statistics", %{conn: conn, protocol: protocol} do
       _active = create_listing(protocol)

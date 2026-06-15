@@ -40,6 +40,7 @@ defmodule Bitblocks.Workers.FetchTransactionsWorker do
   alias Bitblocks.Repo
   alias Bitblocks.Chain
   alias Bitblocks.Chain.Block
+  alias Bitblocks.Chain.MerkleVerifier
   alias Bitblocks.TransactionParser
 
   # How many transactions to fetch and write per batch.
@@ -60,6 +61,7 @@ defmodule Bitblocks.Workers.FetchTransactionsWorker do
     with {:ok, block} <- get_block(block_hash),
          {:ok, block} <- check_confirmations(block),
          {:ok, block} <- ensure_has_txids(block),
+         {:ok, block} <- verify_merkleroot(block),
          {:ok, block} <- transition_to_syncing(block) do
       total = length(block.tx)
       # Resume from where we left off if the block has prior progress
@@ -143,6 +145,23 @@ defmodule Bitblocks.Workers.FetchTransactionsWorker do
     fetch_in_batches(block, batch_end, total, started_at)
   end
 
+  @doc false
+  # True iff `raw` decodes and its computed txid equals `expected`. Total: a
+  # non-binary or undecodable body simply fails the check (fail closed). A nil
+  # raw means the node returned no body — let it through so the existing
+  # changeset/`analyze` path handles it (the txid is already merkleroot-authed).
+  # Public for testing.
+  def body_matches_txid?(nil, _expected), do: true
+
+  def body_matches_txid?(raw, expected) when is_binary(raw) do
+    case Bitblocks.Chain.SafeTx.from_hex(raw) do
+      {:ok, tx} -> BSV.Tx.get_txid(tx) == expected
+      {:error, _} -> false
+    end
+  end
+
+  def body_matches_txid?(_raw, _expected), do: false
+
   defp fetch_batch(txids, block) do
     case BitcoinsvCli.batch_getrawtransaction(txids, 1) do
       {:ok, results} ->
@@ -160,32 +179,45 @@ defmodule Bitblocks.Workers.FetchTransactionsWorker do
               tx when is_map(tx) ->
                 raw = tx["hex"]
 
-                analysis =
-                  case TransactionParser.analyze(raw) do
-                    {:ok, meta} -> meta
-                    _ -> %{}
-                  end
+                # T4 (tx-body): the txid list is merkleroot-authenticated, but the
+                # body arrives separately. Confirm the raw bytes actually hash to
+                # the txid we asked for, so the node can't slip a doctored body
+                # under a valid txid. Skip closed if we can't recompute (the
+                # merkleroot gate is the primary defense).
+                if body_matches_txid?(raw, txid) do
+                  analysis =
+                    case TransactionParser.analyze(raw) do
+                      {:ok, meta} -> meta
+                      _ -> %{}
+                    end
 
-                inputs = (tx["vin"] || []) |> Enum.map(&Jason.encode!/1)
-                outputs = (tx["vout"] || []) |> Enum.map(&Jason.encode!/1)
+                  inputs = (tx["vin"] || []) |> Enum.map(&Jason.encode!/1)
+                  outputs = (tx["vout"] || []) |> Enum.map(&Jason.encode!/1)
 
-                parsed =
-                  Map.merge(
-                    %{
-                      txid: tx["txid"],
-                      raw: raw,
-                      block_hash: tx["blockhash"] || block.hash,
-                      block_height: tx["height"] || block.height,
-                      version: to_string(tx["version"] || 1),
-                      inputs: inputs,
-                      input_txids: TransactionParser.extract_input_txids(inputs),
-                      outputs: outputs,
-                      output_addresses: TransactionParser.extract_output_addresses(outputs)
-                    },
-                    analysis
+                  parsed =
+                    Map.merge(
+                      %{
+                        txid: txid,
+                        raw: raw,
+                        block_hash: tx["blockhash"] || block.hash,
+                        block_height: tx["height"] || block.height,
+                        version: to_string(tx["version"] || 1),
+                        inputs: inputs,
+                        input_txids: TransactionParser.extract_input_txids(inputs),
+                        outputs: outputs,
+                        output_addresses: TransactionParser.extract_output_addresses(outputs)
+                      },
+                      analysis
+                    )
+
+                  {[parsed | ok_acc], err_acc}
+                else
+                  Logger.error(
+                    "FetchTxs block=#{block.height} REJECTED tx #{txid} — body does not hash to txid"
                   )
 
-                {[parsed | ok_acc], err_acc}
+                  {ok_acc, [txid | err_acc]}
+                end
             end
           end)
 
@@ -297,6 +329,46 @@ defmodule Bitblocks.Workers.FetchTransactionsWorker do
   end
 
   defp ensure_has_txids(block), do: {:ok, block}
+
+  # T4: the txid list arrives from the (untrusted) node separately from the
+  # header. The header's merkleroot is trustworthy because the header is
+  # PoW-verified (see HeaderVerifier), so rebuilding the root from the txid
+  # list and matching it authenticates the ordered set of txids before we
+  # spend effort fetching bodies. Fails closed on mismatch.
+  #
+  # Large blocks don't store the full tx array (a memory optimization — the
+  # array is dropped above ~10k txs), so the list is incomplete and the root
+  # can't be rebuilt. We skip verification in that case rather than fail, but
+  # log it so a skipped check is never mistaken for a passed one.
+  defp verify_merkleroot(%Block{merkleroot: root, tx: txids, num_tx: num_tx} = block)
+       when is_binary(root) and is_list(txids) do
+    cond do
+      txids == [] or (is_integer(num_tx) and length(txids) != num_tx) ->
+        Logger.info(
+          "FetchTxs block=#{block.height} merkleroot check SKIPPED " <>
+            "(incomplete txid list: have=#{length(txids)} num_tx=#{inspect(num_tx)})"
+        )
+
+        {:ok, block}
+
+      true ->
+        case MerkleVerifier.verify(txids, root) do
+          :ok ->
+            {:ok, block}
+
+          {:error, reason} ->
+            Logger.error(
+              "FetchTxs block=#{block.height} REJECTED — txid list does not match " <>
+                "header merkleroot: #{inspect(reason)}"
+            )
+
+            {:error, {:merkleroot_verification_failed, reason}}
+        end
+    end
+  end
+
+  # No merkleroot or no list to check against — nothing to verify, proceed.
+  defp verify_merkleroot(block), do: {:ok, block}
 
   defp transition_to_syncing(block) do
     case block

@@ -3,6 +3,24 @@ defmodule BitcoinsvCli do
   Documentation for `BitcoinsvCli`.
   """
 
+  require Logger
+
+  # T9: node responses are untrusted (TB2) and may contain sensitive or
+  # attacker-influenced content. When logging an error body/reason, cap its
+  # length so a node can't flood the logs and we don't echo large payloads
+  # verbatim into operator-visible output.
+  @max_log_body 500
+
+  defp redact(value) when is_binary(value) do
+    if byte_size(value) > @max_log_body do
+      binary_part(value, 0, @max_log_body) <> "…(truncated #{byte_size(value)} bytes)"
+    else
+      value
+    end
+  end
+
+  defp redact(value), do: value |> inspect() |> redact()
+
   #
   # Specify BitcoinSV node info from `config.exs`
   #
@@ -382,8 +400,6 @@ defmodule BitcoinsvCli do
         txids
       end
 
-    require Logger
-
     Logger.info("Fetching #{length(limited_txids)} transactions in chunks of #{chunk_size}")
 
     # Process in chunks
@@ -431,36 +447,36 @@ defmodule BitcoinsvCli do
         result
       else
         {:error, :missing_bitcoin_url} ->
-          IO.puts("Bitcoin RPC Error: BITCOIN_NODE_URL is not configured")
+          Logger.error("Bitcoin RPC Error: BITCOIN_NODE_URL is not configured")
           {:error, :missing_bitcoin_url}
 
         {:ok, %HTTPoison.Response{status_code: status, body: body}} ->
-          IO.puts("HTTP #{status}: #{body}")
+          Logger.error("Bitcoin RPC HTTP #{status}: #{redact(body)}")
           {:error, {:http_error, status, body}}
 
         {:ok, %{"error" => %{"code" => -32601, "message" => "Method not found"}}} ->
-          IO.puts("METHOD NOT FOUND. bitcoind may need `disablewallet=0` set in bitcoin.conf")
+          Logger.error("METHOD NOT FOUND. bitcoind may need `disablewallet=0` set in bitcoin.conf")
           {:error, :method_not_found}
 
         {:error, :invalid, 0} ->
-          IO.puts("Retrying request after 5 seconds due to transient error")
+          Logger.warning("Retrying request after 5 seconds due to transient error")
           Process.sleep(5_000)
           bitcoin_rpc(method, params)
 
         {:ok, %{"error" => reason}} ->
-          IO.puts("RPC Error: #{inspect(reason)}")
+          Logger.error("Bitcoin RPC error: #{redact(reason)}")
           {:error, reason}
 
         {:error, %HTTPoison.Error{reason: reason}} ->
-          IO.puts("HTTP Connection Error: #{inspect(reason)}")
+          Logger.error("Bitcoin RPC connection error: #{redact(reason)}")
           {:error, {:connection_error, reason}}
 
-        {:error, %Poison.ParseError{} = error} ->
-          IO.puts("JSON Parse Error: Empty or invalid response from Bitcoin node")
-          {:error, {:parse_error, error}}
+        {:error, %Poison.ParseError{}} ->
+          Logger.error("Bitcoin RPC parse error: empty or invalid response from node")
+          {:error, {:parse_error, :invalid_json}}
 
         {:error, reason} ->
-          IO.puts("Unexpected Error: #{inspect(reason)}")
+          Logger.error("Bitcoin RPC unexpected error: #{redact(reason)}")
           {:error, reason}
       end
     end)

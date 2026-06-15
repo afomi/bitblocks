@@ -36,7 +36,7 @@ defmodule Bitblocks.ProtocolParser do
   """
   @spec parse_raw(binary(), String.t()) :: {:ok, map()} | {:error, atom()}
   def parse_raw(raw_hex, protocol) when is_binary(raw_hex) do
-    case BSV.Tx.from_binary(raw_hex, encoding: :hex) do
+    case Bitblocks.Chain.SafeTx.from_hex(raw_hex) do
       {:ok, tx} ->
         op_returns = Bitblocks.TransactionParser.extract_op_returns(tx.outputs)
         parse_op_returns(op_returns, protocol)

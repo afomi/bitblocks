@@ -53,9 +53,26 @@ defmodule BitblocksWeb.Api.MiningController do
   POST /api/v1/mining/submit
   """
   def submit(conn, %{"work_id" => work_id, "nonce" => nonce, "timestamp" => timestamp}) do
-    nonce = if is_binary(nonce), do: String.to_integer(nonce), else: nonce
-    timestamp = if is_binary(timestamp), do: String.to_integer(timestamp), else: timestamp
+    # T11: nonce/timestamp are untrusted. Both are 32-bit header fields, packed
+    # as `::little-32` downstream — a non-numeric value crashed `String.to_integer`
+    # and an out-of-range value crashed the binary construction. Parse totally and
+    # bound to an unsigned 32-bit int, returning 400 instead of raising.
+    with {:ok, nonce} <- parse_u32(nonce),
+         {:ok, timestamp} <- parse_u32(timestamp) do
+      submit_solution(conn, work_id, nonce, timestamp)
+    else
+      {:error, :invalid_u32} ->
+        conn
+        |> put_status(400)
+        |> json(%{error: "nonce and timestamp must be unsigned 32-bit integers"})
+    end
+  end
 
+  def submit(conn, _params) do
+    conn |> put_status(400) |> json(%{error: "Missing required fields: work_id, nonce, timestamp"})
+  end
+
+  defp submit_solution(conn, work_id, nonce, timestamp) do
     case MiningProxy.submit(work_id, nonce, timestamp) do
       {:ok, block_hash} ->
         json(conn, %{status: "accepted", block_hash: block_hash})
@@ -74,9 +91,20 @@ defmodule BitblocksWeb.Api.MiningController do
     end
   end
 
-  def submit(conn, _params) do
-    conn |> put_status(400) |> json(%{error: "Missing required fields: work_id, nonce, timestamp"})
+  # Total parse to an unsigned 32-bit integer (0..2^32-1). Accepts an integer or
+  # a decimal string; rejects everything else (no raise on bad input).
+  @u32_max 0xFFFFFFFF
+
+  defp parse_u32(n) when is_integer(n) and n >= 0 and n <= @u32_max, do: {:ok, n}
+
+  defp parse_u32(s) when is_binary(s) do
+    case Integer.parse(s) do
+      {n, ""} when n >= 0 and n <= @u32_max -> {:ok, n}
+      _ -> {:error, :invalid_u32}
+    end
   end
+
+  defp parse_u32(_), do: {:error, :invalid_u32}
 
   @doc """
   Mining proxy status.

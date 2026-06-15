@@ -8,7 +8,7 @@ defmodule Bitblocks.StatsCache do
   require Logger
 
   alias Bitblocks.Repo
-  alias Bitblocks.Chain.{Block, Transaction}
+  alias Bitblocks.Chain.Block
 
   @refresh_interval :timer.seconds(60)
 
@@ -20,28 +20,28 @@ defmodule Bitblocks.StatsCache do
 
   @doc """
   Returns the cached block count.
-  Falls back to database query if cache is not available.
+  Returns 0 if the cache is unavailable rather than falling through to a full-table scan.
   """
   def blocks_count do
     case :ets.lookup(__MODULE__, :blocks_count) do
       [{:blocks_count, count}] -> count
-      [] -> fetch_blocks_count()
+      [] -> 0
     end
   rescue
-    ArgumentError -> fetch_blocks_count()
+    ArgumentError -> 0
   end
 
   @doc """
   Returns the cached transaction count.
-  Falls back to database query if cache is not available.
+  Returns 0 if the cache is unavailable rather than falling through to a full-table scan.
   """
   def transactions_count do
     case :ets.lookup(__MODULE__, :transactions_count) do
       [{:transactions_count, count}] -> count
-      [] -> fetch_transactions_count()
+      [] -> 0
     end
   rescue
-    ArgumentError -> fetch_transactions_count()
+    ArgumentError -> 0
   end
 
   @doc """
@@ -109,12 +109,8 @@ defmodule Bitblocks.StatsCache do
   defp do_refresh do
     Logger.debug("StatsCache: refreshing counts")
 
-    # Run counts in parallel using Task
-    blocks_task = Task.async(fn -> fetch_blocks_count() end)
-    transactions_task = Task.async(fn -> fetch_transactions_count() end)
-
-    blocks_count = Task.await(blocks_task, 120_000)
-    transactions_count = Task.await(transactions_task, 120_000)
+    blocks_count = fetch_blocks_count()
+    transactions_count = fetch_transactions_count()
 
     :ets.insert(__MODULE__, {:blocks_count, blocks_count})
     :ets.insert(__MODULE__, {:transactions_count, transactions_count})
@@ -134,7 +130,18 @@ defmodule Bitblocks.StatsCache do
   end
 
   defp fetch_transactions_count do
-    Repo.aggregate(Transaction, :count, :id)
+    # Use pg_class reltuples for a fast approximate count on the 29GB transactions table.
+    # An exact COUNT(*) requires a full sequential scan (~1.7s) that causes pool exhaustion.
+    result =
+      Repo.query!(
+        "SELECT reltuples::bigint FROM pg_class WHERE relname = 'transactions'",
+        []
+      )
+
+    case result.rows do
+      [[count]] when is_integer(count) and count >= 0 -> count
+      _ -> 0
+    end
   rescue
     _ -> 0
   end

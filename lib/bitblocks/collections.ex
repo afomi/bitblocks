@@ -275,7 +275,7 @@ defmodule Bitblocks.Collections do
       end)
 
     {input_count, output_count} =
-      case BSV.Tx.from_binary(raw, encoding: :hex) do
+      case Bitblocks.Chain.SafeTx.from_hex(raw) do
         {:ok, decoded_tx} -> {length(decoded_tx.inputs), length(decoded_tx.outputs)}
         {:error, _} -> {0, 0}
       end

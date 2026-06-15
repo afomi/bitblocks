@@ -61,7 +61,7 @@ defmodule BitblocksWeb.TransactionLive.Show do
 
     decoded_tx =
       if transaction && transaction.raw do
-        case BSV.Tx.from_binary(transaction.raw, encoding: :hex) do
+        case Bitblocks.Chain.SafeTx.from_hex(transaction.raw) do
           {:ok, tx} -> tx
           {:error, _reason} -> nil
         end

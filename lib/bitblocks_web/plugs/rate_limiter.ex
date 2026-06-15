@@ -13,10 +13,19 @@ defmodule BitblocksWeb.Plugs.RateLimiter do
 
   Defaults to 20 requests per minute — tight. Casual browsing is fine,
   scripted abuse hits the wall fast. Static assets bypass this plug.
+
+  ## Cluster awareness (T1/T12)
+
+  The counter is node-local ETS. When the app runs as a cluster, each admitted
+  request is broadcast to peers via `RateLimiter.Replicator`, so every node's
+  sliding window reflects cluster-wide traffic and the cap isn't multiplied by
+  the instance count. Eventually consistent; see the Replicator docs.
   """
 
   import Plug.Conn
   require Logger
+
+  alias BitblocksWeb.Plugs.RateLimiter.Replicator
 
   @table :rate_limiter
   @default_window_ms 60_000
@@ -68,19 +77,38 @@ defmodule BitblocksWeb.Plugs.RateLimiter do
           {:error, retry_after}
         else
           :ets.insert(@table, {ip, [now | recent]})
+          replicate(ip, now)
           {:ok, count}
         end
 
       [] ->
         :ets.insert(@table, {ip, [now]})
+        replicate(ip, now)
         {:ok, 1}
     end
   end
 
+  # Tell peer nodes about this admitted request so the cap is cluster-wide.
+  # Best-effort and only when the replicator is running (no-op single-node/test).
+  defp replicate(ip, now) do
+    if Process.whereis(Replicator), do: Replicator.record(ip, now)
+    :ok
+  end
+
   defp ensure_table do
     case :ets.whereis(@table) do
-      :undefined -> :ets.new(@table, [:set, :public, :named_table])
-      _ -> :ok
+      :undefined ->
+        # Two callers can race between whereis/new; the loser's :ets.new raises
+        # "table already exists". Treat that as success — the table is there.
+        try do
+          :ets.new(@table, [:set, :public, :named_table])
+          :ok
+        rescue
+          ArgumentError -> :ok
+        end
+
+      _ ->
+        :ok
     end
   end
 

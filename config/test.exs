@@ -54,6 +54,11 @@ config :bitblocks, Oban, testing: :manual, queues: false
 # from 127.0.0.1 and would otherwise get blocked by the RequestLogger.
 config :bitblocks, :invalid_request_threshold, 10_000
 
+# Raise the per-IP rate limit in tests. Many controller tests share the
+# 127.0.0.1 source IP, so the production-tight 20/min limit would otherwise
+# turn assertions into flaky 429s depending on test order.
+config :bitblocks, BitblocksWeb.Plugs.RateLimiter, max_requests: 100_000
+
 # Wallaby configuration
 config :wallaby,
   otp_app: :bitblocks,

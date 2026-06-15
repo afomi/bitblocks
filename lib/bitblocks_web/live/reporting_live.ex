@@ -1,7 +1,7 @@
 defmodule BitblocksWeb.ReportingLive do
   use BitblocksWeb, :live_view
 
-  alias Bitblocks.{Repo, Chain}
+  alias Bitblocks.{Repo, Chain, StatsCache}
   import Ecto.Query
 
   @impl true
@@ -19,7 +19,7 @@ defmodule BitblocksWeb.ReportingLive do
         block_time_data: block_time_data,
         block_size_data: block_size_data,
         total_blocks: Chain.count_blocks(),
-        total_transactions: Repo.aggregate(Chain.Transaction, :count, :id),
+        total_transactions: StatsCache.transactions_count(),
         chart_stats: calculate_chart_stats(chart_data)
       )
 

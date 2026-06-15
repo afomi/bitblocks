@@ -22,6 +22,10 @@ defmodule Bitblocks.Application do
       Bitblocks.Repo,
       {DNSCluster, query: Application.get_env(:bitblocks, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: Bitblocks.PubSub},
+      # Cluster-replicate per-IP rate-limit counts over PubSub (T1/T12)
+      BitblocksWeb.Plugs.RateLimiter.Replicator,
+      # Cluster-wide view of concurrent SSE connection counts (T2)
+      BitblocksWeb.SseLimiter.ClusterState,
       # Monitor memory usage and warn when approaching limits
       Bitblocks.MemoryMonitor,
       # Track competing chain tips and fork metadata

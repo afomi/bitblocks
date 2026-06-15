@@ -22,6 +22,7 @@ defmodule Bitblocks.Workers.SyncHeadersWorker do
 
   alias Bitblocks.{Chain, Repo}
   alias Bitblocks.Chain.Block
+  alias Bitblocks.Chain.HeaderVerifier
 
   @batch_size 500
   @tip_delay_seconds 30
@@ -164,35 +165,16 @@ defmodule Bitblocks.Workers.SyncHeadersWorker do
   defp insert_header(height, hash) do
     case BitcoinsvCli.getblockheader(hash, true) do
       %{"hash" => ^hash} = header ->
-        block_attrs = %Block{
-          hash: hash,
-          height: height,
-          num_tx: Map.get(header, "num_tx", 0),
-          time: header["time"],
-          bits: header["bits"],
-          chainwork: Map.get(header, "chainwork", ""),
-          difficulty: to_string(Map.get(header, "difficulty", "")),
-          mediantime: Map.get(header, "mediantime", header["time"]),
-          merkleroot: header["merkleroot"],
-          prevblockhash: Map.get(header, "previousblockhash", ""),
-          nextblockhash: Map.get(header, "nextblockhash", ""),
-          nonce: header["nonce"],
-          version: header["version"],
-          tx: [],
-          sync_state: "header_only"
-        }
-
-        case Repo.insert(Ecto.Changeset.change(block_attrs, %{}), on_conflict: :nothing) do
-          {:ok, %{id: nil}} ->
-            # Conflict — block already existed
-            :exists
-
-          {:ok, block} ->
-            {:ok, block}
-
-          {:error, changeset} ->
-            Logger.error("SyncHeaders: insert failed for #{height}: #{inspect(changeset.errors)}")
-            :error
+        # TB2: the node is not unconditionally trusted. Confirm the header
+        # actually hashes to the hash we asked for (and meets PoW) before
+        # persisting it, then check it chains onto the predecessor we already
+        # hold — so a rogue/buggy node can't poison the index with a relabelled,
+        # trivially-mined, or off-chain header (threat T4).
+        with :ok <- HeaderVerifier.verify(header, hash),
+             :ok <- check_continuity(height, header) do
+          store_verified_header(height, hash, header)
+        else
+          {:error, reason} -> reject_header(height, hash, reason)
         end
 
       {:error, reason} ->
@@ -201,6 +183,68 @@ defmodule Bitblocks.Workers.SyncHeadersWorker do
 
       _ ->
         Logger.error("SyncHeaders: unexpected response for #{height}")
+        :error
+    end
+  end
+
+  # T4 (continuity): if we already hold the block at height-1, this header's
+  # previousblockhash must equal that block's hash — otherwise the node is
+  # serving an off-chain/orphan header for this height. When the predecessor
+  # isn't present yet (gap-filling out of order), we can't check and allow it;
+  # genesis (height 0) has no predecessor.
+  defp check_continuity(0, _header), do: :ok
+  defp check_continuity(height, header), do: continuity(Chain.get_block(height - 1), header)
+
+  @doc false
+  # Pure continuity check, separated for testing. `predecessor` is the block we
+  # already hold at height-1 (or nil if absent).
+  def continuity(nil, _header), do: :ok
+
+  def continuity(%Block{hash: prev_hash}, header) do
+    if Map.get(header, "previousblockhash") == prev_hash do
+      :ok
+    else
+      {:error, :prevhash_mismatch}
+    end
+  end
+
+  defp reject_header(height, hash, reason) do
+    Logger.error(
+      "SyncHeaders: REJECTED header for #{height} (#{hash}) — failed verification: #{inspect(reason)}"
+    )
+
+    :error
+  end
+
+  defp store_verified_header(height, hash, header) do
+    block_attrs = %Block{
+      hash: hash,
+      height: height,
+      num_tx: Map.get(header, "num_tx", 0),
+      time: header["time"],
+      bits: header["bits"],
+      chainwork: Map.get(header, "chainwork", ""),
+      difficulty: to_string(Map.get(header, "difficulty", "")),
+      mediantime: Map.get(header, "mediantime", header["time"]),
+      merkleroot: header["merkleroot"],
+      prevblockhash: Map.get(header, "previousblockhash", ""),
+      nextblockhash: Map.get(header, "nextblockhash", ""),
+      nonce: header["nonce"],
+      version: header["version"],
+      tx: [],
+      sync_state: "header_only"
+    }
+
+    case Repo.insert(Ecto.Changeset.change(block_attrs, %{}), on_conflict: :nothing) do
+      {:ok, %{id: nil}} ->
+        # Conflict — block already existed
+        :exists
+
+      {:ok, block} ->
+        {:ok, block}
+
+      {:error, changeset} ->
+        Logger.error("SyncHeaders: insert failed for #{height}: #{inspect(changeset.errors)}")
         :error
     end
   end

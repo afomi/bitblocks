@@ -8,6 +8,8 @@ defmodule BitblocksWeb.Api.UtxoController do
   """
   use BitblocksWeb, :controller
 
+  alias BitblocksWeb.Utils.BsvParams
+
   action_fallback BitblocksWeb.FallbackController
 
   @woc_base "https://api.whatsonchain.com/v1/bsv/main"
@@ -27,11 +29,15 @@ defmodule BitblocksWeb.Api.UtxoController do
   presentation (Tx 2) and stamp (Tx 3) transactions.
   """
   def owner(conn, %{"txid" => txid, "vout" => vout_str}) do
-    with {:ok, vout} <- parse_vout(vout_str),
+    with {:ok, txid} <- BsvParams.txid(txid),
+         {:ok, vout} <- parse_vout(vout_str),
          {:ok, address} <- fetch_output_address(txid, vout),
          {:ok, spend_info} <- fetch_spend_info(txid, vout) do
       json(conn, Map.merge(%{address: address}, spend_info))
     else
+      {:error, :invalid_txid} ->
+        conn |> put_status(400) |> json(%{error: "Invalid txid — must be 64 hex characters"})
+
       {:error, :invalid_vout} ->
         conn |> put_status(400) |> json(%{error: "Invalid vout — must be a non-negative integer"})
 
@@ -54,7 +60,7 @@ defmodule BitblocksWeb.Api.UtxoController do
 
   # Fetch the output address from WoC's tx endpoint.
   defp fetch_output_address(txid, vout) do
-    url = "#{@woc_base}/tx/hash/#{txid}"
+    url = "#{@woc_base}/tx/hash/#{URI.encode_www_form(txid)}"
 
     case woc_get(url) do
       {:ok, %{"vout" => outputs}} when is_list(outputs) ->
@@ -84,7 +90,7 @@ defmodule BitblocksWeb.Api.UtxoController do
   # Fetch spend status from WoC's spend endpoint.
   # Returns %{spent: false} or %{spent: true, spent_by: txid}.
   defp fetch_spend_info(txid, vout) do
-    url = "#{@woc_base}/tx/#{txid}/out/#{vout}/spend"
+    url = "#{@woc_base}/tx/#{URI.encode_www_form(txid)}/out/#{vout}/spend"
 
     case woc_get(url) do
       {:ok, %{"txid" => spent_txid}} when is_binary(spent_txid) ->

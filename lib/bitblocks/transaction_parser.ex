@@ -2,7 +2,14 @@ defmodule Bitblocks.TransactionParser do
   @moduledoc """
   Parses Bitcoin SV transactions and extracts meaningful data from scripts,
   particularly OP_RETURN outputs which contain data payloads.
+
+  Raw hex arrives from the (untrusted) node, so every decode goes through
+  `Bitblocks.Chain.SafeTx.from_hex/1` — a total, size-bounded wrapper — rather
+  than `BSV.Tx.from_binary/2` directly, which raises on some malformed input
+  (threat T5).
   """
+
+  alias Bitblocks.Chain.SafeTx
 
   # Bump when script classification or protocol detection logic changes.
   # Used by analyze/1 and the Release.analyze_transactions/1 backfill.
@@ -21,7 +28,7 @@ defmodule Bitblocks.TransactionParser do
     - coinbase      (bool)
   """
   def analyze(raw) when is_binary(raw) do
-    case BSV.Tx.from_binary(raw, encoding: :hex) do
+    case SafeTx.from_hex(raw) do
       {:ok, tx} ->
         op_return_outputs = extract_op_returns(tx.outputs)
         protocols = detect_protocols(op_return_outputs)
@@ -50,7 +57,7 @@ defmodule Bitblocks.TransactionParser do
   Parses a transaction and extracts all OP_RETURN data and protocol information.
   """
   def parse_transaction(tx) when is_binary(tx) do
-    case BSV.Tx.from_binary(tx, encoding: :hex) do
+    case SafeTx.from_hex(tx) do
       {:ok, decoded_tx} ->
         parse_transaction(decoded_tx)
 
@@ -309,7 +316,8 @@ defmodule Bitblocks.TransactionParser do
     {"15PciHG22SNLQJXMoSUaWVi7WSqc7hCfva", "AIP"},
     {"1HA1P2exomAwCUycZHr8WeyFoy5vuQASE3", "HAIP"},
     {"19nknDdM3ueaAt7nFLFQ3aS3PVHVnJoMmU", "Twetch"},
-    {"1LtyME6b5AnMopQrBPLk4FGN8UBuhxKqrn", "RelayX"}
+    {"1LtyME6b5AnMopQrBPLk4FGN8UBuhxKqrn", "RelayX"},
+    {"15DHFxWZJT58f9nhyCA3mREYYzkVDetm6A", "BCat"}
   ]
 
   # MAP app field values that map to a protocol name.

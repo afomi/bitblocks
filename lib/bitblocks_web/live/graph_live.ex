@@ -95,7 +95,7 @@ defmodule BitblocksWeb.GraphLive do
 
   defp traverse_inputs(tx, current_depth, max_depth, nodes, edges)
        when current_depth < max_depth do
-    case BSV.Tx.from_binary(tx.raw || "", encoding: :hex) do
+    case Bitblocks.Chain.SafeTx.from_hex(tx.raw || "") do
       {:ok, decoded_tx} ->
         Enum.reduce(decoded_tx.inputs, {nodes, edges}, fn input, {acc_nodes, acc_edges} ->
           prev_txid = BSV.OutPoint.get_txid(input.outpoint)

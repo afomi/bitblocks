@@ -59,6 +59,23 @@ defmodule Bitblocks.OrderBookTest do
     :crypto.strong_rand_bytes(32) |> Base.encode16(case: :lower)
   end
 
+  # Build a `list` parsed_data map with overrides, defaulting the required fields.
+  defp list_data(overrides) do
+    Map.merge(
+      %{
+        "op" => "list",
+        "token_id" => @test_token_id,
+        "quantity" => "100",
+        "price_satoshis" => "5000",
+        "seller_address" => @test_seller,
+        "token_utxo" => "abc123:0",
+        "expires_at" => nil,
+        "min_quantity" => nil
+      },
+      overrides
+    )
+  end
+
   describe "list_active_listings/1" do
     test "returns active, unspent listings", %{protocol: protocol} do
       _listing = create_listing(protocol)
@@ -280,6 +297,196 @@ defmodule Bitblocks.OrderBookTest do
       assert listing.token_id == @test_token_id
       assert listing.quantity == "200"
       assert listing.status == "active"
+    end
+  end
+
+  describe "settle_spent_token_utxos/1" do
+    test "marks a listing filled when its token UTXO is spent on-chain", %{protocol: protocol} do
+      # Listing offers tokens held at outpoint "tokentx:0"
+      listing = create_listing(protocol, %{parsed_data: list_data(%{"token_utxo" => "tokentx:0"})})
+      settlement_txid = random_txid()
+
+      # A settlement transaction spends that exact outpoint
+      settled =
+        OrderBook.settle_spent_token_utxos([
+          %{txid: "tokentx", vout: 0, spending_txid: settlement_txid}
+        ])
+
+      assert settled == 1
+
+      updated = OrderBook.get_listing(listing.txid)
+      assert updated.status == "filled"
+      assert updated.spent == true
+      assert updated.spent_txid == settlement_txid
+      assert updated.quantity_remaining == "0"
+    end
+
+    test "ignores spends that don't match any listed token UTXO", %{protocol: protocol} do
+      listing = create_listing(protocol, %{parsed_data: list_data(%{"token_utxo" => "tokentx:0"})})
+
+      settled =
+        OrderBook.settle_spent_token_utxos([
+          %{txid: "unrelated", vout: 7, spending_txid: random_txid()}
+        ])
+
+      assert settled == 0
+      assert OrderBook.get_listing(listing.txid).status == "active"
+    end
+
+    test "is idempotent — a re-processed spend does not double-fill", %{protocol: protocol} do
+      create_listing(protocol, %{parsed_data: list_data(%{"token_utxo" => "tokentx:0"})})
+      entry = %{txid: "tokentx", vout: 0, spending_txid: random_txid()}
+
+      assert OrderBook.settle_spent_token_utxos([entry]) == 1
+      # Second pass: listing is already spent, so it is skipped
+      assert OrderBook.settle_spent_token_utxos([entry]) == 0
+    end
+
+    test "settles via Chain.record_spends when a real tx consumes the token UTXO", %{
+      protocol: protocol
+    } do
+      listing = create_listing(protocol, %{parsed_data: list_data(%{"token_utxo" => "tokentx:0"})})
+      settlement_txid = random_txid()
+
+      tx = %Bitblocks.Chain.Transaction{
+        txid: settlement_txid,
+        inputs: [Jason.encode!(%{"txid" => "tokentx", "vout" => 0})]
+      }
+
+      Bitblocks.Chain.record_spends(tx)
+
+      updated = OrderBook.get_listing(listing.txid)
+      assert updated.status == "filled"
+      assert updated.spent_txid == settlement_txid
+    end
+  end
+
+  describe "token_market/1" do
+    test "aggregates volume and trade counts over confirmed fills", %{protocol: protocol} do
+      # Two filled listings for the token, plus one active listing.
+      create_listing(protocol, %{
+        parsed_data: list_data(%{"price_satoshis" => "5000", "token_utxo" => "a:0"}),
+        state: %{
+          "status" => "filled",
+          "quantity_remaining" => "0",
+          "fills" => [%{"txid" => random_txid(), "quantity" => "100"}]
+        },
+        spent: true
+      })
+
+      create_listing(protocol, %{
+        parsed_data: list_data(%{"price_satoshis" => "3000", "token_utxo" => "b:0"}),
+        state: %{
+          "status" => "partially_filled",
+          "quantity_remaining" => "60",
+          "fills" => [%{"txid" => random_txid(), "quantity" => "40"}]
+        },
+        spent: false
+      })
+
+      _active =
+        create_listing(protocol, %{
+          parsed_data: list_data(%{"price_satoshis" => "8000", "token_utxo" => "c:0"})
+        })
+
+      market = OrderBook.token_market(@test_token_id)
+
+      # Volume = 100*5000 + 40*3000 = 500_000 + 120_000 = 620_000
+      assert market.total_volume == 620_000
+      assert market.num_trades == 2
+      assert market.high_24h == 5000
+      assert market.low_24h == 3000
+      # The lone active listing prices the floor.
+      assert market.num_active_listings == 1
+      assert market.floor_price == 8000
+    end
+
+    test "24h window excludes old fills by fill timestamp", %{protocol: protocol} do
+      old = create_listing(protocol, %{
+        parsed_data: list_data(%{"price_satoshis" => "5000", "token_utxo" => "old:0"}),
+        state: %{
+          "status" => "filled",
+          "quantity_remaining" => "0",
+          "fills" => [%{"txid" => random_txid(), "quantity" => "100"}]
+        },
+        spent: true
+      })
+
+      # Force the fill timestamp (updated_at) to be older than 24h.
+      two_days_ago =
+        NaiveDateTime.utc_now() |> NaiveDateTime.add(-2 * 24 * 3600, :second) |> NaiveDateTime.truncate(:second)
+
+      old
+      |> Ecto.Changeset.change(updated_at: two_days_ago)
+      |> Repo.update!()
+
+      create_listing(protocol, %{
+        parsed_data: list_data(%{"price_satoshis" => "3000", "token_utxo" => "new:0"}),
+        state: %{
+          "status" => "filled",
+          "quantity_remaining" => "0",
+          "fills" => [%{"txid" => random_txid(), "quantity" => "40"}]
+        },
+        spent: true
+      })
+
+      market = OrderBook.token_market(@test_token_id)
+
+      # All-time sees both trades; 24h sees only the recent one.
+      assert market.num_trades == 2
+      assert market.num_trades_24h == 1
+      assert market.volume_24h == 120_000
+      assert market.high_24h == 3000
+      assert market.low_24h == 3000
+    end
+
+    test "returns empty/nil values for a token with no fills", %{protocol: _protocol} do
+      market = OrderBook.token_market("no_such_token_0")
+
+      assert market.total_volume == 0
+      assert market.num_trades == 0
+      assert market.num_trades_24h == 0
+      assert market.last_price == nil
+      assert market.high_24h == nil
+      assert market.low_24h == nil
+      assert market.num_active_listings == 0
+      assert market.floor_price == nil
+    end
+  end
+
+  describe "token_trades/2" do
+    test "returns flat fills, most recent first, respecting limit", %{protocol: protocol} do
+      create_listing(protocol, %{
+        parsed_data: list_data(%{"price_satoshis" => "5000", "token_utxo" => "a:0"}),
+        state: %{
+          "status" => "filled",
+          "quantity_remaining" => "0",
+          "fills" => [
+            %{"txid" => "fill_a1", "quantity" => "30"},
+            %{"txid" => "fill_a2", "quantity" => "70"}
+          ]
+        },
+        spent: true
+      })
+
+      create_listing(protocol, %{
+        parsed_data: list_data(%{"price_satoshis" => "3000", "token_utxo" => "b:0"}),
+        state: %{
+          "status" => "partially_filled",
+          "quantity_remaining" => "60",
+          "fills" => [%{"txid" => "fill_b1", "quantity" => "40"}]
+        },
+        spent: false
+      })
+
+      trades = OrderBook.token_trades(@test_token_id)
+
+      assert length(trades) == 3
+      trade = hd(trades)
+      assert trade.total_satoshis == trade.quantity * trade.price_satoshis
+
+      limited = OrderBook.token_trades(@test_token_id, limit: 2)
+      assert length(limited) == 2
     end
   end
 

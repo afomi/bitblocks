@@ -66,7 +66,7 @@ defmodule Bitblocks.MetanetParser do
   def parse_transaction(%{raw: nil}), do: {:error, :no_raw_data}
 
   def parse_transaction(%{raw: raw, txid: txid}) do
-    case BSV.Tx.from_binary(raw, encoding: :hex) do
+    case Bitblocks.Chain.SafeTx.from_hex(raw) do
       {:ok, tx} ->
         op_returns = Bitblocks.TransactionParser.extract_op_returns(tx.outputs)
         parse_from_op_returns(op_returns, txid)

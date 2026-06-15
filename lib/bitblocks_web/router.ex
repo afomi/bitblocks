@@ -54,6 +54,8 @@ defmodule BitblocksWeb.Router do
     # Order Book
     get "/order-book/listings", OrderBookController, :index
     get "/order-book/stats", OrderBookController, :stats
+    get "/order-book/tokens/:token_id/market", OrderBookController, :token_market
+    get "/order-book/tokens/:token_id/trades", OrderBookController, :token_trades
     get "/order-book/tokens/:token_id", OrderBookController, :token_listings
     get "/order-book/sellers/:address", OrderBookController, :seller_listings
     get "/order-book/listings/:txid", OrderBookController, :show
@@ -76,11 +78,22 @@ defmodule BitblocksWeb.Router do
     plug :basic_auth
   end
 
+  # T10: refuse to serve the admin surface with built-in default credentials in
+  # production — a hard 503 beats a trivially-owned admin panel. The decision
+  # lives in BitblocksWeb.AdminAuth (pure + tested).
   defp basic_auth(conn, _opts) do
-    username = System.get_env("ADMIN_USERNAME") || "admin"
-    password = System.get_env("ADMIN_PASSWORD") || "secret"
+    case BitblocksWeb.AdminAuth.decision() do
+      {:ok, username, password} ->
+        Plug.BasicAuth.basic_auth(conn, username: username, password: password)
 
-    Plug.BasicAuth.basic_auth(conn, username: username, password: password)
+      {:error, :default_credentials} ->
+        require Logger
+        Logger.error("Admin auth refused: ADMIN_USERNAME/ADMIN_PASSWORD not set in production")
+
+        conn
+        |> Plug.Conn.send_resp(503, "Admin interface not configured")
+        |> Plug.Conn.halt()
+    end
   end
 
   scope "/", BitblocksWeb do

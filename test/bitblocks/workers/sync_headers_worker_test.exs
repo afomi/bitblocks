@@ -86,6 +86,27 @@ defmodule Bitblocks.Workers.SyncHeadersWorkerTest do
     end
   end
 
+  describe "prevhash continuity (threat T4)" do
+    test "accepts a header that chains onto the predecessor we hold" do
+      predecessor = %Block{hash: "prev_block_hash_abc"}
+      header = %{"previousblockhash" => "prev_block_hash_abc"}
+
+      assert :ok = SyncHeadersWorker.continuity(predecessor, header)
+    end
+
+    test "rejects a header whose previousblockhash doesn't match the predecessor (off-chain)" do
+      predecessor = %Block{hash: "the_real_prev_hash"}
+      header = %{"previousblockhash" => "some_other_fork_hash"}
+
+      assert {:error, :prevhash_mismatch} = SyncHeadersWorker.continuity(predecessor, header)
+    end
+
+    test "allows insertion when the predecessor isn't present yet (out-of-order gap fill)" do
+      header = %{"previousblockhash" => "anything"}
+      assert :ok = SyncHeadersWorker.continuity(nil, header)
+    end
+  end
+
   describe "queue_transaction_fetch integration" do
     test "queuing tx fetch for a block transitions it to txs_queued" do
       block = block_fixture(%{

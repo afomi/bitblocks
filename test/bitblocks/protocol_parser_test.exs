@@ -43,19 +43,25 @@ defmodule Bitblocks.ProtocolParserTest do
     end
   end
 
-  # Constructed script: OP_RETURN "orderbook" "list" "token_abc_0" "100" "5000" "1Addr" "token_abc:0"
-  @orderbook_listing_script "6a096f72646572626f6f6b046c6973740b746f6b656e5f6162635f300331303004353030300531416464720b746f6b656e5f6162633a30"
+  # Constructed v1 script:
+  # OP_RETURN "orderbook" "1" "list" "token_abc_0" "100" "5000" "1Addr"
+  #           "token_abc:0" "02pubkey" "30sig...c1" "0xc1"
+  @orderbook_listing_script "6a096f72646572626f6f6b0131046c6973740b746f6b656e5f6162635f300331303004353030300531416464720b746f6b656e5f6162633a300830327075626b65790a33307369672e2e2e63310430786331"
 
   describe "parse_script/2 with OrderBook" do
-    test "parses an OrderBook listing from script hex" do
+    test "parses an OrderBook v1 listing from script hex" do
       assert {:ok, result} = ProtocolParser.parse_script(@orderbook_listing_script, "OrderBook")
 
+      assert result.version == "1"
       assert result.op == "list"
       assert result.token_id == "token_abc_0"
       assert result.quantity == "100"
       assert result.price_satoshis == "5000"
       assert result.seller_address == "1Addr"
       assert result.token_utxo == "token_abc:0"
+      assert result.seller_pubkey == "02pubkey"
+      assert result.seller_sig == "30sig...c1"
+      assert result.sighash_flag == "0xc1"
       assert result.expires_at == nil
       assert result.min_quantity == nil
     end

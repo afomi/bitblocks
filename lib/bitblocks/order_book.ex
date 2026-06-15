@@ -209,6 +209,45 @@ defmodule Bitblocks.OrderBook do
   end
 
   @doc """
+  Settles listings whose token UTXO was consumed on-chain.
+
+  Given a list of spend entries `[%{txid: prev_txid, vout: prev_vout,
+  spending_txid: settlement_txid}, ...]` (as produced by the spend index),
+  finds any active listing whose `token_utxo` equals `"<prev_txid>:<prev_vout>"`
+  and marks it fully filled — the settlement transaction consumed the listed
+  token UTXO, which by the protocol's implicit-settlement rule *is* the fill
+  (see docs/ORDER_BOOK_PROTOCOL.md §"Settlement Flow"). No explicit `fill`
+  OP_RETURN is required.
+
+  Idempotent: a listing already `spent` is skipped, so re-processing the same
+  block (e.g. a worker retry) does not double-fill.
+
+  Returns the count of listings settled.
+  """
+  def settle_spent_token_utxos(spend_entries) when is_list(spend_entries) do
+    Enum.reduce(spend_entries, 0, fn entry, settled ->
+      prev_txid = entry[:txid] || entry["txid"]
+      prev_vout = entry[:vout] || entry["vout"]
+      settlement_txid = entry[:spending_txid] || entry["spending_txid"]
+
+      with true <- is_binary(prev_txid) and is_integer(prev_vout),
+           outpoint = "#{prev_txid}:#{prev_vout}",
+           %Instance{} = listing <- get_active_listing_by_token_utxo(outpoint) do
+        remaining = listing.state["quantity_remaining"] || listing.parsed_data["quantity"]
+
+        case fill_listing(listing.txid, settlement_txid, remaining) do
+          {:ok, _} -> settled + 1
+          _ -> settled
+        end
+      else
+        _ -> settled
+      end
+    end)
+  end
+
+  def settle_spent_token_utxos(_), do: 0
+
+  @doc """
   Returns aggregate statistics about the order book.
   """
   def listing_stats do
@@ -262,12 +301,181 @@ defmodule Bitblocks.OrderBook do
     end
   end
 
+  @doc """
+  Returns a market-data summary for a token, aggregated over confirmed fills.
+
+  A "trade" is a fill recorded against a listing (`state["fills"]`), priced at
+  the listing's `price_satoshis`. Volume is denominated in satoshis as
+  `sum(fill_quantity * price_satoshis)`.
+
+  The 24h window is measured against the fill record's timestamp — the listing
+  instance's `updated_at` (a fill mutates the row, so `updated_at` tracks the
+  most recent fill). This is an approximation: a listing filled in multiple
+  steps shares one `updated_at`, so all of its fills fall in (or out of) the
+  window together. We prefer this over reconstructing per-fill block times,
+  which the `fills` records do not carry.
+
+  Returns a map with:
+
+    * `:last_price`          — `price_satoshis` of the most recently updated filled listing
+    * `:volume_24h`          — fill volume (satoshis) in the last 24h
+    * `:num_trades_24h`      — number of fills in the last 24h
+    * `:high_24h`            — highest `price_satoshis` among listings filled in the last 24h
+    * `:low_24h`             — lowest `price_satoshis` among listings filled in the last 24h
+    * `:total_volume`        — all-time fill volume (satoshis)
+    * `:num_trades`          — all-time number of fills
+    * `:num_active_listings` — active, unspent listings for the token
+    * `:floor_price`         — lowest `price_satoshis` among active listings, or `nil`
+  """
+  def token_market(token_id) when is_binary(token_id) do
+    instances = filled_instances_for_token(token_id)
+    cutoff = NaiveDateTime.utc_now() |> NaiveDateTime.add(-24 * 3600, :second)
+
+    trades = instances_to_trades(instances)
+    trades_24h = Enum.filter(trades, &recent?(&1, cutoff))
+
+    last_price =
+      case Enum.max_by(instances, & &1.updated_at, NaiveDateTime, fn -> nil end) do
+        nil -> nil
+        instance -> instance.parsed_data["price_satoshis"]
+      end
+
+    active = list_active_listings(token_id: token_id, limit: 1000)
+
+    floor_price =
+      active
+      |> Enum.map(&to_integer(&1.price_satoshis))
+      |> Enum.reject(&(&1 == 0))
+      |> case do
+        [] -> nil
+        prices -> Enum.min(prices)
+      end
+
+    %{
+      last_price: last_price,
+      volume_24h: sum_volume(trades_24h),
+      num_trades_24h: length(trades_24h),
+      high_24h: price_extreme(trades_24h, &Enum.max/1),
+      low_24h: price_extreme(trades_24h, &Enum.min/1),
+      total_volume: sum_volume(trades),
+      num_trades: length(trades),
+      num_active_listings: length(active),
+      floor_price: floor_price
+    }
+  end
+
+  @doc """
+  Returns recent confirmed fills (trades) for a token, most recent first.
+
+  Each trade is a flat map:
+
+    * `:txid`            — the fill (purchase/settlement) txid
+    * `:listing_txid`    — the listing the fill was recorded against
+    * `:token_id`        — the token traded
+    * `:quantity`        — fill quantity (integer)
+    * `:price_satoshis`  — per-token price (integer)
+    * `:total_satoshis`  — `quantity * price_satoshis`
+    * `:seller_address`  — the listing's seller
+    * `:block_height`    — the listing's block height
+    * `:filled_at`       — fill record timestamp (the listing's `updated_at`)
+
+  ## Options
+
+    * `:limit` — maximum number of trades (default 50)
+  """
+  def token_trades(token_id, opts \\ []) when is_binary(token_id) do
+    limit = Keyword.get(opts, :limit, 50)
+
+    token_id
+    |> filled_instances_for_token()
+    |> instances_to_trades()
+    |> Enum.sort_by(& &1.filled_at, {:desc, NaiveDateTime})
+    |> Enum.take(limit)
+  end
+
   # -- Private ----------------------------------------------------------------
+
+  defp filled_instances_for_token(token_id) do
+    case get_protocol_id() do
+      nil ->
+        []
+
+      protocol_id ->
+        from(i in Instance,
+          where: i.protocol_id == ^protocol_id,
+          where: fragment("?->>'op' = 'list'", i.parsed_data),
+          where: fragment("?->>'token_id' = ?", i.parsed_data, ^token_id),
+          where: fragment("?->>'status' IN ('filled', 'partially_filled')", i.state),
+          order_by: [desc: i.updated_at]
+        )
+        |> Repo.all()
+    end
+  end
+
+  # Flattens each filled instance's `state["fills"]` into individual trade maps,
+  # priced at the listing's `price_satoshis`.
+  defp instances_to_trades(instances) do
+    Enum.flat_map(instances, fn i ->
+      pd = i.parsed_data || %{}
+      state = i.state || %{}
+      price = to_integer(pd["price_satoshis"])
+
+      (state["fills"] || [])
+      |> Enum.map(fn fill ->
+        qty = to_integer(fill["quantity"])
+
+        %{
+          txid: fill["txid"],
+          listing_txid: i.txid,
+          token_id: pd["token_id"],
+          quantity: qty,
+          price_satoshis: price,
+          total_satoshis: qty * price,
+          seller_address: pd["seller_address"],
+          block_height: i.block_height,
+          filled_at: i.updated_at
+        }
+      end)
+    end)
+  end
+
+  defp recent?(%{filled_at: nil}, _cutoff), do: false
+
+  defp recent?(%{filled_at: filled_at}, cutoff) do
+    NaiveDateTime.compare(filled_at, cutoff) != :lt
+  end
+
+  defp sum_volume(trades) do
+    Enum.reduce(trades, 0, fn t, acc -> acc + t.total_satoshis end)
+  end
+
+  defp price_extreme([], _fun), do: nil
+
+  defp price_extreme(trades, fun) do
+    trades |> Enum.map(& &1.price_satoshis) |> fun.()
+  end
 
   defp get_protocol_id do
     case ProtocolRegistry.get_protocol_by_name("OrderBook") do
       nil -> nil
       protocol -> protocol.id
+    end
+  end
+
+  defp get_active_listing_by_token_utxo(outpoint) when is_binary(outpoint) do
+    case get_protocol_id() do
+      nil ->
+        nil
+
+      protocol_id ->
+        from(i in Instance,
+          where: i.protocol_id == ^protocol_id,
+          where: i.spent == false,
+          where: fragment("?->>'op' = 'list'", i.parsed_data),
+          where: fragment("?->>'token_utxo' = ?", i.parsed_data, ^outpoint),
+          limit: 1
+        )
+        |> Repo.one()
     end
   end
 
@@ -328,12 +536,17 @@ defmodule Bitblocks.OrderBook do
       txid: i.txid,
       vout: i.vout,
       block_height: i.block_height,
+      version: pd["version"],
       op: pd["op"],
       token_id: pd["token_id"],
       quantity: pd["quantity"],
       price_satoshis: pd["price_satoshis"],
       seller_address: pd["seller_address"],
       token_utxo: pd["token_utxo"],
+      # The seller's pre-signed offer — lets a buyer settle from on-chain data alone.
+      seller_pubkey: pd["seller_pubkey"],
+      seller_sig: pd["seller_sig"],
+      sighash_flag: pd["sighash_flag"],
       expires_at: pd["expires_at"],
       min_quantity: pd["min_quantity"],
       status: state["status"] || "active",

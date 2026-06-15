@@ -1056,6 +1056,10 @@ defmodule Bitblocks.Chain do
         end
       end)
 
+    # Bridge to the order book: if any spent outpoint is a listed token UTXO,
+    # this transaction is its settlement — mark the listing filled.
+    Bitblocks.OrderBook.settle_spent_token_utxos(entries)
+
     {inserted, length(entries) - inserted}
   end
 

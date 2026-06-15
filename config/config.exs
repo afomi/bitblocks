@@ -53,6 +53,23 @@ config :bitblocks, BitblocksWeb.Endpoint,
   pubsub_server: Bitblocks.PubSub,
   live_view: [signing_salt: "Q5YK8k16"]
 
+# Bounds concurrent Server-Sent Events connections (THREAT-MODEL.md T2).
+# SSE handlers hold a process open indefinitely; without a cap a client can
+# exhaust acceptors/sockets/memory. Tune max_per_ip up for trusted internal use.
+config :bitblocks, BitblocksWeb.SseLimiter,
+  max_global: 500,
+  max_per_ip: 5
+
+# Hard ceiling on a single SSE connection's lifetime (THREAT-MODEL.md T2). The
+# stream sends an `event: reconnect` and closes past this, so slots churn and an
+# abandoned connection can't camp one forever. Clients (EventSource) reconnect.
+config :bitblocks, BitblocksWeb.Api.StreamController, max_lifetime_ms: 30 * 60_000
+
+# Upper bound on the hex length SafeTx will hand to the (untrusted) tx decoder
+# before rejecting it (THREAT-MODEL.md T3/T5, CWE-770). 100 MB of hex covers any
+# realistic single transaction with margin.
+config :bitblocks, Bitblocks.Chain.SafeTx, max_hex_bytes: 100_000_000
+
 # Configures the mailer
 #
 # By default it uses the "Local" adapter which stores the emails

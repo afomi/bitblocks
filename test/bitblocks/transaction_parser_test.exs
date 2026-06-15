@@ -165,6 +165,43 @@ defmodule Bitblocks.TransactionParserTest do
     end
   end
 
+  describe "BCat protocol detection" do
+    @bcat_prefix "15DHFxWZJT58f9nhyCA3mREYYzkVDetm6A"
+
+    test "detects BCat head tx (second push is not 'c')" do
+      # Head: prefix, info, mime, encoding, filename, flag, then chunk txids
+      chunks = [
+        make_chunk(@bcat_prefix),
+        make_chunk(" "),
+        make_chunk("image/png"),
+        make_chunk("binary"),
+        make_chunk(" "),
+        make_chunk(" ")
+      ]
+
+      protocols = TransactionParser.detect_protocols([%{data: chunks}])
+      assert "BCat" in protocols
+    end
+
+    test "detects BCat chunk tx (second push is 'c')" do
+      chunks = [
+        make_chunk(@bcat_prefix),
+        make_chunk("c"),
+        %{type: :push_data, utf8: nil, hex: "deadbeef", length: 4}
+      ]
+
+      protocols = TransactionParser.detect_protocols([%{data: chunks}])
+      assert "BCat" in protocols
+    end
+
+    test "does not detect BCat for a different prefix" do
+      chunks = [make_chunk("1xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"), make_chunk("c")]
+
+      protocols = TransactionParser.detect_protocols([%{data: chunks}])
+      refute "BCat" in protocols
+    end
+  end
+
   describe "script_analysis_version/0" do
     test "returns version 4 for OrderBook detection" do
       assert TransactionParser.script_analysis_version() == 4

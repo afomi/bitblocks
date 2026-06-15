@@ -97,10 +97,40 @@ defmodule BitblocksWeb.Api.OrderBookController do
     json(conn, %{data: stats})
   end
 
+  @doc """
+  Market-data summary for a token (price, volume, trade counts).
+
+  GET /api/v1/order-book/tokens/:token_id/market
+  """
+  def token_market(conn, %{"token_id" => token_id}) do
+    market = OrderBook.token_market(token_id)
+
+    json(conn, %{data: market, token_id: token_id})
+  end
+
+  @doc """
+  Recent confirmed trades (fills) for a token, most recent first.
+
+  GET /api/v1/order-book/tokens/:token_id/trades
+  Query params: per_page
+  """
+  def token_trades(conn, %{"token_id" => token_id} = params) do
+    opts = maybe_put([], :limit, parse_int(params["per_page"]) || 50)
+
+    trades = OrderBook.token_trades(token_id, opts)
+
+    json(conn, %{
+      data: Enum.map(trades, &trade_to_json/1),
+      token_id: token_id,
+      count: length(trades)
+    })
+  end
+
   # -- Private ----------------------------------------------------------------
 
   defp listing_to_json(listing) do
     %{
+      version: listing.version,
       txid: listing.txid,
       vout: listing.vout,
       block_height: listing.block_height,
@@ -109,12 +139,31 @@ defmodule BitblocksWeb.Api.OrderBookController do
       price_satoshis: listing.price_satoshis,
       seller_address: listing.seller_address,
       token_utxo: listing.token_utxo,
+      # The seller's pre-signed offer — a buyer reconstructs the swap's token
+      # input from these, so they can settle without the seller online.
+      seller_pubkey: listing.seller_pubkey,
+      seller_sig: listing.seller_sig,
+      sighash_flag: listing.sighash_flag,
       expires_at: listing.expires_at,
       min_quantity: listing.min_quantity,
       status: listing.status,
       quantity_remaining: listing.quantity_remaining,
       fills: listing.fills,
       inserted_at: listing.inserted_at
+    }
+  end
+
+  defp trade_to_json(trade) do
+    %{
+      txid: trade.txid,
+      listing_txid: trade.listing_txid,
+      token_id: trade.token_id,
+      quantity: trade.quantity,
+      price_satoshis: trade.price_satoshis,
+      total_satoshis: trade.total_satoshis,
+      seller_address: trade.seller_address,
+      block_height: trade.block_height,
+      filled_at: trade.filled_at
     }
   end
 
