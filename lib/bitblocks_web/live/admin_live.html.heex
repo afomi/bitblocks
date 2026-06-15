@@ -1,0 +1,145 @@
+<div class="max-w-4xl mx-auto px-4 py-10">
+  <h1 class="text-3xl font-bold text-gray-900 dark:text-white mb-2">
+    Admin
+  </h1>
+  <p class="text-sm text-gray-500 dark:text-gray-400 mb-8">
+    <%= format_number(@blocks_count) %> blocks · <%= format_number(@transactions_count) %> transactions
+  </p>
+
+  <%!-- Sync & Operations --%>
+  <section class="mb-10">
+    <h2 class="text-xs font-semibold uppercase tracking-widest text-gray-400 dark:text-gray-500 mb-4">
+      Sync & Operations
+    </h2>
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      <.admin_card
+        href="/sync"
+        title="Sync"
+        description="Monitor and control block header and transaction sync jobs."
+      />
+      <.admin_card
+        href="/rpc_admin"
+        title="RPC Admin"
+        description="Issue raw RPC calls to the connected Bitcoin SV node."
+      />
+      <.admin_card
+        href="/config"
+        title="Config"
+        description="View runtime configuration and environment settings."
+      />
+      <.admin_card
+        href="/debug"
+        title="Debug"
+        description="Debug information and internal state."
+      />
+    </div>
+  </section>
+
+  <%!-- Analytics & Reporting --%>
+  <section class="mb-10">
+    <h2 class="text-xs font-semibold uppercase tracking-widest text-gray-400 dark:text-gray-500 mb-4">
+      Analytics & Reporting
+    </h2>
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      <.admin_card
+        href="/reporting"
+        title="Reporting"
+        description="Transaction counts, satoshi flow, block times, and block size charts."
+      />
+      <.admin_card
+        href="/highlights"
+        title="Highlights"
+        description="Notable blocks and transactions surfaced from the chain."
+      />
+      <.admin_card
+        href="/forks"
+        title="Fork Graph"
+        description="Competing chain tips and fork metadata visualised as a graph."
+      />
+      <.admin_card
+        href="/address_repo"
+        title="Address Repo"
+        description="Address repository and lookup tools."
+      />
+    </div>
+  </section>
+
+  <%!-- Visualizations --%>
+  <section class="mb-10">
+    <h2 class="text-xs font-semibold uppercase tracking-widest text-gray-400 dark:text-gray-500 mb-4">
+      Visualizations
+    </h2>
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      <.admin_card
+        href="/graph"
+        title="Graph"
+        description="Force-directed transaction graph."
+      />
+      <.admin_card
+        href="/block-graph"
+        title="Block Graph"
+        description="3D animated blockchain visualization from genesis."
+      />
+      <.admin_card
+        href="/peers"
+        title="Peer Map"
+        description="World map of connected Bitcoin SV peers."
+      />
+      <.admin_card
+        href="/pulse"
+        title="Pulse"
+        description="Live network activity pulse."
+      />
+      <.admin_card
+        href="/ecosystem"
+        title="Ecosystem"
+        description="3D force-directed graph of the BSV ecosystem."
+      />
+      <.admin_card
+        href="/tx-graph"
+        title="Tx Graph"
+        description="Trace transaction reference chains (ancestors and descendants)."
+      />
+    </div>
+  </section>
+
+  <%!-- Data --%>
+  <section class="mb-10">
+    <h2 class="text-xs font-semibold uppercase tracking-widest text-gray-400 dark:text-gray-500 mb-4">
+      Data
+    </h2>
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      <.admin_card
+        href="/blocks"
+        title="Blocks"
+        description="Full block list with sync state."
+      />
+      <.admin_card
+        href="/transactions"
+        title="Transactions"
+        description="Full transaction list."
+      />
+      <.admin_card
+        href="/shape-layers"
+        title="Shape Layers"
+        description="GeoJSON shape layer NFTs."
+      />
+    </div>
+  </section>
+
+  <%= if Application.get_env(:bitblocks, :dev_routes, false) do %>
+    <section>
+      <h2 class="text-xs font-semibold uppercase tracking-widest text-gray-400 dark:text-gray-500 mb-4">
+        Dev
+      </h2>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <.admin_card
+          href="/dev/dashboard"
+          title="LiveDashboard"
+          description="Phoenix LiveDashboard — processes, memory, metrics."
+        />
+      </div>
+    </section>
+  <% end %>
+</div>
+

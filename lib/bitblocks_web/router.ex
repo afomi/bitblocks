@@ -128,8 +128,10 @@ defmodule BitblocksWeb.Router do
     get "/config", PageController, :config
     get "/debug", PageController, :debug
 
+    live "/admin", AdminLive
+
     # Dev-only routes
-live "/address_repo", AddressRepoLive
+    live "/address_repo", AddressRepoLive
     live "/forks", ForkGraphLive
     live "/sync", SyncLive
     live "/reporting", ReportingLive

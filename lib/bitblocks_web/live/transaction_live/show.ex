@@ -152,6 +152,53 @@ defmodule BitblocksWeb.TransactionLive.Show do
     |> Enum.sort_by(fn {_type, count} -> -count end)
   end
 
+  # BCat protocol: prefix 15DHFxWZJT58f9nhyCA3mREYYzkVDetm6A
+  # Discriminator: second push data == "c" → chunk tx; anything else → head tx
+  # Head push layout: [prefix, info, mime, encoding, filename, flag, txid_1..txid_n]
+  # Chunk txids are 32 raw bytes each (push indices 6+), hex-encoded for display
+
+  def bcat_info(nil), do: nil
+  def bcat_info(parsed_data) do
+    if "BCat" in (parsed_data.protocols || []) do
+      op_return = List.first(parsed_data.op_returns)
+      if op_return, do: classify_bcat(op_return.data), else: nil
+    end
+  end
+
+  defp classify_bcat(data) do
+    push_data =
+      Enum.filter(data, &(&1.type == :push_data))
+
+    case push_data do
+      [_prefix, %{utf8: "c"} | _rest] ->
+        {:chunk}
+
+      [_prefix, info, mime, encoding, filename, flag | txid_pushes] ->
+        chunk_txids =
+          Enum.filter(txid_pushes, fn chunk ->
+            chunk.length == 32 and is_nil(chunk.utf8)
+          end)
+          |> Enum.map(& &1.hex)
+
+        {:head,
+         %{
+           info: blank_to_nil(info.utf8),
+           mime_type: blank_to_nil(mime.utf8),
+           encoding: blank_to_nil(encoding.utf8),
+           filename: blank_to_nil(filename.utf8),
+           flag: blank_to_nil(flag.utf8),
+           chunk_txids: chunk_txids
+         }}
+
+      _ ->
+        nil
+    end
+  end
+
+  defp blank_to_nil(nil), do: nil
+  defp blank_to_nil(" "), do: nil
+  defp blank_to_nil(v), do: v
+
   defp page_title(:show), do: "Show Transaction"
   defp page_title(:edit), do: "Edit Transaction"
 end
