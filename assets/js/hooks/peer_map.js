@@ -33,7 +33,7 @@ export default {
     this.createGridLines()
 
     // Load world outlines from GeoJSON then draw
-    fetch("/assets/world_outlines.json")
+    fetch("/world_outlines.json")
       .then(r => r.json())
       .then(data => {
         WORLD_OUTLINES = data
