@@ -1,127 +1,57 @@
 # Contributing to Bitblocks
 
-Thank you for your interest in contributing to Bitblocks! We welcome contributions from the community.
+Thank you for your interest in contributing! We welcome contributions from the community.
+
+> **Coding standards, project structure, testing, and commit conventions live in [AGENTS.md](AGENTS.md).**
+> This document covers the contribution *workflow*; AGENTS.md is the source of truth for *standards*.
 
 ## Getting Started
 
-1. **Fork the repository** on GitHub
+1. **Fork the repository** on GitHub.
 2. **Clone your fork** locally:
    ```bash
    git clone https://github.com/YOUR_USERNAME/bitblocks.git
    cd bitblocks
    ```
-3. **Set up your development environment** following the instructions in [README.md](README.md)
+3. **Set up your environment** following [README.md](README.md) (`mix setup`).
 
 ## Development Workflow
 
-1. **Create a new branch** for your feature or bugfix:
+1. **Create a branch** for your feature or bugfix:
    ```bash
-   git checkout -b feature/your-feature-name
+   git checkout -b feature/your-feature-name   # or fix/your-bugfix-name
    ```
-   or
-   ```bash
-   git checkout -b fix/your-bugfix-name
-   ```
-
-2. **Make your changes** following our coding standards (see below)
-
-3. **Test your changes**:
-   ```bash
-   mix test
-   ```
-
-4. **Commit your changes** with clear, descriptive commit messages:
-   ```bash
-   git commit -m "Add feature: description of what you added"
-   ```
-
-5. **Push to your fork**:
-   ```bash
-   git push origin feature/your-feature-name
-   ```
-
-6. **Open a Pull Request** on GitHub with a clear description of your changes
-
-## Coding Standards
-
-### Elixir Style
-
-- Follow the [Elixir Style Guide](https://github.com/christopheradams/elixir_style_guide)
-- Use `mix format` to format your code before committing
-- Write clear, descriptive function names and module documentation
-- Add `@doc` and `@spec` annotations for public functions
-
-### Code Quality
-
-- Write tests for new features and bug fixes
-- Ensure all tests pass before submitting a PR
-- Keep functions small and focused on a single responsibility
-- Add comments for complex logic
-
-### Commits
-
-- Write clear, concise commit messages
-- Use present tense ("Add feature" not "Added feature")
-- Reference issue numbers when applicable (e.g., "Fix #123: Handle timeout errors")
+2. **Make your changes** following the standards in [AGENTS.md](AGENTS.md).
+3. **Test**: `mix test` (run `mix format` first).
+4. **Commit** with a clear, imperative subject (see AGENTS.md → Commit Guidelines).
+5. **Push** to your fork and **open a Pull Request** with a clear description.
 
 ## What to Contribute
 
-### Good First Issues
-
-Look for issues labeled `good first issue` - these are great for newcomers!
-
-### Areas We Need Help
-
-- **Documentation**: Improve or expand documentation
-- **Testing**: Add test coverage for existing features
-- **Bug Fixes**: Fix open issues
-- **Features**: Implement features from the roadmap
-- **Performance**: Optimize sync performance
-- **UI/UX**: Improve the web interface
+Look for issues labeled `good first issue`. Areas we need help: documentation, test coverage, bug fixes, roadmap features, sync performance, and UI/UX.
 
 ### Reporting Bugs
 
-If you find a bug, please open an issue with:
-
-- A clear, descriptive title
-- Steps to reproduce the bug
-- Expected behavior
-- Actual behavior
-- Your environment (Elixir version, OS, etc.)
-- Any relevant error messages or logs
+Open an issue with: a descriptive title, steps to reproduce, expected vs. actual behavior, your environment (Elixir version, OS), and any relevant logs.
 
 ### Suggesting Enhancements
 
-We welcome feature suggestions! Please open an issue with:
-
-- A clear description of the feature
-- Why this feature would be useful
-- Any implementation ideas you have
+Open an issue describing the feature, why it would be useful, and any implementation ideas.
 
 ## Code Review Process
 
-1. A maintainer will review your PR
-2. They may request changes or ask questions
-3. Once approved, a maintainer will merge your PR
-4. Your contribution will be included in the next release!
+A maintainer reviews your PR, may request changes, and merges once approved. Your contribution ships in the next release.
 
 ## Community
 
-- Be respectful and inclusive
-- Follow our [Code of Conduct](CODE_OF_CONDUCT.md)
-- Help others in discussions and issues
-- Share knowledge and learn together
+Be respectful and inclusive. Follow our [Code of Conduct](CODE_OF_CONDUCT.md), help others, and share knowledge.
 
 ## Questions?
 
-If you have questions about contributing, feel free to:
-
-- Open an issue with the `question` label
-- Reach out to the maintainers
-- Check existing issues and discussions
+Open an issue with the `question` label or reach out to the maintainers.
 
 ## License
 
-By contributing to Bitblocks, you agree that your contributions will be licensed under the MIT License.
+By contributing, you agree that your contributions will be licensed under the MIT License.
 
 Thank you for contributing to Bitblocks! 🚀

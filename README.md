@@ -165,69 +165,21 @@ rpcallowip=your_app_ip
 
 ### Production Deployment
 
-#### Fly.io Deployment
+#### AWS Deployment (CI/CD)
 
-Bitblocks includes configuration for deployment to Fly.io:
+Production runs on AWS. Deployment is automated via GitHub Actions — there is no manual deploy step.
 
-1. **Install Fly.io CLI**
-   ```bash
-   curl -L https://fly.io/install.sh | sh
-   ```
+**On push to `main` or `develop`** (`.github/workflows/aws-deploy.yml`):
+1. Builds a Docker image and pushes it to ECR (`bitblocks:<sha>` and `:latest`), tagged in `us-east-1`.
+2. Triggers `restart.yml`, which rolls the running EC2 instances onto the new image.
 
-2. **Create a Fly.io app**
-   ```bash
-   fly apps create your-app-name
-   ```
+**Required GitHub secrets:** `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`.
 
-3. **Update fly.toml**
-
-   Edit `fly.toml` and change the app name:
-   ```toml
-   app = 'your-app-name'
-   ```
-
-   Update `PHX_HOST` in the `[env]` section:
-   ```toml
-   PHX_HOST = 'your-app-name.fly.dev'
-   ```
-
-4. **Set secrets**
-   ```bash
-   fly secrets set SECRET_KEY_BASE=$(mix phx.gen.secret)
-   fly secrets set BITCOIN_NODE_URL=http://your-node:8332
-   fly secrets set BITCOIN_NODE_RPC_USERNAME=your_username
-   fly secrets set BITCOIN_NODE_RPC_PASSWORD=your_password
-   fly secrets set DATABASE_URL=your_postgres_url
-   ```
-
-5. **Deploy**
-   ```bash
-   fly deploy
-   ```
-
-#### GitHub Actions CI/CD
-
-The project includes automated testing and deployment:
-
-**On every push and PR:**
-- Runs unit tests
-- Runs accessibility tests (axe-core)
-- Compiles with warnings-as-errors
-
-**On push to `develop`:**
-- Runs all tests first
-- Automatically deploys to Fly.io if tests pass
-
-**Setup:**
-1. Get your Fly.io API token: `fly auth token`
-2. Add it to GitHub: Repository → Settings → Secrets and variables → Actions
-3. Create secret named `FLY_API_TOKEN` with your token
-
-See `.github/workflows/ci.yml` for the full workflow configuration.
+Runtime secrets (`SECRET_KEY_BASE`, `DATABASE_URL`, `BITCOIN_NODE_*`, `PHX_HOST`) are supplied to the running task via the AWS environment, read in `config/runtime.exs`.
 
 #### General Production Configuration
 
-For other deployment platforms:
+For any deployment target, set:
 
 1. Set `SECRET_KEY_BASE` (generate with `mix phx.gen.secret`)
 2. Set `DATABASE_URL` for your PostgreSQL instance
