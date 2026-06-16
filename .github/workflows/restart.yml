@@ -35,7 +35,7 @@ jobs:
         id: instances
         run: |
           INSTANCES=$(aws ec2 describe-instances \
-            --filters "Name=tag:Name,Values=bitblocks-*" "Name=instance-state-name,Values=running" \
+            --filters "Name=tag:Name,Values=bitblocks" "Name=instance-state-name,Values=running" \
             --query 'Reservations[].Instances[].InstanceId' --output text)
           echo "ids=$INSTANCES" >> $GITHUB_OUTPUT
           echo "first=$(echo $INSTANCES | awk '{print $1}')" >> $GITHUB_OUTPUT
