@@ -203,8 +203,7 @@ end
 **Watch for large block issues:**
 
 ```bash
-# Find blocks with many transactions
-fly ssh console
+# Find blocks with many transactions — attach a remote console to the running release
 /app/bin/bitblocks remote
 
 # In IEx

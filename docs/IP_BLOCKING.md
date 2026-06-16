@@ -31,10 +31,10 @@ config :bitblocks,
 
 ### Monitoring Auto-Bans
 
-Watch for auto-ban events in your logs:
+Watch for auto-ban events in your container/application logs:
 
 ```bash
-fly logs | grep "AUTO-BAN TRIGGERED"
+<your-log-command> | grep "AUTO-BAN TRIGGERED"
 ```
 
 Example output:
@@ -57,28 +57,19 @@ config :bitblocks,
   auto_ban_enabled: System.get_env("AUTO_BAN_ENABLED", "true") == "true"
 ```
 
-## Option 1: Fly.io Edge Blocking (Best for Permanent Bans)
+## Option 1: Edge Blocking (Best for Permanent Bans)
 
-Block IPs at the Fly.io edge before they reach your application:
+Block IPs at the network edge before they reach the application. On AWS this is done at the load balancer / WAF layer, not in the app:
 
-```bash
-# Block a single IP
-fly ips block 203.0.113.45
-
-# Block an IP range (CIDR notation)
-fly ips block 198.51.100.0/24
-
-# List all blocked IPs
-fly ips list-blocked
-
-# Unblock an IP
-fly ips unblock 203.0.113.45
-```
+- **AWS WAF** — attach an IP-set rule to the ALB to block a single IP or CIDR.
+- **Security groups / NACLs** — deny CIDR ranges at the subnet/instance boundary for coarse, persistent blocks.
 
 **Advantages:**
-- Blocks traffic before it hits your app (saves resources)
+- Blocks traffic before it hits the app (saves resources)
 - Works across all app instances
 - Persists across deployments
+
+> The exact WAF/security-group commands depend on the current AWS setup — see the infra config rather than hardcoding them here.
 
 ## Option 2: Application-Level Blocking
 
@@ -86,13 +77,10 @@ Block IPs within the Phoenix application using the IpBlocker plug.
 
 ### Block IPs at Runtime
 
-Connect to your production app via SSH or IEx:
+Connect a remote console to the running release:
 
 ```bash
-# SSH into Fly.io app
-fly ssh console
-
-# Start IEx
+# Attach to the running node (from a shell on the host/container)
 /app/bin/bitblocks remote
 ```
 
@@ -129,28 +117,23 @@ config :bitblocks, BitblocksWeb.Plugs.IpBlocker,
   ]
 ```
 
-Then redeploy:
-
-```bash
-fly deploy
-```
+Then redeploy (push to `main`/`develop` triggers the AWS deploy workflow).
 
 ## Finding Abusive IPs
 
 ### View Recent Logs
 
-```bash
-# See all logs
-fly logs
+Use your platform's log command (`$LOGS` below stands in for it — e.g. CloudWatch Logs tail, or `docker logs`):
 
+```bash
 # Filter for suspicious activity
-fly logs | grep "SUSPICIOUS"
+$LOGS | grep "SUSPICIOUS"
 
 # Filter for 404s
-fly logs | grep "404"
+$LOGS | grep "404"
 
 # Filter for high request rates
-fly logs | grep "HIGH REQUEST RATE"
+$LOGS | grep "HIGH REQUEST RATE"
 ```
 
 ### Example Log Output
@@ -164,33 +147,27 @@ fly logs | grep "HIGH REQUEST RATE"
 ### Extract IPs from Logs
 
 ```bash
-# Get all IPs that triggered 404s in the last hour
-fly logs --since 1h | grep "404" | grep -oE 'ip=[0-9.]+' | cut -d= -f2 | sort | uniq -c | sort -rn
+# Get all IPs that triggered 404s
+$LOGS | grep "404" | grep -oE 'ip=[0-9.]+' | cut -d= -f2 | sort | uniq -c | sort -rn
 
 # Get IPs with suspicious patterns
-fly logs --since 1h | grep "SUSPICIOUS" | grep -oE 'ip=[0-9.]+' | cut -d= -f2 | sort | uniq -c | sort -rn
+$LOGS | grep "SUSPICIOUS" | grep -oE 'ip=[0-9.]+' | cut -d= -f2 | sort | uniq -c | sort -rn
 ```
 
 ## Workflow for Blocking Abusive IPs
 
 1. **Monitor logs** for suspicious patterns:
    ```bash
-   fly logs | grep -E "SUSPICIOUS|HIGH REQUEST RATE|404"
+   $LOGS | grep -E "SUSPICIOUS|HIGH REQUEST RATE|404"
    ```
 
-2. **Identify the offending IP** from the log output
+2. **Identify the offending IP** from the log output.
 
-3. **Block at the edge** (recommended):
-   ```bash
-   fly ips block <IP_ADDRESS>
-   ```
+3. **Block at the edge** (recommended) via AWS WAF IP-set or a security-group/NACL deny rule.
 
-4. **Verify the block**:
-   ```bash
-   fly ips list-blocked
-   ```
+4. **Verify the block** by confirming the WAF rule / NACL entry is active.
 
-5. **Document in logs** for future reference
+5. **Document the block** for future reference.
 
 ## Reporting Abuse
 
@@ -209,7 +186,7 @@ If you need to report persistent abuse:
 
 3. **Report to:**
    - The IP's ISP (found in whois data)
-   - Fly.io support: https://fly.io/docs/about/support/
+   - Your hosting provider's abuse channel (AWS: https://support.aws.amazon.com/#/contacts/report-abuse)
    - abuse@<domain> (if targeting specific resources)
 
 ## Automated Blocking

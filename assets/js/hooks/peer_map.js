@@ -13,6 +13,7 @@ const COLORS = {
   inbound: 0x4ade80,
   outbound: 0x60a5fa,
   arc: 0xf97316,
+  home: 0xfacc15,
   background: 0x030712
 }
 
@@ -24,6 +25,8 @@ export default {
     this.peers = []
     this.peerMeshes = []
     this.arcLines = []
+    this.home = null
+    this.homeMeshes = []
     this.tooltip = document.getElementById("peer-map-tooltip")
     this.raycaster = new THREE.Raycaster()
     this.mouse = new THREE.Vector2()
@@ -53,6 +56,8 @@ export default {
     requestAnimationFrame(this.animate)
 
     this.handleEvent("peer_map_data", (data) => {
+      this.home = data.home || null
+      this.updateHome()
       this.updatePeers(data.peers)
     })
   },
@@ -218,6 +223,51 @@ export default {
     return new THREE.Vector3(x, y, z)
   },
 
+  updateHome() {
+    this.clearHome()
+    if (!this.home || this.home.lat == null || this.home.lon == null) return
+
+    const pos = this.latLonToVec3(this.home.lat, this.home.lon, GLOBE_RADIUS + DOT_SIZE)
+
+    // Our node — a larger yellow dot so it reads as the hub, distinct from peers.
+    const geometry = new THREE.SphereGeometry(DOT_SIZE * 1.8, 16, 16)
+    const material = new THREE.MeshStandardMaterial({
+      color: COLORS.home,
+      metalness: 0.3,
+      roughness: 0.25,
+      emissive: COLORS.home,
+      emissiveIntensity: 0.6
+    })
+    const dot = new THREE.Mesh(geometry, material)
+    dot.position.copy(pos)
+    this.peerGroup.add(dot)
+    this.homeMeshes.push(dot)
+
+    // Pulsing glow ring around the home node
+    const glowGeo = new THREE.RingGeometry(DOT_SIZE * 2.5, DOT_SIZE * 4, 24)
+    const glowMat = new THREE.MeshBasicMaterial({
+      color: COLORS.home,
+      transparent: true,
+      opacity: 0.35,
+      side: THREE.DoubleSide
+    })
+    const glowMesh = new THREE.Mesh(glowGeo, glowMat)
+    glowMesh.position.copy(pos)
+    glowMesh.lookAt(0, 0, 0)
+    this.peerGroup.add(glowMesh)
+    this.homeMeshes.push(glowMesh)
+    this.homeGlow = glowMesh
+  },
+
+  // The position arcs originate from: our node if known, else a placeholder
+  // above the globe (legacy behavior when no home location is configured).
+  homeAnchor() {
+    if (this.home && this.home.lat != null && this.home.lon != null) {
+      return this.latLonToVec3(this.home.lat, this.home.lon, GLOBE_RADIUS + 2)
+    }
+    return new THREE.Vector3(0, GLOBE_RADIUS + 2, 0)
+  },
+
   updatePeers(peers) {
     this.clearPeers()
     this.peers = peers.filter((p) => p.lat != null && p.lon != null)
@@ -272,15 +322,17 @@ export default {
   },
 
   createArc(peer) {
-    // Arc from an arbitrary "home" position to peer
-    // We don't know our own location, so draw from globe center projected up
+    // Arc from our node (home) to the peer.
     const peerPos = this.latLonToVec3(peer.lat, peer.lon, GLOBE_RADIUS)
+    const homePos = this.homeAnchor()
 
-    // Create a great circle arc that rises above the globe surface
-    const mid = peerPos.clone().normalize().multiplyScalar(GLOBE_RADIUS + 15 + Math.random() * 10)
+    // Lift the control point above the midpoint of the two endpoints so the arc
+    // bows out over the globe surface between home and peer.
+    const midpoint = homePos.clone().add(peerPos).multiplyScalar(0.5)
+    const mid = midpoint.clone().normalize().multiplyScalar(GLOBE_RADIUS + 15 + Math.random() * 10)
 
     const curve = new THREE.QuadraticBezierCurve3(
-      new THREE.Vector3(0, GLOBE_RADIUS + 2, 0),
+      homePos,
       mid,
       peerPos.clone().normalize().multiplyScalar(GLOBE_RADIUS + 2)
     )
@@ -321,6 +373,16 @@ export default {
     this.arcLines = []
 
     this.peers = []
+  },
+
+  clearHome() {
+    this.homeMeshes.forEach((mesh) => {
+      this.peerGroup.remove(mesh)
+      mesh.geometry.dispose()
+      mesh.material.dispose()
+    })
+    this.homeMeshes = []
+    this.homeGlow = null
   },
 
   handleResize() {
@@ -383,6 +445,11 @@ export default {
       const pulse = 0.15 + Math.sin(time * 2 + i * 0.5) * 0.1
       mesh.material.opacity = pulse
     })
+
+    // Pulse the home glow a touch stronger so it stands out as the hub
+    if (this.homeGlow) {
+      this.homeGlow.material.opacity = 0.35 + Math.sin(time * 2.5) * 0.15
+    }
 
     if (this.controls) this.controls.update()
     if (this.renderer && this.scene && this.camera) {

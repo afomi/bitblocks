@@ -53,9 +53,15 @@ defmodule BitblocksWeb.PeerMapLive do
     socket =
       socket
       |> assign(peers: located_peers, loading: false, geo_progress: 100)
-      |> push_event("peer_map_data", %{peers: located_peers})
+      |> push_event("peer_map_data", %{peers: located_peers, home: node_location()})
 
     {:noreply, socket}
+  end
+
+  # Our own node's approximate, static location (the home marker). Sourced from
+  # config rather than a runtime geo-IP lookup, since the node doesn't move.
+  defp node_location do
+    Application.get_env(:bitblocks, :node_location)
   end
 
   @impl true

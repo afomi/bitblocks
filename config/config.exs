@@ -36,7 +36,16 @@ config :bitblocks,
   # Number of invalid requests before auto-ban (404s, 400s, suspicious patterns)
   invalid_request_threshold: 10,
   # Time window for tracking invalid requests (seconds)
-  tracking_window_seconds: 300
+  tracking_window_seconds: 300,
+  # Approximate location of OUR node, shown as the home marker on /peers.
+  # The node is static, so this is a fixed, city-level point rather than a
+  # runtime geo-IP lookup.
+  node_location: %{
+    lat: 37.77,
+    lon: -122.42,
+    city: "San Francisco",
+    country: "United States"
+  }
 
 # Configure Txbox
 config :txbox,
