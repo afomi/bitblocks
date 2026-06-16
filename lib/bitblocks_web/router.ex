@@ -37,6 +37,9 @@ defmodule BitblocksWeb.Router do
     get "/txs/:txid", TransactionController, :show
     get "/txs", TransactionController, :index
 
+    # Price (BSV spot, cached from CoinGecko)
+    get "/price/bsv", PriceController, :show
+
     # Real-time
     get "/stream/blocks", StreamController, :blocks
     get "/stream/order-book", StreamController, :order_book

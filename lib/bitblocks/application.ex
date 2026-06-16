@@ -36,6 +36,8 @@ defmodule Bitblocks.Application do
       Bitblocks.RpcCache,
       # Cache database stats (counts) to avoid slow COUNT(*) queries
       Bitblocks.StatsCache,
+      # Cache BSV spot price from CoinGecko (rate-limit friendly)
+      Bitblocks.PriceCache,
       # Start the Finch HTTP client for sending emails
       {Finch, name: Bitblocks.Finch},
       # Start Oban for background job processing
