@@ -82,15 +82,6 @@ bitblocks_network =
 config :bitblocks, :bitcoin_network, bitblocks_network
 
 if config_env() == :prod do
-  config :rollbax,
-    access_token: System.get_env("ROLLBAR_ACCESS_TOKEN"),
-    environment: System.get_env("ROLLBAR_ENVIRONMENT", "production"),
-    code_version: System.get_env("GIT_SHA", "unknown"),
-    custom: %{"branch" => System.get_env("GIT_BRANCH", "main")},
-    enabled: true
-
-  config :logger,
-    backends: [:console, Rollbax.Logger]
 
   database_url =
     System.get_env("DATABASE_URL") ||

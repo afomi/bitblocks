@@ -94,7 +94,14 @@ defmodule Bitblocks.Workers.SyncHeadersWorker do
         # Tip mode enqueues tx fetches for the new blocks so the chain stays
         # fully synced with no manual intervention (volume is bounded — a few
         # blocks per cycle).
-        sync_range(our_tip + 1, chain_tip, true)
+        case sync_range_tip(our_tip + 1, chain_tip) do
+          {:reorg, fork_height, node_hash} ->
+            handle_reorg(fork_height, node_hash)
+
+          _ ->
+            :ok
+        end
+
         reschedule_tip(@tip_delay_seconds)
         :ok
 
@@ -102,6 +109,81 @@ defmodule Bitblocks.Workers.SyncHeadersWorker do
         # Up to date — nothing new to fetch.
         reschedule_tip(@tip_delay_seconds)
         :ok
+    end
+  end
+
+  # Tip-mode range sync — propagates {:reorg, height, hash} up if detected.
+  defp sync_range_tip(from, to) do
+    gaps = Chain.missing_block_ranges(from, to)
+
+    Enum.reduce_while(gaps, :ok, fn {gap_start, gap_end}, _acc ->
+      case fetch_and_store_headers_tip(gap_start, gap_end) do
+        {:reorg, _, _} = reorg -> {:halt, reorg}
+        _ -> {:cont, :ok}
+      end
+    end)
+  end
+
+  # Walk back from fork_height to find where our chain and the node's chain
+  # diverge, delete our orphaned blocks, and re-fetch from the fork point.
+  # Capped at @max_reorg_depth to avoid runaway deletes on a misconfigured node.
+  @max_reorg_depth 10
+
+  defp handle_reorg(fork_height, node_hash) do
+    Logger.warning("SyncHeaders: reorg detected at height #{fork_height} — resolving")
+
+    case find_fork_point(fork_height, node_hash, 0) do
+      {:ok, fork_point} ->
+        orphan_heights = (fork_point + 1)..fork_height |> Enum.to_list()
+
+        Logger.warning(
+          "SyncHeaders: reorg fork point #{fork_point}, deleting orphans #{fork_point + 1}..#{fork_height}"
+        )
+
+        Enum.each(orphan_heights, fn h ->
+          case Chain.get_block(h) do
+            nil -> :ok
+            block -> Chain.delete_block(block)
+          end
+        end)
+
+        Logger.warning("SyncHeaders: reorg resolved, re-syncing from #{fork_point + 1}")
+        fetch_and_store_headers(fork_point + 1, fork_height, true)
+
+      {:error, :too_deep} ->
+        Logger.error(
+          "SyncHeaders: reorg exceeds #{@max_reorg_depth} blocks deep — manual intervention required"
+        )
+    end
+  end
+
+  # Walk back from `height` following the node's chain via previousblockhash
+  # until we find a height where our stored hash matches the node's prevhash
+  # (meaning the node and our DB agree on that ancestor).
+  defp find_fork_point(_height, _node_hash, depth) when depth > @max_reorg_depth,
+    do: {:error, :too_deep}
+
+  defp find_fork_point(height, node_hash, depth) do
+    case BitcoinsvCli.getblockheader(node_hash, true) do
+      %{"previousblockhash" => prev_hash, "height" => ^height} ->
+        prev_height = height - 1
+
+        case Chain.get_block(prev_height) do
+          %Block{hash: ^prev_hash} ->
+            # Our block at prev_height matches the node's prevhash — fork point found.
+            {:ok, prev_height}
+
+          %Block{} ->
+            # Mismatch — keep walking back.
+            find_fork_point(prev_height, prev_hash, depth + 1)
+
+          nil ->
+            # We don't have the predecessor at all — treat this height as the fork point.
+            {:ok, prev_height}
+        end
+
+      _ ->
+        {:error, :too_deep}
     end
   end
 
@@ -128,31 +210,56 @@ defmodule Bitblocks.Workers.SyncHeadersWorker do
   # -- header fetch + store ----------------------------------------------------
 
   defp fetch_and_store_headers(from, to, enqueue_txs?) do
-    heights = Enum.to_list(from..to)
-
-    # Step 1: batch-fetch hashes (falls back to individual calls)
-    hashes = fetch_hashes(heights)
-
-    # Step 2: for each hash, fetch header and insert
-    inserted =
-      heights
-      |> Enum.flat_map(fn height ->
-        case Map.get(hashes, height) do
-          hash when is_binary(hash) ->
-            case insert_header(height, hash) do
-              {:ok, block} -> [block]
-              _ -> []
-            end
-
-          _ ->
-            []
-        end
-      end)
+    {inserted, _} = do_fetch_and_store_headers(from, to, enqueue_txs?, _stop_on_reorg = false)
 
     if inserted != [] do
       Logger.info("SyncHeaders: stored #{length(inserted)} headers (#{from}..#{to})")
       if enqueue_txs?, do: Enum.each(inserted, &Chain.queue_transaction_fetch/1)
     end
+  end
+
+  # Tip variant — halts on first reorg signal and returns it so the caller can resolve.
+  defp fetch_and_store_headers_tip(from, to) do
+    case do_fetch_and_store_headers(from, to, true, _stop_on_reorg = true) do
+      {inserted, {:reorg, _, _} = reorg} ->
+        if inserted != [],
+          do: Logger.info("SyncHeaders: stored #{length(inserted)} headers (#{from}..#{to})")
+
+        reorg
+
+      {inserted, _} ->
+        if inserted != [] do
+          Logger.info("SyncHeaders: stored #{length(inserted)} headers (#{from}..#{to})")
+          Enum.each(inserted, &Chain.queue_transaction_fetch/1)
+        end
+
+        :ok
+    end
+  end
+
+  defp do_fetch_and_store_headers(from, to, _enqueue_txs?, stop_on_reorg) do
+    heights = Enum.to_list(from..to)
+    hashes = fetch_hashes(heights)
+
+    Enum.reduce_while(heights, {[], :ok}, fn height, {acc, _} ->
+      case Map.get(hashes, height) do
+        hash when is_binary(hash) ->
+          case insert_header(height, hash) do
+            {:ok, block} ->
+              {:cont, {[block | acc], :ok}}
+
+            {:reorg, _, _} = reorg when stop_on_reorg ->
+              {:halt, {Enum.reverse(acc), reorg}}
+
+            _ ->
+              {:cont, {acc, :ok}}
+          end
+
+        _ ->
+          {:cont, {acc, :ok}}
+      end
+    end)
+    |> then(fn {acc, signal} -> {Enum.reverse(acc), signal} end)
   end
 
   defp fetch_hashes(heights) do
@@ -184,6 +291,7 @@ defmodule Bitblocks.Workers.SyncHeadersWorker do
              :ok <- check_continuity(height, header) do
           store_verified_header(height, hash, header)
         else
+          {:error, :prevhash_mismatch} -> {:reorg, height, hash}
           {:error, reason} -> reject_header(height, hash, reason)
         end
 

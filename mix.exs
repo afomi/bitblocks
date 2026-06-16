@@ -79,7 +79,7 @@ defmodule Bitblocks.MixProject do
       {:ex_aws_s3, "~> 2.5"},
       {:sweet_xml, "~> 0.7"},
       {:hackney, "~> 1.25.0"},
-      {:rollbax, "~> 0.11"}
+      {:cors_plug, "~> 3.0"}
     ]
   end
 

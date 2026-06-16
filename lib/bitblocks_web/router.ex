@@ -14,6 +14,11 @@ defmodule BitblocksWeb.Router do
     plug :accepts, ["json"]
   end
 
+  pipeline :public_api do
+    plug :accepts, ["json"]
+    plug CORSPlug, origin: "*"
+  end
+
   scope "/api/v1", BitblocksWeb.Api do
     pipe_through :api
 
@@ -37,8 +42,6 @@ defmodule BitblocksWeb.Router do
     get "/txs/:txid", TransactionController, :show
     get "/txs", TransactionController, :index
 
-    # Price (BSV spot, cached from CoinGecko)
-    get "/price/bsv", PriceController, :show
 
     # Real-time
     get "/stream/blocks", StreamController, :blocks
@@ -70,6 +73,14 @@ defmodule BitblocksWeb.Router do
     get "/protocols/:address/feed", ProtocolController, :feed
     get "/protocols/:address", ProtocolController, :show
     post "/protocols/identify", ProtocolController, :identify
+  end
+
+  # Price endpoint is open to all origins — it's cached, lightweight, and
+  # intended for consumption by external sites (e.g. qart).
+  scope "/api/v1", BitblocksWeb.Api do
+    pipe_through :public_api
+
+    get "/price/bsv", PriceController, :show
   end
 
   pipeline :metrics do
