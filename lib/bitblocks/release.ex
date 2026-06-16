@@ -590,10 +590,12 @@ defmodule Bitblocks.Release do
   end
 
   @doc """
-  Backfill missing blocks and transactions from height 0 to the chain tip.
+  Backfill missing block HEADERS from height 0 to the chain tip.
 
-  Delegates to sync_headers/2 which fills header gaps and auto-queues
-  transaction fetches for each new block.
+  Delegates to sync_headers/2 (range mode) which fills header gaps only.
+  This does NOT fetch transactions — run `backfill_transactions/1` afterward
+  for that. (Range mode deliberately doesn't auto-queue tx fetches so a bulk
+  backfill can't flood the job table; see docs/SYNCING.md.)
 
   ## Usage
 
@@ -610,26 +612,101 @@ defmodule Bitblocks.Release do
   end
 
   @doc """
-  Start a background transaction backfill job.
+  Backfill TRANSACTIONS for blocks whose headers exist but bodies don't.
 
-  Runs as an Oban job — fire and forget. Survives restarts.
-  Processes blocks in batches, re-enqueuing itself for each batch.
-  Progress is ratcheted: completed blocks are never revisited.
+  Walks incomplete blocks (`sync_state in header_only/header_synced/failed`) in
+  height order and enqueues `FetchTransactionsWorker` jobs in metered waves —
+  draining the `transactions` queue below `pause_below` before queuing the next
+  wave, so `oban_jobs` never floods. The workers themselves are resumable and
+  idempotent (count-existing-and-skip, `on_conflict: :nothing`), so this is safe
+  to stop and re-run; it picks up at the lowest incomplete block.
+
+  Long-running. Run from the CLI, not the /sync UI.
 
   ## Options
-    - batch_size: blocks per batch (default 100)
+    - wave_size:   blocks enqueued per wave (default 500)
+    - pause_below: wait until the transactions queue has fewer than this many
+                   pending jobs before the next wave (default 1_000)
+    - max_blocks:  cap total blocks enqueued this run (default :infinity)
 
   ## Usage
 
-      bin/bitblocks rpc 'Bitblocks.Release.backfill_txs()'
-      bin/bitblocks rpc 'Bitblocks.Release.backfill_txs(batch_size: 50)'
+      bin/bitblocks rpc 'Bitblocks.Release.backfill_transactions()'
+      bin/bitblocks rpc 'Bitblocks.Release.backfill_transactions(wave_size: 200)'
 
   ## Monitoring
 
       bin/bitblocks rpc 'Bitblocks.Release.status()'
   """
+  def backfill_transactions(opts \\ []) do
+    import Ecto.Query
+    alias Bitblocks.{Repo, Chain, Chain.Block}
+
+    wave_size = Keyword.get(opts, :wave_size, 500)
+    pause_below = Keyword.get(opts, :pause_below, 1_000)
+    max_blocks = Keyword.get(opts, :max_blocks, :infinity)
+
+    incomplete_states = ["header_only", "header_synced", "failed"]
+
+    pending_query =
+      from(j in Oban.Job,
+        where: j.queue == "transactions" and j.state in ["available", "scheduled", "executing", "retryable"],
+        select: count()
+      )
+
+    enqueue_wave = fn last_height ->
+      from(b in Block,
+        where: b.sync_state in ^incomplete_states and b.height > ^last_height,
+        order_by: [asc: b.height],
+        limit: ^wave_size,
+        select: {b.height, b.hash}
+      )
+      |> Repo.all()
+    end
+
+    IO.puts("backfill_transactions: starting (wave_size=#{wave_size}, pause_below=#{pause_below})")
+
+    Stream.unfold({-1, 0}, fn {last_height, enqueued} ->
+      if max_blocks != :infinity and enqueued >= max_blocks do
+        nil
+      else
+        # Throttle: wait for the queue to drain below the watermark.
+        wait_for_drain(pending_query, pause_below)
+
+        case enqueue_wave.(last_height) do
+          [] ->
+            nil
+
+          blocks ->
+            Enum.each(blocks, fn {_h, hash} -> Chain.queue_transaction_fetch(hash) end)
+            {new_last, _} = List.last(blocks)
+            total = enqueued + length(blocks)
+            IO.puts("  enqueued #{length(blocks)} (through ##{new_last}); #{total} this run")
+            {total, {new_last, total}}
+        end
+      end
+    end)
+    |> Enum.to_list()
+
+    IO.puts("backfill_transactions: no more incomplete blocks to enqueue. Done.")
+    :ok
+  end
+
+  # Block until the transactions queue has drained below `watermark` pending jobs.
+  defp wait_for_drain(pending_query, watermark) do
+    case Bitblocks.Repo.one(pending_query) do
+      n when is_integer(n) and n >= watermark ->
+        Process.sleep(2_000)
+        wait_for_drain(pending_query, watermark)
+
+      _ ->
+        :ok
+    end
+  end
+
+  @doc deprecated: "Use backfill_transactions/1 (headers via backfill/1)"
   def backfill_txs(opts \\ []) do
-    IO.puts("backfill_txs is now handled by sync_headers — delegating.")
+    IO.puts("backfill_txs only syncs headers — for transactions use backfill_transactions/1.")
     backfill(opts)
   end
 

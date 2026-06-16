@@ -1,15 +1,17 @@
 defmodule Bitblocks.Workers.SyncHeadersWorker do
   @moduledoc """
-  Ensures block headers exist in the database. Headers only — no
-  transaction fetching. Transaction downloads are handled separately
-  by `BackfillTransactionsWorker` (sequential, one block at a time).
+  Ensures block headers exist in the database.
 
   Two modes:
 
-    * **Range** — fill gaps in a height range, then exit.
+    * **Range** — fill header gaps in a height range, then exit. Headers only;
+      transaction fetching is driven separately in metered waves by the backfill
+      (see `docs/SYNCING.md`).
       `%{"mode" => "range", "from" => 0, "to" => 50_000}`
 
-    * **Tip** — check chain tip, sync new headers, re-enqueue in 30 s.
+    * **Tip** — check chain tip, sync new headers, AND enqueue a transaction
+      fetch for each new block (via `Chain.queue_transaction_fetch/1`) so the
+      chain stays fully synced hands-off. Re-enqueues itself in 30 s.
       `%{"mode" => "tip"}`
   """
 
@@ -40,7 +42,12 @@ defmodule Bitblocks.Workers.SyncHeadersWorker do
 
   # -- range mode --------------------------------------------------------------
 
-  defp sync_range(from, to) do
+  # `enqueue_txs?` controls whether newly-stored headers also get a transaction
+  # fetch queued. Tip mode passes `true` so the chain stays fully synced
+  # hands-off; range/backfill mode passes `false` because a bulk backfill drives
+  # transaction fetching separately in metered waves (see docs/SYNCING.md) —
+  # auto-enqueuing there would flood the oban_jobs table.
+  defp sync_range(from, to, enqueue_txs? \\ false) do
     gaps = Chain.missing_block_ranges(from, to)
 
     total_missing =
@@ -54,18 +61,18 @@ defmodule Bitblocks.Workers.SyncHeadersWorker do
         "SyncHeaders: #{total_missing} missing blocks in #{length(gaps)} gap(s) (#{from}..#{to})"
       )
 
-      Enum.each(gaps, &process_gap/1)
+      Enum.each(gaps, &process_gap(&1, enqueue_txs?))
       :ok
     end
   end
 
-  defp process_gap({gap_start, gap_end}) do
+  defp process_gap({gap_start, gap_end}, enqueue_txs?) do
     gap_start
     |> Stream.iterate(&(&1 + @batch_size))
     |> Stream.take_while(&(&1 <= gap_end))
     |> Enum.each(fn batch_start ->
       batch_end = min(batch_start + @batch_size - 1, gap_end)
-      fetch_and_store_headers(batch_start, batch_end)
+      fetch_and_store_headers(batch_start, batch_end, enqueue_txs?)
     end)
   end
 
@@ -84,13 +91,15 @@ defmodule Bitblocks.Workers.SyncHeadersWorker do
       chain_tip > our_tip ->
         new_count = chain_tip - our_tip
         Logger.info("SyncHeaders: tip #{new_count} new blocks (#{our_tip + 1}..#{chain_tip})")
-        sync_range(our_tip + 1, chain_tip)
+        # Tip mode enqueues tx fetches for the new blocks so the chain stays
+        # fully synced with no manual intervention (volume is bounded — a few
+        # blocks per cycle).
+        sync_range(our_tip + 1, chain_tip, true)
         reschedule_tip(@tip_delay_seconds)
         :ok
 
       true ->
-        # Up to date — headers only. Transaction fetching is handled
-        # by BackfillTransactionsWorker (sequential, one block at a time).
+        # Up to date — nothing new to fetch.
         reschedule_tip(@tip_delay_seconds)
         :ok
     end
@@ -118,7 +127,7 @@ defmodule Bitblocks.Workers.SyncHeadersWorker do
 
   # -- header fetch + store ----------------------------------------------------
 
-  defp fetch_and_store_headers(from, to) do
+  defp fetch_and_store_headers(from, to, enqueue_txs?) do
     heights = Enum.to_list(from..to)
 
     # Step 1: batch-fetch hashes (falls back to individual calls)
@@ -142,6 +151,7 @@ defmodule Bitblocks.Workers.SyncHeadersWorker do
 
     if inserted != [] do
       Logger.info("SyncHeaders: stored #{length(inserted)} headers (#{from}..#{to})")
+      if enqueue_txs?, do: Enum.each(inserted, &Chain.queue_transaction_fetch/1)
     end
   end
 
