@@ -105,6 +105,33 @@ defmodule Bitblocks.Workers.SyncHeadersWorkerTest do
       header = %{"previousblockhash" => "anything"}
       assert :ok = SyncHeadersWorker.continuity(nil, header)
     end
+
+    # Real-world regression: block 953597 was false-rejected despite chaining
+    # cleanly onto 953596 (verified against WhatsOnChain + node operator).
+    # Guards against case/whitespace normalization regressions.
+    test "accepts real block 953597 chaining onto stored 953596" do
+      predecessor = %Block{hash: "0000000000000000158116981dd2a2b78eb0388662cbf30b856cf7188e76b7f2"}
+      header = %{"previousblockhash" => "0000000000000000158116981dd2a2b78eb0388662cbf30b856cf7188e76b7f2"}
+      assert :ok = SyncHeadersWorker.continuity(predecessor, header)
+    end
+
+    test "accepts when stored hash is uppercase and node returns lowercase" do
+      predecessor = %Block{hash: "0000000000000000158116981DD2A2B78EB0388662CBF30B856CF7188E76B7F2"}
+      header = %{"previousblockhash" => "0000000000000000158116981dd2a2b78eb0388662cbf30b856cf7188e76b7f2"}
+      assert :ok = SyncHeadersWorker.continuity(predecessor, header)
+    end
+
+    test "accepts when node previousblockhash has trailing whitespace" do
+      predecessor = %Block{hash: "0000000000000000158116981dd2a2b78eb0388662cbf30b856cf7188e76b7f2"}
+      header = %{"previousblockhash" => "0000000000000000158116981dd2a2b78eb0388662cbf30b856cf7188e76b7f2\n"}
+      assert :ok = SyncHeadersWorker.continuity(predecessor, header)
+    end
+
+    test "still rejects a genuine prevhash mismatch after normalization" do
+      predecessor = %Block{hash: "0000000000000000158116981dd2a2b78eb0388662cbf30b856cf7188e76b7f2"}
+      header = %{"previousblockhash" => "00000000000000000340fbae49ebbc6f63721b094f3d5a80d95f78d8b7440ce8"}
+      assert {:error, :prevhash_mismatch} = SyncHeadersWorker.continuity(predecessor, header)
+    end
   end
 
   describe "queue_transaction_fetch integration" do

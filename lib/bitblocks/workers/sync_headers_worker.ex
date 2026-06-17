@@ -22,6 +22,8 @@ defmodule Bitblocks.Workers.SyncHeadersWorker do
 
   require Logger
 
+  import Ecto.Query, only: [from: 2]
+
   alias Bitblocks.{Chain, Repo}
   alias Bitblocks.Chain.Block
   alias Bitblocks.Chain.HeaderVerifier
@@ -311,7 +313,11 @@ defmodule Bitblocks.Workers.SyncHeadersWorker do
   # isn't present yet (gap-filling out of order), we can't check and allow it;
   # genesis (height 0) has no predecessor.
   defp check_continuity(0, _header), do: :ok
-  defp check_continuity(height, header), do: continuity(Chain.get_block(height - 1), header)
+
+  defp check_continuity(height, header) do
+    predecessor = Repo.one(from b in Block, where: b.height == ^(height - 1), limit: 1)
+    continuity(predecessor, header)
+  end
 
   @doc false
   # Pure continuity check, separated for testing. `predecessor` is the block we
@@ -319,12 +325,21 @@ defmodule Bitblocks.Workers.SyncHeadersWorker do
   def continuity(nil, _header), do: :ok
 
   def continuity(%Block{hash: prev_hash}, header) do
-    if Map.get(header, "previousblockhash") == prev_hash do
+    node_prevhash = Map.get(header, "previousblockhash")
+
+    if normalize_hash(node_prevhash) == normalize_hash(prev_hash) do
       :ok
     else
+      Logger.error(
+        "SyncHeaders: continuity mismatch — stored=#{inspect(prev_hash)} node_prevhash=#{inspect(node_prevhash)}"
+      )
+
       {:error, :prevhash_mismatch}
     end
   end
+
+  defp normalize_hash(nil), do: nil
+  defp normalize_hash(hash), do: hash |> String.trim() |> String.downcase()
 
   defp reject_header(height, hash, reason) do
     Logger.error(
