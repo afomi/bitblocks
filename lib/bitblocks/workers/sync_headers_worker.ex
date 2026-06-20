@@ -137,6 +137,7 @@ defmodule Bitblocks.Workers.SyncHeadersWorker do
     case find_fork_point(fork_height, node_hash, 0) do
       {:ok, fork_point} ->
         orphan_heights = (fork_point + 1)..fork_height |> Enum.to_list()
+        orphan_count = length(orphan_heights)
 
         Logger.warning(
           "SyncHeaders: reorg fork point #{fork_point}, deleting orphans #{fork_point + 1}..#{fork_height}"
@@ -150,12 +151,15 @@ defmodule Bitblocks.Workers.SyncHeadersWorker do
         end)
 
         Logger.warning("SyncHeaders: reorg resolved, re-syncing from #{fork_point + 1}")
+        Bitblocks.Notifications.reorg_alert(fork_height, fork_point, orphan_count)
         fetch_and_store_headers(fork_point + 1, fork_height, true)
 
       {:error, :too_deep} ->
         Logger.error(
           "SyncHeaders: reorg exceeds #{@max_reorg_depth} blocks deep — manual intervention required"
         )
+
+        Bitblocks.Notifications.reorg_alert(fork_height, nil, nil)
     end
   end
 

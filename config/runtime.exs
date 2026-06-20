@@ -178,21 +178,12 @@ if config_env() == :prod do
   #
   # Check `Plug.SSL` for all available options in `force_ssl`.
 
-  # ## Configuring the mailer
-  #
-  # In production you need to configure the mailer to use a different adapter.
-  # Also, you may need to configure the Swoosh API client of your choice if you
-  # are not using SMTP. Here is an example of the configuration:
-  #
-  #     config :bitblocks, Bitblocks.Mailer,
-  #       adapter: Swoosh.Adapters.Mailgun,
-  #       api_key: System.get_env("MAILGUN_API_KEY"),
-  #       domain: System.get_env("MAILGUN_DOMAIN")
-  #
-  # For this example you need include a HTTP client required by Swoosh API client.
-  # Swoosh supports Hackney and Finch out of the box:
-  #
-  #     config :swoosh, :api_client, Swoosh.ApiClient.Hackney
-  #
-  # See https://hexdocs.pm/swoosh/Swoosh.html#module-installation for details.
+  # Mailer: AWS SES via the EC2 instance role (no static credentials).
+  # ses:SendEmail is granted scoped to From: *@bitblocks.app.
+  # MAILER_FROM and SES_REGION are set in the bitblocks/prod secret store.
+  config :bitblocks, Bitblocks.Mailer,
+    adapter: Swoosh.Adapters.AmazonSES,
+    region: System.get_env("SES_REGION", "us-east-1")
+
+  config :swoosh, :api_client, Swoosh.ApiClient.Hackney
 end

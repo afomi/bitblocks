@@ -183,6 +183,31 @@
       </div>
     </div>
 
+    <%!-- Coinbase message (miner scriptSig text; e.g. genesis "...Chancellor...") --%>
+    <%= if @coinbase_message do %>
+      <div class="bg-white shadow-md rounded-lg p-6 mb-6">
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="text-xl font-semibold">
+            Coinbase message
+          </h2>
+          <div class="text-xs text-gray-500">
+            Arbitrary text the miner embedded in the coinbase input
+          </div>
+        </div>
+        <p class="font-mono text-sm text-gray-900 break-words whitespace-pre-wrap bg-gray-50 rounded p-4 border border-gray-200">
+          <%= @coinbase_message.text %>
+        </p>
+        <details class="mt-3">
+          <summary class="text-xs text-gray-500 cursor-pointer">
+            Raw scriptSig hex
+          </summary>
+          <p class="font-mono text-xs text-gray-500 break-all mt-2">
+            <%= @coinbase_message.hex %>
+          </p>
+        </details>
+      </div>
+    <% end %>
+
     <%!-- Inputs --%>
     <div class="bg-white shadow-md rounded-lg p-6 mb-6">
       <div class="flex items-center justify-between mb-4">

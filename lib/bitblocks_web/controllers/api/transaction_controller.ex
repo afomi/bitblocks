@@ -38,8 +38,17 @@ defmodule BitblocksWeb.Api.TransactionController do
   """
   def show(conn, %{"txid" => txid}) do
     case Chain.get_transaction_by_txid(txid) do
-      nil -> {:error, :not_found}
-      tx -> json(conn, %{data: tx_to_json(tx)})
+      nil ->
+        {:error, :not_found}
+
+      tx ->
+        spend_depth =
+          case Chain.spend_depth(tx.txid) do
+            {:ok, d} -> d
+            {:error, reason} -> %{error: reason}
+          end
+
+        json(conn, %{data: Map.put(tx_to_json(tx), :spend_depth, spend_depth)})
     end
   end
 

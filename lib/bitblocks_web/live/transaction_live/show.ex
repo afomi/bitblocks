@@ -69,6 +69,14 @@ defmodule BitblocksWeb.TransactionLive.Show do
         nil
       end
 
+    # Coinbase scriptSig text (miner message, e.g. genesis "...Chancellor..."),
+    # extracted from the already-decoded tx. nil for non-coinbase / no text.
+    coinbase_message =
+      case decoded_tx && TransactionParser.coinbase_message(decoded_tx) do
+        {:ok, msg} -> msg
+        _ -> nil
+      end
+
     # Check if this transaction belongs to any registered collection
     {collection_slug, collection_item, collection_module} =
       if transaction && transaction.txid do
@@ -91,6 +99,7 @@ defmodule BitblocksWeb.TransactionLive.Show do
      |> assign(:block, block)
      |> assign(:parsed_data, parsed_data)
      |> assign(:decoded_tx, decoded_tx)
+     |> assign(:coinbase_message, coinbase_message)
      |> assign(:collection_item, collection_item)
      |> assign(:collection_slug, collection_slug)
      |> assign(:collection_module, collection_module)}

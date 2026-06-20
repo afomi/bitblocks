@@ -208,6 +208,116 @@ defmodule Bitblocks.TransactionParserTest do
     end
   end
 
+  describe "determine_script_type/1" do
+    test "P2PKH" do
+      {:ok, s} = BSV.Script.from_binary("76a914" <> String.duplicate("aa", 20) <> "88ac", encoding: :hex)
+      assert TransactionParser.determine_script_type(s) == :p2pkh
+    end
+
+    test "P2SH" do
+      {:ok, s} = BSV.Script.from_binary("a914" <> String.duplicate("bb", 20) <> "87", encoding: :hex)
+      assert TransactionParser.determine_script_type(s) == :p2sh
+    end
+
+    test "P2PK compressed (33 bytes)" do
+      {:ok, s} = BSV.Script.from_binary("21" <> String.duplicate("02", 33) <> "ac", encoding: :hex)
+      assert TransactionParser.determine_script_type(s) == :p2pk
+    end
+
+    test "P2PK uncompressed (65 bytes)" do
+      {:ok, s} = BSV.Script.from_binary("41" <> String.duplicate("04", 65) <> "ac", encoding: :hex)
+      assert TransactionParser.determine_script_type(s) == :p2pk
+    end
+
+    test "OP_RETURN" do
+      {:ok, s} = BSV.Script.from_binary("6a04deadbeef", encoding: :hex)
+      assert TransactionParser.determine_script_type(s) == :op_return
+    end
+
+    test "OP_FALSE OP_RETURN (segwit-style data carrier)" do
+      s = %BSV.Script{chunks: [:OP_FALSE, :OP_RETURN, "data"]}
+      assert TransactionParser.determine_script_type(s) == :op_return
+    end
+
+    test "multisig 1-of-2" do
+      s = %BSV.Script{chunks: [:OP_TRUE, <<0::8*33>>, <<1::8*33>>, :OP_2, :OP_CHECKMULTISIG]}
+      assert TransactionParser.determine_script_type(s) == :multisig
+    end
+
+    test "multisig 2-of-3" do
+      s = %BSV.Script{chunks: [:OP_2, <<0::8*33>>, <<1::8*33>>, <<2::8*33>>, :OP_3, :OP_CHECKMULTISIG]}
+      assert TransactionParser.determine_script_type(s) == :multisig
+    end
+
+    test "unknown script returns :unknown" do
+      s = %BSV.Script{chunks: [:OP_NOP]}
+      assert TransactionParser.determine_script_type(s) == :unknown
+    end
+
+    test "empty script returns :unknown" do
+      s = %BSV.Script{chunks: []}
+      assert TransactionParser.determine_script_type(s) == :unknown
+    end
+  end
+
+  describe "extract_script_fields/1" do
+    test "P2PKH returns pubkey_hash" do
+      pkh = String.duplicate("aa", 20)
+      {:ok, s} = BSV.Script.from_binary("76a914" <> pkh <> "88ac", encoding: :hex)
+      assert %{type: :p2pkh, pubkey_hash: ^pkh} = TransactionParser.extract_script_fields(s)
+    end
+
+    test "P2SH returns script_hash" do
+      sh = String.duplicate("bb", 20)
+      {:ok, s} = BSV.Script.from_binary("a914" <> sh <> "87", encoding: :hex)
+      assert %{type: :p2sh, script_hash: ^sh} = TransactionParser.extract_script_fields(s)
+    end
+
+    test "P2PK returns pubkey" do
+      pk = String.duplicate("02", 33)
+      {:ok, s} = BSV.Script.from_binary("21" <> pk <> "ac", encoding: :hex)
+      assert %{type: :p2pk, pubkey: ^pk} = TransactionParser.extract_script_fields(s)
+    end
+
+    test "multisig returns m, n, and pubkeys" do
+      pk1 = <<0::8*33>>
+      pk2 = <<1::8*33>>
+      s = %BSV.Script{chunks: [:OP_TRUE, pk1, pk2, :OP_2, :OP_CHECKMULTISIG]}
+      fields = TransactionParser.extract_script_fields(s)
+      assert fields.type == :multisig
+      assert fields.m == 1
+      assert fields.n == 2
+      assert length(fields.pubkeys) == 2
+      assert fields.pubkeys == [Base.encode16(pk1, case: :lower), Base.encode16(pk2, case: :lower)]
+    end
+
+    test "OP_RETURN returns data chunks" do
+      {:ok, s} = BSV.Script.from_binary("6a04deadbeef", encoding: :hex)
+      assert %{type: :op_return, data: [%{type: :push_data, hex: "deadbeef"}]} =
+               TransactionParser.extract_script_fields(s)
+    end
+
+    test "unknown returns asm string" do
+      s = %BSV.Script{chunks: [:OP_NOP]}
+      assert %{type: :unknown, asm: asm} = TransactionParser.extract_script_fields(s)
+      assert is_binary(asm)
+    end
+  end
+
+  describe "is_op_return?/1" do
+    test "OP_RETURN output is detected" do
+      {:ok, script} = BSV.Script.from_binary("6a04deadbeef", encoding: :hex)
+      out = %BSV.TxOut{script: script, satoshis: 0}
+      assert TransactionParser.is_op_return?(out)
+    end
+
+    test "P2PKH output is not OP_RETURN" do
+      {:ok, script} = BSV.Script.from_binary("76a914" <> String.duplicate("aa", 20) <> "88ac", encoding: :hex)
+      out = %BSV.TxOut{script: script, satoshis: 1000}
+      refute TransactionParser.is_op_return?(out)
+    end
+  end
+
   # Builds a list of parsed OP_RETURN data chunks with pipe separators
   # from a list of {protocol_address, data_chunks} tuples.
   defp build_piped_chunks(segments) do

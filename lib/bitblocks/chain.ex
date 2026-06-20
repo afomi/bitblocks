@@ -1117,4 +1117,119 @@ defmodule Bitblocks.Chain do
         do_backfill_spend_index(new_last_id, batch_size, acc + inserted)
     end
   end
+
+  @doc """
+  Returns all unspent outputs (UTXOs) for an address from local data.
+
+  Finds transactions whose `output_addresses` array contains the address (GIN index),
+  parses each output to find matching vouts, then filters out any spent by the spend index.
+
+  Each UTXO is a map:
+    %{txid: string, vout: integer, satoshis: integer, block_height: integer}
+  """
+  def utxos_for_address(address) when is_binary(address) do
+    txs =
+      Repo.all(
+        from t in Transaction,
+          where: ^address in t.output_addresses,
+          select: %{txid: t.txid, block_height: t.block_height, outputs: t.outputs}
+      )
+
+    txids = Enum.map(txs, & &1.txid)
+
+    spent_set =
+      Repo.all(
+        from s in Spend,
+          where: s.txid in ^txids,
+          select: {s.txid, s.vout}
+      )
+      |> MapSet.new()
+
+    Enum.flat_map(txs, fn %{txid: txid, block_height: height, outputs: outputs} ->
+      outputs
+      |> Enum.with_index()
+      |> Enum.flat_map(fn {output_json, vout} ->
+        with {:ok, output} <- Jason.decode(output_json),
+             [^address | _] <- get_in(output, ["scriptPubKey", "addresses"]),
+             false <- MapSet.member?(spent_set, {txid, vout}),
+             satoshis <- bsv_to_satoshis(output["value"]) do
+          [%{txid: txid, vout: vout, satoshis: satoshis, block_height: height}]
+        else
+          _ -> []
+        end
+      end)
+    end)
+  end
+
+  @doc """
+  Returns the confirmed balance in satoshis for an address from local data.
+
+  Sums the satoshi value of all unspent outputs for the address.
+  Returns 0 for an address with no transactions or all outputs spent.
+  """
+  def balance_for_address(address) when is_binary(address) do
+    address
+    |> utxos_for_address()
+    |> Enum.sum_by(& &1.satoshis)
+  end
+
+  @spend_depth_max 100
+
+  @doc """
+  Returns the spend depth of a UTXO — the number of hops from the coinbase
+  transaction that originally minted the value to the transaction that created
+  this output.
+
+  A coinbase output has depth 0.
+  An output whose parent transaction directly spent a coinbase has depth 1, etc.
+
+  When a transaction has multiple inputs (from different lineages), the minimum
+  parent depth is used — the shortest path to any coinbase ancestor.
+
+  Returns `{:ok, depth}` or `{:error, :max_depth_exceeded}` if the chain exceeds
+  #{@spend_depth_max} hops, or `{:error, :not_found}` if the txid is not indexed.
+  """
+  def spend_depth(txid, _vout \\ 0) when is_binary(txid) do
+    do_spend_depth([txid], 0, MapSet.new())
+  end
+
+  # BFS level by level. `txids` is the frontier for this level.
+  # Fetch all at once, check coinbase, recurse on parents.
+  defp do_spend_depth([], _depth, _seen), do: {:error, :not_found}
+
+  defp do_spend_depth(_txids, depth, _seen) when depth > @spend_depth_max,
+    do: {:error, :max_depth_exceeded}
+
+  defp do_spend_depth(txids, depth, seen) do
+    rows =
+      Repo.all(
+        from t in Transaction,
+          where: t.txid in ^txids,
+          select: %{txid: t.txid, coinbase: t.coinbase, input_txids: t.input_txids}
+      )
+
+    cond do
+      rows == [] ->
+        {:error, :not_found}
+
+      Enum.any?(rows, & &1.coinbase) ->
+        {:ok, depth}
+
+      true ->
+        next_seen = Enum.reduce(rows, seen, fn r, acc -> MapSet.put(acc, r.txid) end)
+
+        parents =
+          rows
+          |> Enum.flat_map(fn r -> r.input_txids || [] end)
+          |> Enum.uniq()
+          |> Enum.reject(&MapSet.member?(next_seen, &1))
+
+        do_spend_depth(parents, depth + 1, next_seen)
+    end
+  end
+
+  # Converts a BSV float (e.g. 0.00001234) from RPC vout JSON to integer satoshis.
+  # RPC value is denominated in BSV; 1 BSV = 100_000_000 satoshis.
+  defp bsv_to_satoshis(nil), do: 0
+  defp bsv_to_satoshis(value) when is_number(value), do: round(value * 100_000_000)
 end

@@ -121,9 +121,9 @@ defmodule Bitblocks.TransactionParser do
   Checks if an output is an OP_RETURN output.
   """
   def is_op_return?(%BSV.TxOut{} = output) do
-    # OP_RETURN is opcode 106 (0x6a)
     case output.script.chunks do
-      [%{op: 106} | _rest] -> true
+      [:OP_RETURN | _] -> true
+      [:OP_FALSE, :OP_RETURN | _] -> true
       _ -> false
     end
   end
@@ -132,46 +132,45 @@ defmodule Bitblocks.TransactionParser do
   Parses OP_RETURN data into a structured format.
   """
   def parse_op_return_data(%BSV.Script{} = script) do
-    case script.chunks do
-      [%{op: 106} | data_chunks] ->
-        data_chunks
-        |> Enum.map(fn chunk ->
-          case chunk do
-            %{buf: buffer} when is_binary(buffer) ->
-              %{
-                type: :push_data,
-                hex: Base.encode16(buffer, case: :lower),
-                utf8: safe_utf8_decode(buffer),
-                length: byte_size(buffer)
-              }
+    data_chunks =
+      case script.chunks do
+        [:OP_RETURN | rest] -> rest
+        [:OP_FALSE, :OP_RETURN | rest] -> rest
+        _ -> []
+      end
 
-            %{op: op} ->
-              %{
-                type: :opcode,
-                opcode: op,
-                name: opcode_name(op)
-              }
-          end
-        end)
-
-      _ ->
-        []
-    end
+    Enum.map(data_chunks, fn chunk ->
+      if is_binary(chunk) do
+        %{
+          type: :push_data,
+          hex: Base.encode16(chunk, case: :lower),
+          utf8: safe_utf8_decode(chunk),
+          length: byte_size(chunk)
+        }
+      else
+        %{
+          type: :opcode,
+          opcode: BSV.OpCode.to_integer(chunk),
+          name: Atom.to_string(chunk)
+        }
+      end
+    end)
   end
 
   @doc """
   Extracts raw hex data from OP_RETURN script.
   """
   def extract_hex_data(%BSV.Script{} = script) do
-    case script.chunks do
-      [%{op: 106} | data_chunks] ->
-        data_chunks
-        |> Enum.filter(fn chunk -> Map.has_key?(chunk, :buf) end)
-        |> Enum.map(fn %{buf: buffer} -> Base.encode16(buffer, case: :lower) end)
+    data_chunks =
+      case script.chunks do
+        [:OP_RETURN | rest] -> rest
+        [:OP_FALSE, :OP_RETURN | rest] -> rest
+        _ -> []
+      end
 
-      _ ->
-        []
-    end
+    data_chunks
+    |> Enum.filter(&is_binary/1)
+    |> Enum.map(&Base.encode16(&1, case: :lower))
   end
 
   @doc """
@@ -505,6 +504,44 @@ defmodule Bitblocks.TransactionParser do
   end
 
   @doc """
+  Extracts the human-readable coinbase message from a decoded transaction.
+
+  The coinbase scriptSig is arbitrary miner-chosen bytes (block height per BIP34,
+  miner/pool tags, free-form text) — it is NOT a standard script and is not an
+  OP_RETURN output, so the usual output decoders never see it. The genesis block's
+  "The Times 03/Jan/2009 Chancellor on brink of second bailout for banks" lives
+  here, in the coinbase input.
+
+  Returns `{:ok, %{text: ..., hex: ...}}` for a coinbase tx whose scriptSig holds
+  printable text, `:none` for a coinbase with no printable text, and `:not_coinbase`
+  for an ordinary tx. The raw bytes are framed with length prefixes and binary
+  height pushes, so we pull the printable ASCII/UTF-8 runs rather than decoding the
+  whole blob as one string.
+  """
+  def coinbase_message(%BSV.Tx{inputs: [%{script: %{coinbase: bytes}} | _]})
+      when is_binary(bytes) do
+    case printable_runs(bytes) do
+      "" -> :none
+      text -> {:ok, %{text: text, hex: Base.encode16(bytes, case: :lower)}}
+    end
+  end
+
+  def coinbase_message(%BSV.Tx{}), do: :not_coinbase
+
+  # Pull printable text out of the raw coinbase bytes: split on non-printable
+  # bytes and keep the substantial runs (>= 4 chars, dropping height/extranonce
+  # framing noise). A push-length byte that happens to be printable can prefix a
+  # run (e.g. the 0x45 = "E" before the genesis message) — that's the raw bytes,
+  # left as-is.
+  defp printable_runs(bytes) when is_binary(bytes) do
+    bytes
+    |> String.split(~r/[^[:print:]]+/, trim: true)
+    |> Enum.filter(fn run -> String.valid?(run) and String.length(run) >= 4 end)
+    |> Enum.join(" ")
+    |> String.trim()
+  end
+
+  @doc """
   Calculates total satoshis in outputs.
   """
   def calculate_total_outputs(outputs) do
@@ -537,27 +574,6 @@ defmodule Bitblocks.TransactionParser do
   end
 
   # Returns the name of an opcode.
-  defp opcode_name(op) do
-    case op do
-      0 -> "OP_0"
-      76 -> "OP_PUSHDATA1"
-      77 -> "OP_PUSHDATA2"
-      78 -> "OP_PUSHDATA4"
-      79 -> "OP_1NEGATE"
-      81 -> "OP_1"
-      82 -> "OP_2"
-      83 -> "OP_3"
-      106 -> "OP_RETURN"
-      118 -> "OP_DUP"
-      169 -> "OP_HASH160"
-      170 -> "OP_HASH256"
-      135 -> "OP_EQUAL"
-      136 -> "OP_EQUALVERIFY"
-      172 -> "OP_CHECKSIG"
-      173 -> "OP_CHECKSIGVERIFY"
-      _ -> "OP_#{op}"
-    end
-  end
 
   @doc """
   Analyzes all outputs and categorizes them.
@@ -586,25 +602,93 @@ defmodule Bitblocks.TransactionParser do
 
   def determine_script_type(script) do
     case script.chunks do
-      [%{op: 106} | _] ->
-        :op_return
-
-      [%{op: 118}, %{op: 169}, %{buf: _}, %{op: 136}, %{op: 172}] ->
-        # Pay to Public Key Hash
-        :p2pkh
-
-      [%{op: 169}, %{buf: _}, %{op: 135}] ->
-        # Pay to Script Hash
-        :p2sh
-
-      [%{buf: pubkey}, %{op: 172}] when byte_size(pubkey) in [33, 65] ->
-        # Pay to Public Key
-        :p2pk
-
-      _ ->
-        :unknown
+      [:OP_RETURN | _] -> :op_return
+      [:OP_FALSE, :OP_RETURN | _] -> :op_return
+      [:OP_DUP, :OP_HASH160, pkh, :OP_EQUALVERIFY, :OP_CHECKSIG] when is_binary(pkh) -> :p2pkh
+      [:OP_HASH160, sh, :OP_EQUAL] when is_binary(sh) -> :p2sh
+      [pk, :OP_CHECKSIG] when is_binary(pk) and byte_size(pk) in [33, 65] -> :p2pk
+      chunks -> if is_multisig?(chunks), do: :multisig, else: :unknown
     end
   end
+
+  @doc """
+  Extracts semantic fields from a script based on its type.
+
+  Returns a map with type-specific fields:
+    - `:p2pkh`    — `%{type: :p2pkh, pubkey_hash: hex}`
+    - `:p2sh`     — `%{type: :p2sh, script_hash: hex}`
+    - `:p2pk`     — `%{type: :p2pk, pubkey: hex}`
+    - `:multisig` — `%{type: :multisig, m: integer, n: integer, pubkeys: [hex]}`
+    - `:op_return`— `%{type: :op_return, data: [chunk_map]}`
+    - `:unknown`  — `%{type: :unknown, asm: string}`
+  """
+  def extract_script_fields(script) do
+    case determine_script_type(script) do
+      :p2pkh ->
+        [:OP_DUP, :OP_HASH160, pkh | _] = script.chunks
+        %{type: :p2pkh, pubkey_hash: Base.encode16(pkh, case: :lower)}
+
+      :p2sh ->
+        [:OP_HASH160, sh | _] = script.chunks
+        %{type: :p2sh, script_hash: Base.encode16(sh, case: :lower)}
+
+      :p2pk ->
+        [pk | _] = script.chunks
+        %{type: :p2pk, pubkey: Base.encode16(pk, case: :lower)}
+
+      :multisig ->
+        [m_op | rest] = script.chunks
+        pubkeys = rest |> Enum.filter(&is_binary/1)
+        n = length(pubkeys)
+        m = op_to_small_int(m_op)
+        %{type: :multisig, m: m, n: n, pubkeys: Enum.map(pubkeys, &Base.encode16(&1, case: :lower))}
+
+      :op_return ->
+        %{type: :op_return, data: parse_op_return_data(script)}
+
+      :unknown ->
+        %{type: :unknown, asm: BSV.Script.to_asm(script)}
+    end
+  end
+
+  defp is_multisig?(chunks) do
+    case chunks do
+      [m | rest] when is_atom(m) ->
+        case op_to_small_int(m) do
+          nil -> false
+          m_val when m_val in 1..16 ->
+            case List.last(chunks) do
+              :OP_CHECKMULTISIG ->
+                pubkeys = rest |> Enum.drop(-2) |> Enum.filter(&is_binary/1)
+                n_op = Enum.at(rest, length(rest) - 2)
+                n_val = op_to_small_int(n_op)
+                n_val != nil and length(pubkeys) == n_val and m_val <= n_val
+              _ -> false
+            end
+        end
+      _ -> false
+    end
+  end
+
+  # Maps OP_TRUE/OP_1..OP_16 atoms to their integer values.
+  defp op_to_small_int(:OP_TRUE), do: 1
+  defp op_to_small_int(:OP_1), do: 1
+  defp op_to_small_int(:OP_2), do: 2
+  defp op_to_small_int(:OP_3), do: 3
+  defp op_to_small_int(:OP_4), do: 4
+  defp op_to_small_int(:OP_5), do: 5
+  defp op_to_small_int(:OP_6), do: 6
+  defp op_to_small_int(:OP_7), do: 7
+  defp op_to_small_int(:OP_8), do: 8
+  defp op_to_small_int(:OP_9), do: 9
+  defp op_to_small_int(:OP_10), do: 10
+  defp op_to_small_int(:OP_11), do: 11
+  defp op_to_small_int(:OP_12), do: 12
+  defp op_to_small_int(:OP_13), do: 13
+  defp op_to_small_int(:OP_14), do: 14
+  defp op_to_small_int(:OP_15), do: 15
+  defp op_to_small_int(:OP_16), do: 16
+  defp op_to_small_int(_), do: nil
 
   @doc """
   Extracts all text content from OP_RETURN data.

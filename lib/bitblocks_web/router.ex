@@ -133,6 +133,9 @@ defmodule BitblocksWeb.Router do
     get "/resources", PageController, :resources
     get "/status", PageController, :status
     get "/", PageController, :home
+
+    # Public block index. Detail/mutation routes stay admin-only below.
+    live "/blocks", BlockLive.Index, :index
   end
 
   scope "/", BitblocksWeb do
@@ -159,8 +162,7 @@ defmodule BitblocksWeb.Router do
     live "/tx-graph", TxGraphLive
     live "/shape-layers", ShapeLayerLive
 
-    # Block pages only for dev/admin (too many requests for public access)
-    live "/blocks", BlockLive.Index, :index
+    # Block detail/mutation pages stay dev/admin (index is public, see :browser scope)
     live "/blocks/new", BlockLive.Index, :new
     live "/blocks/:id/edit", BlockLive.Index, :edit
     live "/blocks/:id", BlockLive.Show, :show

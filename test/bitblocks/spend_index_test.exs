@@ -141,4 +141,56 @@ defmodule Bitblocks.SpendIndexTest do
       assert spend.spending_txid == child.txid
     end
   end
+
+  describe "spend_depth/1" do
+    # Builds a tx with coinbase=true and empty input_txids.
+    defp coinbase_tx(attrs \\ %{}) do
+      transaction_fixture(Map.merge(%{coinbase: true, input_txids: [], inputs: []}, attrs))
+    end
+
+    # Builds a tx that references parent txids in input_txids.
+    defp child_tx(parent_txids, attrs \\ %{}) do
+      transaction_fixture(Map.merge(%{coinbase: false, input_txids: parent_txids}, attrs))
+    end
+
+    test "coinbase transaction has depth 0" do
+      cb = coinbase_tx()
+      assert Chain.spend_depth(cb.txid) == {:ok, 0}
+    end
+
+    test "direct child of coinbase has depth 1" do
+      cb = coinbase_tx()
+      child = child_tx([cb.txid])
+      assert Chain.spend_depth(child.txid) == {:ok, 1}
+    end
+
+    test "two hops from coinbase returns depth 2" do
+      cb = coinbase_tx()
+      hop1 = child_tx([cb.txid])
+      hop2 = child_tx([hop1.txid])
+      assert Chain.spend_depth(hop2.txid) == {:ok, 2}
+    end
+
+    test "takes minimum depth when tx has multiple inputs from different lineages" do
+      cb = coinbase_tx()
+      # One input is depth 1, other input is depth 2 from coinbase
+      hop1 = child_tx([cb.txid])
+      hop2 = child_tx([hop1.txid])
+      # child spends both hop1 (depth 1) and hop2 (depth 2) — min is 1 + 1 = 2
+      child = child_tx([hop1.txid, hop2.txid])
+      assert Chain.spend_depth(child.txid) == {:ok, 2}
+    end
+
+    test "returns not_found for unknown txid" do
+      assert Chain.spend_depth("0000000000000000000000000000000000000000000000000000000000000000") ==
+               {:error, :not_found}
+    end
+
+    test "vout argument is accepted (depth is per-tx, not per-output)" do
+      cb = coinbase_tx()
+      child = child_tx([cb.txid])
+      assert Chain.spend_depth(child.txid, 0) == {:ok, 1}
+      assert Chain.spend_depth(child.txid, 1) == {:ok, 1}
+    end
+  end
 end
