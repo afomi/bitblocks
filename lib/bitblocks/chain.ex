@@ -385,7 +385,9 @@ defmodule Bitblocks.Chain do
       iex> queue_transaction_fetch(block)
       {:ok, %Oban.Job{}}
   """
-  def queue_transaction_fetch(%Block{hash: hash} = block) do
+  def queue_transaction_fetch(block, opts \\ [])
+
+  def queue_transaction_fetch(%Block{hash: hash} = block, opts) do
     # Update block to txs_queued state (works for any current state)
     {:ok, updated_block} =
       block
@@ -394,16 +396,27 @@ defmodule Bitblocks.Chain do
 
     broadcast_block_update(updated_block)
 
-    # Enqueue job
+    # Route to a dedicated queue so tip and backfill never share slots:
+    #   :transactions_tip      — keeping up with newly confirmed blocks (priority 0)
+    #   :transactions_backfill — historical fill-in (default, priority 1)
+    # Each queue runs concurrency 1, so exactly one tip + one backfill fetch run
+    # in parallel. The Oban priority is a tiebreaker only relevant if they ever
+    # share a queue again. See docs/SYNCING.md.
+    {queue, priority} =
+      case Keyword.get(opts, :lane, :backfill) do
+        :tip -> {:transactions_tip, 0}
+        :backfill -> {:transactions_backfill, 1}
+      end
+
     %{block_hash: hash}
-    |> Bitblocks.Workers.FetchTransactionsWorker.new()
+    |> Bitblocks.Workers.FetchTransactionsWorker.new(queue: queue, priority: priority)
     |> Oban.insert()
   end
 
-  def queue_transaction_fetch(block_hash) when is_binary(block_hash) do
+  def queue_transaction_fetch(block_hash, opts) when is_binary(block_hash) do
     case Repo.get_by(Block, hash: block_hash) do
       nil -> {:error, :block_not_found}
-      block -> queue_transaction_fetch(block)
+      block -> queue_transaction_fetch(block, opts)
     end
   end
 

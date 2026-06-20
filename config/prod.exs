@@ -19,10 +19,11 @@ config :swoosh, local: false
 # Do not print debug messages in production
 config :logger, level: :info
 
-# Transaction concurrency tuned for t3.medium (4GB RAM).
-# Decrease if RPC timeouts appear; increase if node handles load well.
+# Transaction fetching runs on two dedicated concurrency-1 lanes so the chain
+# tip is never starved by historical backfill: one current + one past block
+# fetch at a time, in parallel. Tuned conservatively for t3.medium (4GB RAM).
 config :bitblocks, Oban,
-  queues: [default: 10, transactions: 4, blocks: 1]
+  queues: [default: 10, transactions_tip: 1, transactions_backfill: 1, blocks: 1]
 
 # Runtime production configuration, including reading
 # of environment variables, is done on config/runtime.exs.

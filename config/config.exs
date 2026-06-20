@@ -130,7 +130,10 @@ config :bitblocks, Oban,
   ],
   queues: [
     default: 10,
-    transactions: 5,
+    # Tip and backfill tx fetching run as separate concurrency-1 lanes so they
+    # never share slots — one current + one past block fetch in parallel.
+    transactions_tip: 1,
+    transactions_backfill: 1,
     blocks: 3
   ]
 

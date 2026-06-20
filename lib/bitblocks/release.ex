@@ -142,6 +142,33 @@ defmodule Bitblocks.Release do
   end
 
   @doc """
+  One-time migration: move any jobs left on the retired `transactions` queue
+  onto `transactions_backfill`.
+
+  The tx-fetch work was split into `transactions_tip` + `transactions_backfill`
+  lanes. Oban only runs queues named in config, so jobs still sitting in the old
+  `transactions` queue after that change are orphaned (never picked up). This
+  re-homes the pending ones. Idempotent and safe to run anytime — returns the
+  number of jobs moved (0 if none). Run once after deploying the lane split.
+
+  ## Usage
+
+      bin/bitblocks rpc 'Bitblocks.Release.migrate_legacy_tx_queue()'
+  """
+  def migrate_legacy_tx_queue do
+    %Postgrex.Result{num_rows: count} =
+      Bitblocks.Repo.query!("""
+        UPDATE oban_jobs
+        SET queue = 'transactions_backfill'
+        WHERE queue = 'transactions'
+          AND state IN ('available', 'scheduled', 'retryable')
+      """)
+
+    IO.puts("migrate_legacy_tx_queue: re-homed #{count} job(s) from transactions -> transactions_backfill")
+    count
+  end
+
+  @doc """
   Start sequential transaction backfill from the lowest incomplete block.
 
   Processes one block at a time using batch RPC, then moves to the next.
@@ -157,7 +184,7 @@ defmodule Bitblocks.Release do
       "oban_jobs",
       [
         %{
-          queue: "transactions",
+          queue: "transactions_backfill",
           worker: "Bitblocks.Workers.BackfillTransactionsWorker",
           args: %{},
           state: "available",
@@ -650,7 +677,9 @@ defmodule Bitblocks.Release do
 
     pending_query =
       from(j in Oban.Job,
-        where: j.queue == "transactions" and j.state in ["available", "scheduled", "executing", "retryable"],
+        where:
+          j.queue == "transactions_backfill" and
+            j.state in ["available", "scheduled", "executing", "retryable"],
         select: count()
       )
 

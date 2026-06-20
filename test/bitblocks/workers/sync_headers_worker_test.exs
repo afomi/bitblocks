@@ -147,5 +147,20 @@ defmodule Bitblocks.Workers.SyncHeadersWorkerTest do
       updated = Chain.get_block!(200)
       assert updated.sync_state == "txs_queued"
     end
+
+    test "defaults to the backfill lane" do
+      block = block_fixture(%{height: 201, hash: "lane_default_hash", sync_state: "header_only"})
+
+      assert {:ok, job} = Chain.queue_transaction_fetch(block)
+      assert job.queue == "transactions_backfill"
+    end
+
+    test "lane: :tip routes to the tip lane with higher priority" do
+      block = block_fixture(%{height: 202, hash: "lane_tip_hash", sync_state: "header_only"})
+
+      assert {:ok, job} = Chain.queue_transaction_fetch(block, lane: :tip)
+      assert job.queue == "transactions_tip"
+      assert job.priority == 0
+    end
   end
 end

@@ -220,7 +220,8 @@ defmodule Bitblocks.Workers.SyncHeadersWorker do
 
     if inserted != [] do
       Logger.info("SyncHeaders: stored #{length(inserted)} headers (#{from}..#{to})")
-      if enqueue_txs?, do: Enum.each(inserted, &Chain.queue_transaction_fetch/1)
+      # Only the tip flow sets enqueue_txs? — keep these on the tip lane.
+      if enqueue_txs?, do: Enum.each(inserted, &Chain.queue_transaction_fetch(&1, lane: :tip))
     end
   end
 
@@ -236,7 +237,7 @@ defmodule Bitblocks.Workers.SyncHeadersWorker do
       {inserted, _} ->
         if inserted != [] do
           Logger.info("SyncHeaders: stored #{length(inserted)} headers (#{from}..#{to})")
-          Enum.each(inserted, &Chain.queue_transaction_fetch/1)
+          Enum.each(inserted, &Chain.queue_transaction_fetch(&1, lane: :tip))
         end
 
         :ok

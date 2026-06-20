@@ -15,8 +15,10 @@ defmodule Bitblocks.Workers.BackfillTransactionsWorker do
       Bitblocks.Release.start_backfill_transactions()
   """
 
+  # Runs on the backfill lane (concurrency 1) so it never competes with tip
+  # tx fetching. See Chain.queue_transaction_fetch/2.
   use Oban.Worker,
-    queue: :transactions,
+    queue: :transactions_backfill,
     max_attempts: 3,
     unique: [period: 60, fields: [:worker]]
 

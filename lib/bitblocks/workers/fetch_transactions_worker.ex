@@ -31,8 +31,13 @@ defmodule Bitblocks.Workers.FetchTransactionsWorker do
   the same batch is safe and a no-op for already-stored transactions.
   """
 
+  # Default queue is the backfill lane; the tip flow overrides it to
+  # :transactions_tip at enqueue time (see Chain.queue_transaction_fetch/2).
+  # Tip and backfill are separate concurrency-1 queues so they never share slots
+  # — one tip + one backfill fetch run in parallel, tip is never starved.
+  # Uniqueness is keyed on block_hash, so the same block can't be queued twice.
   use Oban.Worker,
-    queue: :transactions,
+    queue: :transactions_backfill,
     max_attempts: 5,
     unique: [period: 300, fields: [:args], keys: [:block_hash]]
 
