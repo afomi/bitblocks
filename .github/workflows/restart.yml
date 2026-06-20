@@ -42,48 +42,68 @@ jobs:
 
       - name: Rolling restart
         run: |
+          set -euo pipefail
+
           TG_ARN=$(aws elbv2 describe-target-groups --names bitblocks-tg \
             --query 'TargetGroups[0].TargetGroupArn' --output text)
+          # Port the targets are registered on (the host port the container binds).
+          # Read it from a live target so we deregister/register the exact same
+          # tuple; fall back to the app port if the TG is momentarily empty.
+          TG_PORT=$(aws elbv2 describe-target-health --target-group-arn "$TG_ARN" \
+            --query 'TargetHealthDescriptions[0].Target.Port' --output text)
+          if [ -z "$TG_PORT" ] || [ "$TG_PORT" = "None" ]; then TG_PORT=8080; fi
+          echo "Target group $TG_ARN on port $TG_PORT"
+
           ECR_REPO="${{ steps.ecr.outputs.registry }}/bitblocks"
           IMAGE_TAG="${{ inputs.image_tag || 'latest' }}"
           IMAGE="${ECR_REPO}:${IMAGE_TAG}"
 
+          # One instance at a time: drain it out of the ALB, redeploy, wait until
+          # it's healthy again, THEN re-register before moving on. With >=2
+          # instances the ALB always has a healthy target, so there is no 502
+          # window. NOTE: migrations run mid-rollout while old code still serves on
+          # the other instance(s) — schema changes must be backward compatible
+          # (expand/contract), never a breaking rename/drop in the same deploy.
           for INST in ${{ steps.instances.outputs.ids }}; do
-            echo "==> Restarting $INST"
+            echo "==> Deploying $INST"
 
+            echo "  Draining from load balancer..."
+            aws elbv2 deregister-targets --target-group-arn "$TG_ARN" \
+              --targets Id=$INST,Port=$TG_PORT
+            aws elbv2 wait target-deregistered --target-group-arn "$TG_ARN" \
+              --targets Id=$INST,Port=$TG_PORT
+
+            echo "  Deploying container..."
             ENCODED=$(base64 -w 0 < .github/scripts/deploy.sh)
             CMD_ID=$(aws ssm send-command \
               --instance-ids $INST \
               --document-name "AWS-RunShellScript" \
-              --timeout-seconds 120 \
+              --timeout-seconds 180 \
               --parameters commands=["echo $ENCODED | base64 -d | bash -s -- $IMAGE"] \
               --query 'Command.CommandId' --output text)
-
-            echo "  Waiting for container to start..."
-            sleep 20
             aws ssm wait command-executed --command-id $CMD_ID --instance-id $INST || true
 
             STATUS=$(aws ssm get-command-invocation \
               --command-id $CMD_ID --instance-id $INST \
               --query 'Status' --output text)
             if [ "$STATUS" != "Success" ]; then
-              echo "  ERROR: Restart failed on $INST"
+              echo "  ERROR: Deploy failed on $INST"
               aws ssm get-command-invocation \
                 --command-id $CMD_ID --instance-id $INST \
                 --query 'StandardErrorContent' --output text
               exit 1
             fi
 
-            # Run migration on first instance only
+            # Run migrations on the first instance only, while it is still drained
+            # (deploy.sh has confirmed the new container is up; migrate is idempotent).
             if [ "$INST" = "${{ steps.instances.outputs.first }}" ]; then
               echo "  Running migrations..."
               MIG_ID=$(aws ssm send-command \
                 --instance-ids $INST \
                 --document-name "AWS-RunShellScript" \
-                --timeout-seconds 120 \
+                --timeout-seconds 180 \
                 --parameters commands='["docker exec bitblocks /app/bin/migrate 2>&1"]' \
                 --query 'Command.CommandId' --output text)
-              sleep 15
               aws ssm wait command-executed --command-id $MIG_ID --instance-id $INST || true
               MIG_STATUS=$(aws ssm get-command-invocation \
                 --command-id $MIG_ID --instance-id $INST \
@@ -97,6 +117,15 @@ jobs:
               fi
               echo "  Migrations complete."
             fi
+
+            # Put it back in rotation and block until the ALB's own health check
+            # reports it healthy. This is the readiness gate that the old blind
+            # `sleep 20` lacked — traffic only returns once the app passes checks.
+            echo "  Re-registering and waiting for healthy..."
+            aws elbv2 register-targets --target-group-arn "$TG_ARN" \
+              --targets Id=$INST,Port=$TG_PORT
+            aws elbv2 wait target-in-service --target-group-arn "$TG_ARN" \
+              --targets Id=$INST,Port=$TG_PORT
 
             echo "  $INST is live."
           done
