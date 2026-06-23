@@ -111,7 +111,29 @@ defmodule Bitblocks.Workers.FetchTransactionsWorker do
 
   # -- Batch fetching ----------------------------------------------------------
 
-  defp fetch_in_batches(_block, offset, total, _started_at) when offset >= total, do: :ok
+  # Walks the block's txids in batches. Returns :ok only when every transaction
+  # is actually stored — otherwise {:error, {:incomplete, stored, total}} so the
+  # block transitions to `failed` and Oban retries (the worker is resumable and
+  # idempotent, so the retry picks up only the missing txs). Advancing `offset`
+  # by the slice length is just iteration bookkeeping; completeness is decided by
+  # the authoritative DB row count below, NOT by reaching the end of the list.
+  # This is what prevents a block whose tail txs persistently fail from being
+  # silently marked `completed` with stored < num_tx.
+  defp fetch_in_batches(block, offset, total, started_at) when offset >= total do
+    stored = count_existing_transactions(block)
+
+    if stored >= total do
+      :ok
+    else
+      Logger.error(
+        "FetchTxs block=#{block.height} incomplete after full pass: " <>
+          "stored=#{stored}/#{total} (#{total - stored} tx missing) — will retry"
+      )
+
+      _ = started_at
+      {:error, {:incomplete, stored, total}}
+    end
+  end
 
   defp fetch_in_batches(block, offset, total, started_at) do
     batch_txids = Enum.slice(block.tx, offset, @batch_size)
@@ -268,13 +290,21 @@ defmodule Bitblocks.Workers.FetchTransactionsWorker do
     Enum.reject(txids, &MapSet.member?(existing, &1))
   end
 
-  # Count how many of this block's transactions are already in the database.
-  # This lets us skip re-fetching on resume.
-  defp count_existing_transactions(%Block{tx: tx_ids, hash: hash}) when is_list(tx_ids) do
+  # Count how many of THIS block's txids are present in the table, by
+  # intersecting the block's txid array with stored txids — the same identity
+  # `filter_already_fetched/1` uses to decide what to skip, so the "skip if
+  # present" and "complete when count matches" halves agree.
+  #
+  # Deliberately NOT `block_hash == hash`: txid is globally unique, and a tx can
+  # legitimately live under another block (reorg, BIP30 duplicate coinbase). A
+  # block_hash count could then sit below num_tx forever and wedge the block in
+  # `failed`. Counting the intersection reflects true completeness: every txid
+  # this block claims is somewhere in our table.
+  defp count_existing_transactions(%Block{tx: tx_ids}) when is_list(tx_ids) and tx_ids != [] do
     import Ecto.Query
 
     from(t in Chain.Transaction,
-      where: t.block_hash == ^hash,
+      where: t.txid in ^tx_ids,
       select: count()
     )
     |> Repo.one()

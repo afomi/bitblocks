@@ -75,4 +75,52 @@ defmodule Bitblocks.Workers.FetchTransactionsWorkerTest do
       refute match?({:error, {:merkleroot_verification_failed, _}}, result)
     end
   end
+
+  describe "completion requires all txs stored (no silent incompleteness)" do
+    test "a block whose txs can't be fetched is marked failed, not completed" do
+      # Complete, merkleroot-matching txid list so it passes the gate, then the
+      # fetch yields nothing (no node in test). Previously the worker walked to
+      # the end of the list and marked the block `completed` with 0 txs stored.
+      # Now it must end up `failed` with an :incomplete error so Oban retries.
+      block =
+        block_fixture(%{
+          height: 999_003,
+          hash: "incomplete_fetch_hash",
+          merkleroot: @genesis_merkleroot,
+          num_tx: 1,
+          tx: [@genesis_txid],
+          sync_state: "header_synced"
+        })
+
+      assert {:error, {:incomplete, 0, 1}} =
+               FetchTransactionsWorker.perform(%Oban.Job{args: %{"block_hash" => block.hash}})
+
+      reloaded = Chain.get_block!(block.height)
+      assert reloaded.sync_state == "failed"
+      assert reloaded.tx_sync_error =~ "incomplete"
+    end
+
+    test "completeness counts the block's txids anywhere in the table, not by block_hash" do
+      # The single tx already exists, but stored under a DIFFERENT block_hash
+      # (as happens with a reorg or a BIP30 duplicate coinbase). A block_hash
+      # count would see 0 and wedge the block in failed forever; the intersection
+      # count sees the txid is present, so the block completes without refetching.
+      transaction_fixture(%{txid: @genesis_txid, block_hash: "some_other_block"})
+
+      block =
+        block_fixture(%{
+          height: 999_004,
+          hash: "intersection_complete_hash",
+          merkleroot: @genesis_merkleroot,
+          num_tx: 1,
+          tx: [@genesis_txid],
+          sync_state: "header_synced"
+        })
+
+      assert :ok =
+               FetchTransactionsWorker.perform(%Oban.Job{args: %{"block_hash" => block.hash}})
+
+      assert Chain.get_block!(block.height).sync_state == "completed"
+    end
+  end
 end
