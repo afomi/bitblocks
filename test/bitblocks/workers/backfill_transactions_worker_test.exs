@@ -48,4 +48,25 @@ defmodule Bitblocks.Workers.BackfillTransactionsWorkerTest do
       assert Chain.get_block!(block.height).sync_state == "completed"
     end
   end
+
+  describe "completeness gate (no silent incompleteness)" do
+    test "a block whose txs can't be fetched is marked failed, not completed" do
+      # The single txid is not stored and there is no node to fetch it, so the
+      # batch reports unfetched and the completeness gate refuses to complete.
+      # The block must end `failed` (and Oban retries), never `completed` with a
+      # hole. Reliability/completeness over throughput.
+      block =
+        block_fixture(%{
+          height: 152_760,
+          hash: "unfetchable_block",
+          num_tx: 1,
+          tx: [String.duplicate("ab", 32)],
+          sync_state: "header_synced"
+        })
+
+      assert {:error, _} = BackfillTransactionsWorker.perform(%Oban.Job{args: %{}})
+
+      assert Chain.get_block!(block.height).sync_state == "failed"
+    end
+  end
 end

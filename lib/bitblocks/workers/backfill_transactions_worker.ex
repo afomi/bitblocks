@@ -79,17 +79,44 @@ defmodule Bitblocks.Workers.BackfillTransactionsWorker do
       # already stored (a bounded IN), fetch only the gaps, store, advance. Each
       # query and each in-memory list is bounded by @batch_size regardless of
       # block size. Idempotent: re-running re-skips what's present.
-      case fetch_missing_in_batches(block) do
-        :ok ->
-          mark_completed(block)
-          :ok
-
+      with :ok <- fetch_missing_in_batches(block),
+           :ok <- verify_complete(block) do
+        mark_completed(block)
+        :ok
+      else
         {:error, reason} ->
           mark_failed(block, reason)
           {:error, reason}
       end
     end
   end
+
+  # Authoritative gate: only complete a block once every one of its txids is
+  # actually present. Counts the intersection of the block's txid list with
+  # stored txids in bounded chunks (never a millions-wide IN, never materialized),
+  # so the check is correct at any block size. If short, the block stays
+  # incomplete and is retried — completeness over speed.
+  defp verify_complete(%Block{tx: txids} = block) when is_list(txids) do
+    total = length(txids)
+
+    stored =
+      txids
+      |> Stream.chunk_every(@batch_size)
+      |> Enum.reduce(0, fn chunk, acc -> acc + MapSet.size(existing_txids(chunk)) end)
+
+    if stored >= total do
+      :ok
+    else
+      Logger.error(
+        "BackfillTxs: block #{block.height} incomplete: stored=#{stored}/#{total} " <>
+          "(#{total - stored} missing) — will retry"
+      )
+
+      {:error, {:incomplete, stored, total}}
+    end
+  end
+
+  defp verify_complete(_block), do: :ok
 
   defp fetch_missing_in_batches(%Block{tx: txids} = block) when is_list(txids) do
     txids
@@ -116,20 +143,32 @@ defmodule Bitblocks.Workers.BackfillTransactionsWorker do
   defp fetch_and_store_batch(txids, block) do
     case BitcoinsvCli.batch_getrawtransaction(txids, 1) do
       {:ok, results} ->
-        Enum.each(txids, fn txid ->
-          case Map.get(results, txid) do
-            tx when is_map(tx) ->
-              store_tx(tx, block)
+        # A tx the node didn't return (error or missing) is NOT stored. Returning
+        # :ok here would let the block be marked completed with holes — the silent
+        # incompleteness we must avoid. Collect the unfetched txids and fail the
+        # batch so the block stays incomplete and the worker retries it. The retry
+        # is idempotent: stored txs are re-skipped, only the gaps are re-attempted.
+        unfetched =
+          Enum.reduce(txids, [], fn txid, acc ->
+            case Map.get(results, txid) do
+              tx when is_map(tx) ->
+                store_tx(tx, block)
+                acc
 
-            {:error, reason} ->
-              Logger.warning("BackfillTxs: tx #{txid} error: #{inspect(reason)}")
+              {:error, reason} ->
+                Logger.warning("BackfillTxs: tx #{txid} error: #{inspect(reason)}")
+                [txid | acc]
 
-            nil ->
-              Logger.warning("BackfillTxs: tx #{txid} no result")
-          end
-        end)
+              nil ->
+                Logger.warning("BackfillTxs: tx #{txid} no result")
+                [txid | acc]
+            end
+          end)
 
-        :ok
+        case unfetched do
+          [] -> :ok
+          _ -> {:error, {:unfetched_txs, length(unfetched)}}
+        end
 
       {:error, reason} ->
         Logger.error("BackfillTxs: batch RPC failed: #{inspect(reason)}")
