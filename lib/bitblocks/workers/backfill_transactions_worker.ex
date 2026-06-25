@@ -17,10 +17,22 @@ defmodule Bitblocks.Workers.BackfillTransactionsWorker do
 
   # Runs on the backfill lane (concurrency 1) so it never competes with tip
   # tx fetching. See Chain.queue_transaction_fetch/2.
+  #
+  # Uniqueness is scoped to ACTIVE states only. Without `states:`, Oban's default
+  # window also counts `completed`/`discarded` jobs — so when this worker finishes
+  # a block and reschedules itself (schedule_in: 1, inside the 60s window), the
+  # just-completed job is seen as a duplicate and the insert is silently dropped.
+  # That breaks the self-rescheduling chain after a single block. Restricting to
+  # active states keeps the "only one backfill running at a time" guarantee while
+  # letting each completed run enqueue the next.
   use Oban.Worker,
     queue: :transactions_backfill,
     max_attempts: 3,
-    unique: [period: 60, fields: [:worker]]
+    unique: [
+      period: 60,
+      fields: [:worker],
+      states: [:available, :scheduled, :executing, :retryable]
+    ]
 
   require Logger
   import Ecto.Query
