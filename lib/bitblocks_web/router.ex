@@ -42,6 +42,15 @@ defmodule BitblocksWeb.Router do
     get "/txs/:txid", TransactionController, :show
     get "/txs", TransactionController, :index
 
+    # WhatsOnChain-compatible alias layer — bare (un-enveloped) responses with
+    # WoC field names, so WoC clients work with minimal changes. The native
+    # endpoints above remain primary.
+    get "/woc/chain/info", WocController, :chain_info
+    get "/woc/tx/:txid/hex", WocController, :tx_hex
+    post "/woc/tx/raw", WocController, :broadcast
+    get "/woc/address/:address/unspent", WocController, :address_unspent
+    get "/woc/address/:address/balance", WocController, :address_balance
+
 
     # Real-time
     get "/stream/blocks", StreamController, :blocks
