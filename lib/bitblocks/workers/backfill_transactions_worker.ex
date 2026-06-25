@@ -55,9 +55,15 @@ defmodule Bitblocks.Workers.BackfillTransactionsWorker do
   end
 
   # Find the lowest-height block that isn't completed.
+  #
+  # `txs_syncing` is included deliberately: if a worker died mid-fetch (crash,
+  # deploy) the block is left in that state, and excluding it would strand the
+  # block forever — no pass would ever pick it back up. `sync_block` recomputes
+  # what's missing from what's actually stored, so resuming a `txs_syncing` block
+  # is safe and idempotent. This is what makes a restart self-healing.
   defp next_incomplete_block do
     from(b in Block,
-      where: b.sync_state in ["header_only", "header_synced", "failed"],
+      where: b.sync_state in ["header_only", "header_synced", "txs_syncing", "failed"],
       order_by: [asc: b.height],
       limit: 1
     )
@@ -67,39 +73,45 @@ defmodule Bitblocks.Workers.BackfillTransactionsWorker do
   defp sync_block(block) do
     with {:ok, block} <- ensure_txids(block),
          {:ok, block} <- mark_syncing(block) do
-      txids = block.tx || []
-      existing = existing_txids(block.hash)
-      missing = Enum.reject(txids, &MapSet.member?(existing, &1))
+      # Some blocks have millions of txids. Never load the whole missing set or
+      # query `txid IN (<millions>)` — process the txid array in fixed-size
+      # chunks: for each chunk, ask the DB which of its ≤@batch_size txids are
+      # already stored (a bounded IN), fetch only the gaps, store, advance. Each
+      # query and each in-memory list is bounded by @batch_size regardless of
+      # block size. Idempotent: re-running re-skips what's present.
+      case fetch_missing_in_batches(block) do
+        :ok ->
+          mark_completed(block)
+          :ok
 
-      if missing == [] do
-        mark_completed(block)
-        :ok
-      else
-        Logger.info("BackfillTxs: block #{block.height} — #{length(missing)} txs to fetch (#{length(txids)} total)")
-
-        case fetch_in_batches(missing, block) do
-          :ok ->
-            mark_completed(block)
-            :ok
-
-          {:error, reason} ->
-            mark_failed(block, reason)
-            {:error, reason}
-        end
+        {:error, reason} ->
+          mark_failed(block, reason)
+          {:error, reason}
       end
     end
   end
 
-  defp fetch_in_batches(txids, block) do
+  defp fetch_missing_in_batches(%Block{tx: txids} = block) when is_list(txids) do
     txids
-    |> Enum.chunk_every(@batch_size)
-    |> Enum.reduce_while(:ok, fn batch, :ok ->
-      case fetch_and_store_batch(batch, block) do
-        :ok -> {:cont, :ok}
-        {:error, _} = err -> {:halt, err}
+    |> Stream.chunk_every(@batch_size)
+    |> Enum.reduce_while(:ok, fn chunk, :ok ->
+      existing = existing_txids(chunk)
+      missing = Enum.reject(chunk, &MapSet.member?(existing, &1))
+
+      case missing do
+        [] ->
+          {:cont, :ok}
+
+        _ ->
+          case fetch_and_store_batch(missing, block) do
+            :ok -> {:cont, :ok}
+            {:error, _} = err -> {:halt, err}
+          end
       end
     end)
   end
+
+  defp fetch_missing_in_batches(_block), do: :ok
 
   defp fetch_and_store_batch(txids, block) do
     case BitcoinsvCli.batch_getrawtransaction(txids, 1) do
@@ -169,14 +181,23 @@ defmodule Bitblocks.Workers.BackfillTransactionsWorker do
     Chain.upgrade_block_to_header_synced(hash)
   end
 
-  defp existing_txids(block_hash) do
+  # Which of THIS block's txids are already stored, keyed by txid (the globally
+  # unique key) rather than block_hash. A tx can be stored under another block's
+  # hash (reorg, BIP30 dup coinbase); with the unique-txid index, on_conflict
+  # :nothing makes its insert a no-op, so a block_hash-scoped query would never
+  # see it — the block would compute the same `missing` set forever and never
+  # complete (infinite reschedule). Intersecting block.tx with stored txids makes
+  # "missing" and "complete" agree and lets the block finish.
+  defp existing_txids(txids) when is_list(txids) and txids != [] do
     from(t in Transaction,
-      where: t.block_hash == ^block_hash,
+      where: t.txid in ^txids,
       select: t.txid
     )
     |> Repo.all()
     |> MapSet.new()
   end
+
+  defp existing_txids(_), do: MapSet.new()
 
   defp mark_syncing(block) do
     block
