@@ -5,7 +5,13 @@ defmodule BitblocksWeb.TransactionLive.Show do
 
   @impl true
   def mount(_params, _session, socket) do
-    {:ok, assign(socket, collection_item: nil, collection_slug: nil, collection_module: nil)}
+    {:ok,
+     assign(socket,
+       collection_item: nil,
+       collection_slug: nil,
+       collection_module: nil,
+       input_satoshis: %{}
+     )}
   end
 
   @impl true
@@ -92,6 +98,8 @@ defmodule BitblocksWeb.TransactionLive.Show do
         {nil, nil, nil}
       end
 
+    input_satoshis = build_input_satoshis(decoded_tx)
+
     {:noreply,
      socket
      |> assign(:page_title, page_title(socket.assigns.live_action))
@@ -102,7 +110,8 @@ defmodule BitblocksWeb.TransactionLive.Show do
      |> assign(:coinbase_message, coinbase_message)
      |> assign(:collection_item, collection_item)
      |> assign(:collection_slug, collection_slug)
-     |> assign(:collection_module, collection_module)}
+     |> assign(:collection_module, collection_module)
+     |> assign(:input_satoshis, input_satoshis)}
   end
 
   defp fetch_transaction_on_demand(txid) do
@@ -207,6 +216,44 @@ defmodule BitblocksWeb.TransactionLive.Show do
   defp blank_to_nil(nil), do: nil
   defp blank_to_nil(" "), do: nil
   defp blank_to_nil(v), do: v
+
+  # Build a map of {txid, vout} => satoshis by fetching source transactions for each input.
+  # Returns an empty map if decoded_tx is nil or all inputs are coinbase.
+  defp build_input_satoshis(nil), do: %{}
+
+  defp build_input_satoshis(%BSV.Tx{inputs: inputs}) do
+    coinbase_txid = String.duplicate("0", 64)
+
+    outpoints =
+      inputs
+      |> Enum.map(fn input ->
+        txid = BSV.OutPoint.get_txid(input.outpoint)
+        {txid, input.outpoint.vout}
+      end)
+      |> Enum.reject(fn {txid, _vout} -> txid == coinbase_txid end)
+
+    txids = outpoints |> Enum.map(&elem(&1, 0)) |> Enum.uniq()
+
+    source_txs =
+      txids
+      |> Enum.flat_map(fn txid ->
+        case Chain.get_transaction(txid) do
+          nil -> []
+          tx -> [{txid, tx}]
+        end
+      end)
+      |> Map.new()
+
+    Enum.reduce(outpoints, %{}, fn {txid, vout}, acc ->
+      with %{raw: raw} when is_binary(raw) <- Map.get(source_txs, txid),
+           {:ok, decoded} <- Bitblocks.Chain.SafeTx.from_hex(raw),
+           output when not is_nil(output) <- Enum.at(decoded.outputs, vout) do
+        Map.put(acc, {txid, vout}, output.satoshis)
+      else
+        _ -> acc
+      end
+    end)
+  end
 
   defp page_title(:show), do: "Show Transaction"
   defp page_title(:edit), do: "Edit Transaction"
