@@ -153,19 +153,26 @@
           </div>
         <% end %>
 
-        <%= if tx.lock_time > 0 do %>
-          <div>
-            <div class="text-sm text-gray-600">
-              Lock Time
-            </div>
+        <div>
+          <div class="text-sm text-gray-600">
+            Lock Time
+          </div>
+          <%= if tx.lock_time > 0 do %>
             <div class="font-semibold tabular-nums">
               <%= tx.lock_time %>
             </div>
             <div class="text-xs text-gray-400">
               <%= if tx.lock_time < 500_000_000, do: "spendable after block #{tx.lock_time}", else: "spendable after unix time #{tx.lock_time}" %>
             </div>
-          </div>
-        <% end %>
+          <% else %>
+            <div class="font-semibold tabular-nums text-gray-400">
+              0
+            </div>
+            <div class="text-xs text-gray-400">
+              no lock
+            </div>
+          <% end %>
+        </div>
       </div>
 
       <%!-- Script type breakdown --%>
