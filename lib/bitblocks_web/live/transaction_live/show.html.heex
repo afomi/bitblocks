@@ -255,7 +255,12 @@
                   Previous Output (UTXO being spent):
                 </span>
                 <div class="font-mono text-xs bg-gray-50 p-2 rounded mt-1 break-all">
-                  <%= BSV.OutPoint.get_txid(input.outpoint) %>:<%= input.outpoint.vout %>
+                  <.link
+                    navigate={~p"/transactions/#{input_txid}"}
+                    class="text-blue-600 hover:underline"
+                  >
+                    <%= input_txid %>
+                  </.link>:<%= input.outpoint.vout %>
                 </div>
                 <div class="text-xs text-gray-400 mt-1">
                   References output #<%= input.outpoint.vout %> from a previous transaction
