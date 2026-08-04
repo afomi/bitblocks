@@ -170,7 +170,7 @@ defmodule Bitblocks.Workers.SyncHeadersWorker do
     do: {:error, :too_deep}
 
   defp find_fork_point(height, node_hash, depth) do
-    case BitcoinsvCli.getblockheader(node_hash, true) do
+    case rpc().getblockheader(node_hash, true) do
       %{"previousblockhash" => prev_hash, "height" => ^height} ->
         prev_height = height - 1
 
@@ -193,11 +193,24 @@ defmodule Bitblocks.Workers.SyncHeadersWorker do
     end
   end
 
-  defp reschedule_tip(delay) do
+  # Tip mode is scheduled by ONE thing: the Oban cron entry (every minute, see
+  # config/config.exs). It used to ALSO reschedule itself every 30s on each run,
+  # so two schedulers were interleaving — the `unique: [period: 30]` guard
+  # doesn't reliably collapse a cron insert and a self-insert whose windows
+  # straddle each other, giving ~3 tip runs/min instead of 1, doubled again
+  # across the two prod instances. Each run does a `get_our_tip` + gap scan
+  # against `blocks`, so this was a steady multiplier on the hot table.
+  #
+  # The one case still worth an extra insert is an unreachable node: cron would
+  # otherwise not retry for a full minute. That's a backoff, not a steady-state
+  # loop, so it stays.
+  defp reschedule_tip(delay) when delay >= 60 do
     %{"mode" => "tip"}
     |> __MODULE__.new(schedule_in: delay)
     |> Oban.insert()
   end
+
+  defp reschedule_tip(_delay), do: :ok
 
   defp get_chain_tip do
     case Bitblocks.RpcCache.get_blockchain_info() do
@@ -270,7 +283,7 @@ defmodule Bitblocks.Workers.SyncHeadersWorker do
   end
 
   defp fetch_hashes(heights) do
-    case BitcoinsvCli.batch_getblockhash(heights) do
+    case rpc().batch_getblockhash(heights) do
       {:ok, hash_map} ->
         hash_map
 
@@ -278,7 +291,7 @@ defmodule Bitblocks.Workers.SyncHeadersWorker do
         Logger.warning("SyncHeaders: batch hash fetch failed (#{inspect(reason)}), falling back")
 
         Map.new(heights, fn h ->
-          case BitcoinsvCli.getblockhash(h) do
+          case rpc().getblockhash(h) do
             hash when is_binary(hash) -> {h, hash}
             _ -> {h, nil}
           end
@@ -287,7 +300,7 @@ defmodule Bitblocks.Workers.SyncHeadersWorker do
   end
 
   defp insert_header(height, hash) do
-    case BitcoinsvCli.getblockheader(hash, true) do
+    case rpc().getblockheader(hash, true) do
       %{"hash" => ^hash} = header ->
         # TB2: the node is not unconditionally trusted. Confirm the header
         # actually hashes to the hash we asked for (and meets PoW) before
@@ -386,4 +399,7 @@ defmodule Bitblocks.Workers.SyncHeadersWorker do
         :error
     end
   end
+
+  # Swappable RPC client — tests point this at BitcoinsvCliMock (config/test.exs).
+  defp rpc, do: Application.get_env(:bitblocks, :bitcoinsv_cli, BitcoinsvCli)
 end

@@ -241,19 +241,143 @@ defmodule Bitblocks.Release do
     {:ok, count}
   end
 
-  @doc """
-  Recover blocks stuck in txs_queued or txs_syncing with no Oban job to process them.
+  @doc deprecated: "Use repair_incomplete_blocks/1 — it covers stuck states AND completed-with-deficit blocks"
+  def recover_stuck_blocks do
+    IO.puts("recover_stuck_blocks is deprecated — running repair_incomplete_blocks() instead.")
+    repair_incomplete_blocks()
+  end
 
-  Resets them to header_synced and re-enqueues FetchTransactionsWorker jobs.
+  @doc """
+  Clear `tx_sync_attempts` on blocks that exhausted the backfill retry budget,
+  making them eligible again, and kick off a backfill pass.
+
+  The backfill stops re-selecting a block after
+  `:backfill_max_attempts` failures (default 3). That bound is what stops a
+  permanently-failing block from spinning the worker — but it also means blocks
+  that failed for a TRANSIENT reason (the BSV node was down) stay parked once
+  the cause is fixed. Run this after the node is healthy again.
+
+  Only resets blocks that are actually incomplete; `completed` blocks are left
+  alone.
 
   ## Usage
 
-      bin/bitblocks rpc 'Bitblocks.Release.recover_stuck_blocks()'
+      bin/bitblocks rpc 'Bitblocks.Release.retry_failed_blocks()'
   """
-  def recover_stuck_blocks do
+  def retry_failed_blocks do
     import Ecto.Query
 
-    # Find blocks in txs_queued/txs_syncing that have no active Oban job
+    {count, _} =
+      Bitblocks.Repo.update_all(
+        from(b in Bitblocks.Chain.Block,
+          where: b.sync_state != "completed" and coalesce(b.tx_sync_attempts, 0) > 0
+        ),
+        set: [tx_sync_attempts: 0, tx_sync_error: nil]
+      )
+
+    IO.puts("Reset retry counter on #{count} block(s).")
+
+    if count > 0 do
+      start_backfill_transactions()
+    else
+      IO.puts("Nothing to retry.")
+      :ok
+    end
+  end
+
+  @doc """
+  Audit transaction completeness: per block, compare stored tx rows to the
+  header's `num_tx` and report every deficit — regardless of sync_state.
+
+  This is the check `sync_state = "completed"` alone cannot give you: a block
+  whose tx array was truncated (>10k memory optimization) could previously be
+  marked completed with zero transactions stored. One GROUP-BY join, single
+  table scan — safe to run on demand, heavy enough not to run per-request.
+
+  Caveat: the count is by `block_hash`, so a txid legitimately stored under
+  another block's hash (reorg, BIP30 duplicate coinbase) makes this a LOWER
+  bound — the audit may flag a block the worker's txid-intersection check will
+  complete without fetching anything. That's fine: repair is idempotent and the
+  re-check is cheap.
+
+  ## Options
+    - limit: max deficit rows to return (default 1_000)
+
+  ## Usage
+
+      bin/bitblocks rpc 'Bitblocks.Release.audit_completeness()'
+      bin/bitblocks rpc 'Bitblocks.Release.audit_completeness(limit: 50)'
+  """
+  def audit_completeness(opts \\ []) do
+    limit = Keyword.get(opts, :limit, 1_000)
+
+    %{rows: rows, num_rows: _} =
+      Bitblocks.Repo.query!(
+        """
+        SELECT b.height, b.hash, b.sync_state, COALESCE(b.num_tx, 0) AS num_tx,
+               COALESCE(t.cnt, 0) AS stored
+        FROM blocks b
+        LEFT JOIN (
+          SELECT block_hash, COUNT(*) AS cnt
+          FROM transactions
+          GROUP BY block_hash
+        ) t ON t.block_hash = b.hash
+        WHERE COALESCE(t.cnt, 0) < GREATEST(COALESCE(b.num_tx, 0), 1)
+        ORDER BY b.height
+        LIMIT $1
+        """,
+        [limit]
+      )
+
+    deficits =
+      Enum.map(rows, fn [height, hash, sync_state, num_tx, stored] ->
+        %{
+          height: height,
+          hash: hash,
+          sync_state: sync_state,
+          num_tx: num_tx,
+          stored: stored,
+          missing: max(num_tx, 1) - stored
+        }
+      end)
+
+    IO.puts("audit_completeness: #{length(deficits)} block(s) with missing transactions" <>
+      if(length(deficits) >= limit, do: " (limit #{limit} reached — there may be more)", else: ""))
+
+    deficits
+    |> Enum.take(20)
+    |> Enum.each(fn d ->
+      IO.puts("  ##{d.height} #{d.sync_state} stored=#{d.stored}/#{d.num_tx} (#{d.hash})")
+    end)
+
+    %{count: length(deficits), deficits: deficits}
+  end
+
+  @doc """
+  Repair every block the completeness audit flags, in ANY sync_state —
+  including `completed`-with-deficit and `txs_queued`/`txs_syncing` orphans.
+
+  Blocks with a live FetchTransactionsWorker Oban job are skipped (their job
+  will fill them); everything else is reset to `header_synced` and the
+  sequential backfill worker is started, which walks the deficits lowest-height
+  first, fetching only the missing transactions (slow and steady — one block at
+  a time on the concurrency-1 backfill lane, no per-block job flood).
+
+  Idempotent: already-stored transactions are never re-fetched or re-upserted.
+
+  ## Options
+    - limit: max blocks to repair in this run (default 10_000)
+
+  ## Usage
+
+      bin/bitblocks rpc 'Bitblocks.Release.repair_incomplete_blocks()'
+  """
+  def repair_incomplete_blocks(opts \\ []) do
+    import Ecto.Query
+
+    limit = Keyword.get(opts, :limit, 10_000)
+    %{deficits: deficits} = audit_completeness(limit: limit)
+
     active_hashes =
       from(j in Oban.Job,
         where: j.worker == "Bitblocks.Workers.FetchTransactionsWorker",
@@ -263,38 +387,32 @@ defmodule Bitblocks.Release do
       |> Bitblocks.Repo.all()
       |> MapSet.new()
 
-    stuck_blocks =
-      from(b in Bitblocks.Chain.Block,
-        where: b.sync_state in ["txs_queued", "txs_syncing"],
-        select: %{id: b.id, hash: b.hash, height: b.height, sync_state: b.sync_state}
-      )
-      |> Bitblocks.Repo.all()
-      |> Enum.reject(fn b -> MapSet.member?(active_hashes, b.hash) end)
+    {active, repairable} = Enum.split_with(deficits, &MapSet.member?(active_hashes, &1.hash))
 
-    if stuck_blocks == [] do
-      IO.puts("No stuck blocks found")
-      {:ok, 0}
-    else
-      IO.puts("Found #{length(stuck_blocks)} stuck block(s), re-queuing...")
+    reset =
+      case repairable do
+        [] ->
+          0
 
-      # Reset to header_synced and re-queue
-      stuck_ids = Enum.map(stuck_blocks, & &1.id)
+        _ ->
+          hashes = Enum.map(repairable, & &1.hash)
 
-      {updated, _} =
-        from(b in Bitblocks.Chain.Block, where: b.id in ^stuck_ids)
-        |> Bitblocks.Repo.update_all(set: [sync_state: "header_synced"])
+          {count, _} =
+            from(b in Bitblocks.Chain.Block, where: b.hash in ^hashes)
+            |> Bitblocks.Repo.update_all(set: [sync_state: "header_synced"])
 
-      queued =
-        Enum.count(stuck_blocks, fn b ->
-          case Bitblocks.Chain.queue_transaction_fetch(b.hash) do
-            {:ok, _} -> true
-            _ -> false
-          end
-        end)
+          count
+      end
 
-      IO.puts("Reset #{updated} block(s) to header_synced, queued #{queued} job(s)")
-      {:ok, queued}
-    end
+    if reset > 0, do: start_backfill_transactions()
+
+    IO.puts(
+      "repair_incomplete_blocks: reset #{reset} block(s) to header_synced, " <>
+        "skipped #{length(active)} with live fetch jobs" <>
+        if(reset > 0, do: "; sequential backfill started", else: "")
+    )
+
+    {:ok, %{reset: reset, skipped_active: length(active)}}
   end
 
   @doc """
@@ -457,11 +575,16 @@ defmodule Bitblocks.Release do
   @doc """
   One-line sync status: blocks synced, gaps, tx progress.
 
+  Pass `audit: true` to also run the completeness audit (stored tx rows vs
+  num_tx per block) — a full GROUP-BY over the transactions table, so it's
+  opt-in rather than part of the default one-liner.
+
   ## Usage
 
       bin/bitblocks rpc 'Bitblocks.Release.status()'
+      bin/bitblocks rpc 'Bitblocks.Release.status(audit: true)'
   """
-  def status do
+  def status(opts \\ []) do
     alias Bitblocks.{Repo, Chain, Chain.Block}
     import Ecto.Query
 
@@ -495,6 +618,14 @@ defmodule Bitblocks.Release do
     IO.puts("  Blocks remaining:   #{total_blocks - completed}")
     IO.puts("  Lowest incomplete:  #{lowest_incomplete || "none — all done!"}")
     IO.puts("  Transactions in DB: #{total_txs}")
+
+    audit =
+      if Keyword.get(opts, :audit, false) do
+        %{count: deficit_count} = result = audit_completeness()
+        IO.puts("  Tx deficits:        #{deficit_count} block(s) (see audit_completeness/1)")
+        result
+      end
+
     IO.puts("========================\n")
 
     %{
@@ -505,7 +636,8 @@ defmodule Bitblocks.Release do
       completed: completed,
       remaining: total_blocks - completed,
       lowest_incomplete: lowest_incomplete,
-      transactions: total_txs
+      transactions: total_txs,
+      audit: audit
     }
   end
 
@@ -572,7 +704,9 @@ defmodule Bitblocks.Release do
               output_types: meta.output_types,
               protocols: meta.protocols,
               coinbase: meta.coinbase,
-              script_analysis_version: meta.script_analysis_version
+              script_analysis_version: meta.script_analysis_version,
+              output_script_hashes: meta.output_script_hashes,
+              output_template_hashes: meta.output_template_hashes
             ])
 
           {:error, reason} ->
@@ -638,99 +772,21 @@ defmodule Bitblocks.Release do
     sync_headers(from, to)
   end
 
-  @doc """
-  Backfill TRANSACTIONS for blocks whose headers exist but bodies don't.
-
-  Walks incomplete blocks (`sync_state in header_only/header_synced/failed`) in
-  height order and enqueues `FetchTransactionsWorker` jobs in metered waves —
-  draining the `transactions` queue below `pause_below` before queuing the next
-  wave, so `oban_jobs` never floods. The workers themselves are resumable and
-  idempotent (count-existing-and-skip, `on_conflict: :nothing`), so this is safe
-  to stop and re-run; it picks up at the lowest incomplete block.
-
-  Long-running. Run from the CLI, not the /sync UI.
-
-  ## Options
-    - wave_size:   blocks enqueued per wave (default 500)
-    - pause_below: wait until the transactions queue has fewer than this many
-                   pending jobs before the next wave (default 1_000)
-    - max_blocks:  cap total blocks enqueued this run (default :infinity)
-
-  ## Usage
-
-      bin/bitblocks rpc 'Bitblocks.Release.backfill_transactions()'
-      bin/bitblocks rpc 'Bitblocks.Release.backfill_transactions(wave_size: 200)'
-
-  ## Monitoring
-
-      bin/bitblocks rpc 'Bitblocks.Release.status()'
-  """
+  @doc deprecated: "Use start_backfill_transactions/0 (sequential) or repair_incomplete_blocks/1 (audit-driven)"
+  # The wave-based enqueuer flooded per-block FetchTransactionsWorker jobs and
+  # skipped txs_queued/txs_syncing blocks entirely (stranding orphans). The
+  # sequential BackfillTransactionsWorker replaces it: one block at a time on
+  # the concurrency-1 backfill lane, diff-and-fill, self-rescheduling — slow
+  # and steady, nothing competes and nothing floods.
   def backfill_transactions(opts \\ []) do
-    import Ecto.Query
-    alias Bitblocks.{Repo, Chain, Chain.Block}
+    _ = opts
 
-    wave_size = Keyword.get(opts, :wave_size, 500)
-    pause_below = Keyword.get(opts, :pause_below, 1_000)
-    max_blocks = Keyword.get(opts, :max_blocks, :infinity)
+    IO.puts(
+      "backfill_transactions/1 (wave enqueuer) is deprecated — " <>
+        "starting the sequential backfill worker instead."
+    )
 
-    incomplete_states = ["header_only", "header_synced", "failed"]
-
-    pending_query =
-      from(j in Oban.Job,
-        where:
-          j.queue == "transactions_backfill" and
-            j.state in ["available", "scheduled", "executing", "retryable"],
-        select: count()
-      )
-
-    enqueue_wave = fn last_height ->
-      from(b in Block,
-        where: b.sync_state in ^incomplete_states and b.height > ^last_height,
-        order_by: [asc: b.height],
-        limit: ^wave_size,
-        select: {b.height, b.hash}
-      )
-      |> Repo.all()
-    end
-
-    IO.puts("backfill_transactions: starting (wave_size=#{wave_size}, pause_below=#{pause_below})")
-
-    Stream.unfold({-1, 0}, fn {last_height, enqueued} ->
-      if max_blocks != :infinity and enqueued >= max_blocks do
-        nil
-      else
-        # Throttle: wait for the queue to drain below the watermark.
-        wait_for_drain(pending_query, pause_below)
-
-        case enqueue_wave.(last_height) do
-          [] ->
-            nil
-
-          blocks ->
-            Enum.each(blocks, fn {_h, hash} -> Chain.queue_transaction_fetch(hash) end)
-            {new_last, _} = List.last(blocks)
-            total = enqueued + length(blocks)
-            IO.puts("  enqueued #{length(blocks)} (through ##{new_last}); #{total} this run")
-            {total, {new_last, total}}
-        end
-      end
-    end)
-    |> Enum.to_list()
-
-    IO.puts("backfill_transactions: no more incomplete blocks to enqueue. Done.")
-    :ok
-  end
-
-  # Block until the transactions queue has drained below `watermark` pending jobs.
-  defp wait_for_drain(pending_query, watermark) do
-    case Bitblocks.Repo.one(pending_query) do
-      n when is_integer(n) and n >= watermark ->
-        Process.sleep(2_000)
-        wait_for_drain(pending_query, watermark)
-
-      _ ->
-        :ok
-    end
+    start_backfill_transactions()
   end
 
   @doc deprecated: "Use backfill_transactions/1 (headers via backfill/1)"

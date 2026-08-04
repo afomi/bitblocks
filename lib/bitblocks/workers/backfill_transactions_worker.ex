@@ -38,16 +38,34 @@ defmodule Bitblocks.Workers.BackfillTransactionsWorker do
   import Ecto.Query
 
   alias Bitblocks.{Repo, Chain}
-  alias Bitblocks.Chain.{Block, Transaction}
-  alias Bitblocks.TransactionParser
+  alias Bitblocks.Chain.{Block, Transaction, TxIngest, TxidSource}
 
   @batch_size Application.compile_env(:bitblocks, :tx_fetch_batch_size, 100)
+
+  # A block that has failed this many times stops being re-selected. Without
+  # this brake `tx_sync_attempts` was written by mark_failed/2 but never read,
+  # so a block that COULDN'T complete (node down, a tx the node won't return)
+  # was marked "failed", immediately re-selected as the lowest incomplete
+  # block, failed again — a hot loop that hammered `blocks` + `oban_jobs` once
+  # per second per instance and never advanced. Exhausted blocks are skipped so
+  # the backfill moves on; `Release.retry_failed_blocks/0` clears the counter
+  # when the underlying cause (e.g. an unreachable node) is fixed.
+  @max_attempts Application.compile_env(:bitblocks, :backfill_max_attempts, 3)
+
+  # Gap between blocks. The old value was 1 second, which — combined with the
+  # unbounded retry above — was the main source of DB load. Backfill is
+  # throughput work, not latency work: seconds between blocks cost nothing.
+  @reschedule_seconds Application.compile_env(:bitblocks, :backfill_reschedule_seconds, 15)
 
   @impl Oban.Worker
   def perform(_job) do
     case next_incomplete_block() do
       nil ->
-        Logger.info("BackfillTxs: all blocks complete")
+        # Nothing eligible. Note this is also the resting state when every
+        # remaining block has exhausted @max_attempts — the loop STOPS here
+        # rather than re-selecting them. It restarts on the hourly cron, or
+        # immediately via Release.retry_failed_blocks/0.
+        Logger.info("BackfillTxs: no eligible blocks — backfill idle")
         :ok
 
       block ->
@@ -60,8 +78,15 @@ defmodule Bitblocks.Workers.BackfillTransactionsWorker do
             :ok
 
           {:error, reason} ->
+            # Do NOT reschedule and do NOT return an error: mark_failed/2 has
+            # already bumped tx_sync_attempts, so this block either gets one
+            # more try on a later pass or is skipped for good. Returning
+            # {:error, _} here would make Oban retry the JOB (max_attempts: 3)
+            # on top of our own accounting — two retry mechanisms stacked, the
+            # spin loop the fix is removing. The failure is recorded on the
+            # block; the hourly cron is what picks the work back up.
             Logger.error("BackfillTxs: block #{block.height} failed: #{inspect(reason)}")
-            {:error, reason}
+            :ok
         end
     end
   end
@@ -73,26 +98,53 @@ defmodule Bitblocks.Workers.BackfillTransactionsWorker do
   # block forever — no pass would ever pick it back up. `sync_block` recomputes
   # what's missing from what's actually stored, so resuming a `txs_syncing` block
   # is safe and idempotent. This is what makes a restart self-healing.
+  #
+  # `txs_queued` blocks are eligible too, but only when no live Oban job holds
+  # them — a queued block whose FetchTransactionsWorker job was pruned or lost
+  # would otherwise be picked up by nothing (recover_stuck_blocks/0 was the only
+  # manual escape hatch). A queued block WITH an active job is left alone so the
+  # two lanes never double-fetch the same block.
+  # `failed` blocks stay eligible (a failure is often transient — a flaky RPC
+  # call), but ONLY until they've burned @max_attempts. That bound is what
+  # terminates the loop: previously a permanently-unfetchable block was
+  # re-selected every single pass forever, so the backfill could never advance
+  # past it and never went idle.
   defp next_incomplete_block do
     from(b in Block,
-      where: b.sync_state in ["header_only", "header_synced", "txs_syncing", "failed"],
+      where:
+        coalesce(b.tx_sync_attempts, 0) < @max_attempts and
+          (b.sync_state in ["header_only", "header_synced", "txs_syncing", "failed"] or
+             (b.sync_state == "txs_queued" and b.hash not in subquery(active_fetch_job_hashes()))),
       order_by: [asc: b.height],
       limit: 1
     )
     |> Repo.one()
   end
 
+  defp active_fetch_job_hashes do
+    from(j in Oban.Job,
+      where: j.worker == "Bitblocks.Workers.FetchTransactionsWorker",
+      where: j.state in ["available", "scheduled", "executing", "retryable"],
+      select: fragment("?->>'block_hash'", j.args)
+    )
+  end
+
   defp sync_block(block) do
-    with {:ok, block} <- ensure_txids(block),
+    # TxidSource is the authoritative txid list: the stored array when complete,
+    # otherwise re-fetched from the node — always merkleroot-verified, so an
+    # empty/truncated stored array (the >10k memory optimization) can no longer
+    # zero out the completeness denominator. The list stays in process memory;
+    # both lanes are concurrency-1, so at most one transient list per lane.
+    with {:ok, txids, block} <- TxidSource.txids(block),
          {:ok, block} <- mark_syncing(block) do
       # Some blocks have millions of txids. Never load the whole missing set or
-      # query `txid IN (<millions>)` — process the txid array in fixed-size
+      # query `txid IN (<millions>)` — process the txid list in fixed-size
       # chunks: for each chunk, ask the DB which of its ≤@batch_size txids are
       # already stored (a bounded IN), fetch only the gaps, store, advance. Each
       # query and each in-memory list is bounded by @batch_size regardless of
       # block size. Idempotent: re-running re-skips what's present.
-      with :ok <- fetch_missing_in_batches(block),
-           :ok <- verify_complete(block) do
+      with :ok <- fetch_missing_in_batches(block, txids),
+           :ok <- verify_complete(block, txids) do
         mark_completed(block)
         :ok
       else
@@ -100,15 +152,32 @@ defmodule Bitblocks.Workers.BackfillTransactionsWorker do
           mark_failed(block, reason)
           {:error, reason}
       end
+    else
+      # The outer `with` previously had no else clause, so a failure to even
+      # establish the txid list (TxidSource can't reach the node — exactly what
+      # happens when the BSV node is down) fell straight through WITHOUT
+      # touching tx_sync_attempts. The block therefore stayed permanently
+      # eligible and was re-selected on every pass: the spin loop. Count these
+      # against the block like any other failure so an unreachable node makes
+      # the backfill go quiet instead of hammering the DB.
+      {:error, reason} ->
+        mark_failed(block, reason)
+        {:error, reason}
+
+      other ->
+        mark_failed(block, other)
+        {:error, other}
     end
   end
 
   # Authoritative gate: only complete a block once every one of its txids is
-  # actually present. Counts the intersection of the block's txid list with
+  # actually present. Counts the intersection of the verified txid list with
   # stored txids in bounded chunks (never a millions-wide IN, never materialized),
   # so the check is correct at any block size. If short, the block stays
-  # incomplete and is retried — completeness over speed.
-  defp verify_complete(%Block{tx: txids} = block) when is_list(txids) do
+  # incomplete and is retried — completeness over speed. There is deliberately
+  # no fallback clause: a block whose txid list can't be established errors in
+  # TxidSource instead of passing an unknown through to "complete".
+  defp verify_complete(%Block{} = block, txids) when is_list(txids) do
     total = length(txids)
 
     stored =
@@ -128,9 +197,7 @@ defmodule Bitblocks.Workers.BackfillTransactionsWorker do
     end
   end
 
-  defp verify_complete(_block), do: :ok
-
-  defp fetch_missing_in_batches(%Block{tx: txids} = block) when is_list(txids) do
+  defp fetch_missing_in_batches(%Block{} = block, txids) when is_list(txids) do
     txids
     |> Stream.chunk_every(@batch_size)
     |> Enum.reduce_while(:ok, fn chunk, :ok ->
@@ -150,10 +217,8 @@ defmodule Bitblocks.Workers.BackfillTransactionsWorker do
     end)
   end
 
-  defp fetch_missing_in_batches(_block), do: :ok
-
   defp fetch_and_store_batch(txids, block) do
-    case BitcoinsvCli.batch_getrawtransaction(txids, 1) do
+    case rpc().batch_getrawtransaction(txids, 1) do
       {:ok, results} ->
         # A tx the node didn't return (error or missing) is NOT stored. Returning
         # :ok here would let the block be marked completed with holes — the silent
@@ -164,8 +229,14 @@ defmodule Bitblocks.Workers.BackfillTransactionsWorker do
           Enum.reduce(txids, [], fn txid, acc ->
             case Map.get(results, txid) do
               tx when is_map(tx) ->
-                store_tx(tx, block)
-                acc
+                case TxIngest.store(tx, block) do
+                  :ok ->
+                    acc
+
+                  {:error, reason} ->
+                    Logger.warning("BackfillTxs: tx #{txid} rejected: #{inspect(reason)}")
+                    [txid | acc]
+                end
 
               {:error, reason} ->
                 Logger.warning("BackfillTxs: tx #{txid} error: #{inspect(reason)}")
@@ -186,50 +257,6 @@ defmodule Bitblocks.Workers.BackfillTransactionsWorker do
         Logger.error("BackfillTxs: batch RPC failed: #{inspect(reason)}")
         {:error, reason}
     end
-  end
-
-  defp store_tx(tx, block) do
-    raw = tx["hex"]
-
-    analysis =
-      case TransactionParser.analyze(raw) do
-        {:ok, meta} -> meta
-        _ -> %{}
-      end
-
-    inputs = (tx["vin"] || []) |> Enum.map(&Jason.encode!/1)
-    outputs = (tx["vout"] || []) |> Enum.map(&Jason.encode!/1)
-
-    tx_data =
-      Map.merge(
-        %{
-          txid: tx["txid"],
-          raw: raw,
-          block_hash: tx["blockhash"] || block.hash,
-          block_height: tx["height"] || block.height,
-          version: to_string(tx["version"] || 1),
-          inputs: inputs,
-          input_txids: TransactionParser.extract_input_txids(inputs),
-          outputs: outputs,
-          output_addresses: TransactionParser.extract_output_addresses(outputs)
-        },
-        analysis
-      )
-
-    changeset = Transaction.changeset(%Transaction{}, tx_data)
-
-    case Repo.insert(changeset, on_conflict: :nothing, conflict_target: :txid) do
-      {:ok, stored_tx} -> Chain.record_spends(stored_tx)
-      _ -> :ok
-    end
-  end
-
-  defp ensure_txids(%Block{tx: tx} = block) when is_list(tx) and tx != [] do
-    {:ok, block}
-  end
-
-  defp ensure_txids(%Block{hash: hash}) do
-    Chain.upgrade_block_to_header_synced(hash)
   end
 
   # Which of THIS block's txids are already stored, keyed by txid (the globally
@@ -283,7 +310,10 @@ defmodule Bitblocks.Workers.BackfillTransactionsWorker do
 
   defp reschedule do
     %{}
-    |> __MODULE__.new(schedule_in: 1)
+    |> __MODULE__.new(schedule_in: @reschedule_seconds)
     |> Oban.insert()
   end
+
+  # Swappable RPC client — tests point this at BitcoinsvCliMock (config/test.exs).
+  defp rpc, do: Application.get_env(:bitblocks, :bitcoinsv_cli, BitcoinsvCli)
 end
