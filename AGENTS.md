@@ -49,3 +49,33 @@ Note any schema migrations and coordinated deploy steps in the PR description so
 Set environment variables for Bitcoin node credentials (e.g., `export BITCOIN_NODE_URL=...`) before running mix tasks.
 Secrets should stay out of Git; rely on `config/runtime.exs` for runtime environment reads.
 For release deployments, ensure `rel/` configs match the target and run `mix assets.deploy` prior to building releases.
+
+### Elixir formatting: multi-line style
+
+Write multi-line calls, lists, maps and tuples with a newline **immediately after the opening
+paren/bracket** (and before the closer). `mix format` then preserves one-entry-per-line
+permanently — it round-trips, which is what keeps diffs clean:
+
+```elixir
+live_isolated(
+  conn,
+  MyAppWeb.SomeLive,
+  session: %{"id" => id}
+)
+```
+
+Never use the half-broken style — the formatter always normalizes it away, so it churns in diffs:
+
+```elixir
+# BAD: collapses to one line if it fits in line_length (default 98)
+live_isolated(conn, MyAppWeb.SomeLive,
+  session: %{"id" => id}
+)
+```
+
+This is a writing convention, not a formatter setting: there is no `mix format` or Credo option
+that means "prefer multi-line". See `Code.format_string!/2`, section "Keeping user's formatting".
+
+Run `mix precommit` before finishing changes. A git pre-commit hook (`.githooks/pre-commit`, wired
+via `core.hooksPath`) runs `mix format --check-formatted` on staged files and blocks unformatted
+commits.

@@ -1,0 +1,15 @@
+Done — docs/SCRIPT_RUNTIME.md is written and registered in docs/INDEX.md under Protocol references. It cross-links OP_PUSH_TX.md (which already covers the preimage trick in depth) rather than duplicating it.
+
+The core of it, since you wanted dialogue as much as a document:
+
+The first reframe is the biggest one. Script is a predicate, not a program. Coming from Ruby/Elixir, the instinct is to look for "the runtime where my contract runs" — there isn't one. A locking script is inert data until someone attempts a spend, at which point every validating node evaluates it once as a boolean question. Your Prolog exposure is actually the best entry point: a locking script is a goal, the unlocking script is the proposed variable bindings, and Bitcoin is a proof checker that never searches. All the searching (finding satisfying witnesses, composing transactions) happens off-chain — which is exactly why the qart/bitblocks split exists.
+
+On your three introspection scopes, the answers are pleasingly asymmetric:
+
+- Within a tx: no native reflection at all, but OP_PUSH_TX smuggles the transaction's own description past its blind validator via OP_CHECKSIG-as-equality-oracle. The doc frames this as a Gödel move — self-reference through a channel meant for something else. Notably, the preimage includes the script's own source code, so a covenant that demands a successor carrying the same code is literally a quine with a payload.
+- Existing txs: a script can authenticate its ancestors (push the full parent tx, hash it, match the outpoint's txid — then induct back to genesis; this is how inductive tokens prove issuance without trusting an indexer). But never siblings — unrelated txs are reachable only via oracle attestations or merkle proofs.
+- Mempool: fully invisible to script, and that blindness is load-bearing — mempools are node-local, so any mempool-dependence would make validity non-deterministic and history non-replayable. Mempool "introspection" is therefore bitblocks' territory (observation) plus non-final tx replacement via nSequence (mutation-before-finality, the substrate of payment channels).
+
+The synthesis is a two-level machine: each script is total and terminating (one film frame), while unbounded computation lives across spends — the tx chain is the tape, and loops reappear unrolled into history. The frozen-GenServer pump might be the most useful one for you: a covenant UTXO is a GenServer frozen between calls, the outpoint is a pid that changes on every call, and the indexer is the process registry.
+
+Section 9 of the doc lists four open threads. The two I'd most recommend as next moves: sCrypt as the macro layer (how much of this you should think in raw opcodes vs. the compiler that emits them), or an opcode-level walkthrough of one real inductive lineage proof — that one would make the scope-2 material concrete and pairs directly with your BSV-20 indexing work. Where do you want to go?

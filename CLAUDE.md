@@ -52,7 +52,7 @@ mix assets.deploy           # Build and minify for production
 
 ### Blockchain Sync
 
-**Three-Phase Sync Strategy** (see SYNC_PHASES.md for details):
+**Three-Phase Sync Strategy** (see docs/SYSTEM_ARCHITECTURE.md for RPC sizing details):
 
 1. **Phase 1: Header-Only Sync (getblockheader)** - DEFAULT
    - Uses `getblockheader(hash, true)` to fetch header metadata (~400 bytes)
@@ -73,22 +73,22 @@ mix assets.deploy           # Build and minify for production
    - Fetched on-demand for transactions being viewed
    - Sets `sync_state = "completed"`
 
-**Sync Modules**:
+**Two-Job Sync Model** (Oban workers):
 
-- `Bitblocks.SyncWorker` (lib/bitblocks/sync_worker.ex) - **Sequential sync** with lazy mode
-  - Processes one block at a time
-  - Defaults to header-only sync using `getblockheader`
-  - Pass `verbosity: :with_txids` or `verbosity: 1` for Phase 2
-  - Lazy batch discovery for large ranges (100 blocks at a time)
-  - Idempotent - only fetches missing blocks
+- `Bitblocks.Workers.SyncHeadersWorker` — ensures block headers exist
+  - **Range mode**: `%{"mode" => "range", "from" => 0, "to" => 50_000}` — fills gaps in a height range
+  - **Tip mode**: `%{"mode" => "tip"}` — checks chain tip once a minute, syncs new blocks. Oban cron is the sole scheduler; the worker only re-enqueues itself as a 60s backoff when the node is unreachable.
+  - Uses `getblockhash` + `getblockheader` (~400 bytes per block)
+  - Inserts with `on_conflict: :nothing` — idempotent, safe to overlap
+  - **Tip mode** enqueues a `FetchTransactionsWorker` for each newly inserted block (the after-create job, so the tip stays fully synced). **Range/backfill mode** does not — backfill meters tx fetches in waves. See `docs/SYNCING.md`.
 
-- `Bitblocks.Sync.Pipeline` (lib/bitblocks/sync/pipeline.ex) - **Parallel sync** with GenStage
-  - Uses 8 parallel workers for block fetching (configurable)
-  - Three-stage pipeline: BlockProducer → TransactionFetcher → DatabaseWriter
-  - All workers use header-only sync (`getblockheader`) by default
-  - 5-8x faster than sequential mode for large ranges
-  - Batch RPC calls for block hashes
-  - Backpressure management via GenStage
+- `Bitblocks.Workers.FetchTransactionsWorker` — fetches raw transactions for a block
+  - Two Oban lanes, each concurrency 1: `:transactions_tip` (newly confirmed blocks) and `:transactions_backfill` (historical fill-in). They never share slots, so one current + one past block fetch run in parallel and the tip is never starved. Lane chosen at enqueue via `Chain.queue_transaction_fetch(block, lane: :tip | :backfill)` (default `:backfill`).
+  - Fetches in batches of 100 via `getrawtransaction`
+  - Resumable — counts existing txs on restart, picks up where it left off
+  - Retry budget: a block that fails 3 times (`:backfill_max_attempts`) stops being re-selected and the backfill goes idle. Clear with `Release.retry_failed_blocks()` once the cause (e.g. a down node) is fixed.
+  - Runs `TransactionParser.analyze` and `Chain.record_spends` on each tx
+  - Transitions block: `txs_queued → txs_syncing → completed|failed`
 
 ### Data Layer
 
@@ -115,6 +115,10 @@ mix assets.deploy           # Build and minify for production
   - `/blocks/:id` - Show block by height or hash
   - `/transactions` - List transactions
   - `/transactions/:id` - Show transaction by txid
+  - `/metanet` - Metanet DAG explorer (enter txid, navigate tree)
+  - `/order-book` - Open Order Book (browse BSV-20 token listings)
+  - `/tokens` and `/tokens/:id` - BSV-20/BSV-21 token index (supply, holders); read-only, minting lives in qart
+  - `/bitcom` and `/bitcom/:address` - live Bitcom registry (unwriter's Bitcom): namespaces, on-chain ownership proof, files, routes, usage
   - `/dev/dashboard` - LiveDashboard (dev only)
 
 **Request Logging:**
@@ -139,58 +143,27 @@ Dev server runs on http://127.0.0.1:4000
 
 ## Sync Workflow
 
-To sync blockchain data, use IEx:
-
-```elixir
-iex -S mix phx.server
-
-# Sync blocks 0-1000
-Bitblocks.Sync.get_blocks(0..1000)
-
-# Then fetch full transaction data for specific blocks
-Bitblocks.Sync.get(100)  # Get all tx data for block 100
-```
-
-The sync process:
-1. `get_blocks/1` fetches block metadata and stores blocks with tx ID arrays
-2. `get/1` or `get_original/1` fetches full raw transaction data for each tx in a block
-3. Transactions are stored with raw hex, which can be decoded using `BitcoinsvCli.decoderawtransaction/1`
-
-## Production Operations
-
-### Backfill (blocks + transactions)
-
-After deploy, run via `rpc` on the production host:
+Tip sync runs automatically via Oban cron (every minute).
+To manually sync a range or backfill:
 
 ```bash
-# Check for gaps in block data
-bin/bitblocks rpc 'Bitblocks.Release.gaps()'
+# Sync headers + queue tx downloads for a range
+bin/bitblocks rpc 'Bitblocks.Release.sync_headers(0, 100_000)'
 
-# Backfill missing blocks and queue transaction fetches from height 0.
-# Idempotent — safe to re-run. Picks up where it left off across restarts.
-# Transactions process one at a time (Oban transactions queue = 1 in prod).
-# This will take days; that's expected.
+# Backfill everything from genesis to tip
 bin/bitblocks rpc 'Bitblocks.Release.backfill()'
+
+# Start/stop continuous tip sync
+bin/bitblocks rpc 'Bitblocks.Release.start_tip_sync()'
+bin/bitblocks rpc 'Bitblocks.Release.stop_tip_sync()'
+
+# Check gaps and status
+bin/bitblocks rpc 'Bitblocks.Release.gaps()'
+bin/bitblocks rpc 'Bitblocks.Release.sync_status()'
+bin/bitblocks rpc 'Bitblocks.Release.status()'
 ```
 
-Options:
-
-```bash
-# Skip block sync, only backfill transactions
-bin/bitblocks rpc 'Bitblocks.Release.backfill(skip_blocks: true)'
-
-# Skip transactions, only fill block gaps
-bin/bitblocks rpc 'Bitblocks.Release.backfill(skip_txs: true)'
-
-# Tune batch sizes
-bin/bitblocks rpc 'Bitblocks.Release.backfill(chunk_size: 500, tx_batch: 50)'
-```
-
-Monitor progress:
-
-```bash
-bin/bitblocks rpc 'Bitblocks.Release.db_stats()'
-```
+The `/sync` page provides a web UI for these operations with live job monitoring.
 
 ### API
 
@@ -198,11 +171,40 @@ bin/bitblocks rpc 'Bitblocks.Release.db_stats()'
 GET /api/v1/blocks              — paginated block list
 GET /api/v1/blocks/latest       — most recent block
 GET /api/v1/blocks/:id          — block by height or hash
-GET /api/v1/txs                 — paginated transactions
+GET /api/v1/txs                 — paginated transactions (?protocol=Twetch to filter)
 GET /api/v1/txs/:txid           — single transaction by txid
 GET /api/v1/txs/:txid/proof     — merkle proof for a transaction
+GET /api/v1/price/bsv           — cached BSV spot price (USD) from CoinGecko
+GET /api/v1/support             — sponsorship numbers for the off-site page: monthly costs, target, BSV received (CORS *)
 GET /api/v1/stream/blocks       — SSE stream of new blocks
+GET /api/v1/metanet/:txid       — Metanet node with parent, children, MURL path
+GET /api/v1/metanet/:txid/children — children of a Metanet node
+GET /api/v1/metanet/roots       — Metanet root nodes (orphans)
 GET /api/v1/protocols           — registered protocols
+GET /api/v1/protocols/:addr/feed — parsed protocol feed (e.g. Twetch posts)
+GET /api/v1/order-book/listings — active order book listings (filters: token_id, seller, min_price, max_price)
+GET /api/v1/order-book/listings/:txid — single listing detail
+GET /api/v1/order-book/tokens/:token_id — listings for a token
+GET /api/v1/order-book/sellers/:address — listings by seller
+GET /api/v1/order-book/stats    — order book aggregate statistics
+GET /api/v1/stream/order-book   — SSE stream of order book events
+GET /api/v1/tokens              — indexed BSV-20/BSV-21 tokens (filters: standard, sym)
+GET /api/v1/tokens/:id          — token by token_id (<txid>_<vout>) or ticker
+GET /api/v1/tokens/:id/holders  — holder balances for a token
+GET /api/v1/tokens/:id/transfers — transfer history for a token
+GET /api/v1/tokens/stats        — token aggregate statistics
+GET /api/v1/stream/tokens       — SSE stream of new tokens / transfers
+GET /api/v1/addresses/:address/tokens — unspent BSV-20/21 outputs held by an address (?standard=bsv-21, ?token_id=)
+GET /api/v1/bitcom              — Bitcom registry export, every namespace with re-verifiable txids (also at /bitcom.json)
+GET /api/v1/bitcom/:address     — one Bitcom namespace: tier, proof, files, routes
+GET /api/v1/outpoints/:txid/:vout — is this outpoint an ordinal/token? answer: yes | no | unknown (spend only on "no")
+GET /api/v1/script/:scripthash/history — tx history for a script (Electrum scripthash: sha256 of scriptPubKey, reversed hex)
+GET /api/v1/script/:scripthash/unspent — UTXOs locked by a script
+POST /api/v1/script/decode      — decode script hex into a descriptor (type, fields, asm, matched template)
+GET /api/v1/script/templates    — registered script templates
+POST /api/v1/script/templates   — register a script template
+GET /api/v1/script/templates/:template_hash — template detail
+GET /api/v1/script/templates/:template_hash/history — txs matching a template
 ```
 
 ## Database Schema Notes
