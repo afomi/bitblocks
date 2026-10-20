@@ -76,6 +76,17 @@ defmodule Bitblocks.MapParser do
     end)
   end
 
+  @doc """
+  Parses a MAP `SET` segment (the chunks after the MAP address) into a
+  key-value map. Non-SET or empty input yields `%{}`.
+
+      iex> Bitblocks.MapParser.parse_set(["SET", "app", "twetch"])
+      %{"app" => "twetch"}
+  """
+  @spec parse_set(list(binary()) | nil) :: %{String.t() => String.t() | nil}
+  def parse_set(["SET" | pairs]), do: pairs_to_map(pairs)
+  def parse_set(_), do: %{}
+
   # Split chunks on pipe separator into protocol segments
   defp split_protocols(chunks) do
     chunks

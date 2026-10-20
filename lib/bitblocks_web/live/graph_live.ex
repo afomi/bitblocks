@@ -31,7 +31,12 @@ defmodule BitblocksWeb.GraphLive do
               e ->
                 require Logger
                 Logger.error("Graph build failed for #{txid}: #{Exception.message(e)}")
-                assign(socket, :graph_data, {:error, "Failed to build graph: #{Exception.message(e)}"})
+
+                assign(
+                  socket,
+                  :graph_data,
+                  {:error, "Failed to build graph: #{Exception.message(e)}"}
+                )
             end
         end
       else
@@ -131,8 +136,11 @@ defmodule BitblocksWeb.GraphLive do
 
             # Recursively traverse if we haven't hit max depth
             case Chain.get_transaction_by_txid(prev_txid) do
-              nil -> {acc_nodes, acc_edges}
-              prev_tx -> traverse_inputs(prev_tx, current_depth + 1, max_depth, acc_nodes, acc_edges)
+              nil ->
+                {acc_nodes, acc_edges}
+
+              prev_tx ->
+                traverse_inputs(prev_tx, current_depth + 1, max_depth, acc_nodes, acc_edges)
             end
           end
         end)

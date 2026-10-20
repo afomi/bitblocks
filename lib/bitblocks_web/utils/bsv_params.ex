@@ -39,6 +39,14 @@ defmodule BitblocksWeb.Utils.BsvParams do
 
   def txid(_), do: {:error, :invalid_txid}
 
+  @doc "Validate an Electrum-convention scripthash (sha256 → 64 hex chars)."
+  @spec scripthash(any()) :: {:ok, String.t()} | {:error, :invalid_scripthash}
+  def scripthash(value) when is_binary(value) do
+    if Regex.match?(@hash_re, value), do: {:ok, value}, else: {:error, :invalid_scripthash}
+  end
+
+  def scripthash(_), do: {:error, :invalid_scripthash}
+
   @doc "Validate a base58 BSV address."
   @spec address(any()) :: {:ok, String.t()} | {:error, :invalid_address}
   def address(value) when is_binary(value) do
@@ -54,4 +62,24 @@ defmodule BitblocksWeb.Utils.BsvParams do
   end
 
   def token_id(_), do: {:error, :invalid_token_id}
+
+  # A BSV-20 classic ticker: short, safe charset. Bounded so it can never inject
+  # into a URL path or a PubSub topic.
+  @tick_re ~r/\A[0-9A-Za-z._-]{1,32}\z/
+
+  @doc """
+  Validate a BSV-20/21 token reference — either a BSV-21 `token_id`
+  (`<txid>_<vout>`) or a classic BSV-20 ticker. Safe for URL paths and PubSub
+  topics either way.
+  """
+  @spec token_ref(any()) :: {:ok, String.t()} | {:error, :invalid_token_ref}
+  def token_ref(value) when is_binary(value) do
+    cond do
+      Regex.match?(@token_id_re, value) -> {:ok, value}
+      Regex.match?(@tick_re, value) -> {:ok, value}
+      true -> {:error, :invalid_token_ref}
+    end
+  end
+
+  def token_ref(_), do: {:error, :invalid_token_ref}
 end

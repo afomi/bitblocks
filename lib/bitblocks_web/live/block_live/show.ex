@@ -103,6 +103,7 @@ defmodule BitblocksWeb.BlockLive.Show do
         mantissa = compact &&& 0x00FFFFFF
         shift = 8 * (exponent - 3)
         target = mantissa <<< shift
+
         target
         |> Integer.to_string(16)
         |> String.pad_leading(64, "0")
@@ -114,7 +115,9 @@ defmodule BitblocksWeb.BlockLive.Show do
   end
 
   defp count_leading_zero_hex_chars("", acc), do: acc
+
   defp count_leading_zero_hex_chars(<<"0", rest::binary>>, acc),
     do: count_leading_zero_hex_chars(rest, acc + 1)
+
   defp count_leading_zero_hex_chars(_, acc), do: acc
 end

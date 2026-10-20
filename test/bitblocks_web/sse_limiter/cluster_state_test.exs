@@ -15,7 +15,7 @@ defmodule BitblocksWeb.SseLimiter.ClusterStateTest do
 
     on_exit(fn ->
       # Remove the fake peers we injected so they don't leak into other tests.
-      for n <- [:"fake1@host", :"fake2@host"], do: send(ClusterState, {:nodedown, n})
+      for n <- [:fake1@host, :fake2@host], do: send(ClusterState, {:nodedown, n})
 
       case :ets.whereis(:sse_limiter) do
         :undefined -> :ok
@@ -28,8 +28,8 @@ defmodule BitblocksWeb.SseLimiter.ClusterStateTest do
 
   describe "peer tally aggregation (T2 cluster-wide cap)" do
     test "sums global and per-IP counts across peer nodes" do
-      send(ClusterState, {:sse_tally, :"fake1@host", 3, %{"1.1.1.1" => 2, "2.2.2.2" => 1}})
-      send(ClusterState, {:sse_tally, :"fake2@host", 4, %{"1.1.1.1" => 1}})
+      send(ClusterState, {:sse_tally, :fake1@host, 3, %{"1.1.1.1" => 2, "2.2.2.2" => 1}})
+      send(ClusterState, {:sse_tally, :fake2@host, 4, %{"1.1.1.1" => 1}})
 
       {global, ips} = ClusterState.peer_counts()
 
@@ -48,10 +48,10 @@ defmodule BitblocksWeb.SseLimiter.ClusterStateTest do
     end
 
     test "nodedown drops that peer's contribution (crash self-heals)" do
-      send(ClusterState, {:sse_tally, :"fake1@host", 5, %{"1.1.1.1" => 5}})
+      send(ClusterState, {:sse_tally, :fake1@host, 5, %{"1.1.1.1" => 5}})
       assert {5, _} = ClusterState.peer_counts()
 
-      send(ClusterState, {:nodedown, :"fake1@host"})
+      send(ClusterState, {:nodedown, :fake1@host})
       assert {0, ips} = ClusterState.peer_counts()
       refute Map.has_key?(ips, "1.1.1.1")
     end
@@ -83,7 +83,7 @@ defmodule BitblocksWeb.SseLimiter.ClusterStateTest do
 
       ip = "5.5.5.5"
       # A peer already holds 2 of this IP's 3 allowed connections.
-      send(ClusterState, {:sse_tally, :"fake1@host", 2, %{ip => 2}})
+      send(ClusterState, {:sse_tally, :fake1@host, 2, %{ip => 2}})
       # Let the message be processed before we read peer_counts in acquire.
       _ = ClusterState.peer_counts()
 

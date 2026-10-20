@@ -15,11 +15,12 @@ defmodule Bitblocks.TransactionParserTest do
 
   describe "detect_protocols/1 with piped OP_RETURN data" do
     test "detects all protocols in a B://+MAP+AIP pipe" do
-      chunks = build_piped_chunks([
-        {"19HxigV4QyBv3tHpQVcUEQyq1pzZVdoAut", ["content", "text/plain", "utf-8"]},
-        {"1PuQa7K62MiKCtssSLKy1kh56WWU7MtUR5", ["SET", "app", "test", "type", "post"]},
-        {"15PciHG22SNLQJXMoSUaWVi7WSqc7hCfva", ["BITCOIN_ECDSA", "1Addr", "sig"]}
-      ])
+      chunks =
+        build_piped_chunks([
+          {"19HxigV4QyBv3tHpQVcUEQyq1pzZVdoAut", ["content", "text/plain", "utf-8"]},
+          {"1PuQa7K62MiKCtssSLKy1kh56WWU7MtUR5", ["SET", "app", "test", "type", "post"]},
+          {"15PciHG22SNLQJXMoSUaWVi7WSqc7hCfva", ["BITCOIN_ECDSA", "1Addr", "sig"]}
+        ])
 
       protocols = TransactionParser.detect_protocols([%{data: chunks}])
 
@@ -29,11 +30,12 @@ defmodule Bitblocks.TransactionParserTest do
     end
 
     test "detects Twetch from MAP app field" do
-      chunks = build_piped_chunks([
-        {"19HxigV4QyBv3tHpQVcUEQyq1pzZVdoAut", ["content", "text/plain"]},
-        {"1PuQa7K62MiKCtssSLKy1kh56WWU7MtUR5", ["SET", "app", "twetch", "type", "post"]},
-        {"15PciHG22SNLQJXMoSUaWVi7WSqc7hCfva", ["BITCOIN_ECDSA", "1Addr", "sig"]}
-      ])
+      chunks =
+        build_piped_chunks([
+          {"19HxigV4QyBv3tHpQVcUEQyq1pzZVdoAut", ["content", "text/plain"]},
+          {"1PuQa7K62MiKCtssSLKy1kh56WWU7MtUR5", ["SET", "app", "twetch", "type", "post"]},
+          {"15PciHG22SNLQJXMoSUaWVi7WSqc7hCfva", ["BITCOIN_ECDSA", "1Addr", "sig"]}
+        ])
 
       protocols = TransactionParser.detect_protocols([%{data: chunks}])
 
@@ -69,10 +71,11 @@ defmodule Bitblocks.TransactionParserTest do
     end
 
     test "does not duplicate protocol names" do
-      chunks = build_piped_chunks([
-        {"19HxigV4QyBv3tHpQVcUEQyq1pzZVdoAut", ["content"]},
-        {"1PuQa7K62MiKCtssSLKy1kh56WWU7MtUR5", ["SET", "app", "twetch"]}
-      ])
+      chunks =
+        build_piped_chunks([
+          {"19HxigV4QyBv3tHpQVcUEQyq1pzZVdoAut", ["content"]},
+          {"1PuQa7K62MiKCtssSLKy1kh56WWU7MtUR5", ["SET", "app", "twetch"]}
+        ])
 
       protocols = TransactionParser.detect_protocols([%{data: chunks}])
 
@@ -81,10 +84,11 @@ defmodule Bitblocks.TransactionParserTest do
     end
 
     test "non-twetch MAP app does not add spurious protocol" do
-      chunks = build_piped_chunks([
-        {"19HxigV4QyBv3tHpQVcUEQyq1pzZVdoAut", ["content"]},
-        {"1PuQa7K62MiKCtssSLKy1kh56WWU7MtUR5", ["SET", "app", "someother"]}
-      ])
+      chunks =
+        build_piped_chunks([
+          {"19HxigV4QyBv3tHpQVcUEQyq1pzZVdoAut", ["content"]},
+          {"1PuQa7K62MiKCtssSLKy1kh56WWU7MtUR5", ["SET", "app", "someother"]}
+        ])
 
       protocols = TransactionParser.detect_protocols([%{data: chunks}])
 
@@ -124,10 +128,11 @@ defmodule Bitblocks.TransactionParserTest do
 
     test "detects Metanet alongside piped protocols" do
       # Metanet node that also pipes MAP metadata
-      chunks = build_piped_chunks([
-        {"meta", [String.duplicate("ab", 33), String.duplicate("00", 32), "mypage"]},
-        {"1PuQa7K62MiKCtssSLKy1kh56WWU7MtUR5", ["SET", "app", "myblog", "type", "page"]}
-      ])
+      chunks =
+        build_piped_chunks([
+          {"meta", [String.duplicate("ab", 33), String.duplicate("00", 32), "mypage"]},
+          {"1PuQa7K62MiKCtssSLKy1kh56WWU7MtUR5", ["SET", "app", "myblog", "type", "page"]}
+        ])
 
       protocols = TransactionParser.detect_protocols([%{data: chunks}])
 
@@ -203,29 +208,37 @@ defmodule Bitblocks.TransactionParserTest do
   end
 
   describe "script_analysis_version/0" do
-    test "returns version 4 for OrderBook detection" do
-      assert TransactionParser.script_analysis_version() == 4
+    test "returns version 6 (adds aip_signers)" do
+      assert TransactionParser.script_analysis_version() == 6
     end
   end
 
   describe "determine_script_type/1" do
     test "P2PKH" do
-      {:ok, s} = BSV.Script.from_binary("76a914" <> String.duplicate("aa", 20) <> "88ac", encoding: :hex)
+      {:ok, s} =
+        BSV.Script.from_binary("76a914" <> String.duplicate("aa", 20) <> "88ac", encoding: :hex)
+
       assert TransactionParser.determine_script_type(s) == :p2pkh
     end
 
     test "P2SH" do
-      {:ok, s} = BSV.Script.from_binary("a914" <> String.duplicate("bb", 20) <> "87", encoding: :hex)
+      {:ok, s} =
+        BSV.Script.from_binary("a914" <> String.duplicate("bb", 20) <> "87", encoding: :hex)
+
       assert TransactionParser.determine_script_type(s) == :p2sh
     end
 
     test "P2PK compressed (33 bytes)" do
-      {:ok, s} = BSV.Script.from_binary("21" <> String.duplicate("02", 33) <> "ac", encoding: :hex)
+      {:ok, s} =
+        BSV.Script.from_binary("21" <> String.duplicate("02", 33) <> "ac", encoding: :hex)
+
       assert TransactionParser.determine_script_type(s) == :p2pk
     end
 
     test "P2PK uncompressed (65 bytes)" do
-      {:ok, s} = BSV.Script.from_binary("41" <> String.duplicate("04", 65) <> "ac", encoding: :hex)
+      {:ok, s} =
+        BSV.Script.from_binary("41" <> String.duplicate("04", 65) <> "ac", encoding: :hex)
+
       assert TransactionParser.determine_script_type(s) == :p2pk
     end
 
@@ -245,7 +258,10 @@ defmodule Bitblocks.TransactionParserTest do
     end
 
     test "multisig 2-of-3" do
-      s = %BSV.Script{chunks: [:OP_2, <<0::8*33>>, <<1::8*33>>, <<2::8*33>>, :OP_3, :OP_CHECKMULTISIG]}
+      s = %BSV.Script{
+        chunks: [:OP_2, <<0::8*33>>, <<1::8*33>>, <<2::8*33>>, :OP_3, :OP_CHECKMULTISIG]
+      }
+
       assert TransactionParser.determine_script_type(s) == :multisig
     end
 
@@ -288,11 +304,16 @@ defmodule Bitblocks.TransactionParserTest do
       assert fields.m == 1
       assert fields.n == 2
       assert length(fields.pubkeys) == 2
-      assert fields.pubkeys == [Base.encode16(pk1, case: :lower), Base.encode16(pk2, case: :lower)]
+
+      assert fields.pubkeys == [
+               Base.encode16(pk1, case: :lower),
+               Base.encode16(pk2, case: :lower)
+             ]
     end
 
     test "OP_RETURN returns data chunks" do
       {:ok, s} = BSV.Script.from_binary("6a04deadbeef", encoding: :hex)
+
       assert %{type: :op_return, data: [%{type: :push_data, hex: "deadbeef"}]} =
                TransactionParser.extract_script_fields(s)
     end
@@ -312,7 +333,9 @@ defmodule Bitblocks.TransactionParserTest do
     end
 
     test "P2PKH output is not OP_RETURN" do
-      {:ok, script} = BSV.Script.from_binary("76a914" <> String.duplicate("aa", 20) <> "88ac", encoding: :hex)
+      {:ok, script} =
+        BSV.Script.from_binary("76a914" <> String.duplicate("aa", 20) <> "88ac", encoding: :hex)
+
       out = %BSV.TxOut{script: script, satoshis: 1000}
       refute TransactionParser.is_op_return?(out)
     end
@@ -330,6 +353,11 @@ defmodule Bitblocks.TransactionParserTest do
   end
 
   defp make_chunk(text) do
-    %{type: :push_data, utf8: text, hex: Base.encode16(text, case: :lower), length: byte_size(text)}
+    %{
+      type: :push_data,
+      utf8: text,
+      hex: Base.encode16(text, case: :lower),
+      length: byte_size(text)
+    }
   end
 end

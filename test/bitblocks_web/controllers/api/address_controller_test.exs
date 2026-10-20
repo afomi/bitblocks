@@ -22,10 +22,14 @@ defmodule BitblocksWeb.Api.AddressControllerTest do
 
   # Records a spend of (txid, vout) by a new transaction.
   defp spend(txid, vout) do
-    spending_tx = transaction_fixture(%{
-      inputs: [Jason.encode!(%{"txid" => txid, "vout" => vout, "scriptSig" => %{"hex" => "00"}})],
-      input_count: 1
-    })
+    spending_tx =
+      transaction_fixture(%{
+        inputs: [
+          Jason.encode!(%{"txid" => txid, "vout" => vout, "scriptSig" => %{"hex" => "00"}})
+        ],
+        input_count: 1
+      })
+
     Chain.record_spends(spending_tx)
     spending_tx
   end
@@ -59,11 +63,12 @@ defmodule BitblocksWeb.Api.AddressControllerTest do
     end
 
     test "returns unspent output for address", %{conn: conn} do
-      _tx = transaction_fixture(%{
-        output_addresses: [@address],
-        outputs: [vout_json(@address, 0.005)],
-        output_count: 1
-      })
+      _tx =
+        transaction_fixture(%{
+          output_addresses: [@address],
+          outputs: [vout_json(@address, 0.005)],
+          output_count: 1
+        })
 
       conn = get(conn, ~p"/api/v1/addresses/#{@address}/utxos")
       body = json_response(conn, 200)
@@ -74,11 +79,13 @@ defmodule BitblocksWeb.Api.AddressControllerTest do
     end
 
     test "excludes spent outputs", %{conn: conn} do
-      tx = transaction_fixture(%{
-        output_addresses: [@address],
-        outputs: [vout_json(@address, 0.001, 0), vout_json(@address, 0.002, 1)],
-        output_count: 2
-      })
+      tx =
+        transaction_fixture(%{
+          output_addresses: [@address],
+          outputs: [vout_json(@address, 0.001, 0), vout_json(@address, 0.002, 1)],
+          output_count: 2
+        })
+
       spend(tx.txid, 0)
 
       conn = get(conn, ~p"/api/v1/addresses/#{@address}/utxos")
@@ -95,6 +102,7 @@ defmodule BitblocksWeb.Api.AddressControllerTest do
         outputs: [vout_json(@address, 0.001)],
         output_count: 1
       })
+
       transaction_fixture(%{
         output_addresses: [@address],
         outputs: [vout_json(@address, 0.002)],
@@ -128,11 +136,13 @@ defmodule BitblocksWeb.Api.AddressControllerTest do
     end
 
     test "excludes spent outputs from balance", %{conn: conn} do
-      tx = transaction_fixture(%{
-        output_addresses: [@address],
-        outputs: [vout_json(@address, 0.001, 0), vout_json(@address, 0.002, 1)],
-        output_count: 2
-      })
+      tx =
+        transaction_fixture(%{
+          output_addresses: [@address],
+          outputs: [vout_json(@address, 0.001, 0), vout_json(@address, 0.002, 1)],
+          output_count: 2
+        })
+
       spend(tx.txid, 0)
 
       conn = get(conn, ~p"/api/v1/addresses/#{@address}/balance")

@@ -60,7 +60,9 @@ defmodule Bitblocks.SchemaTemplate do
 
     base =
       case {Keyword.get(opts, :price), Keyword.get(opts, :currency, "BSV")} do
-        {nil, _} -> base
+        {nil, _} ->
+          base
+
         {price, currency} ->
           Map.put(base, "offers", %{
             "@type" => "Offer",

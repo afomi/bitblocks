@@ -35,6 +35,11 @@ defmodule Bitblocks.ProtocolRegistry.Protocol do
     field :source_url, :string
     field :example_txid, :string
 
+    # Txid of a Bitcom `$ useradd <address>` spent from <address> — on-chain
+    # proof of prefix ownership (see ProtocolRegistry.prove_ownership/2).
+    # Independent of verification_status, which is curation.
+    field :ownership_proof_txid, :string
+
     # Compatibility
     field :requires, {:array, :string}, default: []
     field :conflicts_with, {:array, :string}, default: []
@@ -64,6 +69,7 @@ defmodule Bitblocks.ProtocolRegistry.Protocol do
       :documentation_url,
       :source_url,
       :example_txid,
+      :ownership_proof_txid,
       :requires,
       :conflicts_with
     ])

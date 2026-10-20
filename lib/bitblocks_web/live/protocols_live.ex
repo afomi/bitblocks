@@ -141,9 +141,20 @@ defmodule BitblocksWeb.ProtocolsLive do
   def render(assigns) do
     ~H"""
     <div class="container mx-auto px-4 py-8 max-w-7xl">
-      <h1 class="text-4xl font-bold mb-6">
+      <h1 class="text-4xl font-bold mb-2">
         Bitcoin SV Protocols
       </h1>
+      <p class="mb-6 text-gray-700">
+        Looking for who owns a protocol prefix?
+        See the
+        <.link
+          navigate={~p"/bitcom"}
+          class="text-blue-700 underline"
+        >
+          Bitcom Registry
+        </.link>
+        for on-chain ownership proofs, files, and routes.
+      </p>
 
       <div class="bg-blue-50 border-l-4 border-blue-500 p-4 mb-8">
         <div class="flex items-start">

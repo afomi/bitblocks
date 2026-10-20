@@ -76,6 +76,7 @@ defmodule BitblocksWeb.Api.TransactionController do
   defp maybe_put(map, key, val), do: Map.put(map, key, val)
 
   defp parse_int(nil, default), do: default
+
   defp parse_int(val, default) when is_binary(val) do
     case Integer.parse(val) do
       {n, ""} when is_nil(default) -> n
@@ -83,5 +84,6 @@ defmodule BitblocksWeb.Api.TransactionController do
       _ -> default
     end
   end
+
   defp parse_int(val, _default) when is_integer(val), do: val
 end

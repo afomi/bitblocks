@@ -38,7 +38,8 @@ defmodule Bitblocks.ContentDetector do
   @doc """
   Detects content in a single transaction's outputs.
   """
-  def detect_content(%{txid: txid, block_height: height, outputs: outputs}) when is_list(outputs) do
+  def detect_content(%{txid: txid, block_height: height, outputs: outputs})
+      when is_list(outputs) do
     outputs
     |> Enum.with_index()
     |> Enum.flat_map(fn {output_str, idx} ->
@@ -83,6 +84,7 @@ defmodule Bitblocks.ContentDetector do
       String.contains?(text, "ord") ->
         # Simple ordinal detection — look for content type in subsequent chunks
         content_type = extract_ordinal_content_type(data_chunks)
+
         %{
           protocol: "1Sat Ordinals",
           content_type: content_type || "application/octet-stream",

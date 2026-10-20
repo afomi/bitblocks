@@ -1,0 +1,59 @@
+#!/bin/bash
+#
+# Fleet-standard Elixir pre-commit hook (installed by infra/scripts/install-elixir-precommit.sh).
+#
+# Checks ONLY — never rewrites the tree mid-commit. `mix format` inside a hook would leave the
+# staged snapshot and the working tree disagreeing (you'd commit the unformatted version of a file
+# it just fixed). Formatting is the `mix precommit` alias's job; this hook is the gate.
+#
+# Bypass for a one-off WIP commit with: git commit --no-verify
+set -uo pipefail
+
+# Only check files actually staged for this commit, so unrelated pre-existing drift elsewhere in
+# the tree doesn't block you. Added/Copied/Modified/Renamed only — deleted files have nothing left
+# to format. -z + read -d '' keeps paths with spaces intact.
+staged_files=()
+while IFS= read -r -d '' f; do
+  staged_files+=("$f")
+done < <(git diff --cached --name-only --diff-filter=ACMR -z -- '*.ex' '*.exs' '*.heex')
+
+if [ ${#staged_files[@]} -eq 0 ]; then
+  exit 0
+fi
+
+if ! command -v mix >/dev/null 2>&1; then
+  echo "pre-commit: 'mix' not found in PATH — skipping format check." >&2
+  exit 0
+fi
+
+# mix format --check-formatted exits 1 and lists offenders without modifying anything.
+if ! output=$(mix format --check-formatted "${staged_files[@]}" 2>&1); then
+  echo "$output" >&2
+  cat >&2 <<'MSG'
+
+pre-commit: staged Elixir files are not formatted.
+
+  Fix:  mix format          (or: mix precommit)
+  Then: git add -u && git commit
+
+House convention — write multi-line calls with a newline directly after the opening
+paren/bracket so the formatter PRESERVES one-entry-per-line (cleaner diffs):
+
+  live_isolated(
+    conn,
+    MyAppWeb.SomeLive,
+    session: %{"id" => id}
+  )
+
+Not the half-broken style below — the formatter always collapses or rewrites it:
+
+  live_isolated(conn, MyAppWeb.SomeLive,
+    session: %{"id" => id}
+  )
+
+Bypass once with: git commit --no-verify
+MSG
+  exit 1
+fi
+
+exit 0

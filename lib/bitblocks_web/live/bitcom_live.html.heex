@@ -1,0 +1,330 @@
+<div class="container mx-auto px-4 py-8 max-w-6xl">
+  <%= case @view do %>
+    <% :directory -> %>
+      <h1 class="text-4xl font-bold mb-2">
+        Bitcom Registry
+      </h1>
+      <p class="text-gray-700 mb-2">
+        Bitcom treats Bitcoin as a computer: every address is a user, and a protocol is the address its data is prefixed with.
+        Owners speak for their namespace with <code>$</code> commands, signed by paying from that address.
+      </p>
+      <p class="text-gray-700 mb-6">
+        This is a live registry built from the chain.
+        <strong>Proven</strong>
+        namespaces posted a
+        <code>$ useradd</code>
+        from their own address;
+        <strong>self-described</strong>
+        ones wrote their own files;
+        <strong>listed</strong>
+        ones are known to bitblocks but have not spoken on-chain yet.
+      </p>
+      <p class="mb-6">
+        <.link
+          navigate={~p"/bitcom/compose"}
+          class="text-blue-700 underline"
+        >
+          Compose a command
+        </.link>
+        to claim your own namespace, write files, or serve routes.
+      </p>
+
+      <div class="overflow-x-auto bg-white border border-gray-200 rounded-lg">
+        <table class="min-w-full text-sm">
+          <thead class="bg-gray-50 text-left text-gray-700">
+            <tr>
+              <th class="px-4 py-2">
+                Namespace
+              </th>
+              <th class="px-4 py-2">
+                Status
+              </th>
+              <th class="px-4 py-2 text-right">
+                Files
+              </th>
+              <th class="px-4 py-2 text-right">
+                Routes
+              </th>
+              <th class="px-4 py-2 text-right">
+                Indexed txs
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr
+              :for={entry <- @entries}
+              id={"bitcom-#{entry.address}"}
+              class="border-t border-gray-100"
+            >
+              <td class="px-4 py-2">
+                <.link
+                  navigate={~p"/bitcom/#{entry.address}"}
+                  class="font-semibold text-blue-700 hover:underline"
+                >
+                  {entry.name}
+                </.link>
+                <div class="font-mono text-xs text-gray-700 break-all">
+                  {entry.address}
+                </div>
+              </td>
+              <td class="px-4 py-2">
+                <span class={"inline-block rounded px-2 py-0.5 text-xs font-medium #{tier_class(entry.tier)}"}>
+                  {tier_label(entry.tier)}
+                </span>
+              </td>
+              <td class="px-4 py-2 text-right">
+                {entry.files}
+              </td>
+              <td class="px-4 py-2 text-right">
+                {entry.routes}
+              </td>
+              <td class="px-4 py-2 text-right">
+                {usage_label(entry.usage)}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        <p
+          :if={@entries == []}
+          class="p-4 text-gray-700"
+        >
+          No namespaces indexed yet.
+        </p>
+      </div>
+
+      <p class="text-sm text-gray-700 mt-6">
+        Bitcom is the convention unwriter published in 2019 (<a
+          href="https://github.com/unwriter/Bitcom"
+          class="underline"
+        >spec</a>).
+        This registry is an independent implementation by Bitblocks, verifiable against the chain.
+        JSON:
+        <a
+          href={~p"/api/v1/bitcom"}
+          class="underline"
+        >/api/v1/bitcom</a>.
+      </p>
+
+    <% :home -> %>
+      <.link
+        navigate={~p"/bitcom"}
+        class="text-sm text-blue-700 hover:underline"
+      >
+        ← Bitcom Registry
+      </.link>
+      <div class="flex flex-wrap items-center gap-3 mt-2 mb-1">
+        <h1 class="text-3xl font-bold">
+          {@entry.name}
+        </h1>
+        <span class={"inline-block rounded px-2 py-0.5 text-xs font-medium #{tier_class(@entry.tier)}"}>
+          {tier_label(@entry.tier)}
+        </span>
+      </div>
+      <p class="font-mono text-sm text-gray-700 break-all mb-6">
+        {@entry.address}
+      </p>
+
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+        <div class="bg-white border border-gray-200 rounded-lg p-4">
+          <div class="text-sm text-gray-700">
+            Owner proof
+          </div>
+          <%= if @entry.proof_txid do %>
+            <.link
+              navigate={~p"/transactions/#{@entry.proof_txid}"}
+              class="font-mono text-blue-700 hover:underline"
+            >
+              $ useradd · {short(@entry.proof_txid)}
+            </.link>
+          <% else %>
+            <div class="text-gray-800">
+              None on-chain yet.
+            </div>
+          <% end %>
+        </div>
+        <div class="bg-white border border-gray-200 rounded-lg p-4">
+          <div class="text-sm text-gray-700">
+            Protocol tag
+          </div>
+          <div class="text-gray-800">
+            {@entry.tag || "—"}
+          </div>
+        </div>
+        <div class="bg-white border border-gray-200 rounded-lg p-4">
+          <div class="text-sm text-gray-700">
+            Indexed txs
+          </div>
+          <div class="text-2xl font-bold">
+            {usage_label(@entry.usage)}
+          </div>
+        </div>
+      </div>
+
+      <section class="mb-8">
+        <h2 class="text-xl font-semibold mb-2">
+          Files
+        </h2>
+        <p
+          :if={@files == []}
+          class="text-gray-700"
+        >
+          The owner hasn't written any files.
+          Files are written with
+          <code>$ echo &lt;content&gt; to &lt;file&gt;</code>
+          or
+          <code>$ cat bit://&lt;address&gt;/&lt;txid&gt; to &lt;file&gt;</code>
+          from this address.
+        </p>
+        <div
+          :for={file <- @files}
+          id={"file-#{file.file}"}
+          class="bg-white border border-gray-200 rounded-lg p-4 mb-3"
+        >
+          <div class="flex flex-wrap items-baseline justify-between gap-2 mb-2">
+            <span class="font-mono font-semibold">
+              ~/{file.file}
+            </span>
+            <.link
+              navigate={~p"/transactions/#{file.command.txid}"}
+              class="font-mono text-xs text-blue-700 hover:underline"
+            >
+              {file.command.command} · {short(file.command.txid)}
+            </.link>
+          </div>
+          <%= if file.command.command == "echo" do %>
+            <pre class="whitespace-pre-wrap break-words text-sm bg-gray-50 rounded p-3 max-h-96 overflow-auto">{file.command.content}</pre>
+          <% else %>
+            <div class="font-mono text-sm break-all">
+              <%= if txid = locator_txid(file.command.locator) do %>
+                <.link
+                  navigate={~p"/transactions/#{txid}"}
+                  class="text-blue-700 hover:underline"
+                >
+                  {file.command.locator}
+                </.link>
+              <% else %>
+                {file.command.locator}
+              <% end %>
+            </div>
+          <% end %>
+          <p
+            :if={length(file.history) > 1}
+            class="text-xs text-gray-700 mt-2"
+          >
+            {length(file.history) - 1} earlier version(s).
+          </p>
+        </div>
+      </section>
+
+      <section class="mb-8">
+        <h2 class="text-xl font-semibold mb-2">
+          Routes
+        </h2>
+        <p
+          :if={@routes == []}
+          class="text-gray-700"
+        >
+          No routes enabled.
+          The owner opens one with
+          <code>$ route enable &lt;matcher&gt;</code>;
+          service providers then plug in endpoints with
+          <code>$ route add</code>.
+        </p>
+        <div
+          :for={route <- @routes}
+          class="bg-white border border-gray-200 rounded-lg p-4 mb-3"
+        >
+          <div class="font-mono font-semibold mb-2">
+            bit://{@entry.address}{route.matcher}
+          </div>
+          <p
+            :if={route.endpoints == []}
+            class="text-sm text-gray-700"
+          >
+            No providers yet.
+          </p>
+          <ul class="text-sm space-y-1">
+            <li :for={ep <- route.endpoints}>
+              <span class="font-mono break-all">
+                {ep.endpoint}
+              </span>
+              <span class="text-gray-700">
+                by
+              </span>
+              <.link
+                navigate={~p"/bitcom/#{ep.provider}"}
+                class="font-mono text-blue-700 hover:underline"
+              >
+                {ep.provider}
+              </.link>
+            </li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="mb-8">
+        <h2 class="text-xl font-semibold mb-2">
+          Recent transactions
+        </h2>
+        <p
+          :if={@recent == []}
+          class="text-gray-700"
+        >
+          None indexed.
+        </p>
+        <ul class="font-mono text-sm space-y-1">
+          <li :for={tx <- @recent}>
+            <.link
+              navigate={~p"/transactions/#{tx.txid}"}
+              class="text-blue-700 hover:underline"
+            >
+              {tx.txid}
+            </.link>
+            <span class="text-gray-700">
+              {if tx.block_height, do: "block #{tx.block_height}", else: "unconfirmed"}
+            </span>
+          </li>
+        </ul>
+      </section>
+
+      <section :if={@history != []}>
+        <h2 class="text-xl font-semibold mb-2">
+          Command log
+        </h2>
+        <ul class="font-mono text-sm space-y-1">
+          <li :for={cmd <- @history}>
+            <span class={if cmd.valid, do: "text-gray-900", else: "text-red-800 line-through"}>
+              $ {cmd.command} {Enum.join(cmd.args, " ") |> String.slice(0, 120)}
+            </span>
+            <.link
+              navigate={~p"/transactions/#{cmd.txid}"}
+              class="text-blue-700 hover:underline"
+            >
+              {short(cmd.txid)}
+            </.link>
+            <span
+              :if={cmd.reason}
+              class="text-red-800"
+            >
+              — {cmd.reason}
+            </span>
+          </li>
+        </ul>
+      </section>
+
+    <% :not_found -> %>
+      <h1 class="text-3xl font-bold mb-2">
+        Not a Bitcom address
+      </h1>
+      <p class="text-gray-700 mb-4">
+        <span class="font-mono break-all">{@address}</span>
+        is not a valid Bitcoin address.
+      </p>
+      <.link
+        navigate={~p"/bitcom"}
+        class="text-blue-700 hover:underline"
+      >
+        ← Bitcom Registry
+      </.link>
+  <% end %>
+</div>

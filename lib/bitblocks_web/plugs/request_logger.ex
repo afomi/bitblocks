@@ -13,6 +13,12 @@ defmodule BitblocksWeb.Plugs.RequestLogger do
   @invalid_request_threshold Application.compile_env(:bitblocks, :invalid_request_threshold, 10)
   @tracking_window_seconds Application.compile_env(:bitblocks, :tracking_window_seconds, 300)
 
+  # Query-string params whose key contains one of these words (case-insensitive,
+  # Phoenix filter_parameters-style substring match) get their VALUE replaced
+  # with "[REDACTED]" before the query string is logged — 4xx/suspicious
+  # requests log their query strings, and credentials must not land in logs.
+  @sensitive_key_words ~w(token key secret password auth api_key apikey signature)
+
   def init(opts), do: opts
 
   def start_link do
@@ -37,7 +43,7 @@ defmodule BitblocksWeb.Plugs.RequestLogger do
         user_agent: get_header(conn, "user-agent"),
         referer: get_header(conn, "referer"),
         duration_ms: duration_ms,
-        query_string: conn.query_string,
+        query_string: redact_query_string(conn.query_string),
         host: get_header(conn, "host"),
         forwarded_for: get_header(conn, "x-forwarded-for"),
         timestamp: DateTime.utc_now() |> DateTime.to_iso8601()
@@ -81,6 +87,45 @@ defmodule BitblocksWeb.Plugs.RequestLogger do
     end)
   end
 
+  @doc """
+  Redacts values of sensitive query-string params before logging.
+
+  A param's value becomes `[REDACTED]` when its (URL-decoded, downcased) key
+  contains any of #{inspect(@sensitive_key_words)}. Everything else — key
+  order, separators, valueless params — is preserved verbatim. Public so it
+  can be unit-tested directly.
+  """
+  @spec redact_query_string(String.t()) :: String.t()
+  def redact_query_string(""), do: ""
+
+  def redact_query_string(query_string) when is_binary(query_string) do
+    query_string
+    |> String.split("&")
+    |> Enum.map_join("&", fn pair ->
+      case String.split(pair, "=", parts: 2) do
+        [key, _value] ->
+          if sensitive_key?(key), do: key <> "=[REDACTED]", else: pair
+
+        [_key_only] ->
+          pair
+      end
+    end)
+  end
+
+  defp sensitive_key?(key) do
+    decoded =
+      try do
+        URI.decode_www_form(key)
+      rescue
+        # Malformed percent-encoding — match on the raw key instead.
+        ArgumentError -> key
+      end
+
+    normalized = String.downcase(decoded)
+
+    Enum.any?(@sensitive_key_words, &String.contains?(normalized, &1))
+  end
+
   defp check_suspicious_patterns(conn, metadata) do
     suspicious_patterns = [
       # Common attack paths
@@ -90,7 +135,8 @@ defmodule BitblocksWeb.Plugs.RequestLogger do
       {~r/\.php$/i, "PHP file probe"},
       {~r/\.git/i, "Git directory probe"},
       {~r/admin|administrator/i, "Admin panel probe"},
-      {~r/\.xml$/i, "XML file probe"},
+      # /sitemap.xml is ours; crawlers fetching it must not count toward a ban.
+      {~r/(?<!^\/sitemap)\.xml$/i, "XML file probe"},
       {~r/config\.|\.config/i, "Config file probe"},
       {~r/\.sql$/i, "SQL file probe"},
       {~r/backup|\.bak|\.old/i, "Backup file probe"},

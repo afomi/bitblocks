@@ -81,8 +81,28 @@ bitblocks_network =
 
 config :bitblocks, :bitcoin_network, bitblocks_network
 
-if config_env() == :prod do
+# --- Mining proxy (runtime-controlled) --------------------------------------
+# Mining is OFF unless MINING_ENABLED=true. At launch, 100% of every block's
+# reward goes to MINING_COINBASE_ADDRESS (single-output coinbase; hashers call
+# /work without ?address). Driven by env so the payout address is never
+# hardcoded and mining can be toggled without a code change.
+#   MINING_ENABLED=true
+#   MINING_COINBASE_ADDRESS=<your BSV payout address>
+#   MINING_COINBASE_MESSAGE="mined via bitblocks"   # optional
+# Note: poll_interval_ms and platform_share_pct are COMPILE-time (config.exs).
+mining_enabled = System.get_env("MINING_ENABLED") in ~w(true 1)
+mining_coinbase_address = System.get_env("MINING_COINBASE_ADDRESS")
 
+if mining_enabled and is_nil(mining_coinbase_address) do
+  raise "MINING_ENABLED=true but MINING_COINBASE_ADDRESS is unset — refusing to mine to an unspendable coinbase."
+end
+
+config :bitblocks, Bitblocks.MiningProxy,
+  enabled: mining_enabled,
+  coinbase_address: mining_coinbase_address,
+  coinbase_message: System.get_env("MINING_COINBASE_MESSAGE", "mined via bitblocks")
+
+if config_env() == :prod do
   database_url =
     System.get_env("DATABASE_URL") ||
       raise """
@@ -102,14 +122,15 @@ if config_env() == :prod do
     url: database_url,
     pool_size: String.to_integer(System.get_env("POOL_SIZE") || "10"),
     socket_options: maybe_ipv6,
-    ssl: if(System.get_env("DATABASE_SSL", "true") != "false",
-      do: [
-        verify: :verify_peer,
-        cacertfile: Application.app_dir(:bitblocks, "priv/ssl/aws-rds-ca.pem"),
-        server_name_indication: db_hostname
-      ],
-      else: false
-    ),
+    ssl:
+      if(System.get_env("DATABASE_SSL", "true") != "false",
+        do: [
+          verify: :verify_peer,
+          cacertfile: Application.app_dir(:bitblocks, "priv/ssl/aws-rds-ca.pem"),
+          server_name_indication: db_hostname
+        ],
+        else: false
+      ),
     # Increase timeout for large tables (default is 15s)
     timeout: 60_000,
     queue_target: 5_000,

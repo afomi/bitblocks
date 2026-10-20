@@ -5,7 +5,12 @@ defmodule BitblocksWeb.Api.TransactionControllerTest do
 
   describe "GET /api/v1/txs/:txid" do
     test "returns 404 for unknown txid", %{conn: conn} do
-      conn = get(conn, ~p"/api/v1/txs/0000000000000000000000000000000000000000000000000000000000000000")
+      conn =
+        get(
+          conn,
+          ~p"/api/v1/txs/0000000000000000000000000000000000000000000000000000000000000000"
+        )
+
       assert json_response(conn, 404)
     end
 

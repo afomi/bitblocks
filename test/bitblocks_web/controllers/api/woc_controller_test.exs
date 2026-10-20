@@ -16,7 +16,13 @@ defmodule BitblocksWeb.Api.WocControllerTest do
 
   describe "GET /api/v1/woc/chain/info" do
     test "returns WoC-shaped chain info from the latest block (bare, no envelope)", %{conn: conn} do
-      block_fixture(%{height: 700_000, hash: "deadbeef", difficulty: "1.5", chainwork: "ff", mediantime: 123})
+      block_fixture(%{
+        height: 700_000,
+        hash: "deadbeef",
+        difficulty: "1.5",
+        chainwork: "ff",
+        mediantime: 123
+      })
 
       body = json_response(get(conn, ~p"/api/v1/woc/chain/info"), 200)
 

@@ -46,7 +46,7 @@ defmodule BitblocksWeb.Api.ProtocolFeedTest do
       {:ok, _block} =
         Chain.create_block(%{
           hash: "000000000000000001abcdef",
-          height: 620001,
+          height: 620_001,
           version: "536870912",
           prevblockhash: "000000000000000001abcdee",
           merkleroot: "abc123",

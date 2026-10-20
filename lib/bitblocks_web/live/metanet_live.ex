@@ -55,7 +55,8 @@ defmodule BitblocksWeb.MetanetLive do
         {:noreply,
          assign(socket,
            loading: false,
-           error: "Transaction #{String.slice(txid, 0, 16)}... is not a Metanet node or was not found"
+           error:
+             "Transaction #{String.slice(txid, 0, 16)}... is not a Metanet node or was not found"
          )}
 
       node ->

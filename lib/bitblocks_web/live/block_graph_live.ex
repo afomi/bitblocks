@@ -93,7 +93,10 @@ defmodule BitblocksWeb.BlockGraphLive do
     {:noreply,
      socket
      |> assign(playback_state: "playing")
-     |> push_event("block_graph_playback", %{action: "play", cursor: socket.assigns.playback_cursor})}
+     |> push_event("block_graph_playback", %{
+       action: "play",
+       cursor: socket.assigns.playback_cursor
+     })}
   end
 
   @impl true
@@ -109,7 +112,10 @@ defmodule BitblocksWeb.BlockGraphLive do
     {:noreply,
      socket
      |> assign(playback_state: "stopped", playback_cursor: socket.assigns.start_height)
-     |> push_event("block_graph_playback", %{action: "rewind", cursor: socket.assigns.start_height})}
+     |> push_event("block_graph_playback", %{
+       action: "rewind",
+       cursor: socket.assigns.start_height
+     })}
   end
 
   @impl true

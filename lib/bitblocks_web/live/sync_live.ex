@@ -19,7 +19,9 @@ defmodule BitblocksWeb.SyncLive do
         syncing_blocks: [],
         oban_summary: %{jobs: [], headers: 0, tx_fetch: 0, tip: false},
         services: [],
-        refresh_pending: false
+        refresh_pending: false,
+        audit: nil,
+        audit_running: false
       )
 
     if connected?(socket) do
@@ -60,7 +62,6 @@ defmodule BitblocksWeb.SyncLive do
   def handle_event("scope_type_changed", %{"scope_type" => scope_type}, socket) do
     {:noreply, assign(socket, scope_type: scope_type, form_errors: [])}
   end
-
 
   @impl true
   def handle_event("start_sync", params, socket) do
@@ -168,6 +169,58 @@ defmodule BitblocksWeb.SyncLive do
       {:error, _reason} ->
         {:noreply, put_flash(socket, :info, "Backfill already running.")}
     end
+  end
+
+  # Completeness audit: stored tx rows vs num_tx per block, any sync_state.
+  # A full GROUP-BY over the transactions table — run in a Task so the
+  # LiveView stays responsive, and only on demand (never per-render).
+  @impl true
+  def handle_event("run_audit", _params, socket) do
+    {:noreply,
+     socket
+     |> assign(audit_running: true)
+     |> start_async(:audit, fn -> Bitblocks.Release.audit_completeness(limit: 50) end)}
+  end
+
+  @impl true
+  def handle_event("repair_incomplete", _params, socket) do
+    {:noreply,
+     socket
+     |> assign(audit_running: true)
+     |> start_async(:repair, fn -> Bitblocks.Release.repair_incomplete_blocks() end)}
+  end
+
+  @impl true
+  def handle_async(:audit, {:ok, result}, socket) do
+    {:noreply, assign(socket, audit: result, audit_running: false)}
+  end
+
+  @impl true
+  def handle_async(:audit, {:exit, reason}, socket) do
+    {:noreply,
+     socket
+     |> assign(audit_running: false)
+     |> put_flash(:error, "Audit failed: #{inspect(reason)}")}
+  end
+
+  @impl true
+  def handle_async(:repair, {:ok, {:ok, %{reset: reset, skipped_active: skipped}}}, socket) do
+    {:noreply,
+     socket
+     |> put_flash(
+       :info,
+       "Repair: reset #{reset} block(s) for sequential backfill, skipped #{skipped} with live jobs"
+     )
+     |> start_async(:audit, fn -> Bitblocks.Release.audit_completeness(limit: 50) end)
+     |> refresh_status()}
+  end
+
+  @impl true
+  def handle_async(:repair, {:exit, reason}, socket) do
+    {:noreply,
+     socket
+     |> assign(audit_running: false)
+     |> put_flash(:error, "Repair failed: #{inspect(reason)}")}
   end
 
   @impl true
@@ -301,6 +354,91 @@ defmodule BitblocksWeb.SyncLive do
             </div>
           </div>
         </div>
+      </div>
+
+      <%!-- Completeness Audit --%>
+      <div class="bg-white dark:bg-gray-800 shadow-md rounded-lg p-6 mb-6">
+        <div class="flex items-center justify-between mb-2">
+          <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+            Completeness Audit
+          </h2>
+          <div class="flex items-center gap-2">
+            <button
+              phx-click="run_audit"
+              disabled={@audit_running}
+              class="px-3 py-1 text-xs bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300 rounded hover:bg-blue-200 disabled:opacity-50"
+            >
+              <%= if @audit_running, do: "Running…", else: "Run Audit" %>
+            </button>
+            <button
+              :if={@audit && @audit.count > 0}
+              phx-click="repair_incomplete"
+              disabled={@audit_running}
+              data-confirm="Reset flagged blocks and start the sequential backfill?"
+              class="px-3 py-1 text-xs bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300 rounded hover:bg-amber-200 disabled:opacity-50"
+            >
+              Repair
+            </button>
+          </div>
+        </div>
+        <p class="text-sm text-gray-500 dark:text-gray-400 mb-3">
+          Compares stored transaction rows to each block's num_tx — catches blocks marked completed with missing transactions.
+          Repair resets flagged blocks and fills only the gaps (idempotent).
+        </p>
+        <%= cond do %>
+          <% @audit == nil -> %>
+            <p class="text-sm text-gray-400 dark:text-gray-500">
+              Not run yet.
+            </p>
+          <% @audit.count == 0 -> %>
+            <p class="text-sm text-green-600 font-semibold">
+              ✓ No deficits — every block's transactions are fully stored.
+            </p>
+          <% true -> %>
+            <div>
+              <p class="text-sm text-red-600 font-semibold mb-2">
+                <%= @audit.count %> block(s) with missing transactions
+                <span
+                  :if={@audit.count >= 50}
+                  class="text-gray-500 font-normal"
+                >
+                  (showing first 50 — there may be more)
+                </span>
+              </p>
+              <div class="max-h-64 overflow-y-auto">
+                <table class="w-full text-xs font-mono">
+                  <thead class="text-left text-gray-500 dark:text-gray-400">
+                    <tr>
+                      <th class="py-1 pr-4">Height</th>
+                      <th class="py-1 pr-4">State</th>
+                      <th class="py-1 pr-4">Stored</th>
+                      <th class="py-1 pr-4">Expected</th>
+                      <th class="py-1">Missing</th>
+                    </tr>
+                  </thead>
+                  <tbody class="text-gray-900 dark:text-gray-100">
+                    <tr
+                      :for={d <- @audit.deficits}
+                      class="border-t border-gray-100 dark:border-gray-700"
+                    >
+                      <td class="py-1 pr-4">
+                        <.link
+                          navigate={~p"/blocks/#{d.height}"}
+                          class="text-blue-600 hover:underline"
+                        >
+                          <%= d.height %>
+                        </.link>
+                      </td>
+                      <td class="py-1 pr-4"><%= d.sync_state %></td>
+                      <td class="py-1 pr-4"><%= format_number(d.stored) %></td>
+                      <td class="py-1 pr-4"><%= format_number(d.num_tx) %></td>
+                      <td class="py-1 text-red-600"><%= format_number(d.missing) %></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+        <% end %>
       </div>
 
       <%!-- Syncing Blocks --%>
@@ -651,13 +789,15 @@ defmodule BitblocksWeb.SyncLive do
       end)
 
     # Tip sync specifically (only count active, not completed)
-    tip = Enum.any?(jobs, fn j ->
-      j.worker == "Bitblocks.Workers.SyncHeadersWorker" and
-        j.args["mode"] == "tip" and
-        j.state in ["available", "executing", "scheduled"]
-    end)
+    tip =
+      Enum.any?(jobs, fn j ->
+        j.worker == "Bitblocks.Workers.SyncHeadersWorker" and
+          j.args["mode"] == "tip" and
+          j.state in ["available", "executing", "scheduled"]
+      end)
 
-    active = Enum.filter(jobs, &(&1.state in ["available", "executing", "scheduled", "retryable"]))
+    active =
+      Enum.filter(jobs, &(&1.state in ["available", "executing", "scheduled", "retryable"]))
 
     %{
       jobs: jobs,

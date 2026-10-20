@@ -128,11 +128,13 @@ defmodule BitblocksWeb.Api.BlockController do
   end
 
   defp parse_int(nil, default), do: default
+
   defp parse_int(val, default) when is_binary(val) do
     case Integer.parse(val) do
       {n, ""} -> max(n, 1)
       _ -> default
     end
   end
+
   defp parse_int(val, _default) when is_integer(val), do: val
 end

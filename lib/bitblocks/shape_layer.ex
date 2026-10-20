@@ -64,13 +64,14 @@ defmodule Bitblocks.ShapeLayer do
     %{
       "type" => "Feature",
       "geometry" => shape.geometry,
-      "properties" => Map.merge(shape.properties, %{
-        "description" => shape.description,
-        "bounds" => shape.bounds,
-        "center" => shape.center,
-        "created_at" => DateTime.to_iso8601(shape.created_at),
-        "block_height" => shape.block_height
-      })
+      "properties" =>
+        Map.merge(shape.properties, %{
+          "description" => shape.description,
+          "bounds" => shape.bounds,
+          "center" => shape.center,
+          "created_at" => DateTime.to_iso8601(shape.created_at),
+          "block_height" => shape.block_height
+        })
     }
   end
 
@@ -86,7 +87,8 @@ defmodule Bitblocks.ShapeLayer do
 
     new(geometry,
       description: Map.get(props, "description", ""),
-      properties: Map.drop(props, ["description", "bounds", "center", "created_at", "block_height"]),
+      properties:
+        Map.drop(props, ["description", "bounds", "center", "created_at", "block_height"]),
       created_at: created_at,
       block_height: Map.get(props, "block_height")
     )
@@ -97,12 +99,20 @@ defmodule Bitblocks.ShapeLayer do
   # Validation
 
   defp validate_geometry(%{"type" => type, "coordinates" => coords})
-       when type in ["Point", "LineString", "Polygon", "MultiPoint", "MultiLineString", "MultiPolygon"] and
+       when type in [
+              "Point",
+              "LineString",
+              "Polygon",
+              "MultiPoint",
+              "MultiLineString",
+              "MultiPolygon"
+            ] and
               is_list(coords) do
     :ok
   end
 
-  defp validate_geometry(_), do: {:error, "Invalid GeoJSON geometry: must have type and coordinates"}
+  defp validate_geometry(_),
+    do: {:error, "Invalid GeoJSON geometry: must have type and coordinates"}
 
   # Coordinate extraction (flattens nested coordinate arrays to [lon, lat] pairs)
 

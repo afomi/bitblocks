@@ -13,12 +13,14 @@ defmodule Bitblocks.SpendIndexTest do
     inputs =
       spends
       |> Enum.map(fn {prev_txid, prev_vout} ->
-        Jason.encode!(%{"txid" => prev_txid, "vout" => prev_vout, "scriptSig" => %{"hex" => "00"}})
+        Jason.encode!(%{
+          "txid" => prev_txid,
+          "vout" => prev_vout,
+          "scriptSig" => %{"hex" => "00"}
+        })
       end)
 
-    tx = transaction_fixture(
-      Map.merge(%{inputs: inputs, input_count: length(inputs)}, attrs)
-    )
+    tx = transaction_fixture(Map.merge(%{inputs: inputs, input_count: length(inputs)}, attrs))
 
     Chain.record_spends(tx)
     tx
@@ -92,16 +94,18 @@ defmodule Bitblocks.SpendIndexTest do
     end
 
     test "skips coinbase inputs (all-zero txid)" do
-      coinbase_input = Jason.encode!(%{
-        "txid" => "0000000000000000000000000000000000000000000000000000000000000000",
-        "vout" => 4_294_967_295
-      })
+      coinbase_input =
+        Jason.encode!(%{
+          "txid" => "0000000000000000000000000000000000000000000000000000000000000000",
+          "vout" => 4_294_967_295
+        })
 
-      coinbase_tx = transaction_fixture(%{
-        inputs: [coinbase_input],
-        input_count: 1,
-        coinbase: true
-      })
+      coinbase_tx =
+        transaction_fixture(%{
+          inputs: [coinbase_input],
+          input_count: 1,
+          coinbase: true
+        })
 
       {inserted, _skipped} = Chain.record_spends(coinbase_tx)
       assert inserted == 0

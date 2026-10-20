@@ -393,6 +393,37 @@ defmodule Bitblocks.ProtocolRegistry do
   # ============================================================================
 
   @doc """
+  Records `txid` as on-chain proof that `address`'s owner controls it as a
+  Bitcom protocol prefix. The caller has already checked the `$ useradd`
+  claim against the tx's first-input address.
+
+  Marks every registered version at `address` that has no proof yet (the
+  first proof wins). With no protocol registered there, registers one named
+  by its address. Returns `{:ok, count}` of protocols that gained a proof.
+  """
+  def prove_ownership(address, txid) when is_binary(address) and is_binary(txid) do
+    case Repo.all(from p in Protocol, where: p.address == ^address) do
+      [] ->
+        case create_protocol(%{address: address, name: address, ownership_proof_txid: txid}) do
+          {:ok, _} -> {:ok, 1}
+          {:error, _} = error -> error
+        end
+
+      _ ->
+        {count, _} =
+          from(p in Protocol, where: p.address == ^address and is_nil(p.ownership_proof_txid))
+          |> Repo.update_all(
+            set: [
+              ownership_proof_txid: txid,
+              updated_at: NaiveDateTime.truncate(NaiveDateTime.utc_now(), :second)
+            ]
+          )
+
+        {:ok, count}
+    end
+  end
+
+  @doc """
   Seeds the registry with well-known protocols.
 
   These are existing Bitcom protocols that are widely used.
@@ -424,7 +455,8 @@ defmodule Bitblocks.ProtocolRegistry do
         category: :identity,
         verification_status: :verified,
         description: "Author Identity Protocol: Sign content on-chain to prove authorship.",
-        author: "unwriter"
+        # Attila Aros (attilaaf), not _unwriter.
+        author: "attilaaf"
       },
       %{
         address: "1HA1P2exomAwCUycZHr8WeyFoy5vuQASE3",
@@ -432,7 +464,8 @@ defmodule Bitblocks.ProtocolRegistry do
         category: :identity,
         verification_status: :verified,
         description: "Hash Author Identity Protocol: Hash-based verification for data integrity.",
-        author: "unwriter"
+        # Author unverified; left unset rather than guessed.
+        author: nil
       },
       %{
         address: "meta",

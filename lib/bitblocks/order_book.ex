@@ -140,7 +140,10 @@ defmodule Bitblocks.OrderBook do
 
       instance ->
         current_state = instance.state || %{}
-        current_remaining = parse_quantity(current_state["quantity_remaining"] || instance.parsed_data["quantity"])
+
+        current_remaining =
+          parse_quantity(current_state["quantity_remaining"] || instance.parsed_data["quantity"])
+
         fill_qty = parse_quantity(fill_quantity)
         new_remaining = max(current_remaining - fill_qty, 0)
 
@@ -156,7 +159,11 @@ defmodule Bitblocks.OrderBook do
           |> Map.put("status", if(fully_filled?, do: "filled", else: "partially_filled"))
 
         attrs = %{state: new_state}
-        attrs = if fully_filled?, do: Map.merge(attrs, %{spent: true, spent_txid: fill_txid}), else: attrs
+
+        attrs =
+          if fully_filled?,
+            do: Map.merge(attrs, %{spent: true, spent_txid: fill_txid}),
+            else: attrs
 
         case instance
              |> Instance.changeset(attrs)
@@ -191,7 +198,12 @@ defmodule Bitblocks.OrderBook do
           block_height: attrs[:block_height] || attrs["block_height"],
           block_hash: attrs[:block_hash] || attrs["block_hash"],
           parsed_data: attrs[:parsed_data] || attrs["parsed_data"],
-          state: %{"status" => "active", "quantity_remaining" => get_in(attrs, [:parsed_data, "quantity"]) || get_in(attrs, ["parsed_data", "quantity"])}
+          state: %{
+            "status" => "active",
+            "quantity_remaining" =>
+              get_in(attrs, [:parsed_data, "quantity"]) ||
+                get_in(attrs, ["parsed_data", "quantity"])
+          }
         }
 
         case ProtocolRegistry.create_instance(instance_attrs) do
@@ -481,7 +493,9 @@ defmodule Bitblocks.OrderBook do
 
   defp get_listing_instance(txid) do
     case get_protocol_id() do
-      nil -> nil
+      nil ->
+        nil
+
       protocol_id ->
         from(i in Instance,
           where: i.protocol_id == ^protocol_id and i.txid == ^txid,
@@ -502,13 +516,17 @@ defmodule Bitblocks.OrderBook do
 
       {:min_price, min}, q when not is_nil(min) ->
         min_val = to_integer(min)
+
         from i in q,
-          where: fragment("(NULLIF(?->>'price_satoshis', ''))::bigint >= ?", i.parsed_data, ^min_val)
+          where:
+            fragment("(NULLIF(?->>'price_satoshis', ''))::bigint >= ?", i.parsed_data, ^min_val)
 
       {:max_price, max}, q when not is_nil(max) ->
         max_val = to_integer(max)
+
         from i in q,
-          where: fragment("(NULLIF(?->>'price_satoshis', ''))::bigint <= ?", i.parsed_data, ^max_val)
+          where:
+            fragment("(NULLIF(?->>'price_satoshis', ''))::bigint <= ?", i.parsed_data, ^max_val)
 
       _, q ->
         q
@@ -559,12 +577,14 @@ defmodule Bitblocks.OrderBook do
   end
 
   defp to_integer(val) when is_integer(val), do: val
+
   defp to_integer(val) when is_binary(val) do
     case Integer.parse(val) do
       {n, _} -> n
       :error -> 0
     end
   end
+
   defp to_integer(_), do: 0
 
   defp parse_quantity(val) when is_binary(val) do

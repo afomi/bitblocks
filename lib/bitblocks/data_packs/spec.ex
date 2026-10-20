@@ -116,7 +116,9 @@ defmodule Bitblocks.DataPacks.Spec do
   end
 
   defp validate_range(start_height, end_height) when start_height <= end_height, do: :ok
-  defp validate_range(_start_height, _end_height), do: {:error, "--start-height must be <= --end-height"}
+
+  defp validate_range(_start_height, _end_height),
+    do: {:error, "--start-height must be <= --end-height"}
 
   defp key_to_cli(key) do
     key

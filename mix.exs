@@ -13,6 +13,12 @@ defmodule Bitblocks.MixProject do
     ]
   end
 
+  def cli do
+    [
+      preferred_envs: [precommit: :test]
+    ]
+  end
+
   # Configuration for the OTP application.
   #
   # Type `mix help compile.app` for more information.
@@ -101,7 +107,8 @@ defmodule Bitblocks.MixProject do
         "tailwind bitblocks --minify",
         "esbuild bitblocks --minify",
         "phx.digest"
-      ]
+      ],
+      precommit: ["compile --warnings-as-errors", "deps.unlock --unused", "format", "test"]
     ]
   end
 end

@@ -88,7 +88,11 @@ defmodule Bitblocks.TxCdn do
 
   defp do_count(bucket_name, prefix, continuation_token, acc) do
     opts = [prefix: prefix, max_keys: 1000]
-    opts = if continuation_token, do: Keyword.put(opts, :continuation_token, continuation_token), else: opts
+
+    opts =
+      if continuation_token,
+        do: Keyword.put(opts, :continuation_token, continuation_token),
+        else: opts
 
     case ExAws.S3.list_objects_v2(bucket_name, opts) |> ExAws.request() do
       {:ok, %{body: %{key_count: count, is_truncated: "true", next_continuation_token: token}}} ->
@@ -129,7 +133,9 @@ defmodule Bitblocks.TxCdn do
   """
   def cdn_url(txid, format \\ :json) do
     case cdn_base_url() do
-      nil -> nil
+      nil ->
+        nil
+
       base ->
         case format do
           :raw -> "#{base}/raw/#{txid}"

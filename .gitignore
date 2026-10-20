@@ -32,10 +32,15 @@ bitblocks-*.tar
 npm-debug.log
 /assets/node_modules/
 
-# Environment variables and secrets
+# Environment variables and secrets — ignore every .env variant
+# (.env.development, .env.test, .env.local, …) except the checked-in
+# placeholder template.
 .env
-.env.local
-.env.*.local
+.env.*
+!.env.example
+
+# direnv (loads .env via dotenv_if_exists)
+.envrc
 
 # Project specific ignores
 .DS_Store

@@ -7,16 +7,11 @@ defmodule Bitblocks.ProtocolParser do
 
       OP_RETURN | B_ADDR | content | mime | ... | "|" | MAP_ADDR | SET | k1 | v1 | ... | "|" | AIP_ADDR | algo | addr | sig
 
-  This module splits the pipe, delegates to existing parsers (MapParser,
-  ContentDetector), and assembles the results into a single map keyed
-  by protocol name.
+  Deep parsing dispatches by protocol name to the handler registry
+  (`Bitblocks.Protocol.Handlers`); this module owns the tx-level plumbing —
+  decoding raw hex, walking OP_RETURN outputs, and the BSV-20 locking-script
+  special case.
   """
-
-  alias Bitblocks.MapParser
-
-  @b_address "19HxigV4QyBv3tHpQVcUEQyq1pzZVdoAut"
-  @map_address "1PuQa7K62MiKCtssSLKy1kh56WWU7MtUR5"
-  @aip_address "15PciHG22SNLQJXMoSUaWVi7WSqc7hCfva"
 
   @doc """
   Parses a stored transaction struct into structured protocol data.
@@ -35,6 +30,16 @@ defmodule Bitblocks.ProtocolParser do
   the piped protocol segments.
   """
   @spec parse_raw(binary(), String.t()) :: {:ok, map()} | {:error, atom()}
+  def parse_raw(raw_hex, "BSV20") when is_binary(raw_hex) do
+    # BSV-20/21 tokens are inscriptions in output *locking* scripts, not
+    # OP_RETURN data — parse per output and return the first token found, with
+    # its outpoint (vout) so the caller can stamp a token_id.
+    case Bitblocks.Chain.SafeTx.from_hex(raw_hex) do
+      {:ok, tx} -> parse_token_outputs(tx.outputs)
+      {:error, _} -> {:error, :invalid_raw}
+    end
+  end
+
   def parse_raw(raw_hex, protocol) when is_binary(raw_hex) do
     case Bitblocks.Chain.SafeTx.from_hex(raw_hex) do
       {:ok, tx} ->
@@ -60,7 +65,7 @@ defmodule Bitblocks.ProtocolParser do
       |> Enum.map(fn text ->
         %{
           type: :push_data,
-          utf8: (if String.printable?(text), do: text, else: nil),
+          utf8: if(String.printable?(text), do: text, else: nil),
           hex: Base.encode16(text, case: :lower),
           length: byte_size(text)
         }
@@ -72,7 +77,41 @@ defmodule Bitblocks.ProtocolParser do
     end
   end
 
+  @doc """
+  Extracts every BSV-20/21 token inscription from a raw transaction's outputs.
+
+  Returns `{:ok, [%{vout: n, token: token_map}, ...]}` (empty list if none), or
+  `{:error, :invalid_raw}`. Used by the ingest hook (`Bitblocks.Chain`) to index
+  each token output; `token_map` is a `Bitblocks.Bsv20Parser` result.
+  """
+  @spec token_outputs(binary()) :: {:ok, list(map())} | {:error, atom()}
+  def token_outputs(raw_hex) when is_binary(raw_hex) do
+    case Bitblocks.Chain.SafeTx.from_hex(raw_hex) do
+      {:ok, tx} -> {:ok, collect_token_outputs(tx.outputs)}
+      {:error, _} -> {:error, :invalid_raw}
+    end
+  end
+
   # -- Private ----------------------------------------------------------------
+
+  defp collect_token_outputs(outputs) do
+    outputs
+    |> Enum.with_index()
+    |> Enum.flat_map(fn {output, vout} ->
+      case Bitblocks.Bsv20Parser.parse(output.script) do
+        {:ok, token} -> [%{vout: vout, token: token}]
+        _ -> []
+      end
+    end)
+  end
+
+  # First token output only (for the single-result parse_raw/2 contract).
+  defp parse_token_outputs(outputs) do
+    case collect_token_outputs(outputs) do
+      [%{vout: vout, token: token} | _] -> {:ok, Map.put(token, :vout, vout)}
+      [] -> {:error, :no_token}
+    end
+  end
 
   defp parse_op_returns([], _protocol), do: {:error, :no_op_return}
 
@@ -86,101 +125,13 @@ defmodule Bitblocks.ProtocolParser do
     end)
   end
 
-  defp build_protocol_data(data_chunks, "Twetch") do
-    # Twetch uses piped protocols: B:// | MAP | AIP
-    utf8_chunks =
-      data_chunks
-      |> Enum.filter(&match?(%{type: :push_data, utf8: utf8} when is_binary(utf8), &1))
-      |> Enum.map(& &1.utf8)
-
-    segments = MapParser.extract_protocols(utf8_chunks)
-
-    b_data = find_segment(segments, @b_address)
-    map_data = find_segment(segments, @map_address)
-    aip_data = find_segment(segments, @aip_address)
-
-    # Twetch is identified by MAP app=twetch, not by its own Bitcom address
-    case parse_map_set(map_data) do
-      %{"app" => "twetch"} = map_keys ->
-        {:ok,
-         %{
-           protocol: "Twetch",
-           type: nullify(Map.get(map_keys, "type")),
-           content: parse_b_content(b_data),
-           content_type: parse_b_field(b_data, 1),
-           encoding: parse_b_field(b_data, 2),
-           filename: parse_b_field(b_data, 3),
-           app: "twetch",
-           user_id: nullify(Map.get(map_keys, "mb_user")),
-           timestamp: parse_twetch_timestamp(Map.get(map_keys, "timestamp")),
-           reply_to: nullify(Map.get(map_keys, "comment")),
-           url: nullify(Map.get(map_keys, "url")),
-           signing_algorithm: parse_aip_field(aip_data, 0),
-           signing_address: parse_aip_field(aip_data, 1),
-           signature: parse_aip_field(aip_data, 2)
-         }}
-
-      _ ->
-        {:error, :not_twetch}
-    end
+  # Deep-parse dispatch is registry-driven: each protocol's parser lives in its
+  # Bitblocks.Protocol.Handler module (Twetch/Metanet/OrderBook today).
+  # BSV20 never reaches here — it's handled by parse_raw/2 on the raw tx,
+  # because token inscriptions live in locking scripts, not OP_RETURN chunks.
+  defp build_protocol_data(data_chunks, protocol) do
+    Bitblocks.Protocol.Handlers.parse(data_chunks, protocol)
   end
-
-  defp build_protocol_data(data_chunks, "Metanet") do
-    # Metanet uses raw OP_RETURN chunks (not piped):
-    # "meta" <P_node> <TxID_parent> [<name>] [<content_type>] [<content>]
-    Bitblocks.MetanetParser.parse(data_chunks)
-  end
-
-  defp build_protocol_data(data_chunks, "OrderBook") do
-    # OrderBook uses raw OP_RETURN chunks (not piped):
-    # "orderbook" <op> <fields...>
-    Bitblocks.OrderBookParser.parse(data_chunks)
-  end
-
-  defp build_protocol_data(_data_chunks, _protocol), do: {:error, :unsupported_protocol}
-
-  defp find_segment(segments, address) do
-    Enum.find_value(segments, nil, fn
-      {^address, data} -> data
-      _ -> nil
-    end)
-  end
-
-  # Parse MAP SET pairs into a key-value map
-  defp parse_map_set(nil), do: %{}
-
-  defp parse_map_set(["SET" | pairs]) do
-    pairs
-    |> Enum.chunk_every(2)
-    |> Enum.reduce(%{}, fn
-      [key, value], acc -> Map.put(acc, key, value)
-      [key], acc -> Map.put(acc, key, nil)
-    end)
-  end
-
-  defp parse_map_set(_), do: %{}
-
-  # B:// segment: [content, content_type, encoding, filename]
-  defp parse_b_content(nil), do: nil
-  defp parse_b_content([content | _]), do: content
-  defp parse_b_content(_), do: nil
-
-  defp parse_b_field(nil, _index), do: nil
-  defp parse_b_field(fields, index), do: Enum.at(fields, index)
-
-  # AIP segment: [algorithm, address, signature]
-  defp parse_aip_field(nil, _index), do: nil
-  defp parse_aip_field(fields, index), do: Enum.at(fields, index)
-
-  # Convert "null" strings to nil
-  defp nullify("null"), do: nil
-  defp nullify(value), do: value
-
-  # Twetch timestamps are in an unusual high-precision format.
-  # Return as-is (string) rather than guessing the epoch.
-  defp parse_twetch_timestamp(nil), do: nil
-  defp parse_twetch_timestamp("null"), do: nil
-  defp parse_twetch_timestamp(ts), do: ts
 
   # Decode raw script hex into UTF-8 chunks for extract_protocols
   defp decode_script_chunks(hex) do

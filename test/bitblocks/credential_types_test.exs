@@ -5,15 +5,16 @@ defmodule Bitblocks.CredentialTypesTest do
 
   describe "public_official/1" do
     test "generates PublicOfficialCredential VC claims" do
-      vc = CredentialTypes.public_official(
-        holder_did: "did:web:portland.gov:officials:mayor",
-        name: "Ted Wheeler",
-        office: "Mayor",
-        jurisdiction: "City of Portland, OR",
-        term_start: "2021-01-01",
-        term_end: "2025-01-01",
-        website: "https://portland.gov/mayor"
-      )
+      vc =
+        CredentialTypes.public_official(
+          holder_did: "did:web:portland.gov:officials:mayor",
+          name: "Ted Wheeler",
+          office: "Mayor",
+          jurisdiction: "City of Portland, OR",
+          term_start: "2021-01-01",
+          term_end: "2025-01-01",
+          website: "https://portland.gov/mayor"
+        )
 
       assert "PublicOfficialCredential" in vc["type"]
       assert "VerifiableCredential" in vc["type"]
@@ -29,11 +30,12 @@ defmodule Bitblocks.CredentialTypesTest do
     end
 
     test "omits optional fields when not provided" do
-      vc = CredentialTypes.public_official(
-        holder_did: "did:web:example.com",
-        name: "Minimal Official",
-        office: "Council Member"
-      )
+      vc =
+        CredentialTypes.public_official(
+          holder_did: "did:web:example.com",
+          name: "Minimal Official",
+          office: "Council Member"
+        )
 
       subject = vc["credentialSubject"]
       assert subject["name"] == "Minimal Official"
@@ -45,11 +47,12 @@ defmodule Bitblocks.CredentialTypesTest do
 
   describe "driver_license/1" do
     test "generates DriverLicenseCredential VC claims" do
-      vc = CredentialTypes.driver_license(
-        holder_did: "did:web:ryanwold.net",
-        name: "Ryan Wold",
-        license_number: "D-123-456-CA"
-      )
+      vc =
+        CredentialTypes.driver_license(
+          holder_did: "did:web:ryanwold.net",
+          name: "Ryan Wold",
+          license_number: "D-123-456-CA"
+        )
 
       assert "DriverLicenseCredential" in vc["type"]
       assert vc["credentialSubject"]["licenseNumber"] == "D-123-456-CA"

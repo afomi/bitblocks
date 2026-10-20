@@ -79,6 +79,11 @@ defmodule Bitblocks.MiningProxy do
   def init(_opts) do
     state = %{
       current_work: nil,
+      # Work units actually handed out via get_work, keyed by work_id. A hasher
+      # that supplied an address gets a split coinbase with its OWN work_id that
+      # is NOT current_work; submit must look it up here to find the matching
+      # coinbase/merkle to reconstruct the block. Bounded to recent entries.
+      issued: %{},
       enabled: config(:enabled, false),
       submissions: 0,
       blocks_found: 0,
@@ -89,7 +94,9 @@ defmodule Bitblocks.MiningProxy do
       send(self(), :poll)
       Logger.info("MiningProxy: started, polling every #{@poll_interval}ms")
     else
-      Logger.info("MiningProxy: disabled (set config :bitblocks, Bitblocks.MiningProxy, enabled: true)")
+      Logger.info(
+        "MiningProxy: disabled (set config :bitblocks, Bitblocks.MiningProxy, enabled: true)"
+      )
     end
 
     {:ok, state}
@@ -132,6 +139,15 @@ defmodule Bitblocks.MiningProxy do
           rebuild_work_with_split(work, hasher_address, hasher_message)
       end
 
+    # Remember what we handed out so submit can reconstruct the block for THIS
+    # work_id (split work has its own id distinct from current_work). Keep only
+    # recent entries to bound memory.
+    state =
+      case work do
+        %Work{} = w -> %{state | issued: remember_issued(state.issued, w)}
+        _ -> state
+      end
+
     {:reply, work, state}
   end
 
@@ -151,11 +167,24 @@ defmodule Bitblocks.MiningProxy do
   def handle_call({:submit, work_id, nonce, timestamp}, _from, state) do
     state = %{state | submissions: state.submissions + 1}
 
-    case state.current_work do
-      nil ->
+    # Resolve the work_id against (1) the current base work and (2) any work we
+    # actually issued (split coinbases get their own work_id). Without (2),
+    # address-based submissions always failed as :stale_work because the split
+    # work_id never equals current_work.work_id.
+    work =
+      cond do
+        match?(%Work{work_id: ^work_id}, state.current_work) -> state.current_work
+        true -> Map.get(state.issued, work_id)
+      end
+
+    case work do
+      nil when is_nil(state.current_work) ->
         {:reply, {:error, :no_work}, state}
 
-      %Work{work_id: ^work_id} = work ->
+      nil ->
+        {:reply, {:error, :stale_work}, state}
+
+      %Work{} = work ->
         case try_submit(work, nonce, timestamp) do
           {:ok, block_hash} ->
             Logger.info("MiningProxy: BLOCK FOUND! hash=#{block_hash} height=#{work.height}")
@@ -165,9 +194,22 @@ defmodule Bitblocks.MiningProxy do
           {:error, reason} ->
             {:reply, {:error, reason}, state}
         end
+    end
+  end
 
-      %Work{} ->
-        {:reply, {:error, :stale_work}, state}
+  # Record an issued work unit, keeping only the most recent few so a hasher's
+  # submit can be matched after the live template has rotated. Bounded to avoid
+  # unbounded growth from many /work requests.
+  @max_issued 32
+  defp remember_issued(issued, %Work{work_id: id} = work) do
+    issued = Map.put(issued, id, work)
+
+    if map_size(issued) > @max_issued do
+      # drop oldest by created_at
+      {oldest_id, _} = Enum.min_by(issued, fn {_id, w} -> w.created_at end)
+      Map.delete(issued, oldest_id)
+    else
+      issued
     end
   end
 
@@ -178,7 +220,11 @@ defmodule Bitblocks.MiningProxy do
       %{"previousblockhash" => prev_hash, "height" => height} = template ->
         coinbase_hex = build_coinbase(template)
         tx_hexes = Enum.map(template["transactions"] || [], & &1["data"])
-        all_txids = [txid_from_hex(coinbase_hex) | Enum.map(template["transactions"] || [], & &1["txid"])]
+
+        all_txids = [
+          txid_from_hex(coinbase_hex) | Enum.map(template["transactions"] || [], & &1["txid"])
+        ]
+
         merkle_root = compute_merkle_root(all_txids)
 
         work = %Work{
@@ -217,13 +263,19 @@ defmodule Bitblocks.MiningProxy do
         hasher_sats = value - platform_sats
 
         message = build_message(hasher_message)
-        coinbase_hex = build_split_coinbase(template, platform_sats, hasher_sats, hasher_address, message)
+
+        coinbase_hex =
+          build_split_coinbase(template, platform_sats, hasher_sats, hasher_address, message)
 
         # Recompute merkle root with new coinbase
-        all_txids = [txid_from_hex(coinbase_hex) | Enum.map(template["transactions"] || [], & &1["txid"])]
+        all_txids = [
+          txid_from_hex(coinbase_hex) | Enum.map(template["transactions"] || [], & &1["txid"])
+        ]
+
         merkle_root = compute_merkle_root(all_txids)
 
-        %{work
+        %{
+          work
           | work_id: Base.encode16(:crypto.strong_rand_bytes(8), case: :lower),
             merkle_root: merkle_root,
             coinbase_hex: coinbase_hex,
@@ -261,35 +313,39 @@ defmodule Bitblocks.MiningProxy do
     hasher_script = address_to_p2pkh_script(hasher_address)
     hasher_script_len = byte_size(hasher_script)
 
-    # Output 1: platform
-    platform_script =
-      if platform_address do
-        address_to_p2pkh_script(platform_address)
-      else
-        op_return_script("bitblocks")
-      end
-
-    platform_script_len = byte_size(platform_script)
-
-    tx =
+    prefix =
       <<1::little-32>> <>
         <<1>> <>
         <<0::256>> <>
         <<0xFFFFFFFF::little-32>> <>
         encode_varint(script_sig_len) <>
         script_sig <>
-        <<0xFFFFFFFF::little-32>> <>
-        # Two outputs
-        <<2>> <>
-        # Output 0: hasher
-        <<hasher_sats::little-64>> <>
+        <<0xFFFFFFFF::little-32>>
+
+    hasher_out =
+      <<hasher_sats::little-64>> <>
         encode_varint(hasher_script_len) <>
-        hasher_script <>
-        # Output 1: platform
-        <<platform_sats::little-64>> <>
-        encode_varint(platform_script_len) <>
-        platform_script <>
-        <<0::little-32>>
+        hasher_script
+
+    tx =
+      if platform_sats == 0 do
+        # Promo / 100%-to-hasher: single output, no 0-sat platform output.
+        prefix <> <<1>> <> hasher_out <> <<0::little-32>>
+      else
+        platform_script =
+          if platform_address do
+            address_to_p2pkh_script(platform_address)
+          else
+            op_return_script("bitblocks")
+          end
+
+        platform_out =
+          <<platform_sats::little-64>> <>
+            encode_varint(byte_size(platform_script)) <>
+            platform_script
+
+        prefix <> <<2>> <> hasher_out <> platform_out <> <<0::little-32>>
+      end
 
     Base.encode16(tx, case: :lower)
   end
@@ -325,28 +381,28 @@ defmodule Bitblocks.MiningProxy do
     script_pubkey_len = byte_size(script_pubkey)
 
     # Assemble the transaction
+    # version
+    # input count
+    # prev txid (null for coinbase)
+    # prev vout (0xFFFFFFFF for coinbase)
+    # scriptSig length + scriptSig
+    # sequence
+    # output count
+    # value in satoshis
+    # scriptPubKey length + scriptPubKey
+    # locktime
     tx =
-      # version
       <<1::little-32>> <>
-        # input count
         <<1>> <>
-        # prev txid (null for coinbase)
         <<0::256>> <>
-        # prev vout (0xFFFFFFFF for coinbase)
         <<0xFFFFFFFF::little-32>> <>
-        # scriptSig length + scriptSig
         encode_varint(script_sig_len) <>
         script_sig <>
-        # sequence
         <<0xFFFFFFFF::little-32>> <>
-        # output count
         <<1>> <>
-        # value in satoshis
         <<value::little-64>> <>
-        # scriptPubKey length + scriptPubKey
         encode_varint(script_pubkey_len) <>
         script_pubkey <>
-        # locktime
         <<0::little-32>>
 
     Base.encode16(tx, case: :lower)
@@ -356,7 +412,15 @@ defmodule Bitblocks.MiningProxy do
 
   defp try_submit(work, nonce, timestamp) do
     # Reconstruct header
-    header = serialize_header(work.version, work.prev_hash, work.merkle_root, timestamp, work.bits, nonce)
+    header =
+      serialize_header(
+        work.version,
+        work.prev_hash,
+        work.merkle_root,
+        timestamp,
+        work.bits,
+        nonce
+      )
 
     # Verify hash meets target
     hash = sha256d(header)
@@ -450,7 +514,8 @@ defmodule Bitblocks.MiningProxy do
     |> merkle_level()
   end
 
-  defp reverse_bytes(bytes), do: bytes |> :binary.bin_to_list() |> Enum.reverse() |> :binary.list_to_bin()
+  defp reverse_bytes(bytes),
+    do: bytes |> :binary.bin_to_list() |> Enum.reverse() |> :binary.list_to_bin()
 
   defp encode_varint(n) when n < 0xFD, do: <<n>>
   defp encode_varint(n) when n <= 0xFFFF, do: <<0xFD, n::little-16>>

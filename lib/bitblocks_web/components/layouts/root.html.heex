@@ -225,6 +225,20 @@
               Bitcoin Protocols
             </a>
             <a
+              href="/bitcom"
+              class="text-sm font-semibold text-gray-900 dark:text-white hover:text-gray-600 dark:hover:text-gray-300"
+            >
+              Bitcom Registry
+            </a>
+            <a
+              :if={Bitblocks.Support.sponsor_url()}
+              href={Bitblocks.Support.sponsor_url()}
+              rel="noopener noreferrer"
+              class="text-sm font-semibold text-gray-900 dark:text-white hover:text-gray-600 dark:hover:text-gray-300"
+            >
+              Sponsor
+            </a>
+            <a
               href="https://github.com/afomi/bitblocks"
               target="_blank"
               rel="noopener noreferrer"

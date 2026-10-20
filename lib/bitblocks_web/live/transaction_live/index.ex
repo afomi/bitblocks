@@ -54,7 +54,10 @@ defmodule BitblocksWeb.TransactionLive.Index do
   def handle_event("delete", %{"id" => id}, socket) do
     transaction = Chain.get_transaction!(id)
     {:ok, _} = Chain.delete_transaction(transaction)
-    {transactions, next_cursor} = Chain.list_transactions_paginated(socket.assigns.cursor, @per_page, socket.assigns.filters)
+
+    {transactions, next_cursor} =
+      Chain.list_transactions_paginated(socket.assigns.cursor, @per_page, socket.assigns.filters)
+
     {:noreply, socket |> assign(:transactions, transactions) |> assign(:next_cursor, next_cursor)}
   end
 
@@ -94,6 +97,7 @@ defmodule BitblocksWeb.TransactionLive.Index do
 
   defp maybe_put_integer(map, _key, nil), do: map
   defp maybe_put_integer(map, _key, ""), do: map
+
   defp maybe_put_integer(map, key, value) do
     case Integer.parse(value) do
       {num, ""} -> Map.put(map, key, num)
@@ -103,6 +107,7 @@ defmodule BitblocksWeb.TransactionLive.Index do
 
   defp parse_cursor(nil), do: nil
   defp parse_cursor(""), do: nil
+
   defp parse_cursor(cursor) do
     case Integer.parse(cursor) do
       {id, ""} -> id

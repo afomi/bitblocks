@@ -84,3 +84,25 @@ config :phoenix_live_view, :debug_heex_annotations, true
 
 # Disable swoosh api client as it is only required for production adapters.
 config :swoosh, :api_client, false
+
+# --- Local mining integration (regtest only) --------------------------------
+# Enables Bitblocks.MiningProxy in dev so a local miner can poll /api/v1/mining/*.
+# coinbase_address is a REGTEST address from the throwaway node started by
+# docker-bitcoinsv's mining/regtest_node.sh — worthless coins, safe to hardcode.
+# Point the node at that regtest RPC via env when starting the server:
+#   BITCOIN_NODE_RPC_URL=http://127.0.0.1:18332 \
+#   BITCOIN_NODE_RPC_USERNAME=miner BITCOIN_NODE_RPC_PASSWORD=miner \
+#   mix phx.server
+config :bitblocks, Bitblocks.MiningProxy,
+  enabled: true,
+  coinbase_address: "n2viS48ApDGwzrGUNrB3Yvk9yw99eHDRTh",
+  coinbase_message: "bitblocks regtest dev",
+  # Long poll so a candidate stays stable long enough for a local miner to
+  # submit before the template rotates (regtest only; avoids :stale_work races).
+  poll_interval_ms: 60_000,
+  # LAUNCH: 100% of every block goes to coinbase_address above (no hasher split).
+  # Hashers call /work WITHOUT ?address, hitting the single-output build_coinbase
+  # path. platform_share_pct only matters if you later enable hasher payouts
+  # (the ?address split path); it's read at COMPILE time so changing it needs a
+  # rebuild. Hasher reward-split is dormant for now.
+  platform_share_pct: 10

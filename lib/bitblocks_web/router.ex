@@ -33,6 +33,10 @@ defmodule BitblocksWeb.Router do
     # Addresses (proxied to WhatsOnChain until we have our own UTXO index)
     get "/addresses/:address/utxos", AddressController, :utxos
     get "/addresses/:address/balance", AddressController, :balance
+    get "/addresses/:address/tokens", AddressController, :tokens
+
+    # Is this outpoint an ordinal/token? yes | no | unknown (fail-closed wallets)
+    get "/outpoints/:txid/:vout", OutpointController, :show
 
     # UTXOs — outpoint ownership lookup (proxied to WhatsOnChain until local UTXO set exists)
     get "/utxo/:txid/:vout/owner", UtxoController, :owner
@@ -44,17 +48,17 @@ defmodule BitblocksWeb.Router do
 
     # WhatsOnChain-compatible alias layer — bare (un-enveloped) responses with
     # WoC field names, so WoC clients work with minimal changes. The native
-    # endpoints above remain primary.
+    # endpoints above remain primary. See docs/EXTERNAL_APIS.md.
     get "/woc/chain/info", WocController, :chain_info
     get "/woc/tx/:txid/hex", WocController, :tx_hex
     post "/woc/tx/raw", WocController, :broadcast
     get "/woc/address/:address/unspent", WocController, :address_unspent
     get "/woc/address/:address/balance", WocController, :address_balance
 
-
     # Real-time
     get "/stream/blocks", StreamController, :blocks
     get "/stream/order-book", StreamController, :order_book
+    get "/stream/tokens", StreamController, :tokens
 
     # Mining
     get "/mining/work", MiningController, :work
@@ -75,6 +79,26 @@ defmodule BitblocksWeb.Router do
     get "/order-book/sellers/:address", OrderBookController, :seller_listings
     get "/order-book/listings/:txid", OrderBookController, :show
 
+    # Tokens (BSV-20 / BSV-21). :stats is declared before :id so it isn't
+    # captured as an id.
+    get "/tokens/stats", TokenController, :stats
+    get "/tokens/:id/holders", TokenController, :holders
+    get "/tokens/:id/transfers", TokenController, :transfers
+    get "/tokens/:id", TokenController, :show
+    get "/tokens", TokenController, :index
+
+    # Scripts — script-addressed lookups for arbitrary (non-P2PKH) scripts.
+    # scripthash = Electrum/WoC convention (sha256 of scriptPubKey, reversed hex).
+    # /templates routes are declared before /:scripthash so "templates" isn't
+    # captured as a scripthash.
+    get "/script/templates/:template_hash/history", ScriptController, :template_history
+    get "/script/templates/:template_hash", ScriptController, :show_template
+    get "/script/templates", ScriptController, :list_templates
+    post "/script/templates", ScriptController, :create_template
+    post "/script/decode", ScriptController, :decode
+    get "/script/:scripthash/history", ScriptController, :history
+    get "/script/:scripthash/unspent", ScriptController, :unspent
+
     # Protocols
     get "/protocols", ProtocolController, :index
     get "/protocols/stats", ProtocolController, :stats_overview
@@ -82,14 +106,33 @@ defmodule BitblocksWeb.Router do
     get "/protocols/:address/feed", ProtocolController, :feed
     get "/protocols/:address", ProtocolController, :show
     post "/protocols/identify", ProtocolController, :identify
+
+    # Bitcom registry
+    get "/bitcom", BitcomController, :index
+    get "/bitcom/:address", BitcomController, :show
+    get "/bit/:address/*path", BitcomController, :resolve
+    post "/bitcom/compose", BitcomController, :compose
   end
 
-  # Price endpoint is open to all origins — it's cached, lightweight, and
-  # intended for consumption by external sites (e.g. qart).
+  # Open to all origins — cached, lightweight, and intended for external
+  # sites: price for qart, support for the sponsorship page (off-site).
   scope "/api/v1", BitblocksWeb.Api do
     pipe_through :public_api
 
     get "/price/bsv", PriceController, :show
+    get "/support", SupportController, :show
+  end
+
+  # Own scope, no pipeline: the :browser pipeline only accepts html.
+  scope "/", BitblocksWeb do
+    get "/sitemap.xml", SitemapController, :index
+  end
+
+  # The Bitcom registry export, at a stable top-level path.
+  scope "/", BitblocksWeb.Api do
+    pipe_through :public_api
+
+    get "/bitcom.json", BitcomController, :index
   end
 
   pipeline :metrics do
@@ -101,21 +144,32 @@ defmodule BitblocksWeb.Router do
     plug :basic_auth
   end
 
+  # The operator surface is gated in EVERY env — no more compile-time
+  # dev/test bypass. Enforcement is a runtime toggle
+  # (`config :bitblocks, :admin_auth, enabled: true|false`, default true):
+  # prod keeps the T10 fail-closed behavior (503 on default creds), dev runs
+  # with logged dev-default creds, and test disables the gate in
+  # config/test.exs so existing tests can hit /sync, /config, etc.
+  #
   # T10: refuse to serve the admin surface with built-in default credentials in
   # production — a hard 503 beats a trivially-owned admin panel. The decision
   # lives in BitblocksWeb.AdminAuth (pure + tested).
   defp basic_auth(conn, _opts) do
-    case BitblocksWeb.AdminAuth.decision() do
-      {:ok, username, password} ->
-        Plug.BasicAuth.basic_auth(conn, username: username, password: password)
+    if BitblocksWeb.AdminAuth.enabled?() do
+      case BitblocksWeb.AdminAuth.decision() do
+        {:ok, username, password} ->
+          Plug.BasicAuth.basic_auth(conn, username: username, password: password)
 
-      {:error, :default_credentials} ->
-        require Logger
-        Logger.error("Admin auth refused: ADMIN_USERNAME/ADMIN_PASSWORD not set in production")
+        {:error, :default_credentials} ->
+          require Logger
+          Logger.error("Admin auth refused: ADMIN_USERNAME/ADMIN_PASSWORD not set in production")
 
-        conn
-        |> Plug.Conn.send_resp(503, "Admin interface not configured")
-        |> Plug.Conn.halt()
+          conn
+          |> Plug.Conn.send_resp(503, "Admin interface not configured")
+          |> Plug.Conn.halt()
+      end
+    else
+      conn
     end
   end
 
@@ -124,7 +178,12 @@ defmodule BitblocksWeb.Router do
 
     live "/search", SearchLive
     live "/protocols", ProtocolsLive
+    live "/bitcom", BitcomLive
+    live "/bitcom/compose", BitcomComposeLive
+    live "/bitcom/:address", BitcomLive
     live "/order-book", OrderBookLive
+    live "/tokens", TokenLive
+    live "/tokens/:id", TokenLive
     live "/metanet", MetanetLive
     live "/collections/rexxies", RexxiesLive
     live "/about", AboutLive
@@ -148,8 +207,9 @@ defmodule BitblocksWeb.Router do
   end
 
   scope "/", BitblocksWeb do
-    # In dev, just use browser pipeline; in prod, require auth
-    pipe_through if Mix.env() in [:dev, :test], do: :browser, else: :admin
+    # Operator surface — always behind :admin (see basic_auth/2 above for the
+    # per-env enablement rules).
+    pipe_through :admin
 
     get "/config", PageController, :config
     get "/debug", PageController, :debug
@@ -186,7 +246,9 @@ defmodule BitblocksWeb.Router do
   end
 
   scope "/" do
-    pipe_through(if Mix.env() in [:dev, :test], do: [:metrics], else: [:metrics, :admin])
+    # Metrics are operator data — always behind :admin (same enablement rules
+    # as the scope above).
+    pipe_through [:metrics, :admin]
 
     forward "/metrics", TelemetryMetricsPrometheus.Router, name: Bitblocks.TelemetryPrometheus
   end
@@ -196,8 +258,9 @@ defmodule BitblocksWeb.Router do
     import Phoenix.LiveDashboard.Router
 
     scope "/dev" do
-      # In dev, just use browser pipeline; in prod, require auth
-      pipe_through if Mix.env() in [:dev, :test], do: :browser, else: :admin
+      # Only compiled when :dev_routes is set (dev), but gated like the rest
+      # of the operator surface anyway.
+      pipe_through :admin
 
       live_dashboard "/dashboard", metrics: BitblocksWeb.Telemetry
       forward "/mailbox", Plug.Swoosh.MailboxPreview

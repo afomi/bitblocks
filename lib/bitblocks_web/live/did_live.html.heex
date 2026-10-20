@@ -37,7 +37,8 @@
     <div class="mt-6 rounded-2xl border p-4 bg-white">
       <h2 class="font-semibold text-lg">Create DID (did:web)</h2>
       <.simple_form
-        for={:did}
+        for={%{}}
+        as={:did}
         phx-submit="gen_did"
         class="grid md:grid-cols-3 gap-4 mt-4"
       >
@@ -107,7 +108,8 @@
       </p>
 
       <.simple_form
-        for={:vanity}
+        for={%{}}
+        as={:vanity}
         phx-submit="search_vanity"
         class="grid md:grid-cols-3 gap-4 mt-4"
       >
@@ -242,7 +244,8 @@
     <div class="mt-6 rounded-2xl border p-4 bg-white">
       <h2 class="font-semibold text-lg">Issue Verifiable Credential (JWT-VC)</h2>
       <.simple_form
-        for={:issue}
+        for={%{}}
+        as={:issue}
         phx-submit="sign_vc"
         class="grid md:grid-cols-2 gap-4 mt-4"
       >
@@ -320,7 +323,8 @@
     <div class="mt-6 rounded-2xl border p-4 bg-white">
       <h2 class="font-semibold text-lg">Verify VC/VP (JWT)</h2>
       <.simple_form
-        for={:verify}
+        for={%{}}
+        as={:verify}
         phx-submit="verify"
         class="grid md:grid-cols-2 gap-4 mt-4"
       >

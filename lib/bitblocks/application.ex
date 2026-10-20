@@ -38,6 +38,8 @@ defmodule Bitblocks.Application do
       Bitblocks.StatsCache,
       # Cache BSV spot price from CoinGecko (rate-limit friendly)
       Bitblocks.PriceCache,
+      # ETS cache of DB-registered protocol prefixes for detection (no DB per tx)
+      Bitblocks.Protocol.RegistryCache,
       # Start the Finch HTTP client for sending emails
       {Finch, name: Bitblocks.Finch},
       # Start Oban for background job processing

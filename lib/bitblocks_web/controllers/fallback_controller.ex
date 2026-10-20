@@ -24,4 +24,18 @@ defmodule BitblocksWeb.FallbackController do
     |> put_status(:unauthorized)
     |> json(%{error: "Unauthorized"})
   end
+
+  def call(conn, {:error, :invalid_scripthash}) do
+    conn
+    |> put_status(:bad_request)
+    |> json(%{error: "Invalid scripthash — expected 64 hex chars (sha256, Electrum convention)"})
+  end
+
+  def call(conn, {:error, :invalid_script_hex}) do
+    conn
+    |> put_status(:bad_request)
+    |> json(%{
+      error: "Invalid script — expected a hex-encoded scriptPubKey in the \"script\" field"
+    })
+  end
 end

@@ -93,26 +93,166 @@ defmodule BitblocksWeb.EcosystemLive do
 
   defp ecosystem_nodes do
     [
-      %{id: "bsv", name: "Bitcoin SV", category: "network", description: "The BSV blockchain network", status: "active", source: "static"},
-      %{id: "bitcom", name: "Bitcom", category: "data_storage", description: "Bitcom protocol namespace system", status: "active", source: "static"},
-      %{id: "map", name: "MAP", category: "data_storage", description: "Magic Attribute Protocol — key-value on-chain data", status: "active", source: "static"},
-      %{id: "b", name: "B://", category: "data_storage", description: "On-chain file storage protocol", status: "active", source: "static"},
-      %{id: "bcat", name: "BCAT", category: "data_storage", description: "Large file storage via chained transactions", status: "active", source: "static"},
-      %{id: "run", name: "Run", category: "token", description: "Token and smart contract protocol", status: "active", source: "static"},
-      %{id: "handcash", name: "HandCash", category: "identity", description: "Wallet and identity provider", status: "active", source: "static"},
-      %{id: "moneybutton", name: "Money Button", category: "identity", description: "Payment and identity widget", status: "deprecated", source: "static"},
-      %{id: "whatsonchain", name: "WhatsOnChain", category: "access_control", description: "Block explorer and API", status: "active", source: "static"},
-      %{id: "ordinals", name: "1Sat Ordinals", category: "bearer_asset", description: "Ordinal inscriptions on BSV", status: "active", source: "static"},
-      %{id: "scrypt", name: "sCrypt", category: "constraint", description: "Smart contract language for Bitcoin", status: "active", source: "static"},
-      %{id: "aip", name: "AIP", category: "identity", description: "Author Identity Protocol", status: "active", source: "static"},
-      %{id: "bap", name: "BAP", category: "identity", description: "Bitcoin Attestation Protocol", status: "active", source: "static"},
-      %{id: "haip", name: "HAIP", category: "identity", description: "Hash Author Identity Protocol", status: "active", source: "static"},
-      %{id: "sigma", name: "Sigma", category: "identity", description: "Simplified identity signatures", status: "active", source: "static"},
-      %{id: "boost", name: "Boost POW", category: "multi_party", description: "Proof-of-work for content ranking", status: "active", source: "static"},
-      %{id: "planaria", name: "Planaria", category: "access_control", description: "Bitcoin application framework", status: "deprecated", source: "static"},
-      %{id: "bitbus", name: "Bitbus", category: "access_control", description: "Filtered Bitcoin transaction bus", status: "active", source: "static"},
-      %{id: "paymail", name: "Paymail", category: "identity", description: "Human-readable payment addresses", status: "active", source: "static"},
-      %{id: "op_return", name: "OP_RETURN", category: "data_storage", description: "Data carrier output protocol", status: "active", source: "static"}
+      %{
+        id: "bsv",
+        name: "Bitcoin SV",
+        category: "network",
+        description: "The BSV blockchain network",
+        status: "active",
+        source: "static"
+      },
+      %{
+        id: "bitcom",
+        name: "Bitcom",
+        category: "data_storage",
+        description: "Bitcom protocol namespace system",
+        status: "active",
+        source: "static"
+      },
+      %{
+        id: "map",
+        name: "MAP",
+        category: "data_storage",
+        description: "Magic Attribute Protocol — key-value on-chain data",
+        status: "active",
+        source: "static"
+      },
+      %{
+        id: "b",
+        name: "B://",
+        category: "data_storage",
+        description: "On-chain file storage protocol",
+        status: "active",
+        source: "static"
+      },
+      %{
+        id: "bcat",
+        name: "BCAT",
+        category: "data_storage",
+        description: "Large file storage via chained transactions",
+        status: "active",
+        source: "static"
+      },
+      %{
+        id: "run",
+        name: "Run",
+        category: "token",
+        description: "Token and smart contract protocol",
+        status: "active",
+        source: "static"
+      },
+      %{
+        id: "handcash",
+        name: "HandCash",
+        category: "identity",
+        description: "Wallet and identity provider",
+        status: "active",
+        source: "static"
+      },
+      %{
+        id: "moneybutton",
+        name: "Money Button",
+        category: "identity",
+        description: "Payment and identity widget",
+        status: "deprecated",
+        source: "static"
+      },
+      %{
+        id: "whatsonchain",
+        name: "WhatsOnChain",
+        category: "access_control",
+        description: "Block explorer and API",
+        status: "active",
+        source: "static"
+      },
+      %{
+        id: "ordinals",
+        name: "1Sat Ordinals",
+        category: "bearer_asset",
+        description: "Ordinal inscriptions on BSV",
+        status: "active",
+        source: "static"
+      },
+      %{
+        id: "scrypt",
+        name: "sCrypt",
+        category: "constraint",
+        description: "Smart contract language for Bitcoin",
+        status: "active",
+        source: "static"
+      },
+      %{
+        id: "aip",
+        name: "AIP",
+        category: "identity",
+        description: "Author Identity Protocol",
+        status: "active",
+        source: "static"
+      },
+      %{
+        id: "bap",
+        name: "BAP",
+        category: "identity",
+        description: "Bitcoin Attestation Protocol",
+        status: "active",
+        source: "static"
+      },
+      %{
+        id: "haip",
+        name: "HAIP",
+        category: "identity",
+        description: "Hash Author Identity Protocol",
+        status: "active",
+        source: "static"
+      },
+      %{
+        id: "sigma",
+        name: "Sigma",
+        category: "identity",
+        description: "Simplified identity signatures",
+        status: "active",
+        source: "static"
+      },
+      %{
+        id: "boost",
+        name: "Boost POW",
+        category: "multi_party",
+        description: "Proof-of-work for content ranking",
+        status: "active",
+        source: "static"
+      },
+      %{
+        id: "planaria",
+        name: "Planaria",
+        category: "access_control",
+        description: "Bitcoin application framework",
+        status: "deprecated",
+        source: "static"
+      },
+      %{
+        id: "bitbus",
+        name: "Bitbus",
+        category: "access_control",
+        description: "Filtered Bitcoin transaction bus",
+        status: "active",
+        source: "static"
+      },
+      %{
+        id: "paymail",
+        name: "Paymail",
+        category: "identity",
+        description: "Human-readable payment addresses",
+        status: "active",
+        source: "static"
+      },
+      %{
+        id: "op_return",
+        name: "OP_RETURN",
+        category: "data_storage",
+        description: "Data carrier output protocol",
+        status: "active",
+        source: "static"
+      }
     ]
   end
 

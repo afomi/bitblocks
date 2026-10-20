@@ -1,0 +1,318 @@
+<div class="container mx-auto px-4 py-8 max-w-7xl">
+  <%= if @view == :list do %>
+    <h1 class="text-4xl font-bold mb-2">
+      Tokens
+    </h1>
+    <p class="text-gray-600 mb-8">
+      BSV-20 and BSV-21 fungible tokens, indexed from 1Sat Ordinal inscriptions.
+      Minting happens in a wallet; this page is the read-only index.
+    </p>
+
+    <%!-- Stats Banner --%>
+    <div class="grid grid-cols-3 gap-4 mb-8">
+      <div class="bg-white border border-gray-200 rounded-lg p-4 text-center">
+        <div class="text-2xl font-bold text-purple-600">
+          <%= @stats.total_tokens %>
+        </div>
+        <div class="text-sm text-gray-500">
+          Tokens
+        </div>
+      </div>
+      <div class="bg-white border border-gray-200 rounded-lg p-4 text-center">
+        <div class="text-2xl font-bold text-blue-600">
+          <%= @stats.total_transfers %>
+        </div>
+        <div class="text-sm text-gray-500">
+          Transfers
+        </div>
+      </div>
+      <div class="bg-white border border-gray-200 rounded-lg p-4 text-center">
+        <div class="text-2xl font-bold text-amber-600">
+          <%= @stats.classic_ops %>
+        </div>
+        <div class="text-sm text-gray-500">
+          Classic BSV-20 Ops
+        </div>
+      </div>
+    </div>
+
+    <%!-- Filters --%>
+    <div class="bg-white border border-gray-200 rounded-lg p-4 mb-6">
+      <form
+        phx-change="filter"
+        class="grid grid-cols-1 md:grid-cols-3 gap-4 items-end"
+      >
+        <div>
+          <label
+            for="standard-filter"
+            class="block text-sm font-medium text-gray-700 mb-1"
+          >
+            Standard
+          </label>
+          <select
+            id="standard-filter"
+            name="standard"
+            class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          >
+            <option value="" selected={@standard_filter == ""}>
+              All
+            </option>
+            <option value="bsv-21" selected={@standard_filter == "bsv-21"}>
+              BSV-21
+            </option>
+            <option value="bsv-20" selected={@standard_filter == "bsv-20"}>
+              BSV-20
+            </option>
+          </select>
+        </div>
+        <div>
+          <label
+            for="sym-filter"
+            class="block text-sm font-medium text-gray-700 mb-1"
+          >
+            Symbol
+          </label>
+          <input
+            type="text"
+            id="sym-filter"
+            name="sym"
+            value={@sym_filter}
+            placeholder="e.g. MEME"
+            class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          />
+        </div>
+        <div>
+          <button
+            type="button"
+            phx-click="clear_filters"
+            class="w-full px-3 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-md text-sm transition-colors"
+          >
+            Clear Filters
+          </button>
+        </div>
+      </form>
+    </div>
+
+    <%!-- Tokens Table --%>
+    <%= if Enum.empty?(@tokens) do %>
+      <div class="bg-gray-50 border border-gray-200 rounded-lg p-12 text-center">
+        <div class="text-gray-400 text-5xl mb-4">
+          &empty;
+        </div>
+        <h3 class="text-lg font-semibold text-gray-600 mb-2">
+          No tokens indexed yet
+        </h3>
+        <p class="text-sm text-gray-500">
+          When token deploy+mint inscriptions are confirmed on the BSV network, they will appear here.
+        </p>
+      </div>
+    <% else %>
+      <div class="bg-white border border-gray-200 rounded-lg overflow-hidden">
+        <table class="w-full">
+          <thead class="bg-gray-50 border-b border-gray-200">
+            <tr>
+              <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                Token
+              </th>
+              <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                Standard
+              </th>
+              <th class="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                Supply
+              </th>
+              <th class="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                Decimals
+              </th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-gray-100">
+            <%= for token <- @tokens do %>
+              <tr class="hover:bg-gray-50 transition-colors">
+                <td class="px-4 py-3">
+                  <.link
+                    navigate={~p"/tokens/#{token.token_id || token.tick}"}
+                    class="font-semibold text-blue-600 hover:underline"
+                  >
+                    <%= token_label(token) %>
+                  </.link>
+                  <div class="font-mono text-xs text-gray-400">
+                    <%= truncate(token.token_id || token.tick) %>
+                  </div>
+                </td>
+                <td class="px-4 py-3">
+                  <span class={[
+                    "px-2 py-1 rounded-full text-xs font-semibold",
+                    standard_badge(token.standard)
+                  ]}>
+                    <%= token.standard %>
+                  </span>
+                </td>
+                <td class="px-4 py-3 text-right font-mono text-sm">
+                  <%= format_amount(token.supply || token.max) %>
+                </td>
+                <td class="px-4 py-3 text-right font-mono text-sm text-gray-500">
+                  <%= token.dec || "0" %>
+                </td>
+              </tr>
+            <% end %>
+          </tbody>
+        </table>
+      </div>
+    <% end %>
+
+    <%!-- API Reference --%>
+    <div class="mt-8 bg-gray-50 border border-gray-200 rounded-lg p-6">
+      <h2 class="text-xl font-bold mb-4">
+        Token API
+      </h2>
+      <div class="space-y-3 font-mono text-sm">
+        <div class="bg-white p-3 rounded border">
+          <span class="text-green-700">GET</span>
+          <span class="text-gray-700">/api/v1/tokens</span>
+          <span class="text-gray-500 ml-2">
+            — Indexed tokens (filters: standard, sym)
+          </span>
+        </div>
+        <div class="bg-white p-3 rounded border">
+          <span class="text-green-700">GET</span>
+          <span class="text-gray-700">/api/v1/tokens/:id</span>
+          <span class="text-gray-500 ml-2">
+            — Token by token_id or ticker
+          </span>
+        </div>
+        <div class="bg-white p-3 rounded border">
+          <span class="text-green-700">GET</span>
+          <span class="text-gray-700">/api/v1/tokens/:id/holders</span>
+          <span class="text-gray-500 ml-2">
+            — Holder balances
+          </span>
+        </div>
+        <div class="bg-white p-3 rounded border">
+          <span class="text-green-700">GET</span>
+          <span class="text-gray-700">/api/v1/stream/tokens</span>
+          <span class="text-gray-500 ml-2">
+            — SSE stream of new tokens and transfers
+          </span>
+        </div>
+      </div>
+    </div>
+  <% end %>
+
+  <%= if @view == :detail do %>
+    <.link
+      navigate={~p"/tokens"}
+      class="text-sm text-blue-600 hover:underline"
+    >
+      &larr; All tokens
+    </.link>
+    <h1 class="text-4xl font-bold mt-2 mb-2">
+      <%= token_label(@token) %>
+    </h1>
+    <div class="flex items-center gap-3 mb-8">
+      <span class={[
+        "px-2 py-1 rounded-full text-xs font-semibold",
+        standard_badge(@token.standard)
+      ]}>
+        <%= @token.standard %>
+      </span>
+      <span class="font-mono text-sm text-gray-500">
+        <%= @token.token_id || @token.tick %>
+      </span>
+    </div>
+
+    <%!-- Supply / details --%>
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+      <div class="bg-white border border-gray-200 rounded-lg p-4">
+        <div class="text-sm text-gray-500">
+          Supply
+        </div>
+        <div class="text-xl font-bold font-mono">
+          <%= format_amount(@token.supply || @token.max) %>
+        </div>
+      </div>
+      <div class="bg-white border border-gray-200 rounded-lg p-4">
+        <div class="text-sm text-gray-500">
+          Decimals
+        </div>
+        <div class="text-xl font-bold font-mono">
+          <%= @token.dec || "0" %>
+        </div>
+      </div>
+      <div class="bg-white border border-gray-200 rounded-lg p-4">
+        <div class="text-sm text-gray-500">
+          Holders
+        </div>
+        <div class="text-xl font-bold font-mono">
+          <%= length(@holders) %>
+        </div>
+      </div>
+      <div class="bg-white border border-gray-200 rounded-lg p-4">
+        <div class="text-sm text-gray-500">
+          Transfers
+        </div>
+        <div class="text-xl font-bold font-mono">
+          <%= length(@transfers) %>
+        </div>
+      </div>
+    </div>
+
+    <%!-- Holders --%>
+    <h2 class="text-xl font-bold mb-4">
+      Holders
+    </h2>
+    <%= if Enum.empty?(@holders) do %>
+      <p class="text-sm text-gray-500 mb-8">
+        No transfers indexed yet, so no holder balances to show.
+      </p>
+    <% else %>
+      <div class="bg-white border border-gray-200 rounded-lg overflow-hidden mb-8">
+        <table class="w-full">
+          <thead class="bg-gray-50 border-b border-gray-200">
+            <tr>
+              <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                Address
+              </th>
+              <th class="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                Balance
+              </th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-gray-100">
+            <%= for holder <- @holders do %>
+              <tr class="hover:bg-gray-50 transition-colors">
+                <td class="px-4 py-3 font-mono text-sm">
+                  <%= holder.address %>
+                </td>
+                <td class="px-4 py-3 text-right font-mono text-sm font-semibold">
+                  <%= format_amount(holder.balance) %>
+                </td>
+              </tr>
+            <% end %>
+          </tbody>
+        </table>
+      </div>
+    <% end %>
+
+    <p class="text-sm text-gray-400">
+      Holder balances are a positive-flow view of indexed transfers.
+      To mint or transfer this token, use a BSV wallet — this explorer is read-only.
+    </p>
+  <% end %>
+
+  <%= if @view == :not_found do %>
+    <div class="bg-gray-50 border border-gray-200 rounded-lg p-12 text-center">
+      <h1 class="text-2xl font-bold text-gray-600 mb-2">
+        Token not found
+      </h1>
+      <p class="text-sm text-gray-500 mb-4">
+        No indexed token matches <span class="font-mono"><%= @token_id %></span>.
+      </p>
+      <.link
+        navigate={~p"/tokens"}
+        class="text-blue-600 hover:underline"
+      >
+        Back to all tokens
+      </.link>
+    </div>
+  <% end %>
+</div>

@@ -25,6 +25,16 @@ defmodule Bitblocks.Chain.Transaction do
     field :coinbase, :boolean
     field :script_analysis_version, :integer
 
+    # Script-first indexing (analyze v5): deduplicated per-tx arrays of
+    # Electrum-convention scripthashes and opcode-skeleton template hashes for
+    # every output's locking script. GIN-indexed; see Bitblocks.Script.
+    field :output_script_hashes, {:array, :string}
+    field :output_template_hashes, {:array, :string}
+
+    # Analyze v6: addresses of valid AIP signatures in this tx (GIN-indexed),
+    # so "everything signed by X" is one indexed query. See Bitblocks.Aip.
+    field :aip_signers, {:array, :string}, default: []
+
     timestamps()
   end
 
@@ -48,7 +58,10 @@ defmodule Bitblocks.Chain.Transaction do
       :output_types,
       :protocols,
       :coinbase,
-      :script_analysis_version
+      :script_analysis_version,
+      :output_script_hashes,
+      :output_template_hashes,
+      :aip_signers
     ])
     |> validate_required([:txid, :raw, :version, :block_hash, :inputs, :outputs])
   end

@@ -9,7 +9,13 @@ defmodule BitblocksWeb.ShapeLayerLive do
       "geometry" => %{
         "type" => "Polygon",
         "coordinates" => [
-          [[-122.42, 37.79], [-122.42, 37.76], [-122.38, 37.76], [-122.38, 37.79], [-122.42, 37.79]]
+          [
+            [-122.42, 37.79],
+            [-122.42, 37.76],
+            [-122.38, 37.76],
+            [-122.38, 37.79],
+            [-122.42, 37.79]
+          ]
         ]
       },
       "properties" => %{
@@ -149,6 +155,9 @@ defmodule BitblocksWeb.ShapeLayerLive do
 
   defp flatten_coords(%{"type" => "Point", "coordinates" => c}), do: [c]
   defp flatten_coords(%{"type" => "LineString", "coordinates" => c}), do: c
-  defp flatten_coords(%{"type" => "Polygon", "coordinates" => rings}), do: Enum.flat_map(rings, & &1)
+
+  defp flatten_coords(%{"type" => "Polygon", "coordinates" => rings}),
+    do: Enum.flat_map(rings, & &1)
+
   defp flatten_coords(_), do: []
 end

@@ -10,10 +10,14 @@ defmodule Bitblocks.TransactionParser do
   """
 
   alias Bitblocks.Chain.SafeTx
+  alias Bitblocks.Script.OpReturn
 
   # Bump when script classification or protocol detection logic changes.
   # Used by analyze/1 and the Release.analyze_transactions/1 backfill.
-  @script_analysis_version 4
+  # v5: adds output_script_hashes + output_template_hashes (script-first indexing).
+  # v6: adds aip_signers (verified AIP signing addresses); "Bitcom" is detected
+  # by a `$` command segment instead of the substring "bitcom".
+  @script_analysis_version 6
 
   def script_analysis_version, do: @script_analysis_version
 
@@ -23,28 +27,41 @@ defmodule Bitblocks.TransactionParser do
 
   Returns `{:ok, map}` suitable for storing in the transactions table:
     - script_analysis_version
-    - output_types  (%{"p2pkh" => 9, "op_return" => 1})
-    - protocols     (["MAP", "AIP"])
-    - coinbase      (bool)
+    - output_types           (%{"p2pkh" => 9, "op_return" => 1})
+    - protocols              (["MAP", "AIP"])
+    - coinbase               (bool)
+    - output_script_hashes   (deduped Electrum scripthashes, one per distinct output script)
+    - output_template_hashes (deduped opcode-skeleton hashes; see Bitblocks.Script)
+    - aip_signers            (addresses of valid AIP signatures; see Bitblocks.Aip)
   """
   def analyze(raw) when is_binary(raw) do
     case SafeTx.from_hex(raw) do
       {:ok, tx} ->
         op_return_outputs = extract_op_returns(tx.outputs)
-        protocols = detect_protocols(op_return_outputs)
+        # BSV-20/21 tokens are ordinal inscriptions in output *locking* scripts,
+        # not OP_RETURN push-data, so they need a separate scan over all outputs.
+        protocols = detect_protocols(op_return_outputs) ++ detect_token_protocol(tx.outputs)
+
+        scripts = Enum.map(tx.outputs, & &1.script)
 
         output_types =
-          tx.outputs
-          |> Enum.map(&determine_script_type(&1.script))
+          scripts
+          |> Enum.map(&Bitblocks.Script.classify/1)
           |> Enum.frequencies()
           |> Map.new(fn {type, count} -> {Atom.to_string(type), count} end)
 
-        {:ok, %{
-          script_analysis_version: @script_analysis_version,
-          output_types: output_types,
-          protocols: protocols,
-          coinbase: is_coinbase?(tx)
-        }}
+        {:ok,
+         %{
+           script_analysis_version: @script_analysis_version,
+           output_types: output_types,
+           protocols: protocols,
+           coinbase: is_coinbase?(tx),
+           output_script_hashes:
+             scripts |> Enum.map(&Bitblocks.Script.script_hash/1) |> Enum.uniq(),
+           output_template_hashes:
+             scripts |> Enum.map(&Bitblocks.Script.template_hash/1) |> Enum.uniq(),
+           aip_signers: aip_signers(protocols, op_return_outputs, tx.outputs)
+         }}
 
       {:error, reason} ->
         {:error, reason}
@@ -52,6 +69,18 @@ defmodule Bitblocks.TransactionParser do
   end
 
   def analyze(_), do: {:error, :invalid_raw}
+
+  # Signature checks are the costly part, so only AIP-tagged txs pay for them.
+  defp aip_signers(protocols, op_return_outputs, outputs) do
+    if "AIP" in protocols do
+      Enum.flat_map(op_return_outputs, fn %{output_index: i} ->
+        Bitblocks.Aip.verified_signers(Enum.at(outputs, i).script.chunks)
+      end)
+      |> Enum.uniq()
+    else
+      []
+    end
+  end
 
   @doc """
   Parses a transaction and extracts all OP_RETURN data and protocol information.
@@ -83,11 +112,8 @@ defmodule Bitblocks.TransactionParser do
 
     if "MAP" in protocols do
       map_chunks =
-        op_return_outputs
-        |> Enum.flat_map(fn op_return ->
-          op_return.data
-          |> Enum.filter(&match?(%{type: :push_data, utf8: utf8} when is_binary(utf8), &1))
-          |> Enum.map(& &1.utf8)
+        Enum.flat_map(op_return_outputs, fn op_return ->
+          OpReturn.utf8_chunks(op_return.data)
         end)
 
       case Bitblocks.MapParser.parse(map_chunks) do
@@ -120,58 +146,17 @@ defmodule Bitblocks.TransactionParser do
   @doc """
   Checks if an output is an OP_RETURN output.
   """
-  def is_op_return?(%BSV.TxOut{} = output) do
-    case output.script.chunks do
-      [:OP_RETURN | _] -> true
-      [:OP_FALSE, :OP_RETURN | _] -> true
-      _ -> false
-    end
-  end
+  defdelegate is_op_return?(output), to: OpReturn, as: :op_return?
 
   @doc """
   Parses OP_RETURN data into a structured format.
   """
-  def parse_op_return_data(%BSV.Script{} = script) do
-    data_chunks =
-      case script.chunks do
-        [:OP_RETURN | rest] -> rest
-        [:OP_FALSE, :OP_RETURN | rest] -> rest
-        _ -> []
-      end
-
-    Enum.map(data_chunks, fn chunk ->
-      if is_binary(chunk) do
-        %{
-          type: :push_data,
-          hex: Base.encode16(chunk, case: :lower),
-          utf8: safe_utf8_decode(chunk),
-          length: byte_size(chunk)
-        }
-      else
-        %{
-          type: :opcode,
-          opcode: BSV.OpCode.to_integer(chunk),
-          name: Atom.to_string(chunk)
-        }
-      end
-    end)
-  end
+  defdelegate parse_op_return_data(script), to: OpReturn, as: :parse_data
 
   @doc """
   Extracts raw hex data from OP_RETURN script.
   """
-  def extract_hex_data(%BSV.Script{} = script) do
-    data_chunks =
-      case script.chunks do
-        [:OP_RETURN | rest] -> rest
-        [:OP_FALSE, :OP_RETURN | rest] -> rest
-        _ -> []
-      end
-
-    data_chunks
-    |> Enum.filter(&is_binary/1)
-    |> Enum.map(&Base.encode16(&1, case: :lower))
-  end
+  defdelegate extract_hex_data(script), to: OpReturn, as: :hex_data
 
   @doc """
   Detects known protocols in OP_RETURN data.
@@ -216,37 +201,23 @@ defmodule Bitblocks.TransactionParser do
     |> Enum.uniq_by(fn p -> p.name end)
   end
 
+  # Flags "BSV20" when any output's locking script carries a BSV-20/21 token
+  # inscription (`application/bsv-20`). Returns [] or ["BSV20"].
+  defp detect_token_protocol(outputs) when is_list(outputs) do
+    if Enum.any?(outputs, &Bitblocks.Bsv20Parser.token_inscription?(&1.script)) do
+      ["BSV20"]
+    else
+      []
+    end
+  end
+
+  defp detect_token_protocol(_), do: []
+
+  # Detection is registry-driven: every protocol is a Bitblocks.Protocol.Handler
+  # module registered (in detection order) in Bitblocks.Protocol.Handlers.
+  # Adding a protocol no longer touches this module.
   defp detect_protocol(data_chunks) when is_list(data_chunks) do
-    # Extract utf8 strings from parsed chunks
-    utf8_chunks =
-      data_chunks
-      |> Enum.filter(&match?(%{type: :push_data, utf8: utf8} when is_binary(utf8), &1))
-      |> Enum.map(& &1.utf8)
-
-    # Split on pipe separators and check each segment's first chunk.
-    # This detects all protocols in piped OP_RETURN data (B:// | MAP | AIP).
-    piped_protocols =
-      utf8_chunks
-      |> Enum.chunk_by(&(&1 == "|"))
-      |> Enum.reject(&(&1 == ["|"]))
-      |> Enum.flat_map(fn segment ->
-        case List.first(segment) do
-          nil -> []
-          addr -> check_protocol_prefix(addr)
-        end
-      end)
-
-    # Detect protocols from MAP app field (e.g. app=twetch → "Twetch")
-    map_app_protocols = detect_from_map_app(utf8_chunks)
-
-    # Check for hex-based protocols
-    hex_protocols = check_hex_protocols(data_chunks)
-
-    # Check for vCard data
-    vcard_protocols = check_vcard_protocol(data_chunks)
-
-    (piped_protocols ++ map_app_protocols ++ hex_protocols ++ vcard_protocols)
-    |> Enum.uniq()
+    Bitblocks.Protocol.Handlers.detect_all(data_chunks)
   end
 
   defp detect_protocol_with_info(data_chunks, output_index) when is_list(data_chunks) do
@@ -307,93 +278,6 @@ defmodule Bitblocks.TransactionParser do
   end
 
   defp extract_address_from_chunk(_), do: nil
-
-  # Known Bitcom protocol addresses — prefix of first OP_RETURN push chunk.
-  @protocol_prefixes [
-    {"19HxigV4QyBv3tHpQVcUEQyq1pzZVdoAut", "B://"},
-    {"1PuQa7K62MiKCtssSLKy1kh56WWU7MtUR5", "MAP"},
-    {"15PciHG22SNLQJXMoSUaWVi7WSqc7hCfva", "AIP"},
-    {"1HA1P2exomAwCUycZHr8WeyFoy5vuQASE3", "HAIP"},
-    {"19nknDdM3ueaAt7nFLFQ3aS3PVHVnJoMmU", "Twetch"},
-    {"1LtyME6b5AnMopQrBPLk4FGN8UBuhxKqrn", "RelayX"},
-    {"15DHFxWZJT58f9nhyCA3mREYYzkVDetm6A", "BCat"}
-  ]
-
-  # MAP app field values that map to a protocol name.
-  # Used to detect protocols like Twetch that are identified by app metadata
-  # rather than by their own Bitcom address in the OP_RETURN.
-  @map_app_protocols %{
-    "twetch" => "Twetch"
-  }
-
-  defp check_protocol_prefix(utf8) do
-    address_match =
-      Enum.find_value(@protocol_prefixes, fn {prefix, name} ->
-        if String.starts_with?(utf8, prefix), do: [name]
-      end)
-
-    cond do
-      address_match -> address_match
-      utf8 == "meta" -> ["Metanet"]
-      utf8 == "orderbook" -> ["OrderBook"]
-      String.starts_with?(utf8, "ord") -> ["1SAT Ordinals"]
-      String.contains?(utf8, "bitcom") -> ["Bitcom"]
-      true -> []
-    end
-  end
-
-  # Detect protocols from the MAP app field in piped OP_RETURN data.
-  # E.g. when MAP SET contains app=twetch, we add "Twetch" to detected protocols.
-  @map_address "1PuQa7K62MiKCtssSLKy1kh56WWU7MtUR5"
-
-  defp detect_from_map_app(utf8_chunks) do
-    segments =
-      utf8_chunks
-      |> Enum.chunk_by(&(&1 == "|"))
-      |> Enum.reject(&(&1 == ["|"]))
-
-    Enum.flat_map(segments, fn
-      [@map_address, "SET" | pairs] ->
-        pairs
-        |> Enum.chunk_every(2)
-        |> Enum.find_value([], fn
-          ["app", app_name] -> List.wrap(Map.get(@map_app_protocols, app_name))
-          _ -> nil
-        end)
-
-      _ ->
-        []
-    end)
-  end
-
-  defp check_vcard_protocol(data_chunks) do
-    text =
-      data_chunks
-      |> Enum.filter(fn
-        %{type: :push_data, utf8: utf8} when is_binary(utf8) -> true
-        _ -> false
-      end)
-      |> Enum.map(fn %{utf8: utf8} -> utf8 end)
-      |> Enum.join("")
-
-    if Bitblocks.VcardParser.is_vcard?(text), do: ["vCard"], else: []
-  end
-
-  defp check_hex_protocols(data_chunks) do
-    hex_data =
-      Enum.map_join(data_chunks, fn
-        %{hex: hex} -> hex
-        _ -> ""
-      end)
-
-    []
-    |> maybe_add("1SAT Ordinals", String.contains?(hex_data, "6f7264"))
-    # Run: OP_0 OP_RETURN envelope starts with hex "72756e" ("run")
-    |> maybe_add("Run", String.starts_with?(hex_data, "72756e"))
-  end
-
-  defp maybe_add(list, _name, false), do: list
-  defp maybe_add(list, name, true), do: list ++ [name]
 
   @doc """
   Decodes a chunk of data based on detected format.
@@ -550,21 +434,6 @@ defmodule Bitblocks.TransactionParser do
     end)
   end
 
-  # Safely decodes UTF-8, returning nil if invalid.
-  defp safe_utf8_decode(binary) when is_binary(binary) do
-    case :unicode.characters_to_binary(binary, :utf8) do
-      result when is_binary(result) ->
-        if String.valid?(result) and String.printable?(result) do
-          result
-        else
-          nil
-        end
-
-      _ ->
-        nil
-    end
-  end
-
   # Converts hex string to decimal.
   defp hex_to_decimal(hex) when is_binary(hex) do
     case Integer.parse(hex, 16) do
@@ -600,95 +469,13 @@ defmodule Bitblocks.TransactionParser do
     end
   end
 
-  def determine_script_type(script) do
-    case script.chunks do
-      [:OP_RETURN | _] -> :op_return
-      [:OP_FALSE, :OP_RETURN | _] -> :op_return
-      [:OP_DUP, :OP_HASH160, pkh, :OP_EQUALVERIFY, :OP_CHECKSIG] when is_binary(pkh) -> :p2pkh
-      [:OP_HASH160, sh, :OP_EQUAL] when is_binary(sh) -> :p2sh
-      [pk, :OP_CHECKSIG] when is_binary(pk) and byte_size(pk) in [33, 65] -> :p2pk
-      chunks -> if is_multisig?(chunks), do: :multisig, else: :unknown
-    end
-  end
+  defdelegate determine_script_type(script), to: Bitblocks.Script, as: :classify
 
   @doc """
   Extracts semantic fields from a script based on its type.
-
-  Returns a map with type-specific fields:
-    - `:p2pkh`    — `%{type: :p2pkh, pubkey_hash: hex}`
-    - `:p2sh`     — `%{type: :p2sh, script_hash: hex}`
-    - `:p2pk`     — `%{type: :p2pk, pubkey: hex}`
-    - `:multisig` — `%{type: :multisig, m: integer, n: integer, pubkeys: [hex]}`
-    - `:op_return`— `%{type: :op_return, data: [chunk_map]}`
-    - `:unknown`  — `%{type: :unknown, asm: string}`
+  See `Bitblocks.Script.extract_fields/1`.
   """
-  def extract_script_fields(script) do
-    case determine_script_type(script) do
-      :p2pkh ->
-        [:OP_DUP, :OP_HASH160, pkh | _] = script.chunks
-        %{type: :p2pkh, pubkey_hash: Base.encode16(pkh, case: :lower)}
-
-      :p2sh ->
-        [:OP_HASH160, sh | _] = script.chunks
-        %{type: :p2sh, script_hash: Base.encode16(sh, case: :lower)}
-
-      :p2pk ->
-        [pk | _] = script.chunks
-        %{type: :p2pk, pubkey: Base.encode16(pk, case: :lower)}
-
-      :multisig ->
-        [m_op | rest] = script.chunks
-        pubkeys = rest |> Enum.filter(&is_binary/1)
-        n = length(pubkeys)
-        m = op_to_small_int(m_op)
-        %{type: :multisig, m: m, n: n, pubkeys: Enum.map(pubkeys, &Base.encode16(&1, case: :lower))}
-
-      :op_return ->
-        %{type: :op_return, data: parse_op_return_data(script)}
-
-      :unknown ->
-        %{type: :unknown, asm: BSV.Script.to_asm(script)}
-    end
-  end
-
-  defp is_multisig?(chunks) do
-    case chunks do
-      [m | rest] when is_atom(m) ->
-        case op_to_small_int(m) do
-          nil -> false
-          m_val when m_val in 1..16 ->
-            case List.last(chunks) do
-              :OP_CHECKMULTISIG ->
-                pubkeys = rest |> Enum.drop(-2) |> Enum.filter(&is_binary/1)
-                n_op = Enum.at(rest, length(rest) - 2)
-                n_val = op_to_small_int(n_op)
-                n_val != nil and length(pubkeys) == n_val and m_val <= n_val
-              _ -> false
-            end
-        end
-      _ -> false
-    end
-  end
-
-  # Maps OP_TRUE/OP_1..OP_16 atoms to their integer values.
-  defp op_to_small_int(:OP_TRUE), do: 1
-  defp op_to_small_int(:OP_1), do: 1
-  defp op_to_small_int(:OP_2), do: 2
-  defp op_to_small_int(:OP_3), do: 3
-  defp op_to_small_int(:OP_4), do: 4
-  defp op_to_small_int(:OP_5), do: 5
-  defp op_to_small_int(:OP_6), do: 6
-  defp op_to_small_int(:OP_7), do: 7
-  defp op_to_small_int(:OP_8), do: 8
-  defp op_to_small_int(:OP_9), do: 9
-  defp op_to_small_int(:OP_10), do: 10
-  defp op_to_small_int(:OP_11), do: 11
-  defp op_to_small_int(:OP_12), do: 12
-  defp op_to_small_int(:OP_13), do: 13
-  defp op_to_small_int(:OP_14), do: 14
-  defp op_to_small_int(:OP_15), do: 15
-  defp op_to_small_int(:OP_16), do: 16
-  defp op_to_small_int(_), do: nil
+  defdelegate extract_script_fields(script), to: Bitblocks.Script, as: :extract_fields
 
   @doc """
   Extracts all text content from OP_RETURN data.

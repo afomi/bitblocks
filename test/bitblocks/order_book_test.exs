@@ -151,27 +151,29 @@ defmodule Bitblocks.OrderBookTest do
     end
 
     test "filters by price range", %{protocol: protocol} do
-      _cheap = create_listing(protocol, %{
-        parsed_data: %{
-          "op" => "list",
-          "token_id" => @test_token_id,
-          "quantity" => "50",
-          "price_satoshis" => "100",
-          "seller_address" => @test_seller,
-          "token_utxo" => "cheap:0"
-        }
-      })
+      _cheap =
+        create_listing(protocol, %{
+          parsed_data: %{
+            "op" => "list",
+            "token_id" => @test_token_id,
+            "quantity" => "50",
+            "price_satoshis" => "100",
+            "seller_address" => @test_seller,
+            "token_utxo" => "cheap:0"
+          }
+        })
 
-      _expensive = create_listing(protocol, %{
-        parsed_data: %{
-          "op" => "list",
-          "token_id" => @test_token_id,
-          "quantity" => "50",
-          "price_satoshis" => "50000",
-          "seller_address" => @test_seller,
-          "token_utxo" => "expensive:0"
-        }
-      })
+      _expensive =
+        create_listing(protocol, %{
+          parsed_data: %{
+            "op" => "list",
+            "token_id" => @test_token_id,
+            "quantity" => "50",
+            "price_satoshis" => "50000",
+            "seller_address" => @test_seller,
+            "token_utxo" => "expensive:0"
+          }
+        })
 
       listings = OrderBook.list_active_listings(min_price: 1000, max_price: 10000)
 
@@ -186,17 +188,18 @@ defmodule Bitblocks.OrderBookTest do
     test "excludes expired listings", %{protocol: protocol} do
       past = DateTime.utc_now() |> DateTime.add(-3600) |> DateTime.to_iso8601()
 
-      _expired = create_listing(protocol, %{
-        parsed_data: %{
-          "op" => "list",
-          "token_id" => @test_token_id,
-          "quantity" => "50",
-          "price_satoshis" => "1000",
-          "seller_address" => @test_seller,
-          "token_utxo" => "expired:0",
-          "expires_at" => past
-        }
-      })
+      _expired =
+        create_listing(protocol, %{
+          parsed_data: %{
+            "op" => "list",
+            "token_id" => @test_token_id,
+            "quantity" => "50",
+            "price_satoshis" => "1000",
+            "seller_address" => @test_seller,
+            "token_utxo" => "expired:0",
+            "expires_at" => past
+          }
+        })
 
       listings = OrderBook.list_active_listings()
 
@@ -303,7 +306,9 @@ defmodule Bitblocks.OrderBookTest do
   describe "settle_spent_token_utxos/1" do
     test "marks a listing filled when its token UTXO is spent on-chain", %{protocol: protocol} do
       # Listing offers tokens held at outpoint "tokentx:0"
-      listing = create_listing(protocol, %{parsed_data: list_data(%{"token_utxo" => "tokentx:0"})})
+      listing =
+        create_listing(protocol, %{parsed_data: list_data(%{"token_utxo" => "tokentx:0"})})
+
       settlement_txid = random_txid()
 
       # A settlement transaction spends that exact outpoint
@@ -322,7 +327,8 @@ defmodule Bitblocks.OrderBookTest do
     end
 
     test "ignores spends that don't match any listed token UTXO", %{protocol: protocol} do
-      listing = create_listing(protocol, %{parsed_data: list_data(%{"token_utxo" => "tokentx:0"})})
+      listing =
+        create_listing(protocol, %{parsed_data: list_data(%{"token_utxo" => "tokentx:0"})})
 
       settled =
         OrderBook.settle_spent_token_utxos([
@@ -345,7 +351,9 @@ defmodule Bitblocks.OrderBookTest do
     test "settles via Chain.record_spends when a real tx consumes the token UTXO", %{
       protocol: protocol
     } do
-      listing = create_listing(protocol, %{parsed_data: list_data(%{"token_utxo" => "tokentx:0"})})
+      listing =
+        create_listing(protocol, %{parsed_data: list_data(%{"token_utxo" => "tokentx:0"})})
+
       settlement_txid = random_txid()
 
       tx = %Bitblocks.Chain.Transaction{
@@ -402,19 +410,22 @@ defmodule Bitblocks.OrderBookTest do
     end
 
     test "24h window excludes old fills by fill timestamp", %{protocol: protocol} do
-      old = create_listing(protocol, %{
-        parsed_data: list_data(%{"price_satoshis" => "5000", "token_utxo" => "old:0"}),
-        state: %{
-          "status" => "filled",
-          "quantity_remaining" => "0",
-          "fills" => [%{"txid" => random_txid(), "quantity" => "100"}]
-        },
-        spent: true
-      })
+      old =
+        create_listing(protocol, %{
+          parsed_data: list_data(%{"price_satoshis" => "5000", "token_utxo" => "old:0"}),
+          state: %{
+            "status" => "filled",
+            "quantity_remaining" => "0",
+            "fills" => [%{"txid" => random_txid(), "quantity" => "100"}]
+          },
+          spent: true
+        })
 
       # Force the fill timestamp (updated_at) to be older than 24h.
       two_days_ago =
-        NaiveDateTime.utc_now() |> NaiveDateTime.add(-2 * 24 * 3600, :second) |> NaiveDateTime.truncate(:second)
+        NaiveDateTime.utc_now()
+        |> NaiveDateTime.add(-2 * 24 * 3600, :second)
+        |> NaiveDateTime.truncate(:second)
 
       old
       |> Ecto.Changeset.change(updated_at: two_days_ago)

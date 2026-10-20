@@ -40,12 +40,23 @@ config :exvcr,
   enable_global_settings: true,
   match_requests_on: [:request_body],
   filter_sensitive_data: [
-    [pattern: System.get_env("BITCOIN_NODE_RPC_USERNAME") || "rpcuser", placeholder: "REDACTED_USER"],
-    [pattern: System.get_env("BITCOIN_NODE_RPC_PASSWORD") || "rpcpassword", placeholder: "REDACTED_PASS"]
+    [
+      pattern: System.get_env("BITCOIN_NODE_RPC_USERNAME") || "rpcuser",
+      placeholder: "REDACTED_USER"
+    ],
+    [
+      pattern: System.get_env("BITCOIN_NODE_RPC_PASSWORD") || "rpcpassword",
+      placeholder: "REDACTED_PASS"
+    ]
   ]
 
 # Disable ForkTracker polling in tests to avoid background RPC calls
 config :bitblocks, fork_tracker_poll_interval: nil
+
+# Route all Bitcoin RPC through the stub-backed mock (see test/support/RPC_TESTING.md).
+# Unstubbed calls return {:error, {:no_stub, ...}} — the same shape as an
+# unreachable node — so tests that don't stub keep their current behavior.
+config :bitblocks, :bitcoinsv_cli, BitcoinsvCliMock
 
 # Disable Oban queues in test (but keep the supervisor running)
 config :bitblocks, Oban, testing: :manual, queues: false
@@ -53,6 +64,11 @@ config :bitblocks, Oban, testing: :manual, queues: false
 # Disable request auto-ban in tests — the Wallaby browser hits many endpoints
 # from 127.0.0.1 and would otherwise get blocked by the RequestLogger.
 config :bitblocks, :invalid_request_threshold, 10_000
+
+# Bypass admin basic auth so LiveView/controller/accessibility tests can reach
+# the operator surface (/sync, /config, …) unauthenticated. The gate itself is
+# covered by test/bitblocks_web/admin_gate_test.exs, which re-enables it.
+config :bitblocks, :admin_auth, enabled: false
 
 # Raise the per-IP rate limit in tests. Many controller tests share the
 # 127.0.0.1 source IP, so the production-tight 20/min limit would otherwise

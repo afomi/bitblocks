@@ -79,11 +79,12 @@ defmodule Bitblocks.VcardDID do
     lines = if title = Keyword.get(opts, :title), do: lines ++ ["TITLE:#{title}"], else: lines
     lines = if note = Keyword.get(opts, :note), do: lines ++ ["NOTE:#{note}"], else: lines
 
-    lines = if photo = Keyword.get(opts, :photo_url) do
-      lines ++ ["PHOTO;MEDIATYPE=image/jpeg:#{photo}"]
-    else
-      lines
-    end
+    lines =
+      if photo = Keyword.get(opts, :photo_url) do
+        lines ++ ["PHOTO;MEDIATYPE=image/jpeg:#{photo}"]
+      else
+        lines
+      end
 
     lines = lines ++ ["END:VCARD"]
     Enum.join(lines, "\n")

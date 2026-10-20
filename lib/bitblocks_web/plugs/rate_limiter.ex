@@ -45,7 +45,10 @@ defmodule BitblocksWeb.Plugs.RateLimiter do
       {:ok, count} ->
         conn
         |> put_resp_header("x-ratelimit-limit", Integer.to_string(max_requests))
-        |> put_resp_header("x-ratelimit-remaining", Integer.to_string(max(0, max_requests - count)))
+        |> put_resp_header(
+          "x-ratelimit-remaining",
+          Integer.to_string(max(0, max_requests - count))
+        )
 
       {:error, retry_after_ms} ->
         retry_after_s = max(1, div(retry_after_ms, 1000))

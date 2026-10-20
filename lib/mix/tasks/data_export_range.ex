@@ -35,9 +35,17 @@ defmodule Mix.Tasks.Data.Export.Range do
 
     with {:ok, spec} <- Spec.build(opts),
          {:ok, result} <- Exporter.export_range(spec) do
-      Mix.shell().info("Exported #{result.manifest["name"] || result.manifest[:name]} to #{result.output_dir}")
-      Mix.shell().info("Blocks: #{result.manifest[:block_count] || result.manifest["block_count"]}")
-      Mix.shell().info("Transactions: #{result.manifest[:transaction_count] || result.manifest["transaction_count"]}")
+      Mix.shell().info(
+        "Exported #{result.manifest["name"] || result.manifest[:name]} to #{result.output_dir}"
+      )
+
+      Mix.shell().info(
+        "Blocks: #{result.manifest[:block_count] || result.manifest["block_count"]}"
+      )
+
+      Mix.shell().info(
+        "Transactions: #{result.manifest[:transaction_count] || result.manifest["transaction_count"]}"
+      )
     else
       {:error, message} ->
         Mix.raise(message)

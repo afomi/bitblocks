@@ -66,9 +66,33 @@ defmodule BitblocksWeb.Api.StreamController do
     end
   end
 
+  def tokens(conn, params) do
+    # T8: validate the token reference before it becomes a PubSub topic.
+    case validate_token_ref(params["token_id"]) do
+      {:ok, token_ref} ->
+        with_sse_slot(conn, fn conn ->
+          Phoenix.PubSub.subscribe(@pubsub, "tokens")
+
+          if token_ref do
+            Phoenix.PubSub.subscribe(@pubsub, "tokens:#{token_ref}")
+          end
+
+          conn = start_event_stream(conn)
+          tokens_loop(conn, deadline())
+        end)
+
+      {:error, _} ->
+        conn |> put_status(400) |> json(%{error: "Invalid token_id"})
+    end
+  end
+
   # nil token_id means "all listings" — valid. A present one must pass validation.
   defp validate_token_id(nil), do: {:ok, nil}
   defp validate_token_id(token_id), do: BsvParams.token_id(token_id)
+
+  # nil means "all tokens". A present ref is either a token_id or a ticker.
+  defp validate_token_ref(nil), do: {:ok, nil}
+  defp validate_token_ref(ref), do: BsvParams.token_ref(ref)
 
   # Reserve an SSE slot, run `fun` if one is available, and always release it.
   # Returns 503 when the global or per-IP concurrency cap is hit.
@@ -138,18 +162,55 @@ defmodule BitblocksWeb.Api.StreamController do
     end
   end
 
+  defp tokens_loop(conn, deadline) do
+    receive do
+      {:new_token, token} ->
+        send_token_event(conn, "new_token", token, deadline)
+
+      {:token_transfer, transfer} ->
+        send_token_event(conn, "token_transfer", transfer, deadline)
+
+      _ ->
+        tokens_loop(conn, deadline)
+    after
+      @heartbeat_ms ->
+        if expired?(deadline) do
+          close_stream(conn)
+        else
+          case chunk(conn, ": heartbeat\n\n") do
+            {:ok, conn} -> tokens_loop(conn, deadline)
+            {:error, _} -> conn
+          end
+        end
+    end
+  end
+
+  defp send_token_event(conn, event, token, deadline) do
+    payload = "event: #{event}\ndata: #{Jason.encode!(token)}\n\n"
+
+    case chunk(conn, payload) do
+      {:ok, conn} -> tokens_loop(conn, deadline)
+      {:error, _} -> conn
+    end
+  end
+
   defp stream_loop(conn, deadline) do
     receive do
       {:new_block, height, hash} ->
         send_event(conn, "new_block", %{height: height, hash: hash}, deadline)
 
       {:block_synced, block} ->
-        send_event(conn, "block_synced", %{
-          height: block.height,
-          hash: block.hash,
-          num_tx: block.num_tx,
-          time: block.time
-        }, deadline)
+        send_event(
+          conn,
+          "block_synced",
+          %{
+            height: block.height,
+            hash: block.hash,
+            num_tx: block.num_tx,
+            time: block.time
+          },
+          deadline
+        )
 
       {:new_blocks_detected, count} ->
         send_event(conn, "new_blocks_detected", %{count: count}, deadline)

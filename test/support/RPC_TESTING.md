@@ -170,18 +170,35 @@ RpcStub.clear()
 RpcStub.stop()
 ```
 
-## Direct Mock Usage
+## Unstubbed Calls Fail Loudly
 
-You can also use `BitcoinsvCliMock` directly without setup:
+An unstubbed call returns `{:error, {:no_stub, fun, args}}` — the same shape as an unreachable node.
+Tests that never touch RPC keep their pre-mock behavior, and a test that forgets a stub fails visibly instead of silently succeeding on canned data.
+Batch functions compose from per-item stubs: the result map contains only the stubbed items, so partial-fetch failures are testable by omitting a stub.
+
+## Asserting on Calls
+
+Every call the mock receives is recorded:
 
 ```elixir
-# These will work even without RpcStub.setup()
-blockchain_info = BitcoinsvCliMock.getblockchaininfo()
-hash = BitcoinsvCliMock.getblockhash(100)
-block = BitcoinsvCliMock.getblock(hash)
+RpcStub.calls()
+#=> [{:batch_getrawtransaction, [["txid1"], 1]}, ...]
+
+RpcStub.calls(:batch_getrawtransaction)
+#=> [[["txid1"], 1]]
 ```
 
-The mock provides sensible defaults for all methods.
+Use this to assert idempotency (a second pass makes zero fetches) or that only the missing txids were requested.
+
+## Opting Out (ExVCR suites)
+
+Suites that replay real HTTP via ExVCR cassettes (e.g. `fork_tracker_test.exs`) must restore the real client:
+
+```elixir
+prev = Application.get_env(:bitblocks, :bitcoinsv_cli)
+Application.put_env(:bitblocks, :bitcoinsv_cli, BitcoinsvCli)
+on_exit(fn -> Application.put_env(:bitblocks, :bitcoinsv_cli, prev) end)
+```
 
 ## Testing RPC Cache
 
@@ -233,11 +250,10 @@ setup do
 end
 ```
 
-### "No stub for X"
+### `{:error, {:no_stub, fun, args}}`
 
-Either:
-1. Add the stub manually: `RpcStub.stub_getblock("hash")`
-2. Or the mock will return a sensible default automatically
+Add the stub the code path needs, e.g. `RpcStub.stub_getblock("hash")`.
+Unstubbed calls intentionally error like an unreachable node (see above).
 
 ### "Fixture not found"
 

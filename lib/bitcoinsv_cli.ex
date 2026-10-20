@@ -455,7 +455,10 @@ defmodule BitcoinsvCli do
           {:error, {:http_error, status, body}}
 
         {:ok, %{"error" => %{"code" => -32601, "message" => "Method not found"}}} ->
-          Logger.error("METHOD NOT FOUND. bitcoind may need `disablewallet=0` set in bitcoin.conf")
+          Logger.error(
+            "METHOD NOT FOUND. bitcoind may need `disablewallet=0` set in bitcoin.conf"
+          )
+
           {:error, :method_not_found}
 
         {:error, :invalid, 0} ->

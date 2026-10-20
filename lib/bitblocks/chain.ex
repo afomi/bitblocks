@@ -568,7 +568,7 @@ defmodule Bitblocks.Chain do
     Logger.info("Upgrading block #{height} from header_only to header_synced")
 
     # Fetch transaction IDs using getblock verbosity 1
-    case BitcoinsvCli.getblock(hash, 1) do
+    case rpc().getblock(hash, 1) do
       block_data when is_map(block_data) ->
         txids = block_data["tx"] || []
 
@@ -584,10 +584,13 @@ defmodule Bitblocks.Chain do
             txids
           end
 
-        # Update block with transaction IDs
+        # Update block with transaction IDs. `num_tx` is set from the fetched
+        # list — it is the completeness denominator (TxidSource), so it must be
+        # correct even when the array itself is dropped for memory.
         block
         |> Ecto.Changeset.change(%{
           tx: tx_array_to_store,
+          num_tx: length(txids),
           sync_state: "header_synced",
           # Update other fields that might not have been in header-only mode
           chainwork: Map.get(block_data, "chainwork", block.chainwork),
@@ -606,6 +609,9 @@ defmodule Bitblocks.Chain do
         {:error, :unexpected_response}
     end
   end
+
+  # Swappable RPC client — tests point this at BitcoinsvCliMock (config/test.exs).
+  defp rpc, do: Application.get_env(:bitblocks, :bitcoinsv_cli, BitcoinsvCli)
 
   @doc """
   Upgrades blocks in a range from header_only to header_synced.
@@ -939,7 +945,9 @@ defmodule Bitblocks.Chain do
       )
 
     if count > 0 do
-      Logger.warning("Marked #{count} orphaned block(s) as failed (stuck in txs_queued/txs_syncing at startup)")
+      Logger.warning(
+        "Marked #{count} orphaned block(s) as failed (stuck in txs_queued/txs_syncing at startup)"
+      )
     end
 
     count
@@ -1037,17 +1045,19 @@ defmodule Bitblocks.Chain do
       |> Enum.flat_map(fn {input_json, vin} ->
         case Jason.decode(input_json) do
           {:ok, %{"txid" => prev_txid, "vout" => vout}}
-              when is_binary(prev_txid) and is_integer(vout) ->
+          when is_binary(prev_txid) and is_integer(vout) ->
             # Skip coinbase inputs (all-zero txid)
             if String.match?(prev_txid, ~r/^0+$/) do
               []
             else
-              [%{
-                txid: prev_txid,
-                vout: vout,
-                spending_txid: spending_txid,
-                spending_vin: vin
-              }]
+              [
+                %{
+                  txid: prev_txid,
+                  vout: vout,
+                  spending_txid: spending_txid,
+                  spending_vin: vin
+                }
+              ]
             end
 
           _ ->
@@ -1077,6 +1087,88 @@ defmodule Bitblocks.Chain do
   end
 
   def record_spends(_), do: {0, 0}
+
+  @doc """
+  Indexes any BSV-20 / BSV-21 token inscriptions carried by a transaction.
+
+  Only runs when the transaction was tagged `"BSV20"` during `analyze` (an ordinal
+  inscription in an output locking script). For each token output, resolves the
+  recipient address from the stored output JSON (matching by `vout`) and routes it
+  to `Bitblocks.Tokens.index/1` (deploy+mint, transfer, or classic detect-only).
+
+  Idempotent via the instance's `[:txid, :vout]` unique constraint. Returns the
+  count of token outputs indexed.
+  """
+  def index_tokens(%Transaction{protocols: protocols} = tx) when is_list(protocols) do
+    if "BSV20" in protocols do
+      index_token_outputs(tx)
+    else
+      0
+    end
+  end
+
+  def index_tokens(_), do: 0
+
+  @doc """
+  Logs the Bitcom `$` commands carried by `tx` and records prefix-ownership
+  proofs (see `Bitblocks.Bitcom`).
+
+  A `$ useradd <address>` proves ownership only when the tx's first input was
+  spent from `<address>`; a claim from any other address is logged as invalid.
+  No-op unless analyze tagged the tx "Bitcom". Returns the number of proofs
+  recorded.
+  """
+  def index_bitcom(%Transaction{} = tx) do
+    {:ok, %{proofs: proofs}} = Bitblocks.Bitcom.index(tx)
+    proofs
+  end
+
+  def index_bitcom(_), do: 0
+
+  defp index_token_outputs(%Transaction{raw: raw} = tx) when is_binary(raw) do
+    case Bitblocks.ProtocolParser.token_outputs(raw) do
+      {:ok, token_outputs} ->
+        addresses = output_addresses_by_vout(tx.outputs)
+
+        Enum.count(token_outputs, fn %{vout: vout, token: token} ->
+          attrs = %{
+            txid: tx.txid,
+            vout: vout,
+            block_height: tx.block_height,
+            block_hash: tx.block_hash,
+            recipient: Map.get(addresses, vout),
+            token: token
+          }
+
+          case Bitblocks.Tokens.index(attrs) do
+            {:ok, view} when is_map(view) -> true
+            _ -> false
+          end
+        end)
+
+      _ ->
+        0
+    end
+  end
+
+  defp index_token_outputs(_), do: 0
+
+  # Map output index -> first address in that output's stored JSON.
+  defp output_addresses_by_vout(outputs) when is_list(outputs) do
+    outputs
+    |> Enum.with_index()
+    |> Enum.reduce(%{}, fn {output_json, vout}, acc ->
+      case Jason.decode(output_json) do
+        {:ok, %{"scriptPubKey" => %{"addresses" => [addr | _]}}} when is_binary(addr) ->
+          Map.put(acc, vout, addr)
+
+        _ ->
+          acc
+      end
+    end)
+  end
+
+  defp output_addresses_by_vout(_), do: %{}
 
   @doc """
   Bulk-populates the spend index from all existing transactions.
@@ -1175,6 +1267,34 @@ defmodule Bitblocks.Chain do
   end
 
   @doc """
+  Total satoshis ever paid to `address` in indexed transactions, spent or not.
+
+  `:min_height` counts only txs confirmed at or above that height
+  (unconfirmed txs are then excluded).
+  """
+  def received_for_address(address, opts \\ []) when is_binary(address) do
+    query = from t in Transaction, where: ^address in t.output_addresses, select: t.outputs
+
+    query =
+      case Keyword.get(opts, :min_height) do
+        nil -> query
+        height -> from t in query, where: t.block_height >= ^height
+      end
+
+    query
+    |> Repo.all()
+    |> Enum.flat_map(& &1)
+    |> Enum.sum_by(fn output_json ->
+      with {:ok, output} <- Jason.decode(output_json),
+           [^address | _] <- get_in(output, ["scriptPubKey", "addresses"]) do
+        bsv_to_satoshis(output["value"])
+      else
+        _ -> 0
+      end
+    end)
+  end
+
+  @doc """
   Returns the confirmed balance in satoshis for an address from local data.
 
   Sums the satoshi value of all unspent outputs for the address.
@@ -1184,6 +1304,80 @@ defmodule Bitblocks.Chain do
     address
     |> utxos_for_address()
     |> Enum.sum_by(& &1.satoshis)
+  end
+
+  @doc """
+  Transactions whose outputs include the given Electrum-convention scripthash
+  (GIN lookup on `output_script_hashes`), newest first.
+
+  This is the script-addressed analog of address history — it works for ANY
+  locking script, including custom/covenant scripts that have no address.
+  """
+  def history_for_script_hash(script_hash) when is_binary(script_hash) do
+    Repo.all(
+      from t in Transaction,
+        where: ^script_hash in t.output_script_hashes,
+        order_by: [desc: t.block_height],
+        limit: 1000,
+        select: %{txid: t.txid, block_height: t.block_height, block_hash: t.block_hash}
+    )
+  end
+
+  @doc """
+  Unspent outputs locked by the exact script with the given scripthash.
+
+  Candidate transactions come from the GIN array lookup; per-vout matching
+  re-hashes each output's `scriptPubKey.hex` (no script decode needed) and
+  spent-ness comes from the spend index — same construction as
+  `utxos_for_address/1`.
+  """
+  def utxos_for_script_hash(script_hash) when is_binary(script_hash) do
+    txs =
+      Repo.all(
+        from t in Transaction,
+          where: ^script_hash in t.output_script_hashes,
+          select: %{txid: t.txid, block_height: t.block_height, outputs: t.outputs}
+      )
+
+    txids = Enum.map(txs, & &1.txid)
+
+    spent_set =
+      Repo.all(
+        from s in Spend,
+          where: s.txid in ^txids,
+          select: {s.txid, s.vout}
+      )
+      |> MapSet.new()
+
+    Enum.flat_map(txs, fn %{txid: txid, block_height: height, outputs: outputs} ->
+      outputs
+      |> Enum.with_index()
+      |> Enum.flat_map(fn {output_json, vout} ->
+        with {:ok, output} <- Jason.decode(output_json),
+             hex when is_binary(hex) <- get_in(output, ["scriptPubKey", "hex"]),
+             ^script_hash <- Bitblocks.Script.script_hash_from_hex(hex),
+             false <- MapSet.member?(spent_set, {txid, vout}),
+             satoshis <- bsv_to_satoshis(output["value"]) do
+          [%{txid: txid, vout: vout, satoshis: satoshis, block_height: height}]
+        else
+          _ -> []
+        end
+      end)
+    end)
+  end
+
+  @doc """
+  Transactions carrying any output whose opcode skeleton matches the given
+  template hash (GIN lookup on `output_template_hashes`), newest first.
+  """
+  def history_for_template_hash(template_hash) when is_binary(template_hash) do
+    Repo.all(
+      from t in Transaction,
+        where: ^template_hash in t.output_template_hashes,
+        order_by: [desc: t.block_height],
+        limit: 1000,
+        select: %{txid: t.txid, block_height: t.block_height, block_hash: t.block_hash}
+    )
   end
 
   @spend_depth_max 100

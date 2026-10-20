@@ -2,6 +2,7 @@ defmodule BitblocksWeb.TransactionLive.Show do
   use BitblocksWeb, :live_view
 
   alias Bitblocks.{Chain, TransactionParser, Collections}
+  alias Bitblocks.Script.{Descriptor, Templates}
 
   @impl true
   def mount(_params, _session, socket) do
@@ -10,7 +11,10 @@ defmodule BitblocksWeb.TransactionLive.Show do
        collection_item: nil,
        collection_slug: nil,
        collection_module: nil,
-       input_satoshis: %{}
+       input_satoshis: %{},
+       output_descriptors: [],
+       script_templates: %{},
+       output_protocols: %{}
      )}
   end
 
@@ -47,24 +51,8 @@ defmodule BitblocksWeb.TransactionLive.Show do
           Chain.get_block(transaction.block_height)
       end
 
-    # Parse the transaction for OP_RETURN data
-    parsed_data =
-      if transaction && transaction.raw do
-        case TransactionParser.parse_transaction(transaction.raw) do
-          parsed when is_map(parsed) ->
-            # Use cached total_output_satoshis if available, otherwise fall back to parsed value
-            total_output_satoshis =
-              transaction.total_output_satoshis || parsed.total_output_satoshis
-
-            %{parsed | total_output_satoshis: total_output_satoshis}
-
-          {:error, _reason} ->
-            nil
-        end
-      else
-        nil
-      end
-
+    # Decode `raw` exactly once; everything downstream (OP_RETURN parsing,
+    # coinbase message, input satoshis, output descriptors) reuses this tx.
     decoded_tx =
       if transaction && transaction.raw do
         case Bitblocks.Chain.SafeTx.from_hex(transaction.raw) do
@@ -74,6 +62,31 @@ defmodule BitblocksWeb.TransactionLive.Show do
       else
         nil
       end
+
+    # Parse the decoded transaction for OP_RETURN data
+    parsed_data =
+      if decoded_tx do
+        parsed = TransactionParser.parse_transaction(decoded_tx)
+
+        # Use cached total_output_satoshis if available, otherwise fall back to parsed value
+        total_output_satoshis =
+          transaction.total_output_satoshis || parsed.total_output_satoshis
+
+        %{parsed | total_output_satoshis: total_output_satoshis}
+      else
+        nil
+      end
+
+    # One descriptor per output: type, semantic fields, ASM, both hashes.
+    output_descriptors =
+      if decoded_tx, do: Descriptor.from_tx(decoded_tx), else: []
+
+    # Batch the registered-template lookups once per page load (unknown
+    # scripts only) — the script_card component never queries per-render.
+    script_templates = lookup_script_templates(output_descriptors)
+
+    # vout => detected protocol handler names, for OP_RETURN outputs only.
+    output_protocols = detect_output_protocols(decoded_tx)
 
     # Coinbase scriptSig text (miner message, e.g. genesis "...Chancellor..."),
     # extracted from the already-decoded tx. nil for non-coinbase / no text.
@@ -111,7 +124,37 @@ defmodule BitblocksWeb.TransactionLive.Show do
      |> assign(:collection_item, collection_item)
      |> assign(:collection_slug, collection_slug)
      |> assign(:collection_module, collection_module)
-     |> assign(:input_satoshis, input_satoshis)}
+     |> assign(:input_satoshis, input_satoshis)
+     |> assign(:output_descriptors, output_descriptors)
+     |> assign(:script_templates, script_templates)
+     |> assign(:output_protocols, output_protocols)}
+  end
+
+  # Map of template_hash => registered %Bitblocks.Script.Template{} for the
+  # unknown-script outputs of this transaction. Hashes without a registered
+  # template are omitted.
+  defp detect_output_protocols(nil), do: %{}
+
+  defp detect_output_protocols(decoded_tx) do
+    decoded_tx.outputs
+    |> TransactionParser.extract_op_returns()
+    |> Map.new(fn %{output_index: vout, data: data} ->
+      {vout, Bitblocks.Protocol.Handlers.detect_all(data)}
+    end)
+  end
+
+  defp lookup_script_templates(output_descriptors) do
+    output_descriptors
+    |> Enum.filter(&(&1.type == :unknown))
+    |> Enum.map(& &1.template_hash)
+    |> Enum.uniq()
+    |> Enum.flat_map(fn hash ->
+      case Templates.get_by_hash(hash) do
+        nil -> []
+        template -> [{hash, template}]
+      end
+    end)
+    |> Map.new()
   end
 
   defp fetch_transaction_on_demand(txid) do
@@ -141,20 +184,8 @@ defmodule BitblocksWeb.TransactionLive.Show do
     end
   end
 
-  defp format_satoshis(satoshis) when is_number(satoshis) do
-    bsv = satoshis / 100_000_000
-    bsv_str = :erlang.float_to_binary(bsv, decimals: 8)
-    sats_str = satoshis |> round() |> Integer.to_string() |> format_integer_commas()
-    "#{bsv_str} BSV (#{sats_str} sats)"
-  end
-
-  defp format_satoshis(_), do: "0 sats"
-
-  defp format_integer_commas(str) do
-    str
-    |> String.reverse()
-    |> String.replace(~r/(\d{3})(?=\d)/, "\\1,")
-    |> String.reverse()
+  defp format_satoshis(satoshis) do
+    BitblocksWeb.ScriptComponents.format_satoshis(satoshis)
   end
 
   def output_type_label(:p2pkh), do: "P2PKH"
@@ -176,6 +207,7 @@ defmodule BitblocksWeb.TransactionLive.Show do
   # Chunk txids are 32 raw bytes each (push indices 6+), hex-encoded for display
 
   def bcat_info(nil), do: nil
+
   def bcat_info(parsed_data) do
     if "BCat" in (parsed_data.protocols || []) do
       op_return = List.first(parsed_data.op_returns)

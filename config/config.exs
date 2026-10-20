@@ -125,7 +125,14 @@ config :bitblocks, Oban,
     Oban.Plugins.Pruner,
     {Oban.Plugins.Cron,
      crontab: [
-       {"* * * * *", Bitblocks.Workers.SyncHeadersWorker, args: %{"mode" => "tip"}}
+       {"* * * * *", Bitblocks.Workers.SyncHeadersWorker, args: %{"mode" => "tip"}},
+       # Hourly self-healing backfill: exits immediately when nothing is
+       # incomplete; otherwise resumes the sequential diff-and-fill from the
+       # lowest incomplete block. This is what guarantees range-synced headers
+       # (which don't auto-enqueue tx fetches) eventually get their
+       # transactions even if a manual backfill run is interrupted.
+       # Active-states uniqueness on the worker prevents pileup.
+       {"0 * * * *", Bitblocks.Workers.BackfillTransactionsWorker}
      ]}
   ],
   queues: [
@@ -136,6 +143,35 @@ config :bitblocks, Oban,
     transactions_backfill: 1,
     blocks: 3
   ]
+
+# Mining proxy — COMPILE-TIME settings only (read via Application.compile_env in
+# Bitblocks.MiningProxy). Runtime-toggled keys (enabled, coinbase_address,
+# coinbase_message) are set from env in config/runtime.exs.
+#   poll_interval_ms: how often to refresh the block template from the node.
+#     10s is plenty: the chain tip moves every ~10+ min, so polling faster buys
+#     nothing and just adds RPC load on the live node.
+#   platform_share_pct: only used by the (currently dormant) hasher reward-split
+#     path; ignored at launch (no-address => 100% to coinbase_address).
+config :bitblocks, Bitblocks.MiningProxy,
+  poll_interval_ms: 10_000,
+  platform_share_pct: 10
+
+# Admin basic auth on the operator surface (/sync, /config, /debug, /admin,
+# /rpc_admin, /metrics, block/tx mutation pages, …). Enforced in EVERY env by
+# default; test bypasses it (config/test.exs). Credentials come from
+# ADMIN_USERNAME/ADMIN_PASSWORD (see BitblocksWeb.AdminAuth — prod fails
+# closed on the defaults, dev logs a warning).
+config :bitblocks, :admin_auth, enabled: true
+
+# Sponsorship (Bitblocks.Support). The ask lives off-site (sponsor_url);
+# bitblocks serves the live numbers at GET /api/v1/support for that page.
+#   monthly_costs: [{"Bitcoin SV full node", 1000}, …]  # USD per month
+#   sponsor_url: "https://…"  # footer "Sponsor" link; hidden while nil
+#   bsv_address: "1…"  # donations; received total is read from the index
+config :bitblocks, :support,
+  monthly_costs: [{"Bitcoin SV full node", 1000}],
+  sponsor_url: nil,
+  bsv_address: nil
 
 # Import environment specific config. This must remain at the bottom
 # of this file so it overrides the configuration defined above.

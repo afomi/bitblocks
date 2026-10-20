@@ -78,7 +78,8 @@ defmodule Bitblocks.DataPacksTest do
   end
 
   test "exports and imports a full pack" do
-    tmp_root = Path.join(System.tmp_dir!(), "bitblocks-pack-#{System.unique_integer([:positive])}")
+    tmp_root =
+      Path.join(System.tmp_dir!(), "bitblocks-pack-#{System.unique_integer([:positive])}")
 
     assert {:ok, spec} =
              Spec.build(

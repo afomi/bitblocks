@@ -12,6 +12,12 @@ defmodule Bitblocks.ForkTrackerTest do
   setup do
     setup_bitcoin_rpc()
 
+    # This suite replays real HTTP via ExVCR cassettes, so it needs the real
+    # client — not the globally-configured BitcoinsvCliMock (config/test.exs).
+    prev = Application.get_env(:bitblocks, :bitcoinsv_cli)
+    Application.put_env(:bitblocks, :bitcoinsv_cli, BitcoinsvCli)
+    on_exit(fn -> Application.put_env(:bitblocks, :bitcoinsv_cli, prev) end)
+
     ForkTracker.reset()
 
     on_exit(fn ->
@@ -48,6 +54,7 @@ defmodule Bitblocks.ForkTrackerTest do
       snapshot = ForkTracker.snapshot()
 
       assert snapshot.version > 0
+
       assert Enum.any?(snapshot.tips, fn tip -> tip.hash == "fork_120" and tip.branch_len == 2 end)
 
       fork_nodes =

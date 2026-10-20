@@ -64,7 +64,12 @@ defmodule BitblocksWeb.Plugs.RateLimiter.ReplicatorTest do
       # Pin a small max_requests so the retention cap (max_requests*2 + 10 = 30)
       # is well below the flood size, making the bound observable.
       prev = Application.get_env(:bitblocks, BitblocksWeb.Plugs.RateLimiter)
-      Application.put_env(:bitblocks, BitblocksWeb.Plugs.RateLimiter, window_ms: 60_000, max_requests: 10)
+
+      Application.put_env(:bitblocks, BitblocksWeb.Plugs.RateLimiter,
+        window_ms: 60_000,
+        max_requests: 10
+      )
+
       on_exit(fn -> Application.put_env(:bitblocks, BitblocksWeb.Plugs.RateLimiter, prev) end)
 
       ip = "203.0.113.flood.#{System.unique_integer([:positive])}"
@@ -96,8 +101,12 @@ defmodule BitblocksWeb.Plugs.RateLimiter.ReplicatorTest do
 
   defp wait_until(fun, attempts \\ 200) do
     cond do
-      attempts <= 0 -> flunk("condition not met in time")
-      fun.() -> :ok
+      attempts <= 0 ->
+        flunk("condition not met in time")
+
+      fun.() ->
+        :ok
+
       true ->
         Process.sleep(5)
         wait_until(fun, attempts - 1)

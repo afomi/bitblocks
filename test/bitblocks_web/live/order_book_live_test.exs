@@ -105,7 +105,12 @@ defmodule BitblocksWeb.OrderBookLiveTest do
     rendered =
       view
       |> element("form")
-      |> render_change(%{"token_id" => @test_token_id, "seller" => "", "min_price" => "", "max_price" => ""})
+      |> render_change(%{
+        "token_id" => @test_token_id,
+        "seller" => "",
+        "min_price" => "",
+        "max_price" => ""
+      })
 
     assert rendered =~ @test_token_id
     refute rendered =~ "other_token_0"
@@ -119,7 +124,12 @@ defmodule BitblocksWeb.OrderBookLiveTest do
     rendered =
       view
       |> element("form")
-      |> render_change(%{"token_id" => "nonexistent", "seller" => "", "min_price" => "", "max_price" => ""})
+      |> render_change(%{
+        "token_id" => "nonexistent",
+        "seller" => "",
+        "min_price" => "",
+        "max_price" => ""
+      })
 
     assert rendered =~ "No active listings"
   end
@@ -132,7 +142,12 @@ defmodule BitblocksWeb.OrderBookLiveTest do
     # Apply filter that hides listings
     view
     |> element("form")
-    |> render_change(%{"token_id" => "nonexistent", "seller" => "", "min_price" => "", "max_price" => ""})
+    |> render_change(%{
+      "token_id" => "nonexistent",
+      "seller" => "",
+      "min_price" => "",
+      "max_price" => ""
+    })
 
     # Clear filters
     rendered =

@@ -284,7 +284,10 @@ defmodule Bitblocks.Workers.BackfillTransactionsWorker do
       tx_sync_started_at: DateTime.utc_now() |> DateTime.truncate(:second)
     })
     |> Repo.update()
-    |> tap(fn {:ok, b} -> Chain.broadcast_block_update(b); _ -> :ok end)
+    |> tap(fn
+      {:ok, b} -> Chain.broadcast_block_update(b)
+      _ -> :ok
+    end)
   end
 
   defp mark_completed(block) do
@@ -294,7 +297,10 @@ defmodule Bitblocks.Workers.BackfillTransactionsWorker do
       tx_sync_completed_at: DateTime.utc_now() |> DateTime.truncate(:second)
     })
     |> Repo.update()
-    |> tap(fn {:ok, b} -> Chain.broadcast_block_update(b); _ -> :ok end)
+    |> tap(fn
+      {:ok, b} -> Chain.broadcast_block_update(b)
+      _ -> :ok
+    end)
   end
 
   defp mark_failed(block, error) do
@@ -305,7 +311,10 @@ defmodule Bitblocks.Workers.BackfillTransactionsWorker do
       tx_sync_attempts: (block.tx_sync_attempts || 0) + 1
     })
     |> Repo.update()
-    |> tap(fn {:ok, b} -> Chain.broadcast_block_update(b); _ -> :ok end)
+    |> tap(fn
+      {:ok, b} -> Chain.broadcast_block_update(b)
+      _ -> :ok
+    end)
   end
 
   defp reschedule do

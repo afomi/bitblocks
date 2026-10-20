@@ -19,8 +19,7 @@ defmodule Bitblocks.Chain.HeaderVerifierTest do
   @block_1 %{
     "hash" => "00000000839a8e6886ab5951d76f411475428afc90947ee320161bbf18eb6048",
     "version" => 1,
-    "previousblockhash" =>
-      "000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f",
+    "previousblockhash" => "000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f",
     "merkleroot" => "0e3e2357e806b6cdb1f70b54c3a3a17b6714ee1f0e68bebb44a74b1efd512098",
     "time" => 1_231_469_665,
     "bits" => "1d00ffff",

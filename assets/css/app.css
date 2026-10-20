@@ -20,7 +20,8 @@
   --surface-overlay: #EDEDED;
   --neutral-50: #000000;
   --neutral-400: #555555;
-  --neutral-500: #777777;
+  /* #6B6B6B clears WCAG AA 4.5:1 on both surface-base and surface-raised. */
+  --neutral-500: #6B6B6B;
   --neutral-700: #CCCCCC;
   --neutral-800: #E0E0E0;
 }

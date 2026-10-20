@@ -164,7 +164,10 @@ defmodule Bitblocks.Release do
           AND state IN ('available', 'scheduled', 'retryable')
       """)
 
-    IO.puts("migrate_legacy_tx_queue: re-homed #{count} job(s) from transactions -> transactions_backfill")
+    IO.puts(
+      "migrate_legacy_tx_queue: re-homed #{count} job(s) from transactions -> transactions_backfill"
+    )
+
     count
   end
 
@@ -241,7 +244,8 @@ defmodule Bitblocks.Release do
     {:ok, count}
   end
 
-  @doc deprecated: "Use repair_incomplete_blocks/1 — it covers stuck states AND completed-with-deficit blocks"
+  @doc deprecated:
+         "Use repair_incomplete_blocks/1 — it covers stuck states AND completed-with-deficit blocks"
   def recover_stuck_blocks do
     IO.puts("recover_stuck_blocks is deprecated — running repair_incomplete_blocks() instead.")
     repair_incomplete_blocks()
@@ -341,8 +345,13 @@ defmodule Bitblocks.Release do
         }
       end)
 
-    IO.puts("audit_completeness: #{length(deficits)} block(s) with missing transactions" <>
-      if(length(deficits) >= limit, do: " (limit #{limit} reached — there may be more)", else: ""))
+    IO.puts(
+      "audit_completeness: #{length(deficits)} block(s) with missing transactions" <>
+        if(length(deficits) >= limit,
+          do: " (limit #{limit} reached — there may be more)",
+          else: ""
+        )
+    )
 
     deficits
     |> Enum.take(20)
@@ -435,31 +444,38 @@ defmodule Bitblocks.Release do
     total = Enum.reduce(state_counts, 0, fn {_, c}, acc -> acc + c end)
 
     IO.puts("\n=== Block Sync States ===")
+
     for {state, count} <- state_counts do
       pct = if total > 0, do: Float.round(count / total * 100, 1), else: 0
       IO.puts("  #{String.pad_trailing(state, 16)} #{count} (#{pct}%)")
     end
+
     IO.puts("  #{String.pad_trailing("TOTAL", 16)} #{total}")
 
     # Oban job counts by worker + state
     job_counts =
       from(j in Oban.Job,
-        where: j.worker in [
-          "Bitblocks.Workers.SyncHeadersWorker",
-          "Bitblocks.Workers.FetchTransactionsWorker"
-        ],
+        where:
+          j.worker in [
+            "Bitblocks.Workers.SyncHeadersWorker",
+            "Bitblocks.Workers.FetchTransactionsWorker"
+          ],
         group_by: [j.worker, j.state],
         select: {j.worker, j.state, count(j.id)}
       )
       |> Repo.all()
 
     IO.puts("\n=== Oban Jobs ===")
+
     if job_counts == [] do
       IO.puts("  No active sync jobs")
     else
       for {worker, state, count} <- Enum.sort(job_counts) do
         short_worker = worker |> String.split(".") |> List.last()
-        IO.puts("  #{String.pad_trailing(short_worker, 28)} #{String.pad_trailing(state, 12)} #{count}")
+
+        IO.puts(
+          "  #{String.pad_trailing(short_worker, 28)} #{String.pad_trailing(state, 12)} #{count}"
+        )
       end
     end
 
@@ -668,7 +684,9 @@ defmodule Bitblocks.Release do
       )
       |> Repo.one()
 
-    Logger.info("analyze_transactions: #{total_needing_analysis} transactions to analyze (version #{current_version})")
+    Logger.info(
+      "analyze_transactions: #{total_needing_analysis} transactions to analyze (version #{current_version})"
+    )
 
     if total_needing_analysis == 0 do
       Logger.info("analyze_transactions: nothing to do")
@@ -688,7 +706,7 @@ defmodule Bitblocks.Release do
         where: is_nil(t.script_analysis_version) or t.script_analysis_version < ^current_version,
         order_by: [asc: t.id],
         limit: ^batch_size,
-        select: [:id, :raw]
+        select: [:id, :txid, :raw, :block_height]
       )
       |> Repo.all()
 
@@ -700,14 +718,21 @@ defmodule Bitblocks.Release do
         case TransactionParser.analyze(tx.raw) do
           {:ok, meta} ->
             from(t in Transaction, where: t.id == ^tx.id)
-            |> Repo.update_all(set: [
-              output_types: meta.output_types,
-              protocols: meta.protocols,
-              coinbase: meta.coinbase,
-              script_analysis_version: meta.script_analysis_version,
-              output_script_hashes: meta.output_script_hashes,
-              output_template_hashes: meta.output_template_hashes
-            ])
+            |> Repo.update_all(
+              set: [
+                output_types: meta.output_types,
+                protocols: meta.protocols,
+                coinbase: meta.coinbase,
+                script_analysis_version: meta.script_analysis_version,
+                output_script_hashes: meta.output_script_hashes,
+                output_template_hashes: meta.output_template_hashes,
+                aip_signers: meta.aip_signers
+              ]
+            )
+
+            # Bitcom commands are indexed from analyze output, so a re-analyze
+            # must index them too (idempotent per txid + output).
+            Bitblocks.Bitcom.index(%{tx | protocols: meta.protocols})
 
           {:error, reason} ->
             Logger.warning("analyze_transactions: failed for tx #{tx.id}: #{inspect(reason)}")
@@ -772,7 +797,8 @@ defmodule Bitblocks.Release do
     sync_headers(from, to)
   end
 
-  @doc deprecated: "Use start_backfill_transactions/0 (sequential) or repair_incomplete_blocks/1 (audit-driven)"
+  @doc deprecated:
+         "Use start_backfill_transactions/0 (sequential) or repair_incomplete_blocks/1 (audit-driven)"
   # The wave-based enqueuer flooded per-block FetchTransactionsWorker jobs and
   # skipped txs_queued/txs_syncing blocks entirely (stranding orphans). The
   # sequential BackfillTransactionsWorker replaces it: one block at a time on

@@ -26,7 +26,9 @@ defmodule BitblocksWeb.Api.MiningController do
 
     case MiningProxy.get_work(opts) do
       nil ->
-        conn |> put_status(503) |> json(%{error: "No work available. Mining proxy may be disabled or node unreachable."})
+        conn
+        |> put_status(503)
+        |> json(%{error: "No work available. Mining proxy may be disabled or node unreachable."})
 
       work ->
         json(conn, %{
@@ -69,7 +71,9 @@ defmodule BitblocksWeb.Api.MiningController do
   end
 
   def submit(conn, _params) do
-    conn |> put_status(400) |> json(%{error: "Missing required fields: work_id, nonce, timestamp"})
+    conn
+    |> put_status(400)
+    |> json(%{error: "Missing required fields: work_id, nonce, timestamp"})
   end
 
   defp submit_solution(conn, work_id, nonce, timestamp) do
@@ -78,13 +82,17 @@ defmodule BitblocksWeb.Api.MiningController do
         json(conn, %{status: "accepted", block_hash: block_hash})
 
       {:error, :stale_work} ->
-        conn |> put_status(409) |> json(%{status: "rejected", reason: "stale work — template has changed"})
+        conn
+        |> put_status(409)
+        |> json(%{status: "rejected", reason: "stale work — template has changed"})
 
       {:error, :no_work} ->
         conn |> put_status(503) |> json(%{status: "rejected", reason: "no work available"})
 
       {:error, :hash_above_target} ->
-        conn |> put_status(422) |> json(%{status: "rejected", reason: "hash does not meet target"})
+        conn
+        |> put_status(422)
+        |> json(%{status: "rejected", reason: "hash does not meet target"})
 
       {:error, reason} ->
         conn |> put_status(422) |> json(%{status: "rejected", reason: inspect(reason)})

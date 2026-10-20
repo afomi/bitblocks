@@ -6,6 +6,14 @@ defmodule Bitblocks.Workers.FetchTransactionsWorkerTest do
 
   import Bitblocks.ChainFixtures
 
+  alias BitblocksWeb.RpcStub
+
+  setup do
+    RpcStub.setup()
+    RpcStub.clear()
+    :ok
+  end
+
   # Real genesis block: single tx whose id equals the merkleroot.
   @genesis_merkleroot "4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b"
   @genesis_txid "4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b"
@@ -54,10 +62,12 @@ defmodule Bitblocks.Workers.FetchTransactionsWorkerTest do
       assert reloaded.tx_sync_error =~ "merkleroot_verification_failed"
     end
 
-    test "an incomplete txid list skips the check (large-block memory optimization)" do
-      # num_tx says 5 but only 1 stored → list is incomplete → verification skipped,
-      # so the worker does not reject on merkleroot grounds. (It will proceed past
-      # the gate; with no node available the fetch itself is a separate concern.)
+    test "an incomplete txid list triggers a re-fetch of the full list, not a skipped check" do
+      # num_tx says 5 but only 1 stored → the stored array is incomplete, so
+      # TxidSource re-fetches the txid list from the node instead of trusting
+      # (or skipping verification of) the partial array. With no stub for
+      # getblock the re-fetch fails — the error must be the fetch, never a
+      # merkleroot rejection of the partial list, and never a trivial pass.
       block =
         block_fixture(%{
           height: 999_002,
@@ -70,9 +80,8 @@ defmodule Bitblocks.Workers.FetchTransactionsWorkerTest do
 
       result = FetchTransactionsWorker.perform(%Oban.Job{args: %{"block_hash" => block.hash}})
 
-      # Whatever happens downstream, it must NOT be a merkleroot rejection —
-      # the gate let the incomplete list through.
       refute match?({:error, {:merkleroot_verification_failed, _}}, result)
+      assert {:error, {:no_stub, :getblock, _}} = result
     end
   end
 
@@ -121,6 +130,43 @@ defmodule Bitblocks.Workers.FetchTransactionsWorkerTest do
                FetchTransactionsWorker.perform(%Oban.Job{args: %{"block_hash" => block.hash}})
 
       assert Chain.get_block!(block.height).sync_state == "completed"
+    end
+  end
+
+  describe "empty stored tx array (the >10k truncation hole)" do
+    test "a block with tx: [] and num_tx > 0 re-fetches its list and completes with rows stored" do
+      # Previously total = length(block.tx) = 0, so the completeness gate passed
+      # trivially (0 >= 0) and the block was marked `completed` with ZERO
+      # transactions stored — the silent-incompleteness bug for >10k-tx blocks.
+      # Now the txid list is re-fetched, merkleroot-verified, and the block only
+      # completes once every transaction is actually stored.
+      block =
+        block_fixture(%{
+          height: 999_005,
+          hash: "empty_array_hash",
+          merkleroot: @genesis_merkleroot,
+          num_tx: 1,
+          tx: [],
+          sync_state: "header_synced"
+        })
+
+      RpcStub.stub_getblock(block.hash, 1, %{"hash" => block.hash, "tx" => [@genesis_txid]})
+
+      RpcStub.stub_getrawtransaction(@genesis_txid, 1, %{
+        "txid" => @genesis_txid,
+        "hex" => @genesis_raw,
+        "blockhash" => block.hash,
+        "height" => block.height,
+        "version" => 1,
+        "vin" => [%{"coinbase" => "04ffff001d0104", "sequence" => 4_294_967_295}],
+        "vout" => []
+      })
+
+      assert :ok =
+               FetchTransactionsWorker.perform(%Oban.Job{args: %{"block_hash" => block.hash}})
+
+      assert Chain.get_block!(block.height).sync_state == "completed"
+      assert %Chain.Transaction{} = Repo.get_by(Chain.Transaction, txid: @genesis_txid)
     end
   end
 end

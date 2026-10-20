@@ -108,7 +108,14 @@ defmodule Bitblocks.ForkTracker do
   def init(opts) do
     state_path = Keyword.get(opts, :state_path, @default_state_path)
     log_path = Keyword.get(opts, :log_path, @default_log_path)
-    poll_interval = Keyword.get(opts, :poll_interval, Application.get_env(:bitblocks, :fork_tracker_poll_interval, @default_poll_interval))
+
+    poll_interval =
+      Keyword.get(
+        opts,
+        :poll_interval,
+        Application.get_env(:bitblocks, :fork_tracker_poll_interval, @default_poll_interval)
+      )
+
     retention = Keyword.get(opts, :retention, @default_retention)
 
     File.mkdir_p!(Path.dirname(state_path))
