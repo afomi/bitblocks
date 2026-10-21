@@ -14,6 +14,8 @@ jobs:
     name: Rolling restart
     runs-on: ubuntu-latest
     concurrency: deploy-group
+    # Above the migrate ceiling below, so a long migration ends in our own error, not a job kill.
+    timeout-minutes: 150
     env:
       AWS_REGION: us-east-1
 
@@ -35,7 +37,7 @@ jobs:
         id: instances
         run: |
           INSTANCES=$(aws ec2 describe-instances \
-            --filters "Name=tag:Name,Values=bitblocks" "Name=instance-state-name,Values=running" \
+            --filters "Name=tag:Name,Values=bitblocks,bitblocks-*" "Name=instance-state-name,Values=running" \
             --query 'Reservations[].Instances[].InstanceId' --output text)
           echo "ids=$INSTANCES" >> $GITHUB_OUTPUT
           echo "first=$(echo $INSTANCES | awk '{print $1}')" >> $GITHUB_OUTPUT
@@ -53,6 +55,39 @@ jobs:
             --query 'TargetHealthDescriptions[0].Target.Port' --output text)
           if [ -z "$TG_PORT" ] || [ "$TG_PORT" = "None" ]; then TG_PORT=8080; fi
           echo "Target group $TG_ARN on port $TG_PORT"
+
+          # Send a shell command over SSM with an explicit executionTimeout.
+          # --timeout-seconds is only SSM's delivery timeout; without
+          # executionTimeout the AWS-RunShellScript default (3600s) kills the command.
+          ssm_send() {
+            local inst=$1 exec_timeout=$2 cmd=$3
+            aws ssm send-command \
+              --instance-ids "$inst" \
+              --document-name "AWS-RunShellScript" \
+              --timeout-seconds 180 \
+              --parameters "$(jq -nc --arg c "$cmd" --arg t "$exec_timeout" '{commands: [$c], executionTimeout: [$t]}')" \
+              --query 'Command.CommandId' --output text
+          }
+
+          # Poll an SSM command until it reaches a terminal status, up to a ceiling.
+          # `aws ssm wait command-executed` gives up after ~100s, which a long
+          # migration (GIN index builds on transactions) outlives while still running.
+          ssm_wait() {
+            local cmd_id=$1 inst=$2 ceiling=$3 start=$SECONDS status
+            while :; do
+              status=$(aws ssm get-command-invocation --command-id "$cmd_id" --instance-id "$inst" \
+                --query 'Status' --output text 2>/dev/null || echo Pending)
+              case "$status" in Success|Failed|Cancelled|TimedOut) break ;; esac
+              if (( SECONDS - start >= ceiling )); then status="StillRunning($status)"; break; fi
+              sleep 15
+            done
+            echo "$status"
+          }
+
+          # If anything fails while an instance is drained, say so loudly: it is
+          # out of rotation until the next successful rollout re-registers it.
+          DRAINED=""
+          trap 'if [ -n "$DRAINED" ]; then echo "::error::$DRAINED is DEREGISTERED from bitblocks-tg. Fix the failure, then re-run restart.yml to re-register it."; fi' EXIT
 
           ECR_REPO="${{ steps.ecr.outputs.registry }}/bitblocks"
           IMAGE_TAG="${{ inputs.image_tag || 'latest' }}"
@@ -74,20 +109,12 @@ jobs:
               --targets Id=$INST,Port=$TG_PORT
 
             echo "  Deploying container..."
+            DRAINED=$INST
             ENCODED=$(base64 -w 0 < .github/scripts/deploy.sh)
-            CMD_ID=$(aws ssm send-command \
-              --instance-ids $INST \
-              --document-name "AWS-RunShellScript" \
-              --timeout-seconds 180 \
-              --parameters commands=["echo $ENCODED | base64 -d | bash -s -- $IMAGE"] \
-              --query 'Command.CommandId' --output text)
-            aws ssm wait command-executed --command-id $CMD_ID --instance-id $INST || true
-
-            STATUS=$(aws ssm get-command-invocation \
-              --command-id $CMD_ID --instance-id $INST \
-              --query 'Status' --output text)
+            CMD_ID=$(ssm_send "$INST" 900 "echo $ENCODED | base64 -d | bash -s -- $IMAGE")
+            STATUS=$(ssm_wait "$CMD_ID" "$INST" 960)
             if [ "$STATUS" != "Success" ]; then
-              echo "  ERROR: Deploy failed on $INST"
+              echo "  ERROR: Deploy on $INST ended with status $STATUS"
               aws ssm get-command-invocation \
                 --command-id $CMD_ID --instance-id $INST \
                 --query 'StandardErrorContent' --output text
@@ -98,21 +125,17 @@ jobs:
             # (deploy.sh has confirmed the new container is up; migrate is idempotent).
             if [ "$INST" = "${{ steps.instances.outputs.first }}" ]; then
               echo "  Running migrations..."
-              MIG_ID=$(aws ssm send-command \
-                --instance-ids $INST \
-                --document-name "AWS-RunShellScript" \
-                --timeout-seconds 180 \
-                --parameters commands='["docker exec bitblocks /app/bin/migrate 2>&1"]' \
-                --query 'Command.CommandId' --output text)
-              aws ssm wait command-executed --command-id $MIG_ID --instance-id $INST || true
-              MIG_STATUS=$(aws ssm get-command-invocation \
+              # Index builds on transactions (29 GB+) have taken several minutes;
+              # allow 2h, then fail loudly. A StillRunning status means the command
+              # is STILL running on the instance; don't re-run until it finishes.
+              MIG_ID=$(ssm_send "$INST" 7200 "docker exec bitblocks /app/bin/migrate 2>&1")
+              echo "  SSM command $MIG_ID"
+              MIG_STATUS=$(ssm_wait "$MIG_ID" "$INST" 7260)
+              aws ssm get-command-invocation \
                 --command-id $MIG_ID --instance-id $INST \
-                --query 'Status' --output text)
+                --query 'StandardOutputContent' --output text
               if [ "$MIG_STATUS" != "Success" ]; then
-                echo "  ERROR: Migration failed"
-                aws ssm get-command-invocation \
-                  --command-id $MIG_ID --instance-id $INST \
-                  --query 'StandardOutputContent' --output text
+                echo "  ERROR: Migration ended with status $MIG_STATUS"
                 exit 1
               fi
               echo "  Migrations complete."
@@ -127,6 +150,7 @@ jobs:
             aws elbv2 wait target-in-service --target-group-arn "$TG_ARN" \
               --targets Id=$INST,Port=$TG_PORT
 
+            DRAINED=""
             echo "  $INST is live."
           done
 
