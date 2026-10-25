@@ -42,6 +42,7 @@ Docs marked *(mixed)* are mostly aspirational but contain sections that accurate
 - `CUSTOM_INDEXING.md` — *(mixed)* accurate on the current parsing pipeline (`TransactionParser`, `ProtocolRegistry`, `ProtocolParser`); aspirational on schema-driven views as a paid product.
 - `DATA_DICTIONARY_SPEC.md` — proposed versioned catalog of transaction/script/envelope formats backed by on-chain examples; derivative of transaction-pack definitions (content-hash keyed).
 - `USE_CASES.md` — draft use cases for Bitblocks as full-chain support for other applications: application registry, cross-app identity UX, and hydration (initial + ongoing).
+- `MANAGED_SERVICES.md` — prototype scenario for shared managed projections (hosted filter + hydrate/follow/webhook) over the full index; four portfolio tenants mapped to Planaria use cases.
 - `DATA_MANAGEMENT_CONSIDERATIONS.md` — proposal for tiered, importable chain dataset packs instead of full local sync.
 - `EVENT_DRIVEN_OBJECT_ORIENTED_BITCOIN.md` — sketch for representing CRUD actions as immutable Bitcoin events (Bitcom + AIP + schemas).
 - `NEXT_GEN_BLOCK_EXPLORER.md` — works backward from a 2032-scale explorer: intent-centric, entity-centric, operational intelligence.

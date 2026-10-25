@@ -10,13 +10,14 @@ Completed-work history (pre-Issues): `product-cycle/BACKLOG.md`.
 **#18 BITCOM**: be a live, maximally useful Bitcom registry (unwriter's Bitcom), then keep reviving the rest of his stack (#25).
 Current system doc: `docs/BITCOM.md`.
 
-Ryan's ops queue: **#1 OPS-ROLLOUT**. Commit and deploy the working tree, then run one `Release.analyze_transactions/1` pass to reach v6.
-That pass now also indexes Bitcom commands.
+Ryan's ops queue: **#1 OPS-ROLLOUT**. The code is deployed (b8b7757, 2026-10-21).
+Run one `Release.analyze_transactions/1` pass on prod to reach v6; it also indexes Bitcom commands, so `/bitcom` gains proofs, files and routes.
+It runs for hours, so start it detached (see #1).
 Then run the completeness audit and repair, and confirm zero deficit blocks.
 
-## Awaiting commit (built and tested 2026-10-19 and 2026-10-20; close each issue on commit)
+## Shipped 2026-10-21 (closed)
 
-#19 Bitcom command log · #20 /bitcom pages · #23 command composer · #2 precommit alias + format catch-up · #3 sitemap (also fixes /apps, /resources, /did) · #4 BSV-21 by address + net holders · #5 SEC-HARDEN · #6 script cards · #7 AIP verify · #8 attribution · #10 template-hash contract · #11 outpoint yes/no/unknown.
+#2 · #3 · #4 · #5 · #6 · #7 · #8 · #10 · #11 · #19 · #20 · #23.
 
 Partly built: #21 export (snapshot anchoring needs a bitblocks-owned address) · #22 bit:// resolver (acting as a provider needs #15 and that address) · #26 sponsorship: the ask moved off-site; bitblocks serves live numbers at `GET /api/v1/support` and a footer link (next steps in [docs/DONATION_ADDRESS.md](docs/DONATION_ADDRESS.md#fundraising-next-steps)).
 
@@ -27,6 +28,9 @@ Partly built: #21 export (snapshot anchoring needs a bitblocks-owned address) ·
 ## Next
 
 #25 REVIVE: unwriter's stack, one sprint per piece.
+#29 PROJECTIONS: shared managed projections, prototype slice ([docs/MANAGED_SERVICES.md](docs/MANAGED_SERVICES.md)).
+Steps 1–2 are built: the projection record (`Bitblocks.Projections`) and hydrate (`GET /api/v1/projections/:id/txs`).
+Step 3 (status: lag and completeness) is next.
 
 ## Deferred
 
