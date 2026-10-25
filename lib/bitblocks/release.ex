@@ -882,6 +882,30 @@ defmodule Bitblocks.Release do
     %{tip: tip, missing: total_missing, gaps: length(ranges), ranges: ranges}
   end
 
+  @doc """
+  Registers a managed projection (#29, docs/MANAGED_SERVICES.md) and returns
+  it, or the changeset errors. Hydrate it at `/api/v1/projections/:id/txs`.
+
+  ## Usage
+
+      bin/bitblocks rpc 'Bitblocks.Release.create_projection(%{tenant: "visible-dao", name: "donations", filter: %{"output_addresses" => ["1..."]}}) |> IO.inspect()'
+  """
+  def create_projection(attrs) do
+    case Bitblocks.Projections.create(attrs) do
+      {:ok, p} ->
+        Logger.info("create_projection: ##{p.id} #{p.tenant}/#{p.name} #{p.definition_hash}")
+        {:ok, p}
+
+      {:error, changeset} ->
+        {:error, Ecto.Changeset.traverse_errors(changeset, fn {msg, _} -> msg end)}
+    end
+  end
+
+  @doc "Lists managed projections as `{id, tenant, name, status}`."
+  def list_projections do
+    for p <- Bitblocks.Projections.list(), do: {p.id, p.tenant, p.name, p.status}
+  end
+
   # Private helpers
 
   defp get_db_size do

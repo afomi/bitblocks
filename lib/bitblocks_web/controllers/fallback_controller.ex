@@ -19,6 +19,12 @@ defmodule BitblocksWeb.FallbackController do
     |> json(%{error: "Not found"})
   end
 
+  def call(conn, {:error, :invalid_cursor}) do
+    conn
+    |> put_status(:bad_request)
+    |> json(%{error: "Invalid cursor — pass back meta.next_cursor unchanged"})
+  end
+
   def call(conn, {:error, :unauthorized}) do
     conn
     |> put_status(:unauthorized)

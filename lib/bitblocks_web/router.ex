@@ -112,6 +112,10 @@ defmodule BitblocksWeb.Router do
     get "/bitcom/:address", BitcomController, :show
     get "/bit/:address/*path", BitcomController, :resolve
     post "/bitcom/compose", BitcomController, :compose
+
+    # Managed projections (#29): hydrate a tenant's filter with a cursor
+    get "/projections/:id/txs", ProjectionController, :txs
+    get "/projections/:id", ProjectionController, :show
   end
 
   # Open to all origins — cached, lightweight, and intended for external
