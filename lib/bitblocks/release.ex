@@ -692,16 +692,20 @@ defmodule Bitblocks.Release do
       Logger.info("analyze_transactions: nothing to do")
       :ok
     else
-      do_analyze_batch(0, total_needing_analysis, batch_size, current_version)
+      do_analyze_batch(0, 0, total_needing_analysis, batch_size, current_version)
     end
   end
 
-  defp do_analyze_batch(processed, total, batch_size, current_version) do
+  # Keyset-paginated by id: every batch starts after the last one, so a tx that
+  # fails to analyze (and so keeps its old version) is never re-selected, and
+  # batches don't re-scan the rows already done.
+  defp do_analyze_batch(last_id, processed, total, batch_size, current_version) do
     alias Bitblocks.{Repo, Chain.Transaction, TransactionParser}
     import Ecto.Query
 
     txs =
       from(t in Transaction,
+        where: t.id > ^last_id,
         where: not is_nil(t.raw),
         where: is_nil(t.script_analysis_version) or t.script_analysis_version < ^current_version,
         order_by: [asc: t.id],
@@ -741,7 +745,7 @@ defmodule Bitblocks.Release do
 
       new_processed = processed + length(txs)
       Logger.info("analyze_transactions: #{new_processed}/#{total}")
-      do_analyze_batch(new_processed, total, batch_size, current_version)
+      do_analyze_batch(List.last(txs).id, new_processed, total, batch_size, current_version)
     end
   end
 

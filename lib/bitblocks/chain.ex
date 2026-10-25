@@ -759,7 +759,7 @@ defmodule Bitblocks.Chain do
           from t in acc, where: ilike(t.txid, ^"#{search}%")
 
         {:protocol, protocol} when is_binary(protocol) and protocol != "" ->
-          from t in acc, where: ^protocol == fragment("ANY(?)", t.protocols)
+          from t in acc, where: fragment("? @> ARRAY[?]::varchar[]", t.protocols, ^protocol)
 
         {:has_inputs, true} ->
           from t in acc, where: t.input_count > 0
@@ -1236,7 +1236,7 @@ defmodule Bitblocks.Chain do
     txs =
       Repo.all(
         from t in Transaction,
-          where: ^address in t.output_addresses,
+          where: fragment("? @> ARRAY[?]::varchar[]", t.output_addresses, ^address),
           select: %{txid: t.txid, block_height: t.block_height, outputs: t.outputs}
       )
 
@@ -1273,7 +1273,10 @@ defmodule Bitblocks.Chain do
   (unconfirmed txs are then excluded).
   """
   def received_for_address(address, opts \\ []) when is_binary(address) do
-    query = from t in Transaction, where: ^address in t.output_addresses, select: t.outputs
+    query =
+      from t in Transaction,
+        where: fragment("? @> ARRAY[?]::varchar[]", t.output_addresses, ^address),
+        select: t.outputs
 
     query =
       case Keyword.get(opts, :min_height) do
@@ -1316,7 +1319,7 @@ defmodule Bitblocks.Chain do
   def history_for_script_hash(script_hash) when is_binary(script_hash) do
     Repo.all(
       from t in Transaction,
-        where: ^script_hash in t.output_script_hashes,
+        where: fragment("? @> ARRAY[?]::varchar[]", t.output_script_hashes, ^script_hash),
         order_by: [desc: t.block_height],
         limit: 1000,
         select: %{txid: t.txid, block_height: t.block_height, block_hash: t.block_hash}
@@ -1335,7 +1338,7 @@ defmodule Bitblocks.Chain do
     txs =
       Repo.all(
         from t in Transaction,
-          where: ^script_hash in t.output_script_hashes,
+          where: fragment("? @> ARRAY[?]::varchar[]", t.output_script_hashes, ^script_hash),
           select: %{txid: t.txid, block_height: t.block_height, outputs: t.outputs}
       )
 
@@ -1373,7 +1376,7 @@ defmodule Bitblocks.Chain do
   def history_for_template_hash(template_hash) when is_binary(template_hash) do
     Repo.all(
       from t in Transaction,
-        where: ^template_hash in t.output_template_hashes,
+        where: fragment("? @> ARRAY[?]::varchar[]", t.output_template_hashes, ^template_hash),
         order_by: [desc: t.block_height],
         limit: 1000,
         select: %{txid: t.txid, block_height: t.block_height, block_hash: t.block_hash}

@@ -257,5 +257,21 @@ defmodule Bitblocks.BitcomTest do
       assert ProtocolRegistry.get_protocol_by_address(ctx.admin_addr).ownership_proof_txid ==
                tx.txid
     end
+
+    # Before keyset pagination, a tx that failed to analyze kept its old
+    # version and was re-selected by every batch: with batch_size 1 the
+    # backfill looped forever on it.
+    @tag timeout: 10_000
+    test "moves past transactions that fail to analyze", ctx do
+      Repo.insert!(%Transaction{txid: String.duplicate("e", 64), raw: "zz"})
+      tx = store(raw_tx(ctx.admin, [["$", "useradd", ctx.admin_addr]]))
+
+      Repo.update_all(from(t in Transaction, where: t.id == ^tx.id),
+        set: [script_analysis_version: nil]
+      )
+
+      assert :ok = Release.analyze_transactions(batch_size: 1)
+      assert [%Command{valid: true}] = logged(tx.txid)
+    end
   end
 end

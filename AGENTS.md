@@ -44,6 +44,24 @@ Squash fixups locally before opening a PR.
 Pull requests should explain the intent, reference any issue numbers (e.g., "Fix #123: handle timeout errors"), and include screenshots or console snippets for UI- or sync-facing changes.
 Note any schema migrations and coordinated deploy steps in the PR description so reviewers can plan rollout timing.
 
+### Migrations on large tables
+
+`transactions` is tens of GB in prod.
+A plain `create index` on it blocks writes (tip sync stalls) for as long as the build takes, which has been minutes per index (#28).
+Build indexes on large tables concurrently, outside the migration transaction:
+
+```elixir
+@disable_ddl_transaction true
+@disable_migration_lock true
+
+def change do
+  create(index(:transactions, [:col], using: "GIN", concurrently: true))
+end
+```
+
+Keep such a migration to just the concurrent index (column adds go in their own migration).
+`test/bitblocks/large_table_migrations_test.exs` enforces this for migrations added after 2026-10-20.
+
 ## Environment & Configuration Tips
 
 Set environment variables for Bitcoin node credentials (e.g., `export BITCOIN_NODE_URL=...`) before running mix tasks.

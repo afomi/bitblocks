@@ -170,9 +170,10 @@ defmodule BitblocksWeb.TxGraphLive do
 
   defp find_spending_txs(txid) do
     # input_txids is a GIN-indexed array of parent txids extracted at write time.
-    # ANY() on a GIN-indexed array is O(log n) vs the previous unnest+LIKE full scan.
+    # Containment (@>) is what the GIN index serves; `x = ANY(col)` is not, and
+    # seq-scans the whole table (see Bitblocks.ArrayIndexQueriesTest).
     from(t in Transaction,
-      where: fragment("? = ANY(?)", ^txid, t.input_txids),
+      where: fragment("? @> ARRAY[?]::varchar[]", t.input_txids, ^txid),
       limit: 20
     )
     |> Repo.all()

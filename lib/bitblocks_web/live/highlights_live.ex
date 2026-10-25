@@ -62,7 +62,7 @@ defmodule BitblocksWeb.HighlightsLive do
   # Template: highlights_live.html.heex
 
   defp category_color("milestone"), do: "bg-brand text-white"
-  defp category_color("first"), do: "bg-green-500 text-white"
+  defp category_color("first"), do: "bg-green-700 text-white"
   defp category_color("culture"), do: "bg-neutral-600 text-white"
   defp category_color("nft"), do: "bg-neutral-600 text-white"
   defp category_color("record"), do: "bg-neutral-600 text-white"

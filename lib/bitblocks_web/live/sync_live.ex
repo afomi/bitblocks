@@ -387,7 +387,7 @@ defmodule BitblocksWeb.SyncLive do
         </p>
         <%= cond do %>
           <% @audit == nil -> %>
-            <p class="text-sm text-gray-400 dark:text-gray-500">
+            <p class="text-sm text-gray-600 dark:text-gray-400">
               Not run yet.
             </p>
           <% @audit.count == 0 -> %>
