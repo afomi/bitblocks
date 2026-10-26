@@ -885,10 +885,12 @@ defmodule Bitblocks.Release do
   @doc """
   Registers a managed projection (#29, docs/MANAGED_SERVICES.md) and returns
   it, or the changeset errors. Hydrate it at `/api/v1/projections/:id/txs`.
+  Set `from_height` to the first block it needs: status measures completeness
+  from there.
 
   ## Usage
 
-      bin/bitblocks rpc 'Bitblocks.Release.create_projection(%{tenant: "visible-dao", name: "donations", filter: %{"output_addresses" => ["1..."]}}) |> IO.inspect()'
+      bin/bitblocks rpc 'Bitblocks.Release.create_projection(%{tenant: "visible-dao", name: "donations", filter: %{"output_addresses" => ["1..."]}, from_height: 900_000}) |> IO.inspect()'
   """
   def create_projection(attrs) do
     case Bitblocks.Projections.create(attrs) do

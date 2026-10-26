@@ -10,7 +10,7 @@ defmodule Bitblocks.Projections.Projection do
   # Ingest-time tag columns, each GIN-indexed, so a containment filter on any
   # of them is an index lookup rather than a scan of `transactions`.
   @tag_columns ~w(output_addresses protocols output_script_hashes output_template_hashes aip_signers)
-  @statuses ~w(backfilling ready paused)
+  @statuses ~w(active paused)
 
   @type t :: %__MODULE__{}
 
@@ -20,7 +20,10 @@ defmodule Bitblocks.Projections.Projection do
     # Tag column => values; see the migration for the matching rule.
     field :filter, :map
     field :definition_hash, :string
-    field :status, :string, default: "backfilling"
+    # First block covered; status/1 measures completeness from here.
+    field :from_height, :integer, default: 0
+    # Operator intent (active | paused); index readiness is computed, not stored.
+    field :status, :string, default: "active"
 
     timestamps(type: :utc_datetime)
   end
@@ -32,9 +35,10 @@ defmodule Bitblocks.Projections.Projection do
   @doc false
   def changeset(projection, attrs) do
     projection
-    |> cast(attrs, [:tenant, :name, :filter, :status])
+    |> cast(attrs, [:tenant, :name, :filter, :from_height, :status])
     |> validate_required([:tenant, :name, :filter])
     |> validate_inclusion(:status, @statuses)
+    |> validate_number(:from_height, greater_than_or_equal_to: 0)
     |> validate_change(:filter, fn :filter, filter -> filter_errors(filter) end)
     |> put_definition_hash()
     |> unique_constraint([:tenant, :name])

@@ -198,7 +198,8 @@ GET /api/v1/addresses/:address/tokens — unspent BSV-20/21 outputs held by an a
 GET /api/v1/bitcom              — Bitcom registry export, every namespace with re-verifiable txids (also at /bitcom.json)
 GET /api/v1/bitcom/:address     — one Bitcom namespace: tier, proof, files, routes
 GET /api/v1/projections/:id     — managed projection (#29): tenant, filter, definition hash
-GET /api/v1/projections/:id/txs — hydrate: matching confirmed txs oldest first, frozen at a snapshot (?cursor=, ?limit=)
+GET /api/v1/projections/:id/txs — hydrate: matching confirmed txs oldest first, frozen at a snapshot (?cursor=, ?limit=); meta.complete is false while blocks in range are syncing
+GET /api/v1/projections/:id/status — index_state ready | backfilling, indexed_through_height, lag_blocks
 GET /api/v1/outpoints/:txid/:vout — is this outpoint an ordinal/token? answer: yes | no | unknown (spend only on "no")
 GET /api/v1/script/:scripthash/history — tx history for a script (Electrum scripthash: sha256 of scriptPubKey, reversed hex)
 GET /api/v1/script/:scripthash/unspent — UTXOs locked by a script

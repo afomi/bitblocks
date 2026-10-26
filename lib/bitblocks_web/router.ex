@@ -115,6 +115,7 @@ defmodule BitblocksWeb.Router do
 
     # Managed projections (#29): hydrate a tenant's filter with a cursor
     get "/projections/:id/txs", ProjectionController, :txs
+    get "/projections/:id/status", ProjectionController, :status
     get "/projections/:id", ProjectionController, :show
   end
 

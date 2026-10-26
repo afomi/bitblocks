@@ -54,6 +54,22 @@ defmodule BitblocksWeb.Api.ProjectionControllerTest do
     assert second["meta"]["next_cursor"] == nil
   end
 
+  test "GET /api/v1/projections/:id/status reports readiness and lag", %{
+    conn: conn,
+    projection: p
+  } do
+    # The setup's block 30 is "pending", and nothing below it is stored.
+    data =
+      conn |> get(~p"/api/v1/projections/#{p.id}/status") |> json_response(200) |> Map.get("data")
+
+    assert data["index_state"] == "backfilling"
+    assert data["tip_height"] == 30
+    assert data["indexed_through_height"] == -1
+
+    meta = build_conn() |> get(~p"/api/v1/projections/#{p.id}/txs") |> json_response(200)
+    assert meta["meta"]["complete"] == false
+  end
+
   test "a bad cursor is a 400, an unknown projection a 404", %{conn: conn, projection: p} do
     assert %{"error" => "Invalid cursor" <> _} =
              conn |> get(~p"/api/v1/projections/#{p.id}/txs?cursor=nope") |> json_response(400)

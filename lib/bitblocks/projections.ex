@@ -72,16 +72,18 @@ defmodule Bitblocks.Projections do
   Options: `:cursor`, `:limit` (default #{@default_limit}, max #{@max_limit}),
   `:snapshot_height` (first page only).
 
-  Pages are only complete if the blocks up to the snapshot are fully synced: a
-  tx backfilled below a cursor after that page was served is not revisited.
-  Status (#29 step 3) reports that, so a tenant knows when to re-hydrate.
+  Starts at the projection's `from_height`. `complete` says whether every
+  block from there to the snapshot is fully synced (see `status/1`). When it
+  is false, the set is partial: a tx backfilled below a cursor after that page
+  was served is not revisited, so the tenant re-hydrates once it is true.
   """
   @spec hydrate(Projection.t(), keyword()) ::
           {:ok,
            %{
              txs: [Transaction.t()],
              next_cursor: String.t() | nil,
-             snapshot_height: integer() | nil
+             snapshot_height: integer() | nil,
+             complete: boolean()
            }}
           | {:error, :invalid_cursor}
   def hydrate(%Projection{} = projection, opts \\ []) do
@@ -98,7 +100,13 @@ defmodule Bitblocks.Projections do
           _ -> nil
         end
 
-      {:ok, %{txs: txs, next_cursor: next_cursor, snapshot_height: snapshot}}
+      {:ok,
+       %{
+         txs: txs,
+         next_cursor: next_cursor,
+         snapshot_height: snapshot,
+         complete: complete_through?(projection, snapshot)
+       }}
     end
   end
 
@@ -116,7 +124,7 @@ defmodule Bitblocks.Projections do
   defp fetch_page(projection, snapshot, after_key, limit) do
     projection
     |> query()
-    |> where([t], not is_nil(t.block_height) and t.block_height <= ^snapshot)
+    |> where([t], t.block_height >= ^projection.from_height and t.block_height <= ^snapshot)
     |> after_key(after_key)
     |> order_by([t], asc: t.block_height, asc: t.txid)
     |> limit(^(limit + 1))
@@ -145,4 +153,76 @@ defmodule Bitblocks.Projections do
   end
 
   defp decode_cursor(_id, _cursor), do: {:error, :invalid_cursor}
+
+  @doc """
+  Status: how far a projection's index is complete, from its `from_height`.
+
+  `indexed_through_height` is the last height `h` such that every block in
+  `[from_height, h]` is stored and `completed` (its transactions fetched and
+  analyzed). A missing block is a gap, never a pass. `index_state` is
+  `"ready"` when that reaches the tip, else `"backfilling"`; `lag_blocks` is
+  the distance to the tip.
+
+  Block-level: a `completed` block with a tx-count deficit is caught by
+  `Release.audit_completeness/1`, which is too heavy to run per request.
+  """
+  @spec status(Projection.t()) :: %{
+          projection_id: integer(),
+          from_height: non_neg_integer(),
+          tip_height: integer() | nil,
+          indexed_through_height: integer(),
+          lag_blocks: non_neg_integer(),
+          index_state: String.t()
+        }
+  def status(%Projection{} = projection) do
+    tip = tip_height()
+    through = indexed_through(projection.from_height, tip)
+    lag = if tip, do: max(tip - through, 0), else: 0
+
+    %{
+      projection_id: projection.id,
+      from_height: projection.from_height,
+      tip_height: tip,
+      indexed_through_height: through,
+      lag_blocks: lag,
+      index_state: if(tip && through >= tip, do: "ready", else: "backfilling")
+    }
+  end
+
+  defp complete_through?(_projection, nil), do: false
+
+  defp complete_through?(projection, snapshot),
+    do: indexed_through(projection.from_height, snapshot) >= snapshot
+
+  # Last height h in [from, to] with every block from..h completed; from - 1
+  # when the first block is already incomplete. The count is an index-only
+  # scan on (sync_state, height); the gap search runs only when it falls short.
+  defp indexed_through(from, nil), do: from - 1
+  defp indexed_through(from, to) when to < from, do: from - 1
+
+  defp indexed_through(from, to) do
+    completed =
+      Repo.one(
+        from b in Bitblocks.Chain.Block,
+          where: b.sync_state == "completed" and b.height >= ^from and b.height <= ^to,
+          select: count()
+      )
+
+    if completed == to - from + 1 do
+      to
+    else
+      %{rows: [[first_gap]]} =
+        Repo.query!(
+          """
+          SELECT min(h) FROM generate_series($1::integer, $2::integer) AS h
+          WHERE NOT EXISTS (
+            SELECT 1 FROM blocks b WHERE b.height = h AND b.sync_state = 'completed'
+          )
+          """,
+          [from, to]
+        )
+
+      first_gap - 1
+    end
+  end
 end

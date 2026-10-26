@@ -21,7 +21,8 @@ defmodule Bitblocks.ProjectionsTest do
                Projections.create(%{tenant: "qart", name: "receipts", filter: filter})
 
       assert Projections.get!(p.id).filter == filter
-      assert p.status == "backfilling"
+      assert p.status == "active"
+      assert p.from_height == 0
     end
 
     test "rejects unknown columns, empty value lists and non-string values" do
@@ -174,6 +175,79 @@ defmodule Bitblocks.ProjectionsTest do
     end
   end
 
+  describe "status/1" do
+    setup do
+      {:ok, p} =
+        Projections.create(%{
+          tenant: "visible-dao",
+          name: "donations",
+          filter: %{"output_addresses" => [@donation]},
+          from_height: 100
+        })
+
+      %{projection: p}
+    end
+
+    test "is ready when every block from from_height to the tip is completed", %{projection: p} do
+      blocks(100..105, "completed")
+
+      assert %{
+               index_state: "ready",
+               tip_height: 105,
+               indexed_through_height: 105,
+               lag_blocks: 0
+             } = Projections.status(p)
+    end
+
+    test "is backfilling, and stops at the first block not yet completed", %{projection: p} do
+      blocks(100..102, "completed")
+      blocks(103..103, "txs_syncing")
+      blocks(104..105, "completed")
+
+      assert %{index_state: "backfilling", indexed_through_height: 102, lag_blocks: 3} =
+               Projections.status(p)
+    end
+
+    test "a height with no block at all is a gap, not a pass", %{projection: p} do
+      blocks(100..101, "completed")
+      blocks(103..105, "completed")
+
+      assert %{index_state: "backfilling", indexed_through_height: 101} = Projections.status(p)
+    end
+
+    test "ignores incomplete blocks below from_height", %{projection: p} do
+      blocks(90..99, "header_only")
+      blocks(100..101, "completed")
+
+      assert %{index_state: "ready", indexed_through_height: 101} = Projections.status(p)
+    end
+
+    test "nothing indexed yet: indexed through the block before from_height", %{projection: p} do
+      assert %{index_state: "backfilling", indexed_through_height: 99, tip_height: nil} =
+               Projections.status(p)
+    end
+
+    test "hydrate starts at from_height and says whether the snapshot is complete", %{
+      projection: p
+    } do
+      blocks(100..102, "completed")
+      blocks(103..103, "header_only")
+
+      for {height, n} <- [{99, 1}, {100, 2}, {103, 3}] do
+        transaction_fixture(%{
+          block_height: height,
+          txid: String.duplicate("#{n}", 64),
+          output_addresses: [@donation]
+        })
+      end
+
+      assert {:ok, %{complete: false, txs: txs}} = Projections.hydrate(p)
+      assert Enum.map(txs, & &1.block_height) == [100, 103]
+
+      assert {:ok, %{complete: true}} = Projections.hydrate(p, snapshot_height: 102)
+    end
+  end
+
   describe "Release CLI" do
     test "create_projection/1 returns the projection or readable errors" do
       assert {:ok, %Projection{id: id}} =
@@ -190,8 +264,12 @@ defmodule Bitblocks.ProjectionsTest do
                  filter: %{"raw" => ["x"]}
                })
 
-      assert {id, "t", "n", "backfilling"} in Bitblocks.Release.list_projections()
+      assert {id, "t", "n", "active"} in Bitblocks.Release.list_projections()
     end
+  end
+
+  defp blocks(range, sync_state) do
+    for height <- range, do: block_fixture(%{height: height, sync_state: sync_state})
   end
 
   defp page_through(p, opts, acc \\ []) do

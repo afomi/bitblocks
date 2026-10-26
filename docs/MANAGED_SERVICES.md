@@ -60,7 +60,7 @@ Missing for a managed service:
 - webhooks;
 - per-projection lag and completeness.
 
-Built (#29 steps 1–2): the projection record and hydrate, `Bitblocks.Projections` and `/api/v1/projections/:id/txs`.
+Built (#29 steps 1–3): the projection record, hydrate and status, `Bitblocks.Projections` and `/api/v1/projections/:id/{txs,status}`.
 
 GIN serves containment (`col @> ARRAY[x]`), not membership (`x = ANY(col)`, which is what Ecto's `^x in t.col` compiles to).
 Before 2026-10-25 the address, script and template lookups used membership, so on prod they scanned the whole table, `/api/v1/support` included.
@@ -136,6 +136,8 @@ Build in dependency order, each step with a test, and do it CLI-first: a context
 3. **Status.**
    `indexed_through_height`, `lag_blocks`, `index_state: ready | backfilling`.
    Test: a projection over a height range with missing blocks reports `backfilling`, never a silent partial set.
+   Built: `Projections.status/1`, `GET /api/v1/projections/:id/status`; hydrate's `meta.complete`.
+   A projection has a `from_height`, since Bitblocks holds tx data for part of the chain: completeness is measured over `[from_height, tip]`.
 4. **Follow by webhook** for Tenant 1: an Oban job posts `{projection, txid, height, cursor}` on each new match, retries with backoff, and is signed with a per-tenant secret.
    Test: a matching tx at the tip enqueues exactly one delivery; a reorg sends a `reorg` event carrying the rewind height.
 5. **Tenant keys and quotas:** per-tenant API key, a request budget, and tip-lag targets.
