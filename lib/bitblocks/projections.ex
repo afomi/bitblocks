@@ -11,6 +11,7 @@ defmodule Bitblocks.Projections do
   alias Bitblocks.Chain.Transaction
   alias Bitblocks.Projections.Projection
   alias Bitblocks.Repo
+  alias Bitblocks.Workers.ProjectionWebhookWorker
 
   @doc "Registers a projection; its filter is validated and hashed."
   @spec create(map()) :: {:ok, Projection.t()} | {:error, Ecto.Changeset.t()}
@@ -56,6 +57,89 @@ defmodule Bitblocks.Projections do
       field = String.to_existing_atom(column)
       where(q, [t], fragment("? @> ?", field(t, ^field), type(^values, {:array, :string})))
     end)
+  end
+
+  @doc """
+  Updates a projection's operational settings: `from_height` and `status`
+  (active | paused). The filter is the definition, so changing it means a new
+  projection.
+  """
+  @spec update_settings(Projection.t(), map()) ::
+          {:ok, Projection.t()} | {:error, Ecto.Changeset.t()}
+  def update_settings(%Projection{} = projection, attrs) do
+    projection
+    |> Projection.changeset(Map.take(attrs, [:from_height, :status]))
+    |> Repo.update()
+  end
+
+  @doc """
+  Sets or clears a projection's webhook. Setting it always rotates the
+  secret, so a leaked secret is replaced by re-registering the URL.
+  """
+  @spec set_webhook(Projection.t(), String.t() | nil) ::
+          {:ok, Projection.t()} | {:error, Ecto.Changeset.t()}
+  def set_webhook(%Projection{} = projection, url) do
+    # Nil the stored secret as a real change, so clearing persists and setting
+    # makes Projection.changeset generate a fresh one.
+    projection
+    |> Ecto.Changeset.change(webhook_secret: nil)
+    |> Projection.changeset(%{webhook_url: url})
+    |> Repo.update()
+  end
+
+  @doc """
+  Follow: enqueues one webhook delivery per tx in `block` matching each active
+  projection that has a webhook and covers the block's height. Called when a
+  block completes on the tip lane. Returns the number of deliveries newly
+  enqueued (a repeat call for the same block enqueues none).
+  """
+  @spec notify_block(Bitblocks.Chain.Block.t()) :: non_neg_integer()
+  def notify_block(%Bitblocks.Chain.Block{height: height, hash: hash}) do
+    jobs =
+      for projection <- webhook_projections(),
+          projection.from_height <= height,
+          txid <- matching_txids(projection, hash) do
+        ProjectionWebhookWorker.new(%{
+          projection_id: projection.id,
+          event: "tx",
+          txid: txid,
+          block_height: height,
+          block_hash: hash
+        })
+      end
+
+    jobs |> Enum.map(&Oban.insert!/1) |> Enum.count(&(not &1.conflict?))
+  end
+
+  @doc """
+  Enqueues a `reorg` event for every active webhook projection: blocks above
+  `rewind_height` (the fork point) were orphaned. Returns the count enqueued.
+  """
+  @spec notify_reorg(integer()) :: non_neg_integer()
+  def notify_reorg(rewind_height) do
+    for projection <- webhook_projections() do
+      %{projection_id: projection.id, event: "reorg", rewind_height: rewind_height}
+      # Not unique: two reorgs to the same height are two events.
+      |> ProjectionWebhookWorker.new(unique: false)
+      |> Oban.insert!()
+    end
+    |> length()
+  end
+
+  defp webhook_projections do
+    Repo.all(
+      from p in Projection,
+        where: p.status == "active" and not is_nil(p.webhook_url),
+        order_by: p.id
+    )
+  end
+
+  defp matching_txids(projection, block_hash) do
+    projection
+    |> query()
+    |> where([t], t.block_hash == ^block_hash)
+    |> select([t], t.txid)
+    |> Repo.all()
   end
 
   @default_limit 100

@@ -24,6 +24,10 @@ defmodule Bitblocks.Projections.Projection do
     field :from_height, :integer, default: 0
     # Operator intent (active | paused); index readiness is computed, not stored.
     field :status, :string, default: "active"
+    # Where new matches and reorg rewinds are POSTed; nil means hydrate-only.
+    field :webhook_url, :string
+    # HMAC key for x-bitblocks-signature; generated here, never accepted as input.
+    field :webhook_secret, :string, redact: true
 
     timestamps(type: :utc_datetime)
   end
@@ -35,13 +39,40 @@ defmodule Bitblocks.Projections.Projection do
   @doc false
   def changeset(projection, attrs) do
     projection
-    |> cast(attrs, [:tenant, :name, :filter, :from_height, :status])
+    |> cast(attrs, [:tenant, :name, :filter, :from_height, :status, :webhook_url])
     |> validate_required([:tenant, :name, :filter])
     |> validate_inclusion(:status, @statuses)
     |> validate_number(:from_height, greater_than_or_equal_to: 0)
     |> validate_change(:filter, fn :filter, filter -> filter_errors(filter) end)
+    |> validate_change(:webhook_url, fn :webhook_url, url -> webhook_url_errors(url) end)
     |> put_definition_hash()
+    |> put_webhook_secret()
     |> unique_constraint([:tenant, :name])
+  end
+
+  # Operator-registered for now (CLI). Before tenants self-register (#29 step
+  # 5), delivery must also resolve the host and refuse private addresses, or a
+  # tenant could point Bitblocks at its own network (SSRF).
+  defp webhook_url_errors(url) do
+    case URI.parse(url) do
+      %URI{scheme: scheme, host: host}
+      when scheme in ["https", "http"] and host not in [nil, ""] ->
+        []
+
+      _ ->
+        [webhook_url: "must be an http(s) URL"]
+    end
+  end
+
+  defp put_webhook_secret(changeset) do
+    if get_field(changeset, :webhook_url) && is_nil(get_field(changeset, :webhook_secret)),
+      do:
+        put_change(
+          changeset,
+          :webhook_secret,
+          Base.encode16(:crypto.strong_rand_bytes(32), case: :lower)
+        ),
+      else: changeset
   end
 
   defp filter_errors(filter) when map_size(filter) == 0,

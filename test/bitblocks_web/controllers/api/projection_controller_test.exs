@@ -36,6 +36,23 @@ defmodule BitblocksWeb.Api.ProjectionControllerTest do
     assert data["definition_hash"] == p.definition_hash
   end
 
+  # Public endpoint: a webhook URL can carry a token (build hooks do), and the
+  # secret signs deliveries. Neither is ever served.
+  test "never exposes the webhook URL or secret", %{conn: conn} do
+    {:ok, hooked} =
+      Projections.create(%{
+        tenant: "t",
+        name: "hooked",
+        filter: %{"output_addresses" => [@donation]},
+        webhook_url: "https://build.example/hook?token=s3cret"
+      })
+
+    body = conn |> get(~p"/api/v1/projections/#{hooked.id}") |> response(200)
+
+    refute body =~ "s3cret"
+    refute body =~ hooked.webhook_secret
+  end
+
   test "GET /api/v1/projections/:id/txs pages history with a cursor", %{conn: conn, projection: p} do
     first = conn |> get(~p"/api/v1/projections/#{p.id}/txs?limit=2") |> json_response(200)
 

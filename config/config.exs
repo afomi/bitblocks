@@ -141,6 +141,9 @@ config :bitblocks, Oban,
     # never share slots — one current + one past block fetch in parallel.
     transactions_tip: 1,
     transactions_backfill: 1,
+    # Projection webhook deliveries (#29 step 4); off the tx lanes so a slow
+    # tenant endpoint never delays sync.
+    webhooks: 5,
     blocks: 3
   ]
 

@@ -887,6 +887,8 @@ defmodule Bitblocks.Release do
   it, or the changeset errors. Hydrate it at `/api/v1/projections/:id/txs`.
   Set `from_height` to the first block it needs: status measures completeness
   from there.
+  With `webhook_url`, new matches are POSTed there, signed with a generated
+  secret that is printed once.
 
   ## Usage
 
@@ -896,6 +898,62 @@ defmodule Bitblocks.Release do
     case Bitblocks.Projections.create(attrs) do
       {:ok, p} ->
         Logger.info("create_projection: ##{p.id} #{p.tenant}/#{p.name} #{p.definition_hash}")
+
+        # Printed once to the operator's terminal, never logged: the tenant
+        # needs it to verify signatures. (The schema redacts it from inspect.)
+        if p.webhook_secret,
+          do: IO.puts("webhook_secret (store it now; it is not shown again): #{p.webhook_secret}")
+
+        {:ok, p}
+
+      {:error, changeset} ->
+        {:error, Ecto.Changeset.traverse_errors(changeset, fn {msg, _} -> msg end)}
+    end
+  end
+
+  @doc """
+  Sets (or replaces) a projection's webhook URL and rotates its secret,
+  printing the new secret once. `nil` turns the webhook off.
+
+  ## Usage
+
+      bin/bitblocks rpc 'Bitblocks.Release.set_projection_webhook(1, "https://visibledao.com/hooks/bitblocks")'
+  """
+  def set_projection_webhook(id, url) do
+    case Bitblocks.Projections.set_webhook(Bitblocks.Projections.get!(id), url) do
+      {:ok, p} ->
+        Logger.info(
+          "set_projection_webhook: ##{p.id} webhook #{if url, do: "set", else: "removed"}"
+        )
+
+        if p.webhook_secret,
+          do: IO.puts("webhook_secret (store it now; it is not shown again): #{p.webhook_secret}")
+
+        {:ok, p}
+
+      {:error, changeset} ->
+        {:error, Ecto.Changeset.traverse_errors(changeset, fn {msg, _} -> msg end)}
+    end
+  end
+
+  @doc """
+  Moves a projection's `from_height`: status measures completeness and
+  hydrate starts from there.
+
+      bin/bitblocks rpc 'Bitblocks.Release.set_projection_from_height(1, 957_300) |> IO.inspect()'
+  """
+  def set_projection_from_height(id, height), do: update_projection(id, %{from_height: height})
+
+  @doc "Pauses a projection: no webhooks are enqueued or delivered until resumed."
+  def pause_projection(id), do: update_projection(id, %{status: "paused"})
+
+  @doc "Resumes a paused projection. Matches from while it was paused are not replayed; hydrate them."
+  def resume_projection(id), do: update_projection(id, %{status: "active"})
+
+  defp update_projection(id, attrs) do
+    case Bitblocks.Projections.update_settings(Bitblocks.Projections.get!(id), attrs) do
+      {:ok, p} ->
+        Logger.info("update_projection: ##{p.id} #{inspect(attrs)}")
         {:ok, p}
 
       {:error, changeset} ->

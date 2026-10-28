@@ -249,6 +249,24 @@ defmodule Bitblocks.ProjectionsTest do
   end
 
   describe "Release CLI" do
+    test "set_projection_from_height/2, pause_projection/1 and resume_projection/1" do
+      {:ok, p} =
+        Projections.create(%{tenant: "t", name: "ops", filter: %{"aip_signers" => [@qart_key]}})
+
+      assert {:ok, %{from_height: 957_300}} =
+               Bitblocks.Release.set_projection_from_height(p.id, 957_300)
+
+      assert {:error, %{from_height: [_]}} =
+               Bitblocks.Release.set_projection_from_height(p.id, -1)
+
+      assert {:ok, %{status: "paused"}} = Bitblocks.Release.pause_projection(p.id)
+      assert Projections.get!(p.id).status == "paused"
+      assert {:ok, %{status: "active"}} = Bitblocks.Release.resume_projection(p.id)
+
+      # Only these fields change: the filter and its hash are the definition.
+      assert Projections.get!(p.id).definition_hash == p.definition_hash
+    end
+
     test "create_projection/1 returns the projection or readable errors" do
       assert {:ok, %Projection{id: id}} =
                Bitblocks.Release.create_projection(%{

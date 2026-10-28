@@ -57,10 +57,9 @@ The prototype takes that route.
 Missing for a managed service:
 - tenant identity (API keys) and quotas, which ties to #12 and #13;
 - a cursor-paged hydrate API;
-- webhooks;
-- per-projection lag and completeness.
+- SSE follow with a cursor (qart, step 6).
 
-Built (#29 steps 1–3): the projection record, hydrate and status, `Bitblocks.Projections` and `/api/v1/projections/:id/{txs,status}`.
+Built (#29 steps 1–4): the projection record, hydrate, status and webhook follow: `Bitblocks.Projections`, `/api/v1/projections/:id/{txs,status}`, `ProjectionWebhookWorker`.
 
 GIN serves containment (`col @> ARRAY[x]`), not membership (`x = ANY(col)`, which is what Ecto's `^x in t.col` compiles to).
 Before 2026-10-25 the address, script and template lookups used membership, so on prod they scanned the whole table, `/api/v1/support` included.
@@ -84,7 +83,8 @@ Visible DAO's `/bitblocks` sponsor page (handoff `from-bitblocks-2026-10-20-spon
 - **Hydrate:** every donation ever received, so the ledger rebuilds from zero.
 - **Follow:** a webhook to the site's build hook (or an email) when a donation confirms. This is "Bitcoin as IPC": a payment triggers a rebuild and a thank-you.
 - **Today:** `GET /api/v1/support` is a hard-coded, single-tenant version of this projection, using `Chain.received_for_address/2`.
-- **Gap:** cursor paging; the webhook; excluding change sent back to the address (see `DONATION_ADDRESS.md`).
+- **Gap:** excluding change sent back to the address (see `DONATION_ADDRESS.md`).
+  A plain build hook ignores the signature and still triggers the rebuild; a thank-you sender should verify it.
 
 ### Tenant 2: qart receipts and listings
 
@@ -140,6 +140,13 @@ Build in dependency order, each step with a test, and do it CLI-first: a context
    A projection has a `from_height`, since Bitblocks holds tx data for part of the chain: completeness is measured over `[from_height, tip]`.
 4. **Follow by webhook** for Tenant 1: an Oban job posts `{projection, txid, height, cursor}` on each new match, retries with backoff, and is signed with a per-tenant secret.
    Test: a matching tx at the tip enqueues exactly one delivery; a reorg sends a `reorg` event carrying the rewind height.
+   Built: `ProjectionWebhookWorker` on the `webhooks` queue, `Projections.Webhook` (payload, `x-bitblocks-signature: t=…,v1=…` HMAC-SHA256 over `"t.body"`, `verify/4`).
+   Fired when a block completes on the tip lane; backfilled history is left to hydrate, so a backfill never floods tenants.
+   Events: `tx` (txid, height, block hash, proof link) and `reorg` (`rewind_height`: drop rows above it).
+   No cursor in the payload: a `tx` event is a position on the live chain, and hydrate cursors are for frozen snapshots.
+   At least once, unique per `{projection, txid, block_hash}`, so tenants dedupe on that pair.
+   The secret is per projection until tenant keys exist, and the webhook URL and secret are never served by the API.
+   Before tenants self-register (step 5), delivery must refuse private and link-local addresses (SSRF).
 5. **Tenant keys and quotas:** per-tenant API key, a request budget, and tip-lag targets.
    This is the first real step on #12 (anonymous load) and #13 (edge rate limiting).
 6. **Tenant 2 (qart)** on the same API, which exercises the AND filter and SSE follow.
@@ -179,3 +186,11 @@ Keep the sponsorship ledger and service revenue separate, the same rule as the s
    Tenant 4 and any "paid-from" filter need one. It's a large-table index, so it must be built concurrently (#28).
 6. **Trust.**
    Tenants who answer to their own users should store merkle proofs (`/proof`) with their rows, and later BEEF (#17).
+7. **Rate limits vs. hydrate.**
+   Checking prod on 2026-10-26, about 20 anonymous requests drew 429s, and about 60 drew an edge 403 that lasted for minutes.
+   A tenant paging a large history would hit the same wall, so hydrate needs keyed, per-tenant limits (step 5, #12, #13).
+8. **MCP.**
+   Bitblocks has no MCP server.
+   A read-only one (tx, address and Bitcom lookups, plus projection status and hydrate) is worth adding after tenant keys exist, so agent traffic is keyed like any tenant's.
+
+Operating a projection from the CLI: `Release.create_projection/1`, `list_projections/0`, `set_projection_from_height/2`, `pause_projection/1`, `resume_projection/1`, `set_projection_webhook/2`.

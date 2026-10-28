@@ -1,5 +1,6 @@
 defmodule Bitblocks.Workers.FetchTransactionsWorkerTest do
   use Bitblocks.DataCase
+  use Oban.Testing, repo: Bitblocks.Repo
 
   alias Bitblocks.Chain
   alias Bitblocks.Workers.FetchTransactionsWorker
@@ -167,6 +168,60 @@ defmodule Bitblocks.Workers.FetchTransactionsWorkerTest do
 
       assert Chain.get_block!(block.height).sync_state == "completed"
       assert %Chain.Transaction{} = Repo.get_by(Chain.Transaction, txid: @genesis_txid)
+    end
+  end
+
+  describe "projection webhooks (#29 step 4)" do
+    # A tip-lane completion notifies webhook projections of matches in the
+    # block; a backfill completion doesn't (history is served by hydrate).
+    for {queue, expected} <- [{"transactions_tip", 1}, {"transactions_backfill", 0}] do
+      test "#{queue} completion enqueues #{expected} delivery" do
+        block =
+          block_fixture(%{
+            height: 999_006,
+            hash: "webhook_block_hash",
+            merkleroot: @genesis_merkleroot,
+            num_tx: 1,
+            tx: [],
+            sync_state: "header_synced"
+          })
+
+        {:ok, _} =
+          Bitblocks.Projections.create(%{
+            tenant: "t",
+            name: "n",
+            filter: %{"output_addresses" => ["1Donation"]},
+            webhook_url: "https://example.test/hook"
+          })
+
+        # Already stored under this block, so it matches once the block completes.
+        transaction_fixture(%{
+          block_height: block.height,
+          block_hash: block.hash,
+          output_addresses: ["1Donation"]
+        })
+
+        RpcStub.stub_getblock(block.hash, 1, %{"hash" => block.hash, "tx" => [@genesis_txid]})
+
+        RpcStub.stub_getrawtransaction(@genesis_txid, 1, %{
+          "txid" => @genesis_txid,
+          "hex" => @genesis_raw,
+          "blockhash" => block.hash,
+          "height" => block.height,
+          "version" => 1,
+          "vin" => [%{"coinbase" => "04ffff001d0104", "sequence" => 4_294_967_295}],
+          "vout" => []
+        })
+
+        assert :ok =
+                 FetchTransactionsWorker.perform(%Oban.Job{
+                   args: %{"block_hash" => block.hash},
+                   queue: unquote(queue)
+                 })
+
+        assert length(all_enqueued(worker: Bitblocks.Workers.ProjectionWebhookWorker)) ==
+                 unquote(expected)
+      end
     end
   end
 end

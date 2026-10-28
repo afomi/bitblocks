@@ -152,6 +152,7 @@ defmodule Bitblocks.Workers.SyncHeadersWorker do
 
         Logger.warning("SyncHeaders: reorg resolved, re-syncing from #{fork_point + 1}")
         Bitblocks.Notifications.reorg_alert(fork_height, fork_point, orphan_count)
+        notify_projections_of_reorg(fork_point)
         fetch_and_store_headers(fork_point + 1, fork_height, true)
 
       {:error, :too_deep} ->
@@ -161,6 +162,14 @@ defmodule Bitblocks.Workers.SyncHeadersWorker do
 
         Bitblocks.Notifications.reorg_alert(fork_height, nil, nil)
     end
+  end
+
+  # Webhook projections drop rows above the fork point (#29 step 4). Never
+  # interrupts reorg resolution.
+  defp notify_projections_of_reorg(fork_point) do
+    Bitblocks.Projections.notify_reorg(fork_point)
+  rescue
+    e -> Logger.error("SyncHeaders: projection reorg notify failed: #{Exception.message(e)}")
   end
 
   # Walk back from `height` following the node's chain via previousblockhash

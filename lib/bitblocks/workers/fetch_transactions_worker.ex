@@ -59,7 +59,7 @@ defmodule Bitblocks.Workers.FetchTransactionsWorker do
   @min_confirmations Application.compile_env(:bitblocks, :min_confirmations_for_tx_fetch, 0)
 
   @impl Oban.Worker
-  def perform(%Oban.Job{args: %{"block_hash" => block_hash}}) do
+  def perform(%Oban.Job{args: %{"block_hash" => block_hash}} = job) do
     started_at = System.monotonic_time(:millisecond)
 
     with {:ok, block} <- get_block(block_hash),
@@ -76,7 +76,9 @@ defmodule Bitblocks.Workers.FetchTransactionsWorker do
 
       case fetch_in_batches(block, txids, total, started_at) do
         :ok ->
-          transition_to_completed(block)
+          with {:ok, completed} <- transition_to_completed(block),
+               do: notify_projections(completed, job.queue)
+
           elapsed = System.monotonic_time(:millisecond) - started_at
 
           Logger.info(
@@ -300,6 +302,20 @@ defmodule Bitblocks.Workers.FetchTransactionsWorker do
         error
     end
   end
+
+  # Follow (#29 step 4): webhook projections hear about matches in blocks that
+  # complete at the tip. Backfilled history is served by hydrate instead, so a
+  # backfill run doesn't flood tenants. Never fails the fetch.
+  defp notify_projections(block, "transactions_tip") do
+    Bitblocks.Projections.notify_block(block)
+  rescue
+    e ->
+      Logger.error(
+        "FetchTxs block=#{block.height} projection notify failed: #{Exception.message(e)}"
+      )
+  end
+
+  defp notify_projections(_block, _queue), do: :ok
 
   defp transition_to_completed(block) do
     case block

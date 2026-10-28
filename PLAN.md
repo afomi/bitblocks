@@ -29,8 +29,8 @@ Partly built: #21 export (snapshot anchoring needs a bitblocks-owned address) ·
 
 #25 REVIVE: unwriter's stack, one sprint per piece.
 #29 PROJECTIONS: shared managed projections, prototype slice ([docs/MANAGED_SERVICES.md](docs/MANAGED_SERVICES.md)).
-Steps 1–3 are built: the projection record (`Bitblocks.Projections`), hydrate (`GET /api/v1/projections/:id/txs`) and status (`/status`).
-Step 4 (follow by webhook) is next.
+Steps 1–4 are built: the projection record (`Bitblocks.Projections`), hydrate (`GET /api/v1/projections/:id/txs`), status (`/status`) and webhook follow (`ProjectionWebhookWorker`).
+Step 5 (tenant keys and quotas, with SSRF protection on webhook URLs) is next; it needs #12 and #13 decided.
 
 ## Deferred
 
