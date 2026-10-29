@@ -961,6 +961,41 @@ defmodule Bitblocks.Release do
     end
   end
 
+  @doc """
+  Syncs a 1Sat ordinal collection (#30): discovers mints (GorillaPool as a
+  hint), imports them from WhatsOnChain, proves membership along the mint
+  chain, then traces every item's owner. Prints and returns the counts.
+  Takes minutes (WoC is rate-limited); run it detached.
+
+      bin/bitblocks rpc 'Task.start(fn -> Bitblocks.Release.sync_ordinal_collection("grand-tardinians") end)'
+  """
+  def sync_ordinal_collection(slug, opts \\ []) do
+    alias Bitblocks.OrdinalCollections
+
+    with cid when is_binary(cid) <-
+           OrdinalCollections.resolve(slug) || {:error, :unknown_collection},
+         {:ok, hint} <- Bitblocks.Ordinals.Gorillapool.collection_mint_txids(cid) do
+      sync = OrdinalCollections.sync(cid, hint)
+
+      traces =
+        if Keyword.get(opts, :trace, true), do: OrdinalCollections.trace_all(cid), else: %{}
+
+      result = %{
+        hint: length(hint),
+        sync: Map.delete(sync, :import),
+        import: Map.update!(sync.import, :failed, &length/1),
+        traces: traces
+      }
+
+      IO.puts("sync_ordinal_collection #{slug}: #{inspect(result)}")
+      {:ok, result}
+    else
+      {:error, reason} ->
+        IO.puts("sync_ordinal_collection #{slug} FAILED: #{inspect(reason)}")
+        {:error, reason}
+    end
+  end
+
   @doc "Lists managed projections as `{id, tenant, name, status}`."
   def list_projections do
     for p <- Bitblocks.Projections.list(), do: {p.id, p.tenant, p.name, p.status}

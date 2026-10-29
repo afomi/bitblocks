@@ -31,6 +31,9 @@ Partly built: #21 export (snapshot anchoring needs a bitblocks-owned address) ·
 #29 PROJECTIONS: shared managed projections, prototype slice ([docs/MANAGED_SERVICES.md](docs/MANAGED_SERVICES.md)).
 Steps 1–4 are built: the projection record (`Bitblocks.Projections`), hydrate (`GET /api/v1/projections/:id/txs`), status (`/status`) and webhook follow (`ProjectionWebhookWorker`).
 Step 5 (tenant keys and quotas, with SSRF protection on webhook URLs) is next; it needs #12 and #13 decided.
+#30 COLLECTIONS: collections as projections. Grand Tardinians first (qart's holder check), then the Rexxie indexer ported in.
+Grand Tardinians is built (`Bitblocks.OrdinalCollections`, `/api/v1/collections`); running it on prod waits on #31 (column types).
+
 
 ## Deferred
 

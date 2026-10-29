@@ -64,6 +64,9 @@ config :bitblocks, Oban, testing: :manual, queues: false
 # Projection webhooks post to a stub that messages the test process.
 config :bitblocks, :projection_webhook_client, Bitblocks.WebhookClientStub
 
+# WhatsOnChain fallback source answers from per-test fixtures.
+config :bitblocks, :woc_client, Bitblocks.WocStub
+
 # Disable request auto-ban in tests — the Wallaby browser hits many endpoints
 # from 127.0.0.1 and would otherwise get blocked by the RequestLogger.
 config :bitblocks, :invalid_request_threshold, 10_000
