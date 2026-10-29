@@ -75,7 +75,8 @@ defmodule Bitblocks.Chain.SafeTx do
   defp normalize({tag, _}) when is_atom(tag), do: tag
   defp normalize(_), do: :decode_failed
 
-  defp max_hex_bytes do
+  @doc "The largest hex body accepted (config `:max_hex_bytes`)."
+  def max_hex_bytes do
     Application.get_env(:bitblocks, __MODULE__, [])
     |> Keyword.get(:max_hex_bytes, @default_max_hex_bytes)
   end

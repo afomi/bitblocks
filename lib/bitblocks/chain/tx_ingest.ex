@@ -40,17 +40,29 @@ defmodule Bitblocks.Chain.TxIngest do
   end
 
   @doc """
-  True iff `raw` decodes and its computed txid equals `expected`. Total: a
-  non-binary or undecodable body simply fails the check (fail closed). A nil
-  raw means the node returned no body — let it through so the changeset path
-  handles it (the txid is already merkleroot-authed).
+  True iff `raw` (hex) hashes to `expected`: the txid is the double SHA-256
+  of the bytes, byte-reversed. Total: a non-binary or non-hex body fails the
+  check (fail closed). A nil raw means the node returned no body — let it
+  through so the changeset path handles it (the txid is already
+  merkleroot-authed).
+
+  The bytes are hashed, not decoded and re-encoded: a script need not parse
+  as opcodes (data after a contract often doesn't), and `BSV.Tx.from_binary`
+  raises on those, which used to reject genuine txs and leave their blocks
+  incomplete.
   """
   def body_matches_txid?(nil, _expected), do: true
 
-  def body_matches_txid?(raw, expected) when is_binary(raw) do
-    case Bitblocks.Chain.SafeTx.from_hex(raw) do
-      {:ok, tx} -> BSV.Tx.get_txid(tx) == expected
-      {:error, _} -> false
+  def body_matches_txid?(raw, expected) when is_binary(raw) and is_binary(expected) do
+    with true <- byte_size(raw) <= Bitblocks.Chain.SafeTx.max_hex_bytes(),
+         {:ok, bytes} <- Base.decode16(raw, case: :mixed) do
+      :crypto.hash(:sha256, :crypto.hash(:sha256, bytes))
+      |> :binary.bin_to_list()
+      |> Enum.reverse()
+      |> :binary.list_to_bin()
+      |> Base.encode16(case: :lower) == String.downcase(expected)
+    else
+      _ -> false
     end
   end
 

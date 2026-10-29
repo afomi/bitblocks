@@ -36,10 +36,35 @@ defmodule Bitblocks.Workers.FetchTransactionsWorkerTest do
       refute FetchTransactionsWorker.body_matches_txid?("deadbeef", @genesis_txid)
     end
 
+    # Script bytes need not parse as opcodes (data after a contract often
+    # doesn't), and BSV.Tx.from_binary raises on them. The txid is the hash of
+    # the bytes, so the check must not depend on decoding (Grand Tardinians'
+    # collection tx, f099182e…, was rejected this way).
+    test "accepts a genuine tx whose script the decoder can't parse" do
+      raw =
+        <<1::little-32, 1, :binary.copy(<<7>>, 32)::binary, 0::little-32, 0,
+          0xFFFFFFFF::little-32, 1, 1::little-64, 3, 0x0B, 1, 2, 0::little-32>>
+
+      txid = raw |> then(&:crypto.hash(:sha256, :crypto.hash(:sha256, &1))) |> reverse_hex()
+      hex = Base.encode16(raw, case: :lower)
+
+      assert {:error, _} = Bitblocks.Chain.SafeTx.from_hex(hex)
+      assert FetchTransactionsWorker.body_matches_txid?(hex, txid)
+      refute FetchTransactionsWorker.body_matches_txid?(hex, String.duplicate("0", 64))
+    end
+
     test "lets a nil body through (handled downstream by changeset/analyze)" do
       assert FetchTransactionsWorker.body_matches_txid?(nil, @genesis_txid)
     end
   end
+
+  defp reverse_hex(bin),
+    do:
+      bin
+      |> :binary.bin_to_list()
+      |> Enum.reverse()
+      |> :binary.list_to_bin()
+      |> Base.encode16(case: :lower)
 
   describe "merkleroot gate (threat T4)" do
     test "a block whose txid list doesn't match its merkleroot is rejected and marked failed" do
