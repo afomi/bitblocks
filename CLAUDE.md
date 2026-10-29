@@ -202,6 +202,7 @@ GET /api/v1/projections/:id/txs — hydrate: matching confirmed txs oldest first
 GET /api/v1/projections/:id/status — index_state ready | backfilling, indexed_through_height, lag_blocks
 GET /api/v1/collections/:id       — 1Sat collection summary (:id = slug like grand-tardinians, or the collection origin outpoint)
 GET /api/v1/collections/:id/items — items in mint order: origin, name, traits, current_outpoint, owner, trace_state (?cursor=, ?limit=)
+POST /api/v1/collections/:id/items/lookup — {"outpoints": [...]} up to 200, answered in order from the index (no re-trace)
 GET /api/v1/collections/:id/items/:outpoint — one item by origin or current outpoint; member, spent (null unless traced current), owner (?refresh=1 re-traces)
 GET /api/v1/outpoints/:txid/:vout — is this outpoint an ordinal/token? answer: yes | no | unknown (spend only on "no")
 GET /api/v1/script/:scripthash/history — tx history for a script (Electrum scripthash: sha256 of scriptPubKey, reversed hex)

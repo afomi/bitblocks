@@ -119,6 +119,7 @@ defmodule BitblocksWeb.Router do
     get "/projections/:id", ProjectionController, :show
 
     # 1Sat ordinal collections (#30): proven membership, traced ownership
+    post "/collections/:id/items/lookup", CollectionController, :lookup
     get "/collections/:id/items/:outpoint", CollectionController, :item
     get "/collections/:id/items", CollectionController, :items
     get "/collections/:id", CollectionController, :show

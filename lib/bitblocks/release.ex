@@ -972,8 +972,11 @@ defmodule Bitblocks.Release do
   def sync_ordinal_collection(slug, opts \\ []) do
     alias Bitblocks.OrdinalCollections
 
-    with cid when is_binary(cid) <-
-           OrdinalCollections.resolve(slug) || {:error, :unknown_collection},
+    # A slug, or any collection origin outpoint (e.g. another Bubblemint drop):
+    # mints that don't follow the chain rule show up as `rejected`, never as items.
+    cid = OrdinalCollections.resolve(slug) || if(slug =~ ~r/\A[0-9a-f]{64}_\d+\z/, do: slug)
+
+    with cid when is_binary(cid) <- cid || {:error, :unknown_collection},
          {:ok, hint} <- Bitblocks.Ordinals.Gorillapool.collection_mint_txids(cid) do
       sync = OrdinalCollections.sync(cid, hint)
 

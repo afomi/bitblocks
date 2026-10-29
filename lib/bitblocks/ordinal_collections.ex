@@ -386,6 +386,51 @@ defmodule Bitblocks.OrdinalCollections do
     )
   end
 
+  @doc """
+  The service's explicit membership claim for a collection, so a reader can
+  name it and pin it: who verified, on what basis, the hash of the verified
+  origin list (sha256 of the origins, sorted, newline-joined), and the highest
+  mint height it covers. The MAP `collectionId` on each item is the chain's
+  (implicit) claim; this is bitblocks' (explicit) one.
+  """
+  def verification(collection_id) do
+    origins =
+      from(i in Item, where: i.collection_id == ^collection_id, select: i.origin)
+      |> Repo.all()
+      |> Enum.sort()
+
+    height =
+      Repo.one(
+        from i in Item, where: i.collection_id == ^collection_id, select: max(i.mint_height)
+      )
+
+    %{
+      by: "bitblocks",
+      basis: "mint_contract_chain",
+      rule:
+        "a mint spends the collection outpoint or output 0 of an earlier proven mint, " <>
+          "and inscribes a collectionItem naming this collection",
+      list_hash: :crypto.hash(:sha256, Enum.join(origins, "\n")) |> Base.encode16(case: :lower),
+      items: length(origins),
+      verified_through_height: height
+    }
+  end
+
+  @doc "Items for many outpoints (origin or current), keyed by the outpoint asked."
+  def lookup(collection_id, outpoints) do
+    items =
+      Repo.all(
+        from i in Item,
+          where:
+            i.collection_id == ^collection_id and
+              (i.origin in ^outpoints or i.current_outpoint in ^outpoints)
+      )
+
+    Enum.reduce(items, %{}, fn item, acc ->
+      acc |> Map.put_new(item.current_outpoint, item) |> Map.put_new(item.origin, item)
+    end)
+  end
+
   @doc "Counts for a collection: items, and items by trace_state."
   def summary(collection_id) do
     states =

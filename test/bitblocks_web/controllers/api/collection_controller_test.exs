@@ -66,8 +66,60 @@ defmodule BitblocksWeb.Api.CollectionControllerTest do
     assert get_json("/api/v1/collections/nope/items", 404)
   end
 
-  test "GET /api/v1/collections/:id summarizes", ctx do
-    assert %{"items" => 1, "trace_states" => %{"untraced" => 1}} =
-             get_json("/api/v1/collections/#{ctx.cid}")["data"]
+  test "GET /api/v1/collections/:id summarizes, with a pinnable list hash and basis", ctx do
+    data = get_json("/api/v1/collections/#{ctx.cid}")["data"]
+
+    assert %{"items" => 1, "trace_states" => %{"untraced" => 1}} = data
+
+    expected_hash =
+      :crypto.hash(:sha256, ctx.origin) |> Base.encode16(case: :lower)
+
+    assert data["verification"]["list_hash"] == expected_hash
+    assert data["verification"]["by"] == "bitblocks"
+    assert data["verification"]["basis"] == "mint_contract_chain"
+    assert data["verification"]["verified_through_height"] == 839_716
+  end
+
+  test "items carry who verified membership and on what basis", ctx do
+    data = get_json("/api/v1/collections/#{ctx.cid}/items/#{ctx.origin}")["data"]
+
+    assert %{
+             "verified" => true,
+             "by" => "bitblocks",
+             "basis" => "mint_contract_chain",
+             "chain_from" => cid,
+             "claim" => "MAP subTypeData.collectionId"
+           } = data["membership"]
+
+    assert cid == ctx.cid
+  end
+
+  describe "POST /api/v1/collections/:id/items/lookup" do
+    test "answers each outpoint in order, unknown ones as member unknown", ctx do
+      [txid, vout] = String.split(ctx.origin, "_")
+      stranger = "#{String.duplicate("b", 64)}_0"
+
+      data =
+        build_conn()
+        |> post("/api/v1/collections/#{ctx.cid}/items/lookup", %{
+          outpoints: [stranger, "#{txid}.#{vout}"]
+        })
+        |> json_response(200)
+        |> Map.get("data")
+
+      assert [%{"outpoint" => ^stranger, "member" => "unknown"}, found] = data
+      assert found["member"] == true
+      assert found["name"] == "Tardinian 1"
+      assert found["outpoint"] == ctx.origin
+    end
+
+    test "rejects a missing list and more than 200 outpoints", ctx do
+      path = "/api/v1/collections/#{ctx.cid}/items/lookup"
+
+      assert build_conn() |> post(path, %{}) |> json_response(400)
+
+      too_many = for n <- 1..201, do: "#{String.duplicate("c", 64)}_#{n}"
+      assert build_conn() |> post(path, %{outpoints: too_many}) |> json_response(400)
+    end
   end
 end
