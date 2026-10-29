@@ -116,6 +116,20 @@ defmodule Bitblocks.OrdinalCollectionsTest do
                OrdinalCollections.trace(ctx.item)
     end
 
+    # 1sat.market purchases lock the bought item with P2PKH followed by an
+    # OP_RETURN MAP note; the P2PKH is still the owner (Grand Tardinians 76).
+    test "P2PKH followed by OP_RETURN data is owned by the P2PKH", ctx do
+      buyer = address()
+      %BSV.TxOut{script: %BSV.Script{chunks: lock}} = p2pkh(buyer, 1)
+
+      note = [:OP_RETURN, "1PuQa7K62MiKCtssSLKy1kh56WWU7MtUR5", "SET", "app", "1sat.market"]
+      out = %BSV.TxOut{satoshis: 1, script: %BSV.Script{chunks: lock ++ note}}
+      purchase = tx([ctx.item.origin], [out]) |> publish()
+      spend(ctx.item.origin, purchase, 0)
+
+      assert {:ok, %{trace_state: "current", owner: ^buyer}} = OrdinalCollections.trace(ctx.item)
+    end
+
     test "held by a contract (listed for sale): current, with no P2PKH owner", ctx do
       listing = tx([ctx.item.origin], [contract("ordlock")]) |> publish()
       spend(ctx.item.origin, listing, 0)

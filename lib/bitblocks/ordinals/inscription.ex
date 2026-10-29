@@ -126,8 +126,17 @@ defmodule Bitblocks.Ordinals.Inscription do
 
   defp decode_json_field(_k, v), do: v
 
-  defp p2pkh_owner([:OP_DUP, :OP_HASH160, <<pkh::binary-20>>, :OP_EQUALVERIFY, :OP_CHECKSIG]),
-    do: BSV.Address.to_string(%BSV.Address{pubkey_hash: pkh})
+  # P2PKH, alone or followed by an OP_RETURN note (1sat.market purchases
+  # append MAP metadata after the lock).
+  defp p2pkh_owner([
+         :OP_DUP,
+         :OP_HASH160,
+         <<pkh::binary-20>>,
+         :OP_EQUALVERIFY,
+         :OP_CHECKSIG | rest
+       ])
+       when rest == [] or hd(rest) == :OP_RETURN,
+       do: BSV.Address.to_string(%BSV.Address{pubkey_hash: pkh})
 
   defp p2pkh_owner(_), do: nil
 
