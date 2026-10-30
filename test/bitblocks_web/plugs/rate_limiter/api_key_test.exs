@@ -60,4 +60,17 @@ defmodule BitblocksWeb.Plugs.RateLimiter.ApiKeyTest do
     assert key.token_hash == :crypto.hash(:sha256, token) |> Base.encode16(case: :lower)
     assert String.starts_with?(token, "bbk_")
   end
+
+  # Regression: the tables were created lazily by the first request process
+  # and died with it, silently resetting every count.
+  test "the counters and key cache are owned by a long-lived process, not a request" do
+    for table <- [:rate_limiter, :api_key_cache] do
+      owner = :ets.info(table, :owner)
+      assert is_pid(owner) and Process.alive?(owner)
+      refute owner == self()
+    end
+
+    get_with([])
+    assert Process.alive?(:ets.info(:rate_limiter, :owner))
+  end
 end

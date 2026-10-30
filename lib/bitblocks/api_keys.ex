@@ -79,6 +79,9 @@ defmodule Bitblocks.ApiKeys do
 
   defp hash(token), do: :crypto.hash(:sha256, token) |> Base.encode16(case: :lower)
 
+  @doc "Creates the lookup cache at boot (see `Bitblocks.Application`)."
+  def create_cache, do: ensure_cache()
+
   defp ensure_cache do
     if :ets.whereis(@cache) == :undefined do
       try do

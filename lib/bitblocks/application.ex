@@ -13,6 +13,10 @@ defmodule Bitblocks.Application do
     # Initialize IP blocker and request tracking ETS tables
     BitblocksWeb.Plugs.IpBlocker.start_link()
     BitblocksWeb.Plugs.RequestLogger.start_link()
+    # Owned by this long-lived process. Created lazily by a request process, a
+    # table would die with that connection and silently reset every count.
+    BitblocksWeb.Plugs.RateLimiter.create_table()
+    Bitblocks.ApiKeys.create_cache()
     Bitblocks.TelemetryHandlers.attach()
 
     children = [

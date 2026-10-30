@@ -152,6 +152,12 @@ defmodule BitblocksWeb.Plugs.RateLimiter do
     :ok
   end
 
+  @doc """
+  Creates the counters table. Called from `Bitblocks.Application.start/2` so a
+  long-lived process owns it; an ETS table dies with its owner.
+  """
+  def create_table, do: ensure_table()
+
   defp ensure_table do
     case :ets.whereis(@table) do
       :undefined ->
