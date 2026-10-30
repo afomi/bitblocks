@@ -276,6 +276,25 @@
                   <%= @selected_nft["txid"] && String.slice(@selected_nft["txid"], 0, 8) %>..._o3
                 </span>
               </div>
+              <%= if @selected_holding do %>
+                <div
+                  id="rexxie-holder"
+                  class="flex items-center justify-between"
+                >
+                  <span class="text-xs text-gray-500">
+                    Holder
+                  </span>
+                  <%= if @selected_holding.owner do %>
+                    <span class="font-mono text-xs text-gray-700">
+                      <%= @selected_holding.owner %>
+                    </span>
+                  <% else %>
+                    <span class="text-xs text-gray-600">
+                      <%= @selected_holding.trace_reason || @selected_holding.trace_state %>
+                    </span>
+                  <% end %>
+                </div>
+              <% end %>
               <div class="flex items-center justify-between">
                 <span class="text-xs text-gray-500">
                   Collection

@@ -59,6 +59,30 @@ defmodule Bitblocks.OrdinalFixtures do
     }
   end
 
+  @doc """
+  A Run payload output: `OP_FALSE OP_RETURN "run" <5> <app> <json>`.
+  `payload` gets defaults for `in`, `ref`, `out`, `del`, `cre`, `exec`.
+  """
+  def run_payload(payload, app \\ "relayx.io") do
+    json =
+      %{"in" => 0, "ref" => [], "out" => [], "del" => [], "cre" => [], "exec" => []}
+      |> Map.merge(payload)
+      |> Jason.encode!()
+
+    %BSV.TxOut{
+      satoshis: 0,
+      script: %BSV.Script{chunks: [:OP_FALSE, :OP_RETURN, "run", <<5>>, app, json]}
+    }
+  end
+
+  @doc "An OP_RETURN data output (stands in for RelayX's encrypted image)."
+  def data_output(data \\ "UNIV"),
+    do: %BSV.TxOut{satoshis: 0, script: %BSV.Script{chunks: [:OP_FALSE, :OP_RETURN, data]}}
+
+  @doc "A Run CALL exec entry on input jig `i`."
+  def run_call(i, method, args \\ []),
+    do: %{"op" => "CALL", "data" => [%{"$jig" => i}, method, args]}
+
   @doc "Builds a tx spending `inputs` (\"txid_vout\" strings). Returns `{txid, hex}`."
   def tx(inputs, outputs) do
     ins =

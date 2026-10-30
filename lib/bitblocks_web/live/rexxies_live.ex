@@ -24,6 +24,7 @@ defmodule BitblocksWeb.RexxiesLive do
         total: 0,
         stats: nil,
         selected_nft: nil,
+        selected_holding: nil,
         loading: true
       )
 
@@ -108,12 +109,12 @@ defmodule BitblocksWeb.RexxiesLive do
   def handle_event("select_nft", %{"number" => number_str}, socket) do
     number = String.to_integer(number_str)
     nft = Rexxies.get_item(number)
-    {:noreply, assign(socket, selected_nft: nft)}
+    {:noreply, assign(socket, selected_nft: nft, selected_holding: holding(nft))}
   end
 
   @impl true
   def handle_event("close_detail", _params, socket) do
-    {:noreply, assign(socket, selected_nft: nil)}
+    {:noreply, assign(socket, selected_nft: nil, selected_holding: nil)}
   end
 
   defp fetch_nfts(page, search, trait_type, trait_value) do
@@ -141,4 +142,15 @@ defmodule BitblocksWeb.RexxiesLive do
   end
 
   defp parse_int(n, _default) when is_integer(n), do: n
+
+  # Where the Rexxie sits now, from the chain index (#30): membership is proven
+  # on the class chain and the holder traced through Run spends.
+  defp holding(%{"txid" => txid}) when is_binary(txid) do
+    case Bitblocks.OrdinalCollections.resolve("rexxies") do
+      nil -> nil
+      cid -> Bitblocks.OrdinalCollections.get_item(cid, "#{txid}_3")
+    end
+  end
+
+  defp holding(_nft), do: nil
 end

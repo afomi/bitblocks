@@ -33,6 +33,7 @@ Steps 1–4 are built: the projection record (`Bitblocks.Projections`), hydrate 
 Step 5 (tenant keys and quotas, with SSRF protection on webhook URLs) is next; it needs #12 and #13 decided.
 #30 COLLECTIONS: collections as projections. Grand Tardinians first (qart's holder check), then the Rexxie indexer ported in.
 Grand Tardinians is live (`/api/v1/collections/grand-tardinians`, synced on prod 2026-10-29), with explicit verified membership and batch lookup for qart.
+Rexxies (Run) is built on the same engine (`/api/v1/collections/rexxies`): membership proven on the class chain, holders traced by Run payload; traits stay catalog data.
 Queued after #30: #32 BAP identity index (qart request).
 
 

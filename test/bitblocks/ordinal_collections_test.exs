@@ -140,6 +140,27 @@ defmodule Bitblocks.OrdinalCollectionsTest do
       assert traced.owner == nil
     end
 
+    test "a long trail stops as partial at the last outpoint, and the next trace resumes there",
+         ctx do
+      # A chain of transfers longer than one trace may follow.
+      hops = OrdinalCollections.max_hops() + 2
+
+      last =
+        Enum.reduce(1..hops, ctx.item.origin, fn _, from ->
+          next = tx([from], [p2pkh(address(), 1)]) |> publish()
+          spend(from, next, 0)
+          "#{next}_0"
+        end)
+
+      assert {:ok, partial} = OrdinalCollections.trace(ctx.item)
+      assert partial.trace_state == "partial"
+      assert partial.current_outpoint != ctx.item.origin
+
+      assert {:ok, done} = OrdinalCollections.trace(partial)
+      assert done.trace_state == "current"
+      assert done.current_outpoint == last
+    end
+
     test "a WhatsOnChain failure is unknown with its reason", ctx do
       Process.put(:woc_spent, %{ctx.item.origin => {:error, :timeout}})
 

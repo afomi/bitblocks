@@ -977,7 +977,7 @@ defmodule Bitblocks.Release do
     cid = OrdinalCollections.resolve(slug) || if(slug =~ ~r/\A[0-9a-f]{64}_\d+\z/, do: slug)
 
     with cid when is_binary(cid) <- cid || {:error, :unknown_collection},
-         {:ok, hint} <- Bitblocks.Ordinals.Gorillapool.collection_mint_txids(cid) do
+         {:ok, hint} <- collection_hint(OrdinalCollections.config_for(cid)) do
       sync = OrdinalCollections.sync(cid, hint)
 
       traces =
@@ -998,6 +998,10 @@ defmodule Bitblocks.Release do
         {:error, reason}
     end
   end
+
+  # Candidate mint txids; each is still proven on chain by the protocol.
+  defp collection_hint(%{hint: :catalog, catalog: catalog}), do: {:ok, catalog.mint_txids()}
+  defp collection_hint(%{id: cid}), do: Bitblocks.Ordinals.Gorillapool.collection_mint_txids(cid)
 
   @doc "Lists managed projections as `{id, tenant, name, status}`."
   def list_projections do

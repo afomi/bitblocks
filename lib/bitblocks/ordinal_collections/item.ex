@@ -18,6 +18,7 @@ defmodule Bitblocks.OrdinalCollections.Item do
     field :traits, {:array, :map}, default: []
     field :current_outpoint, :string
     field :owner, :string
+    # current | partial (a long trail, resumed by the next trace) | unknown | untraced
     field :trace_state, :string, default: "untraced"
     field :trace_reason, :string
     field :trace_source, :string

@@ -1,23 +1,25 @@
 defmodule Bitblocks.OrdinalCollections do
   @moduledoc """
-  1Sat ordinal collections (#30), Grand Tardinians first.
+  NFT collections with proven membership and traced ownership (#30): Grand
+  Tardinians (1Sat, `OneSat`) and Rexxies (Run, `RunJig`).
 
-  **Membership is proven, not claimed.** Any inscription can name a
-  `collectionId` in its MAP, so the MAP alone would admit fakes. Bubblemint
-  mints spend the collection's mint contract in a chain: the first mint spends
-  the collection outpoint, and each mint's output 0 carries the contract to the
-  next. A tx is a mint only if it spends a link of that chain *and* inscribes a
-  `collectionItem` naming this collection; its output 0 then joins the chain.
+  **Membership is proven, not claimed.** Both kinds mint through a chain: each
+  mint spends the collection's current link (Bubblemint's mint contract, or a
+  Run class jig) and carries it on. The engine walks that chain from the
+  collection's first link; the protocol decides from the bytes whether a tx
+  mints and where the chain goes next. A copycat that claims the collection
+  (a MAP `collectionId`, a look-alike name) can't spend the chain.
 
-  **Discovery** takes a hint list of mint txids (GorillaPool's search, via
-  `Release.sync_ordinal_collection/1`), imports them, walks the chain locally,
-  and follows past the hint's end with WhatsOnChain's `/spent`, so an item the
-  hint missed is still found and a fake in the hint is rejected.
+  **Discovery** takes a hint list of mint txids (GorillaPool's search, or a
+  catalog; see `Release.sync_ordinal_collection/1`), imports them, walks the
+  chain locally, and follows past the hint's end with WhatsOnChain's
+  `/spent`, so an item the hint missed is still found and a fake in the hint
+  is rejected.
 
-  **Ownership** follows each item's sat from its origin through spends
-  (`trace/1`). A 1Sat sat in input `i` sits at the offset equal to the value of
-  inputs `0..i-1`, and lands in the output whose range covers that offset. If
-  that output isn't 1 sat, the trail is `unknown` rather than guessed.
+  **Ownership** follows each item from its origin through spends (`trace/1`);
+  the protocol says where a spent item lands (a 1Sat sat by input offset, a
+  Run jig by the payload's output order). What it can't decide from the bytes
+  is `unknown`, never guessed.
 
   Transactions come from our own index first and WhatsOnChain second
   (`Bitblocks.Woc`); every imported body is checked against its txid.
@@ -29,26 +31,55 @@ defmodule Bitblocks.OrdinalCollections do
 
   alias Bitblocks.Chain.{Block, RawTx, Transaction, TxIngest}
   alias Bitblocks.OrdinalCollections.Item
-  alias Bitblocks.Ordinals.Inscription
   alias Bitblocks.{Repo, Woc}
 
+  # id: the chain's first link (the collection's origin outpoint).
+  # hint: where candidate mint txids come from (only candidates; see sync/3).
   @collections %{
-    "grand-tardinians" => "f099182e168c0a30a9f97556d156c8b6284cfc3f76eca8352807b1ceff29da04_0"
+    "grand-tardinians" => %{
+      id: "f099182e168c0a30a9f97556d156c8b6284cfc3f76eca8352807b1ceff29da04_0",
+      protocol: Bitblocks.OrdinalCollections.OneSat,
+      hint: :gorillapool
+    },
+    "rexxies" => %{
+      # The Rexxie COL class (`…_o2` in Run notation).
+      id: "12d8ca4bc0eaf26660627cc1671de6a0047246f39f3aa06633f8204223d70cc5_2",
+      protocol: Bitblocks.OrdinalCollections.RunJig,
+      catalog: Bitblocks.Rexxies.Catalog,
+      hint: :catalog
+    }
   }
 
-  @max_hops 30
+  # Per trace. A longer trail stops as "partial" and the next trace resumes.
+  @max_hops 100
+
+  @doc "Transfers followed per trace before stopping as `partial`."
+  def max_hops, do: @max_hops
 
   @doc "Known collections: slug => collection id (origin outpoint)."
-  def known, do: @collections
+  def known, do: Map.new(@collections, fn {slug, config} -> {slug, config.id} end)
+
+  @doc """
+  The config for a collection id: a known collection's, or 1Sat rules for any
+  other collection origin outpoint.
+  """
+  def config_for(cid) do
+    Enum.find_value(@collections, %{id: cid, protocol: Bitblocks.OrdinalCollections.OneSat}, fn
+      {_slug, %{id: ^cid} = config} -> config
+      _ -> nil
+    end)
+  end
 
   @doc """
   Resolves a slug, or a collection id (origin outpoint) that is known or has
   indexed items, to the collection id; nil otherwise.
   """
   def resolve(slug_or_id) when is_binary(slug_or_id) do
+    known = known()
+
     cond do
-      id = @collections[slug_or_id] -> id
-      slug_or_id in Map.values(@collections) -> slug_or_id
+      id = known[slug_or_id] -> id
+      slug_or_id in Map.values(known) -> slug_or_id
       slug_or_id =~ ~r/\A[0-9a-f]{64}_\d+\z/ and indexed?(slug_or_id) -> slug_or_id
       true -> nil
     end
@@ -116,11 +147,12 @@ defmodule Bitblocks.OrdinalCollections do
     import = import_txs([collection_txid | hint_txids])
 
     spenders = spender_index(hint_txids)
-    mints = walk_chain(collection_id, spenders, Keyword.get(opts, :follow, true))
+    config = config_for(collection_id)
+    mints = walk_chain(config, spenders, Keyword.get(opts, :follow, true))
 
     items =
       mints
-      |> Enum.map(fn {txid, tx, height} -> index_items(collection_id, txid, tx, height) end)
+      |> Enum.map(fn {txid, height, items} -> index_items(collection_id, txid, height, items) end)
       |> Enum.sum()
 
     mint_ids = MapSet.new(mints, &elem(&1, 0))
@@ -145,28 +177,24 @@ defmodule Bitblocks.OrdinalCollections do
   end
 
   # Breadth-first from the collection outpoint: each chain link is spent by at
-  # most one tx; it is a mint if it also inscribes an item of this collection.
-  defp walk_chain(collection_id, spenders, follow?) do
-    do_walk([collection_id], spenders, follow?, collection_id, MapSet.new(), [])
+  # most one tx, and the protocol decides whether that tx mints and where the
+  # chain goes next. Txs that carry the chain on without minting are walked
+  # through but aren't mints.
+  defp walk_chain(config, spenders, follow?) do
+    do_walk([config.id], spenders, follow?, config, MapSet.new(), [])
   end
 
-  defp do_walk([], _spenders, _follow?, _cid, _seen, mints), do: Enum.reverse(mints)
+  defp do_walk([], _spenders, _follow?, _config, _seen, mints), do: Enum.reverse(mints)
 
-  defp do_walk([link | queue], spenders, follow?, cid, seen, mints) do
+  defp do_walk([link | queue], spenders, follow?, config, seen, mints) do
     with spender when is_binary(spender) <- spenders[link] || follow_spend(link, follow?),
          false <- MapSet.member?(seen, spender),
          {:ok, tx, height} <- load_tx(spender),
-         true <- spends?(tx, link) and claims_items?(tx, cid) do
-      do_walk(
-        queue ++ ["#{spender}_0"],
-        spenders,
-        follow?,
-        cid,
-        MapSet.put(seen, spender),
-        [{spender, tx, height} | mints]
-      )
+         {:ok, items, next_links} <- config.protocol.mint(tx, spender, link, config) do
+      mints = if items == [], do: mints, else: [{spender, height, items} | mints]
+      do_walk(queue ++ next_links, spenders, follow?, config, MapSet.put(seen, spender), mints)
     else
-      _ -> do_walk(queue, spenders, follow?, cid, seen, mints)
+      _ -> do_walk(queue, spenders, follow?, config, seen, mints)
     end
   end
 
@@ -185,37 +213,23 @@ defmodule Bitblocks.OrdinalCollections do
     end
   end
 
-  defp spends?(tx, link), do: Enum.any?(tx.inputs, &(outpoint_id(&1.outpoint) == link))
-
-  defp claims_items?(tx, cid), do: tx |> items_in(cid) |> Enum.any?()
-
-  defp items_in(%BSV.Tx{outputs: outputs}, cid) do
-    for {out, vout} <- Enum.with_index(outputs),
-        out.satoshis == 1,
-        {:ok, insc} <- [Inscription.parse(out.script)],
-        insc.map["subType"] == "collectionItem",
-        is_map(insc.map["subTypeData"]),
-        insc.map["subTypeData"]["collectionId"] == cid,
-        do: {vout, insc}
-  end
-
-  defp index_items(cid, txid, tx, height) do
+  defp index_items(cid, txid, height, items) do
     now = DateTime.utc_now() |> DateTime.truncate(:second)
 
     rows =
-      for {vout, insc} <- items_in(tx, cid) do
-        origin = "#{txid}_#{vout}"
+      for item <- items do
+        origin = "#{txid}_#{item.vout}"
 
         %{
           collection_id: cid,
           origin: origin,
           mint_txid: txid,
           mint_height: height,
-          name: insc.map["name"],
-          content_type: insc.content_type,
-          traits: traits(insc.map["subTypeData"]),
+          name: item[:name],
+          content_type: item[:content_type],
+          traits: item[:traits] || [],
           current_outpoint: origin,
-          owner: insc.owner,
+          owner: item[:owner],
           trace_state: "untraced",
           inserted_at: now,
           updated_at: now
@@ -232,15 +246,6 @@ defmodule Bitblocks.OrdinalCollections do
     count
   end
 
-  defp traits(%{"attributes" => attrs}) when is_list(attrs) do
-    for %{"name" => name} = attr <- attrs do
-      details = attr["details"] || %{}
-      %{"name" => name, "value" => details["name"], "description" => details["description"]}
-    end
-  end
-
-  defp traits(_), do: []
-
   # -- Ownership -----------------------------------------------------------------
 
   @doc """
@@ -249,8 +254,15 @@ defmodule Bitblocks.OrdinalCollections do
   """
   @spec trace(Item.t()) :: {:ok, Item.t()}
   def trace(%Item{} = item) do
-    start = if item.trace_state == "current", do: item.current_outpoint, else: item.origin
-    {state, outpoint, owner, reason} = follow(start, 0)
+    # current: re-check from where it sat; partial: resume where the last trace
+    # stopped; otherwise start from the origin.
+    start =
+      if item.trace_state in ["current", "partial"] and item.current_outpoint,
+        do: item.current_outpoint,
+        else: item.origin
+
+    protocol = config_for(item.collection_id).protocol
+    {state, outpoint, owner, reason} = follow(start, 0, protocol)
 
     item
     |> Ecto.Changeset.change(%{
@@ -275,22 +287,33 @@ defmodule Bitblocks.OrdinalCollections do
     |> Enum.frequencies()
   end
 
-  defp follow(outpoint, hops) when hops >= @max_hops,
-    do: {"unknown", outpoint, nil, "more than #{@max_hops} transfers; stopped"}
+  defp follow(outpoint, hops, _protocol) when hops >= @max_hops,
+    do:
+      {"partial", outpoint, nil,
+       "stopped after #{@max_hops} transfers; the next trace continues from here"}
 
-  defp follow(outpoint, hops) do
+  defp follow(outpoint, hops, protocol) do
     [txid, vout] = String.split(outpoint, "_")
 
     case Woc.spent(txid, String.to_integer(vout)) do
       {:ok, :unspent} ->
-        {"current", outpoint, owner_at(outpoint), nil}
+        case owner_at(outpoint, protocol) do
+          nil ->
+            {"current", outpoint, nil, "held by a non-P2PKH lock (e.g. a marketplace listing)"}
+
+          owner ->
+            {"current", outpoint, owner, nil}
+        end
 
       {:ok, %{txid: spender, vin: vin}} ->
         import_txs([spender])
 
-        case landing(spender, vin) do
-          {:ok, next} -> follow(next, hops + 1)
+        with {:ok, tx, _} <- load_tx(spender),
+             {:ok, next} <- protocol.landing(tx, spender, vin, &output_value/1) do
+          follow(next, hops + 1, protocol)
+        else
           {:unknown, reason} -> {"unknown", outpoint, nil, reason}
+          _ -> {"unknown", outpoint, nil, "spending tx #{spender} unavailable"}
         end
 
       {:error, reason} ->
@@ -298,41 +321,12 @@ defmodule Bitblocks.OrdinalCollections do
     end
   end
 
-  # The outpoint where a 1-sat input at `vin` of `spender` lands.
-  defp landing(spender, vin) do
-    with {:ok, tx, _} <- load_tx(spender),
-         {:ok, offset} <- input_offset(tx, vin) do
-      tx.outputs
-      |> Enum.with_index()
-      |> Enum.reduce_while(0, fn {out, k}, start ->
-        if offset < start + out.satoshis,
-          do: {:halt, {k, out.satoshis}},
-          else: {:cont, start + out.satoshis}
-      end)
-      |> case do
-        {k, 1} -> {:ok, "#{spender}_#{k}"}
-        {_k, sats} when is_integer(sats) -> {:unknown, "sat moved into a #{sats}-sat output"}
-        _ -> {:unknown, "sat went to fees"}
-      end
-    else
-      _ -> {:unknown, "spending tx #{spender} unavailable"}
-    end
-  end
-
-  defp input_offset(tx, vin) do
-    prior = Enum.take(tx.inputs, vin)
-    import_txs(Enum.map(prior, &BSV.OutPoint.get_txid(&1.outpoint)))
-
-    Enum.reduce_while(prior, {:ok, 0}, fn input, {:ok, sum} ->
-      case output_value(input.outpoint) do
-        {:ok, sats} -> {:cont, {:ok, sum + sats}}
-        :error -> {:halt, :error}
-      end
-    end)
-  end
-
+  # Value of an outpoint, importing its tx if we don't hold it.
   defp output_value(%BSV.OutPoint{vout: vout} = op) do
-    with {:ok, tx, _} <- load_tx(BSV.OutPoint.get_txid(op)),
+    txid = BSV.OutPoint.get_txid(op)
+    import_txs([txid])
+
+    with {:ok, tx, _} <- load_tx(txid),
          %BSV.TxOut{satoshis: sats} <- Enum.at(tx.outputs, vout) do
       {:ok, sats}
     else
@@ -340,12 +334,12 @@ defmodule Bitblocks.OrdinalCollections do
     end
   end
 
-  defp owner_at(outpoint) do
+  defp owner_at(outpoint, protocol) do
     [txid, vout] = String.split(outpoint, "_")
 
     with {:ok, tx, _} <- load_tx(txid),
-         %BSV.TxOut{script: script} <- Enum.at(tx.outputs, String.to_integer(vout)) do
-      Inscription.lock_owner(script)
+         %BSV.TxOut{} = out <- Enum.at(tx.outputs, String.to_integer(vout)) do
+      protocol.owner(out)
     else
       _ -> nil
     end
