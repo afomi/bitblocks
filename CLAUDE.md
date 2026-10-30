@@ -167,6 +167,9 @@ The `/sync` page provides a web UI for these operations with live job monitoring
 
 ### API
 
+Anonymous callers get `RATE_LIMIT_PER_MINUTE` (default 120) requests per minute per IP.
+Keyed callers send `Authorization: Bearer bbk_…` (or `x-api-key`) and get their key's own budget; create one with `bin/bitblocks rpc 'Bitblocks.Release.create_api_key("qart", 1200)'` (printed once). An unknown or revoked key is a 401.
+
 ```
 GET /api/v1/blocks              — paginated block list
 GET /api/v1/blocks/latest       — most recent block

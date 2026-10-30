@@ -92,7 +92,9 @@ defmodule Bitblocks.ProjectionsTest do
       plan = Repo.query!("EXPLAIN " <> sql, params).rows |> Enum.map_join("\n", &hd/1)
 
       refute plan =~ "Seq Scan on transactions", plan
-      assert plan =~ "transactions_output_addresses_index", plan
+      # Either column's GIN index may serve it; the planner picks by stats.
+      assert plan =~ ~r/Bitmap Index Scan on transactions_(output_addresses|protocols)_index/,
+             plan
     end
   end
 

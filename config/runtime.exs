@@ -103,6 +103,11 @@ config :bitblocks, Bitblocks.MiningProxy,
   coinbase_message: System.get_env("MINING_COINBASE_MESSAGE", "mined via bitblocks")
 
 if config_env() == :prod do
+  # Anonymous per-IP API budget (requests per minute). API keys carry their
+  # own (Release.create_api_key/2); see BitblocksWeb.Plugs.RateLimiter.
+  config :bitblocks, BitblocksWeb.Plugs.RateLimiter,
+    max_requests: String.to_integer(System.get_env("RATE_LIMIT_PER_MINUTE", "120"))
+
   database_url =
     System.get_env("DATABASE_URL") ||
       raise """

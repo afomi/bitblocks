@@ -1003,6 +1003,45 @@ defmodule Bitblocks.Release do
   defp collection_hint(%{hint: :catalog, catalog: catalog}), do: {:ok, catalog.mint_txids()}
   defp collection_hint(%{id: cid}), do: Bitblocks.Ordinals.Gorillapool.collection_mint_txids(cid)
 
+  @doc """
+  Creates an API key with its own rate budget (requests per minute) and prints
+  the key once. Give it to the caller (e.g. qart's server) to send as
+  `Authorization: Bearer <key>`; only its hash is stored.
+
+      bin/bitblocks rpc 'Bitblocks.Release.create_api_key("qart", 1200)'
+  """
+  def create_api_key(name, requests_per_minute) do
+    case Bitblocks.ApiKeys.create(name, requests_per_minute) do
+      {:ok, key, token} ->
+        Logger.info(
+          "create_api_key: ##{key.id} #{name} #{requests_per_minute}/min #{key.prefix}…"
+        )
+
+        IO.puts(
+          "api key ##{key.id} (#{name}, #{requests_per_minute}/min). Store it now; it is not shown again:\n#{token}"
+        )
+
+        {:ok, key.id}
+
+      {:error, changeset} ->
+        {:error, Ecto.Changeset.traverse_errors(changeset, fn {msg, _} -> msg end)}
+    end
+  end
+
+  @doc "Lists API keys as `{id, name, prefix, requests_per_minute, revoked_at}`."
+  def list_api_keys do
+    for k <- Bitblocks.ApiKeys.list(),
+        do: {k.id, k.name, k.prefix, k.requests_per_minute, k.revoked_at}
+  end
+
+  @doc "Revokes an API key; requests with it get a 401 within a minute."
+  def revoke_api_key(id) do
+    with {:ok, key} <- Bitblocks.ApiKeys.revoke(id) do
+      Logger.info("revoke_api_key: ##{key.id} #{key.name}")
+      {:ok, key.id}
+    end
+  end
+
   @doc "Lists managed projections as `{id, tenant, name, status}`."
   def list_projections do
     for p <- Bitblocks.Projections.list(), do: {p.id, p.tenant, p.name, p.status}
