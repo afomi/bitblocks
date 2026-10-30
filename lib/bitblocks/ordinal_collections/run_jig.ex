@@ -100,6 +100,12 @@ defmodule Bitblocks.OrdinalCollections.RunJig do
   end
 
   @impl true
+  def rule,
+    do:
+      "a mint spends the class jig's current location (from the class origin) as a Run input " <>
+        "and its payload calls mint on it; the class moves on to that jig's output"
+
+  @impl true
   def owner(%BSV.TxOut{script: script}), do: Inscription.lock_owner(script)
 
   defp owner_or_nil(nil), do: nil

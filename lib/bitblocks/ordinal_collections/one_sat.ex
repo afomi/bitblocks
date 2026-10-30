@@ -84,5 +84,11 @@ defmodule Bitblocks.OrdinalCollections.OneSat do
   end
 
   @impl true
+  def rule,
+    do:
+      "a mint spends the collection outpoint or output 0 of an earlier proven mint, " <>
+        "and inscribes a collectionItem naming this collection"
+
+  @impl true
   def owner(%BSV.TxOut{script: script}), do: Inscription.lock_owner(script)
 end

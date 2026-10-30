@@ -66,6 +66,12 @@ defmodule Bitblocks.OrdinalCollections.RunJigTest do
       assert {:ok, [], ["#{txid}_2"]} == RunJig.mint(decode(built), txid, link, %{id: link})
     end
 
+    test "states its own membership rule for the verification block" do
+      assert RunJig.rule() =~ "calls mint"
+      refute RunJig.rule() =~ "collectionItem"
+      assert Bitblocks.OrdinalCollections.verification(@rexxies).rule == RunJig.rule()
+    end
+
     test "a tx that doesn't spend the link isn't a mint" do
       {txid, _} = built = mint(funding_outpoint(), address())
       assert :no == RunJig.mint(decode(built), txid, funding_outpoint(), %{id: "x"})

@@ -37,6 +37,9 @@ defmodule Bitblocks.OrdinalCollections.Protocol do
 
   @callback owner(BSV.TxOut.t()) :: String.t() | nil
 
+  @doc "The membership rule, in words, for the explicit verification block."
+  @callback rule() :: String.t()
+
   @doc "The input index of `tx` spending `outpoint` (\"txid_vout\"), or nil."
   def input_index(%BSV.Tx{inputs: inputs}, outpoint) do
     Enum.find_index(inputs, fn %BSV.TxIn{outpoint: op} ->

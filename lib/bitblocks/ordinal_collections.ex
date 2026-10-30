@@ -401,9 +401,7 @@ defmodule Bitblocks.OrdinalCollections do
     %{
       by: "bitblocks",
       basis: "mint_contract_chain",
-      rule:
-        "a mint spends the collection outpoint or output 0 of an earlier proven mint, " <>
-          "and inscribes a collectionItem naming this collection",
+      rule: config_for(collection_id).protocol.rule(),
       list_hash: :crypto.hash(:sha256, Enum.join(origins, "\n")) |> Base.encode16(case: :lower),
       items: length(origins),
       verified_through_height: height
