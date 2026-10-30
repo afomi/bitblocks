@@ -12,9 +12,12 @@ defmodule BitblocksWeb.Plugs.RateLimiter.Replicator do
 
   ## Model
 
-  On each local request the plug calls `record/2`, which broadcasts the IP + its
-  timestamp to peer nodes via `broadcast_from` (the originating node does not
-  receive its own message). Each node's Replicator applies remote timestamps
+  On each admitted request the plug calls `record/3`, which broadcasts the
+  bucket (an IP, or `key:<id>` for an API key), its timestamp, its limit and
+  this node's name. Every node's Replicator receives it, its own included, so
+  a node ignores messages it sent: the plug already counted them. (Before
+  2026-10-30 the message carried no origin and `broadcast_from` excluded only
+  the request process, so each node counted its own requests twice.) Each node's Replicator applies remote timestamps
   into the same ETS table the plug reads, so every node's sliding window
   reflects cluster-wide traffic for that IP.
 
@@ -44,9 +47,9 @@ defmodule BitblocksWeb.Plugs.RateLimiter.Replicator do
   Broadcast a local request (IP + timestamp) to peer nodes. Best-effort: a
   failure here must never affect the request being served.
   """
-  @spec record(String.t(), integer()) :: :ok
-  def record(ip, now) when is_binary(ip) and is_integer(now) do
-    PubSub.broadcast_from(@pubsub, self(), @topic, {:rl_hit, ip, now})
+  @spec record(String.t(), integer(), pos_integer()) :: :ok
+  def record(bucket, now, limit) when is_binary(bucket) and is_integer(now) do
+    PubSub.broadcast(@pubsub, @topic, {:rl_hit, node(), bucket, now, limit})
     :ok
   rescue
     _ -> :ok
@@ -63,8 +66,17 @@ defmodule BitblocksWeb.Plugs.RateLimiter.Replicator do
   end
 
   @impl true
+  def handle_info({:rl_hit, origin, _bucket, _ts, _limit}, state) when origin == node(),
+    do: {:noreply, state}
+
+  def handle_info({:rl_hit, _origin, bucket, ts, limit}, state) do
+    apply_remote_hit(bucket, ts, limit)
+    {:noreply, state}
+  end
+
+  # Pre-2026-10-30 shape, from a peer still on the old release mid-deploy.
   def handle_info({:rl_hit, ip, ts}, state) do
-    apply_remote_hit(ip, ts)
+    apply_remote_hit(ip, ts, config(:max_requests, 120))
     {:noreply, state}
   end
 
@@ -73,7 +85,7 @@ defmodule BitblocksWeb.Plugs.RateLimiter.Replicator do
   # Merge a peer's timestamp into our local window for this IP. Bounded: we cap
   # the retained list so a flood of remote hits can't grow a single IP's entry
   # without limit (the plug only needs enough to count against max_requests).
-  defp apply_remote_hit(ip, ts) do
+  defp apply_remote_hit(ip, ts, limit) do
     ensure_table()
     window_ms = config(:window_ms, 60_000)
     cutoff = System.system_time(:millisecond) - window_ms
@@ -88,7 +100,7 @@ defmodule BitblocksWeb.Plugs.RateLimiter.Replicator do
       [ts | existing]
       |> Enum.filter(&(&1 > cutoff))
       |> Enum.sort(:desc)
-      |> Enum.take(max_retained())
+      |> Enum.take(max_retained(limit))
 
     :ets.insert(@table, {ip, merged})
   rescue
@@ -97,7 +109,7 @@ defmodule BitblocksWeb.Plugs.RateLimiter.Replicator do
 
   # Keep a little headroom above max_requests so the count is accurate up to the
   # limit without retaining unbounded history.
-  defp max_retained, do: config(:max_requests, 20) * 2 + 10
+  defp max_retained(limit), do: limit * 2 + 10
 
   defp ensure_table do
     case :ets.whereis(@table) do

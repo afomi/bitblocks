@@ -95,7 +95,7 @@ defmodule BitblocksWeb.Plugs.RateLimiter.ReplicatorTest do
 
   describe "record/2 — best effort, never crashes the caller" do
     test "returns :ok even with the topic in place" do
-      assert :ok = Replicator.record("198.51.100.1", System.system_time(:millisecond))
+      assert :ok = Replicator.record("198.51.100.1", System.system_time(:millisecond), 20)
     end
   end
 
@@ -119,6 +119,37 @@ defmodule BitblocksWeb.Plugs.RateLimiter.ReplicatorTest do
     case :ets.whereis(@table) do
       :undefined -> []
       _ -> :ets.lookup(@table, ip)
+    end
+  end
+
+  describe "own-node hits (regression: every request was counted twice)" do
+    test "a hit this node recorded is not applied again by its own Replicator" do
+      bucket = "203.0.113.self.#{System.unique_integer([:positive])}"
+      now = System.system_time(:millisecond)
+
+      :ets.insert(@table, {bucket, [now]})
+      :ok = Replicator.record(bucket, now, 20)
+
+      # Give the local Replicator time to (wrongly) apply it.
+      Process.sleep(50)
+      assert [{^bucket, [^now]}] = lookup(bucket)
+    end
+
+    test "a peer's hit carries its limit, so a keyed bucket keeps enough history" do
+      bucket = "key:#{System.unique_integer([:positive])}"
+      base = System.system_time(:millisecond)
+
+      for i <- 1..300 do
+        Phoenix.PubSub.broadcast(
+          Bitblocks.PubSub,
+          @topic,
+          {:rl_hit, :peer@nowhere, bucket, base + i, 1_000}
+        )
+      end
+
+      wait_until(fn -> match?([{_, ts}] when length(ts) == 300, lookup(bucket)) end)
+      assert [{^bucket, timestamps}] = lookup(bucket)
+      assert length(timestamps) == 300
     end
   end
 end
