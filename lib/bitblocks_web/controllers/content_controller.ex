@@ -14,6 +14,8 @@ defmodule BitblocksWeb.ContentController do
   """
   use BitblocksWeb, :controller
 
+  require Logger
+
   alias Bitblocks.Chain.RawTx
   alias Bitblocks.Ordinals.Inscription
   alias Bitblocks.{TxStore, Woc}
@@ -42,6 +44,9 @@ defmodule BitblocksWeb.ContentController do
       {:error, :no_output} ->
         error(conn, 404, "no such output")
 
+      {:error, {:fetch_failed, _}} ->
+        error(conn, 502, "could not fetch the transaction from upstream; try again")
+
       _ ->
         error(
           conn,
@@ -59,23 +64,31 @@ defmodule BitblocksWeb.ContentController do
     end
   end
 
+  # Ours if we hold it (database or blob store); otherwise fetched. An
+  # unreadable blob store (e.g. no bucket yet) is a miss, not an error.
   defp bytes(txid) do
     case TxStore.raw(txid) do
       {:ok, bytes} -> {:ok, bytes}
-      {:error, :not_found} -> fetch_into_blob_store(txid)
-      error -> error
+      {:error, _} -> fetch(txid)
     end
   end
 
-  defp fetch_into_blob_store(txid) do
+  # Fetched bytes are served only if they hash to the txid. Caching them in
+  # the blob store is best-effort: a failed write is logged, not fatal.
+  defp fetch(txid) do
     with {:ok, [%{"hex" => hex} | _]} <- Woc.txs([txid]),
          {:ok, bytes} <- Base.decode16(hex, case: :mixed),
-         :ok <- TxStore.put(txid, bytes) do
+         ^txid <- TxStore.txid(bytes) do
+      case TxStore.put(txid, bytes) do
+        :ok -> :ok
+        {:error, reason} -> Logger.warning("content: not cached #{txid}: #{inspect(reason)}")
+      end
+
       {:ok, bytes}
     else
       {:ok, []} -> {:error, :not_found}
-      :error -> {:error, :not_found}
-      {:error, _} = error -> error
+      {:error, reason} -> {:error, {:fetch_failed, reason}}
+      _ -> {:error, :not_found}
     end
   end
 
