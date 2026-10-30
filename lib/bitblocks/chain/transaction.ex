@@ -34,6 +34,8 @@ defmodule Bitblocks.Chain.Transaction do
     # Analyze v6: addresses of valid AIP signatures in this tx (GIN-indexed),
     # so "everything signed by X" is one indexed query. See Bitblocks.Aip.
     field :aip_signers, {:array, :string}, default: []
+    # When raw bytes were written to the blob store and verified (Bitblocks.TxStore).
+    field :blob_stored_at, :utc_datetime
 
     timestamps()
   end

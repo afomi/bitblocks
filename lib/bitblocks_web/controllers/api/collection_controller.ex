@@ -150,7 +150,8 @@ defmodule BitblocksWeb.Api.CollectionController do
       :trace_state,
       :trace_reason,
       :trace_source,
-      :traced_at
+      :traced_at,
+      :trail
     ])
     |> Map.put(:membership, %{
       verified: true,

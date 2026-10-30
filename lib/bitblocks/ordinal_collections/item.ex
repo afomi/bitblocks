@@ -23,6 +23,8 @@ defmodule Bitblocks.OrdinalCollections.Item do
     field :trace_reason, :string
     field :trace_source, :string
     field :traced_at, :utc_datetime
+    # Txids the item moved through, oldest first (provenance; kept in the blob store).
+    field :trail, {:array, :string}, default: []
 
     timestamps(type: :utc_datetime)
   end

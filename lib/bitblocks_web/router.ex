@@ -137,6 +137,9 @@ defmodule BitblocksWeb.Router do
   # Own scope, no pipeline: the :browser pipeline only accepts html.
   scope "/", BitblocksWeb do
     get "/sitemap.xml", SitemapController, :index
+
+    # Inscription bodies parsed from raw txs on the fly (1Sat /content convention).
+    get "/content/:outpoint", ContentController, :show
   end
 
   # The Bitcom registry export, at a stable top-level path.

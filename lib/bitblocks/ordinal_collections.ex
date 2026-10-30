@@ -122,6 +122,18 @@ defmodule Bitblocks.OrdinalCollections do
           %{acc | failed: Enum.map(batch, &{&1, reason}) ++ acc.failed}
       end
     end)
+    |> tap(fn _ -> keep_blobs(txids) end)
+  end
+
+  # Every tx a collection touches is kept in the blob store (mints, transfers,
+  # inputs used for sat offsets). Silent when the store isn't configured: this
+  # runs on every trace hop, and Release.store_collection_blobs/1 reports the
+  # store's state once, explicitly.
+  defp keep_blobs([]), do: :ok
+
+  defp keep_blobs(txids) do
+    if Bitblocks.TxStore.ready?() == :ok, do: Bitblocks.TxStore.enqueue(txids)
+    :ok
   end
 
   defp stored_txids(txids) do
@@ -252,23 +264,26 @@ defmodule Bitblocks.OrdinalCollections do
   Follows `item`'s sat from where we last saw it (its origin, if never traced)
   to where it sits now, and records the owner. Returns the updated item.
   """
-  @spec trace(Item.t()) :: {:ok, Item.t()}
-  def trace(%Item{} = item) do
+  @spec trace(Item.t(), keyword()) :: {:ok, Item.t()}
+  def trace(%Item{} = item, opts \\ []) do
     # current: re-check from where it sat; partial: resume where the last trace
-    # stopped; otherwise start from the origin.
-    start =
-      if item.trace_state in ["current", "partial"] and item.current_outpoint,
-        do: item.current_outpoint,
-        else: item.origin
+    # stopped; otherwise (or with from: :origin) start from the origin, which
+    # rebuilds the trail.
+    resume? =
+      Keyword.get(opts, :from) != :origin and item.trace_state in ["current", "partial"] and
+        item.current_outpoint != nil
 
+    start = if resume?, do: item.current_outpoint, else: item.origin
     protocol = config_for(item.collection_id).protocol
-    {state, outpoint, owner, reason} = follow(start, 0, protocol)
+    {{state, outpoint, owner, reason}, steps} = follow(start, 0, protocol)
+    trail = if resume?, do: Enum.uniq((item.trail || []) ++ steps), else: steps
 
     item
     |> Ecto.Changeset.change(%{
       trace_state: state,
       current_outpoint: outpoint,
       owner: owner,
+      trail: trail,
       trace_reason: reason,
       trace_source: "whatsonchain",
       traced_at: DateTime.utc_now() |> DateTime.truncate(:second)
@@ -287,37 +302,51 @@ defmodule Bitblocks.OrdinalCollections do
     |> Enum.frequencies()
   end
 
-  defp follow(outpoint, hops, _protocol) when hops >= @max_hops,
-    do:
-      {"partial", outpoint, nil,
-       "stopped after #{@max_hops} transfers; the next trace continues from here"}
+  # Returns {{state, outpoint, owner, reason}, trail}: trail is the txids the
+  # item moved through on this walk, oldest first (a spend that destroys the
+  # item is included, as the last step of its history).
+  defp follow(outpoint, hops, protocol, trail \\ [])
 
-  defp follow(outpoint, hops, protocol) do
+  defp follow(outpoint, hops, _protocol, trail) when hops >= @max_hops,
+    do:
+      {{"partial", outpoint, nil,
+        "stopped after #{@max_hops} transfers; the next trace continues from here"},
+       Enum.reverse(trail)}
+
+  defp follow(outpoint, hops, protocol, trail) do
     [txid, vout] = String.split(outpoint, "_")
 
     case Woc.spent(txid, String.to_integer(vout)) do
       {:ok, :unspent} ->
-        case owner_at(outpoint, protocol) do
-          nil ->
-            {"current", outpoint, nil, "held by a non-P2PKH lock (e.g. a marketplace listing)"}
+        result =
+          case owner_at(outpoint, protocol) do
+            nil ->
+              {"current", outpoint, nil, "held by a non-P2PKH lock (e.g. a marketplace listing)"}
 
-          owner ->
-            {"current", outpoint, owner, nil}
-        end
+            owner ->
+              {"current", outpoint, owner, nil}
+          end
+
+        {result, Enum.reverse(trail)}
 
       {:ok, %{txid: spender, vin: vin}} ->
         import_txs([spender])
+        trail = [spender | trail]
 
         with {:ok, tx, _} <- load_tx(spender),
              {:ok, next} <- protocol.landing(tx, spender, vin, &output_value/1) do
-          follow(next, hops + 1, protocol)
+          follow(next, hops + 1, protocol, trail)
         else
-          {:unknown, reason} -> {"unknown", outpoint, nil, reason}
-          _ -> {"unknown", outpoint, nil, "spending tx #{spender} unavailable"}
+          {:unknown, reason} ->
+            {{"unknown", outpoint, nil, reason}, Enum.reverse(trail)}
+
+          _ ->
+            {{"unknown", outpoint, nil, "spending tx #{spender} unavailable"},
+             Enum.reverse(trail)}
         end
 
       {:error, reason} ->
-        {"unknown", outpoint, nil, "whatsonchain: #{inspect(reason)}"}
+        {{"unknown", outpoint, nil, "whatsonchain: #{inspect(reason)}"}, Enum.reverse(trail)}
     end
   end
 

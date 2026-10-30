@@ -67,6 +67,9 @@ config :bitblocks, :projection_webhook_client, Bitblocks.WebhookClientStub
 # WhatsOnChain fallback source answers from per-test fixtures.
 config :bitblocks, :woc_client, Bitblocks.WocStub
 
+# Raw tx bytes go to a local directory in tests (Bitblocks.TxStore).
+config :bitblocks, Bitblocks.TxStore, adapter: Bitblocks.TxStore.Local, root: "tmp/tx_store_test"
+
 # Disable request auto-ban in tests — the Wallaby browser hits many endpoints
 # from 127.0.0.1 and would otherwise get blocked by the RequestLogger.
 config :bitblocks, :invalid_request_threshold, 10_000

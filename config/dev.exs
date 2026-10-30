@@ -106,3 +106,6 @@ config :bitblocks, Bitblocks.MiningProxy,
   # (the ?address split path); it's read at COMPILE time so changing it needs a
   # rebuild. Hasher reward-split is dormant for now.
   platform_share_pct: 10
+
+# Raw tx bytes go to a local directory in dev (Bitblocks.TxStore); prod uses S3.
+config :bitblocks, Bitblocks.TxStore, adapter: Bitblocks.TxStore.Local, root: "tmp/tx_store"

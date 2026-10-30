@@ -750,31 +750,28 @@ defmodule Bitblocks.Release do
   end
 
   @doc """
-  Check referential integrity between Postgres and S3 CDN.
+  Checks the blob store (Bitblocks.TxStore): is it configured, how many txs
+  are stored, and do `n` random stored objects still match the database's
+  bytes? Prints and returns the result.
 
-  ## Usage
-
-      bin/bitblocks eval 'Bitblocks.Release.cdn_check()'
+      bin/bitblocks rpc 'Bitblocks.Release.tx_store_check()'
   """
-  def cdn_check do
-    case Bitblocks.TxCdn.integrity_check() do
-      {:ok, result} ->
-        IO.inspect(result, label: "CDN Integrity")
+  def tx_store_check(n \\ 20) do
+    case Bitblocks.TxStore.ready?() do
+      :ok ->
+        result = Bitblocks.TxStore.verify_sample(n)
 
-        if result.match do
-          IO.puts("✓ DB and S3 counts match (#{result.db})")
-        else
-          IO.puts("✗ Mismatch: DB=#{result.db} S3=#{result.s3} diff=#{result.diff}")
-        end
+        if result.bad == [],
+          do:
+            IO.puts(
+              "tx store OK: #{result.stored} stored; #{result.ok}/#{result.checked} sampled match"
+            ),
+          else: IO.puts("tx store MISMATCH: #{inspect(result.bad)}")
 
         result
 
-      {:error, :not_configured} ->
-        IO.puts("CDN not configured (AWS_S3_BUCKET_TXS not set)")
-        {:error, :not_configured}
-
       {:error, reason} ->
-        IO.puts("CDN check failed: #{inspect(reason)}")
+        IO.puts("tx store not ready: #{inspect(reason)}")
         {:error, reason}
     end
   end
@@ -995,6 +992,73 @@ defmodule Bitblocks.Release do
     else
       {:error, reason} ->
         IO.puts("sync_ordinal_collection #{slug} FAILED: #{inspect(reason)}")
+        {:error, reason}
+    end
+  end
+
+  @doc """
+  Puts every tx of a collection in the blob store (Bitblocks.TxStore): the
+  collection origin, each mint, each item's trail and current location.
+  Items that moved before trails were recorded are re-walked from their origin
+  first (`retrace: false` skips that). Writes run as Oban jobs; call again to
+  see `stored` climb to `txids`.
+
+      bin/bitblocks rpc 'Task.start(fn -> Bitblocks.Release.store_collection_blobs("rexxies") end)'
+  """
+  def store_collection_blobs(slug, opts \\ []) do
+    import Ecto.Query
+    alias Bitblocks.OrdinalCollections
+    alias Bitblocks.OrdinalCollections.Item
+
+    with cid when is_binary(cid) <-
+           OrdinalCollections.resolve(slug) || {:error, :unknown_collection},
+         :ok <- Bitblocks.TxStore.ready?() do
+      items = Bitblocks.Repo.all(from i in Item, where: i.collection_id == ^cid)
+
+      retraced =
+        if Keyword.get(opts, :retrace, true) do
+          for item <- items, item.trail == [], item.current_outpoint != item.origin do
+            {:ok, _} = OrdinalCollections.trace(item, from: :origin)
+          end
+          |> length()
+        else
+          0
+        end
+
+      items = Bitblocks.Repo.all(from i in Item, where: i.collection_id == ^cid)
+      outpoint_txid = fn op -> op |> String.split("_") |> hd() end
+
+      txids =
+        [outpoint_txid.(cid)]
+        |> Enum.concat(Enum.map(items, & &1.mint_txid))
+        |> Enum.concat(Enum.flat_map(items, & &1.trail))
+        |> Enum.concat(for i <- items, i.current_outpoint, do: outpoint_txid.(i.current_outpoint))
+        |> Enum.uniq()
+
+      import = OrdinalCollections.import_txs(txids)
+      enqueued = Bitblocks.TxStore.enqueue(txids)
+
+      stored =
+        Bitblocks.Repo.aggregate(
+          from(t in Bitblocks.Chain.Transaction,
+            where: t.txid in ^txids and not is_nil(t.blob_stored_at)
+          ),
+          :count
+        )
+
+      result = %{
+        txids: length(txids),
+        stored: stored,
+        enqueued: enqueued,
+        retraced: retraced,
+        import_failed: length(import.failed)
+      }
+
+      IO.puts("store_collection_blobs #{slug}: #{inspect(result)}")
+      {:ok, result}
+    else
+      {:error, reason} ->
+        IO.puts("store_collection_blobs #{slug} FAILED: #{inspect(reason)}")
         {:error, reason}
     end
   end

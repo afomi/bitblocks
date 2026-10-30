@@ -161,6 +161,23 @@ defmodule Bitblocks.OrdinalCollectionsTest do
       assert done.current_outpoint == last
     end
 
+    test "records the trail it walked, and from: :origin rebuilds it", ctx do
+      hop1 = tx([ctx.item.origin], [p2pkh(address(), 1)]) |> publish()
+      spend(ctx.item.origin, hop1, 0)
+      hop2 = tx(["#{hop1}_0"], [p2pkh(address(), 1)]) |> publish()
+      spend("#{hop1}_0", hop2, 0)
+
+      assert {:ok, traced} = OrdinalCollections.trace(ctx.item)
+      assert traced.trail == [hop1, hop2]
+
+      # A resumed trace keeps the trail; a re-walk from the origin rebuilds it.
+      assert {:ok, again} = OrdinalCollections.trace(traced)
+      assert again.trail == [hop1, hop2]
+
+      assert {:ok, rewalked} = OrdinalCollections.trace(%{again | trail: []}, from: :origin)
+      assert rewalked.trail == [hop1, hop2]
+    end
+
     test "a WhatsOnChain failure is unknown with its reason", ctx do
       Process.put(:woc_spent, %{ctx.item.origin => {:error, :timeout}})
 

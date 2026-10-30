@@ -177,6 +177,7 @@ GET /api/v1/blocks/:id          — block by height or hash
 GET /api/v1/txs                 — paginated transactions (?protocol=Twetch to filter)
 GET /api/v1/txs/:txid           — single transaction by txid
 GET /api/v1/txs/:txid/proof     — merkle proof for a transaction
+GET /content/:outpoint          — inscription body parsed from the raw tx on the fly (1Sat convention; immutable, nosniff, sandbox CSP)
 GET /api/v1/price/bsv           — cached BSV spot price (USD) from CoinGecko
 GET /api/v1/support             — sponsorship numbers for the off-site page: monthly costs, target, BSV received (CORS *)
 GET /api/v1/stream/blocks       — SSE stream of new blocks

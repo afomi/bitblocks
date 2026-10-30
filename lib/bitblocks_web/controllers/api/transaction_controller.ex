@@ -65,7 +65,9 @@ defmodule BitblocksWeb.Api.TransactionController do
       fee: Chain.Transaction.miner_fee(tx)
     }
 
-    case Bitblocks.TxCdn.cdn_url(tx.txid) do
+    # Only once the bytes are verified in the blob store (Bitblocks.TxStore):
+    # the raw tx, immutable, at one global CDN URL.
+    case Bitblocks.TxStore.url(tx) do
       nil -> base
       url -> Map.put(base, :cdn_url, url)
     end
