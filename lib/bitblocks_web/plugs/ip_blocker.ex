@@ -73,6 +73,22 @@ defmodule BitblocksWeb.Plugs.IpBlocker do
   end
 
   @doc """
+  Blocks an IP for `ttl_seconds` (auto-bans use this; a manual block with
+  `block_ip/1` is permanent). The entry is dropped on the first lookup after
+  it expires.
+  """
+  def block_ip(ip, ttl_seconds) when is_integer(ttl_seconds) and ttl_seconds >= 0 do
+    ensure_table_exists()
+    until = System.system_time(:millisecond) + ttl_seconds * 1000
+    :ets.insert(@table_name, {ip, {:until, until}})
+    Logger.info("Blocked IP: #{ip} for #{ttl_seconds}s")
+    :ok
+  end
+
+  @doc "Whether `ip` is blocked right now (exact match or CIDR)."
+  def blocked?(ip), do: ip_blocked?(ip)
+
+  @doc """
   Unblock an IP address.
 
   ## Examples
@@ -102,8 +118,19 @@ defmodule BitblocksWeb.Plugs.IpBlocker do
 
     # Check exact match
     case :ets.lookup(@table_name, ip) do
-      [{^ip, true}] -> true
-      [] -> check_cidr_ranges(ip)
+      [{^ip, true}] ->
+        true
+
+      [{^ip, {:until, until}}] ->
+        if System.system_time(:millisecond) < until do
+          true
+        else
+          :ets.delete(@table_name, ip)
+          check_cidr_ranges(ip)
+        end
+
+      [] ->
+        check_cidr_ranges(ip)
     end
   end
 

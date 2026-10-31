@@ -35,6 +35,8 @@ config :bitblocks,
   auto_ban_enabled: true,
   # Number of invalid requests before auto-ban (404s, 400s, suspicious patterns)
   invalid_request_threshold: 10,
+  # Auto-bans lift after this many seconds.
+  auto_ban_ttl_seconds: 900,
   # Time window for tracking invalid requests (seconds)
   tracking_window_seconds: 300,
   # Approximate location of OUR node, shown as the home marker on /peers.
@@ -123,6 +125,10 @@ config :bitblocks, Oban,
   repo: Bitblocks.Repo,
   plugins: [
     Oban.Plugins.Pruner,
+    # A deploy stops nodes mid-job; Oban's shutdown grace is short, and a job
+    # left `executing` is never picked up again without this. Collection trace
+    # batches are small (10 items) so none legitimately runs this long.
+    {Oban.Plugins.Lifeline, rescue_after: :timer.minutes(60)},
     {Oban.Plugins.Cron,
      crontab: [
        {"* * * * *", Bitblocks.Workers.SyncHeadersWorker, args: %{"mode" => "tip"}},
@@ -144,6 +150,8 @@ config :bitblocks, Oban,
     # Projection webhook deliveries (#29 step 4); off the tx lanes so a slow
     # tenant endpoint never delays sync.
     webhooks: 5,
+    # Collection syncs (#30): WhatsOnChain-paced, one job at a time.
+    collections: 1,
     blocks: 3
   ]
 

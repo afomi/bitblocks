@@ -10,7 +10,6 @@ defmodule BitblocksWeb.Plugs.RequestLogger do
 
   @table_name :request_tracking
   @auto_ban_enabled Application.compile_env(:bitblocks, :auto_ban_enabled, true)
-  @invalid_request_threshold Application.compile_env(:bitblocks, :invalid_request_threshold, 10)
   @tracking_window_seconds Application.compile_env(:bitblocks, :tracking_window_seconds, 300)
 
   # Query-string params whose key contains one of these words (case-insensitive,
@@ -78,8 +77,12 @@ defmodule BitblocksWeb.Plugs.RequestLogger do
       # Detect suspicious patterns and mark as invalid if found
       is_suspicious = check_suspicious_patterns(conn, metadata)
 
-      # Track and potentially auto-ban
-      if is_invalid or is_suspicious do
+      # Track and potentially auto-ban. Scanner patterns always count. A 4xx
+      # counts unless it's a data answer: API and /content lookups 404 by
+      # design ("not an item", "unknown tx"), and 401 (bad key) and 429 (rate
+      # limited) are handled by their own plugs. Keyed callers never count;
+      # their budget is the rate limiter's job.
+      if counts_against?(conn, is_invalid, is_suspicious) do
         track_and_ban_if_needed(metadata.ip, conn, metadata)
       end
 
@@ -167,6 +170,22 @@ defmodule BitblocksWeb.Plugs.RequestLogger do
     found_suspicious
   end
 
+  # Read at runtime so tests (which raise the threshold to spare Wallaby's
+  # browser) can exercise a ban. Auto-bans expire; manual blocks don't.
+  defp invalid_request_threshold,
+    do: Application.get_env(:bitblocks, :invalid_request_threshold, 10)
+
+  defp auto_ban_ttl_seconds, do: Application.get_env(:bitblocks, :auto_ban_ttl_seconds, 900)
+
+  defp counts_against?(%{assigns: %{api_key: %{}}}, _invalid, _suspicious), do: false
+  defp counts_against?(_conn, _invalid, true), do: true
+  defp counts_against?(_conn, false, _suspicious), do: false
+
+  defp counts_against?(conn, true, _suspicious) do
+    not (conn.status in [401, 429] or
+           String.starts_with?(conn.request_path, ["/api/", "/content/"]))
+  end
+
   defp track_and_ban_if_needed(ip, _conn, metadata) do
     if @auto_ban_enabled do
       ensure_table_exists()
@@ -193,18 +212,18 @@ defmodule BitblocksWeb.Plugs.RequestLogger do
       :ets.insert(@table_name, {ip, invalid_count, first_seen})
 
       # Check if threshold exceeded
-      if invalid_count >= @invalid_request_threshold do
+      if invalid_count >= invalid_request_threshold() do
         Logger.error(
           "AUTO-BAN TRIGGERED: IP #{ip} exceeded threshold with #{invalid_count} invalid requests in #{now - first_seen}s",
           Map.merge(metadata, %{
             invalid_count: invalid_count,
-            threshold: @invalid_request_threshold,
+            threshold: invalid_request_threshold(),
             window_seconds: now - first_seen
           })
         )
 
-        # Auto-ban the IP
-        BitblocksWeb.Plugs.IpBlocker.block_ip(ip)
+        # Auto-ban the IP, for a while
+        BitblocksWeb.Plugs.IpBlocker.block_ip(ip, auto_ban_ttl_seconds())
 
         # Clear tracking for this IP since it's now banned
         :ets.delete(@table_name, ip)
