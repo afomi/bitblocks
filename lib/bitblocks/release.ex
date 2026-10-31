@@ -959,41 +959,74 @@ defmodule Bitblocks.Release do
   end
 
   @doc """
-  Syncs a 1Sat ordinal collection (#30): discovers mints (GorillaPool as a
-  hint), imports them from WhatsOnChain, proves membership along the mint
-  chain, then traces every item's owner. Prints and returns the counts.
-  Takes minutes (WoC is rate-limited); run it detached.
+  Syncs a collection (#30) as Oban jobs, which survive deploys: import and
+  walk the mint chain, then trace owners in checkpointed batches (a resumed
+  run only does items not traced since it started). Returns at once; the last
+  batch logs `sync_ordinal_collection <slug>: done …`. Progress:
+  `collection_sync_status/1`. Accepts a slug or a collection origin outpoint.
 
-      bin/bitblocks rpc 'Task.start(fn -> Bitblocks.Release.sync_ordinal_collection("grand-tardinians") end)'
+      bin/bitblocks rpc 'Bitblocks.Release.sync_ordinal_collection("rexxies") |> IO.inspect()'
+
+  `trace: false` imports and walks only.
   """
   def sync_ordinal_collection(slug, opts \\ []) do
-    alias Bitblocks.OrdinalCollections
+    args = %{
+      slug: slug,
+      run_started_at: DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601(),
+      trace: Keyword.get(opts, :trace, true)
+    }
 
-    # A slug, or any collection origin outpoint (e.g. another Bubblemint drop):
-    # mints that don't follow the chain rule show up as `rejected`, never as items.
-    cid = OrdinalCollections.resolve(slug) || if(slug =~ ~r/\A[0-9a-f]{64}_\d+\z/, do: slug)
+    case Oban.insert(Bitblocks.Workers.CollectionSyncWorker.new(args)) do
+      {:ok, %{conflict?: true, id: id}} ->
+        IO.puts("sync_ordinal_collection #{slug}: already queued or running (job #{id})")
+        {:ok, :already_running, id}
 
-    with cid when is_binary(cid) <- cid || {:error, :unknown_collection},
-         {:ok, hint} <- collection_hint(OrdinalCollections.config_for(cid)) do
-      sync = OrdinalCollections.sync(cid, hint)
+      {:ok, %{id: id}} ->
+        IO.puts(
+          "sync_ordinal_collection #{slug}: enqueued (job #{id}, run #{args.run_started_at})"
+        )
 
-      traces =
-        if Keyword.get(opts, :trace, true), do: OrdinalCollections.trace_all(cid), else: %{}
+        {:ok, :enqueued, id}
 
-      result = %{
-        hint: length(hint),
-        sync: Map.delete(sync, :import),
-        import: Map.update!(sync.import, :failed, &length/1),
-        traces: traces
-      }
-
-      IO.puts("sync_ordinal_collection #{slug}: #{inspect(result)}")
-      {:ok, result}
-    else
       {:error, reason} ->
-        IO.puts("sync_ordinal_collection #{slug} FAILED: #{inspect(reason)}")
+        IO.puts("sync_ordinal_collection #{slug} FAILED to enqueue: #{inspect(reason)}")
         {:error, reason}
     end
+  end
+
+  @doc """
+  Progress of a collection sync: items by trace_state, and this collection's
+  sync and trace jobs still pending.
+  """
+  def collection_sync_status(slug) do
+    import Ecto.Query
+    alias Bitblocks.OrdinalCollections
+
+    cid = OrdinalCollections.resolve(slug)
+
+    pending =
+      from(j in Oban.Job,
+        where:
+          j.worker in [
+            "Bitblocks.Workers.CollectionSyncWorker",
+            "Bitblocks.Workers.CollectionTraceWorker"
+          ] and
+            j.state in ["available", "scheduled", "executing", "retryable"] and
+            fragment("?->>'slug' = ?", j.args, ^slug),
+        group_by: [j.worker, j.state],
+        select: {j.worker, j.state, count()}
+      )
+      |> Bitblocks.Repo.all()
+      |> Enum.map(fn {w, st, n} -> {"#{w |> String.split(".") |> List.last()} #{st}", n} end)
+      |> Map.new()
+
+    status = %{
+      summary: if(cid, do: OrdinalCollections.summary(cid)),
+      pending_jobs: pending
+    }
+
+    IO.puts("collection_sync_status #{slug}: #{inspect(status)}")
+    status
   end
 
   @doc """
@@ -1062,10 +1095,6 @@ defmodule Bitblocks.Release do
         {:error, reason}
     end
   end
-
-  # Candidate mint txids; each is still proven on chain by the protocol.
-  defp collection_hint(%{hint: :catalog, catalog: catalog}), do: {:ok, catalog.mint_txids()}
-  defp collection_hint(%{id: cid}), do: Bitblocks.Ordinals.Gorillapool.collection_mint_txids(cid)
 
   @doc """
   Creates an API key with its own rate budget (requests per minute) and prints

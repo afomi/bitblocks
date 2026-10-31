@@ -23,7 +23,14 @@ config :logger, level: :info
 # tip is never starved by historical backfill: one current + one past block
 # fetch at a time, in parallel. Tuned conservatively for t3.medium (4GB RAM).
 config :bitblocks, Oban,
-  queues: [default: 10, transactions_tip: 1, transactions_backfill: 1, blocks: 1, webhooks: 5]
+  queues: [
+    default: 10,
+    transactions_tip: 1,
+    transactions_backfill: 1,
+    blocks: 1,
+    webhooks: 5,
+    collections: 1
+  ]
 
 # Runtime production configuration, including reading
 # of environment variables, is done on config/runtime.exs.
