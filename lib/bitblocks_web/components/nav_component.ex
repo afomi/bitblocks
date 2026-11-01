@@ -33,10 +33,66 @@ defmodule BitblocksWeb.NavComponent do
             </svg>
             <span class="text-xl font-semibold text-gray-900 dark:text-white">Bitblocks</span>
           </a>
-          <div class="hidden lg:flex lg:gap-x-12">
-            <a href="/blocks" class="text-sm/6 font-semibold text-gray-900 dark:text-white">Blocks</a>
-            <a href="/transactions" class="text-sm/6 font-semibold text-gray-900 dark:text-white">Transactions</a>
-            <a href="/about" class="text-sm/6 font-semibold text-gray-900 dark:text-white">About</a>
+          <div
+            id="nav-desktop"
+            class="hidden lg:flex lg:flex-wrap lg:items-center lg:gap-x-6 lg:gap-y-2"
+          >
+            <a
+              id="nav-blocks"
+              href="/blocks"
+              class="text-sm/6 font-semibold text-gray-900 dark:text-white"
+            >
+              Blocks
+            </a>
+            <a
+              id="nav-transactions"
+              href="/search"
+              class="text-sm/6 font-semibold text-gray-900 dark:text-white"
+            >
+              Transactions
+            </a>
+            <a
+              id="nav-tokens"
+              href="/tokens"
+              class="text-sm/6 font-semibold text-gray-900 dark:text-white"
+            >
+              Tokens
+            </a>
+            <a
+              id="nav-order-book"
+              href="/order-book"
+              class="text-sm/6 font-semibold text-gray-900 dark:text-white"
+            >
+              Order book
+            </a>
+            <a
+              id="nav-metanet"
+              href="/metanet"
+              class="text-sm/6 font-semibold text-gray-900 dark:text-white"
+            >
+              Metanet
+            </a>
+            <a
+              id="nav-bitcom"
+              href="/bitcom"
+              class="text-sm/6 font-semibold text-gray-900 dark:text-white"
+            >
+              Bitcom
+            </a>
+            <a
+              id="nav-collections"
+              href="/collections/rexxies"
+              class="text-sm/6 font-semibold text-gray-900 dark:text-white"
+            >
+              Collections
+            </a>
+            <a
+              id="nav-about"
+              href="/about"
+              class="text-sm/6 font-semibold text-gray-900 dark:text-white"
+            >
+              About
+            </a>
           </div>
         </div>
         <div class="flex lg:hidden">
@@ -114,10 +170,66 @@ defmodule BitblocksWeb.NavComponent do
                   </svg>
                 </button>
               </div>
-              <div class="mt-6 space-y-2">
-                <a href="/blocks" class="-mx-3 block rounded-lg px-3 py-2 text-base/7 font-semibold text-gray-900 hover:bg-gray-50 dark:text-white dark:hover:bg-white/5">Blocks</a>
-                <a href="/transactions" class="-mx-3 block rounded-lg px-3 py-2 text-base/7 font-semibold text-gray-900 hover:bg-gray-50 dark:text-white dark:hover:bg-white/5">Transactions</a>
-                <a href="/about" class="-mx-3 block rounded-lg px-3 py-2 text-base/7 font-semibold text-gray-900 hover:bg-gray-50 dark:text-white dark:hover:bg-white/5">About</a>
+              <div
+                id="nav-mobile"
+                class="mt-6 space-y-2"
+              >
+                <a
+                  id="nav-blocks-mobile"
+                  href="/blocks"
+                  class="-mx-3 block rounded-lg px-3 py-2 text-base/7 font-semibold text-gray-900 hover:bg-gray-50 dark:text-white dark:hover:bg-white/5"
+                >
+                  Blocks
+                </a>
+                <a
+                  id="nav-transactions-mobile"
+                  href="/search"
+                  class="-mx-3 block rounded-lg px-3 py-2 text-base/7 font-semibold text-gray-900 hover:bg-gray-50 dark:text-white dark:hover:bg-white/5"
+                >
+                  Transactions
+                </a>
+                <a
+                  id="nav-tokens-mobile"
+                  href="/tokens"
+                  class="-mx-3 block rounded-lg px-3 py-2 text-base/7 font-semibold text-gray-900 hover:bg-gray-50 dark:text-white dark:hover:bg-white/5"
+                >
+                  Tokens
+                </a>
+                <a
+                  id="nav-order-book-mobile"
+                  href="/order-book"
+                  class="-mx-3 block rounded-lg px-3 py-2 text-base/7 font-semibold text-gray-900 hover:bg-gray-50 dark:text-white dark:hover:bg-white/5"
+                >
+                  Order book
+                </a>
+                <a
+                  id="nav-metanet-mobile"
+                  href="/metanet"
+                  class="-mx-3 block rounded-lg px-3 py-2 text-base/7 font-semibold text-gray-900 hover:bg-gray-50 dark:text-white dark:hover:bg-white/5"
+                >
+                  Metanet
+                </a>
+                <a
+                  id="nav-bitcom-mobile"
+                  href="/bitcom"
+                  class="-mx-3 block rounded-lg px-3 py-2 text-base/7 font-semibold text-gray-900 hover:bg-gray-50 dark:text-white dark:hover:bg-white/5"
+                >
+                  Bitcom
+                </a>
+                <a
+                  id="nav-collections-mobile"
+                  href="/collections/rexxies"
+                  class="-mx-3 block rounded-lg px-3 py-2 text-base/7 font-semibold text-gray-900 hover:bg-gray-50 dark:text-white dark:hover:bg-white/5"
+                >
+                  Collections
+                </a>
+                <a
+                  id="nav-about-mobile"
+                  href="/about"
+                  class="-mx-3 block rounded-lg px-3 py-2 text-base/7 font-semibold text-gray-900 hover:bg-gray-50 dark:text-white dark:hover:bg-white/5"
+                >
+                  About
+                </a>
               </div>
             </el-dialog-panel>
           </div>

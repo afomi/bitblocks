@@ -664,8 +664,7 @@ defmodule BitblocksWeb.ProtocolsLive do
           <%= if @protocol.example_txid do %>
             <li>
               <a
-                href={"https://whatsonchain.com/tx/#{@protocol.example_txid}"}
-                target="_blank"
+                href={"/transactions/#{@protocol.example_txid}"}
                 class="text-blue-600 hover:underline"
               >
                 Example Transaction

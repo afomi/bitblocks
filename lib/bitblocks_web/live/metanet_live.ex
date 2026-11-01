@@ -8,7 +8,8 @@ defmodule BitblocksWeb.MetanetLive do
     txid = Map.get(params, "txid", "")
 
     socket =
-      assign(socket,
+      assign(
+        socket,
         page_title: "Metanet Explorer",
         txid: txid,
         node: nil,
@@ -16,6 +17,7 @@ defmodule BitblocksWeb.MetanetLive do
         children: [],
         path: [],
         murl: nil,
+        roots: if(txid == "", do: Metanet.get_roots(), else: []),
         loading: false,
         error: nil
       )

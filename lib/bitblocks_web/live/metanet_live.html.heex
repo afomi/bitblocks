@@ -37,6 +37,33 @@
       </button>
     </form>
 
+    <%= if @txid == "" do %>
+      <%= if @roots == [] do %>
+        <p
+          id="metanet-roots"
+          class="text-sm text-neutral-400 mb-6"
+        >
+          No Metanet roots are indexed.
+        </p>
+      <% else %>
+        <ul
+          id="metanet-roots"
+          class="mb-6 space-y-2"
+        >
+          <%= for root <- @roots do %>
+            <li>
+              <a
+                href={"/metanet?txid=#{root.txid}"}
+                class="text-sm text-blue-400 hover:text-blue-300"
+              >
+                <%= root[:name] || root.txid_short %>
+              </a>
+            </li>
+          <% end %>
+        </ul>
+      <% end %>
+    <% end %>
+
     <%!-- Error --%>
     <%= if @error do %>
       <div class="bg-red-900/30 border border-red-800 rounded-lg px-4 py-3 mb-6 text-sm text-red-300">
@@ -126,7 +153,7 @@
 
             <div class="flex items-start gap-3">
               <span class="text-neutral-500 w-24 shrink-0">
-                P_node
+                Parent
               </span>
               <span class="font-mono text-neutral-300 break-all">
                 <%= @node.p_node %>

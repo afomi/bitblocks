@@ -1,6 +1,7 @@
 defmodule BitblocksWeb.TokenLive do
   use BitblocksWeb, :live_view
 
+  alias Bitblocks.OrderBook
   alias Bitblocks.Tokens
   alias BitblocksWeb.Seo
 
@@ -32,7 +33,8 @@ defmodule BitblocksWeb.TokenLive do
           view: :detail,
           token: token,
           holders: Tokens.token_holders(id),
-          transfers: Tokens.token_transfers(id, limit: 25)
+          transfers: Tokens.token_transfers(id, limit: 25),
+          open_listings: OrderBook.list_active_listings(token_id: token.token_id, limit: 1)
         )
       else
         assign(socket, view: :not_found, token_id: id)

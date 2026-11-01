@@ -97,6 +97,38 @@ defmodule BitblocksWeb.TokenLiveTest do
       {:ok, _view, html} = live(conn, ~p"/tokens/#{unknown}")
       assert html =~ "Token not found"
     end
+
+    test "a token with no listings says so", %{conn: conn} do
+      token = index_meme()
+
+      {:ok, _view, html} = live(conn, ~p"/tokens/#{token.token_id}")
+
+      assert html =~ "There are no open listings."
+    end
+
+    test "a token with listings links to the filtered order book", %{conn: conn} do
+      token = index_meme()
+
+      {:ok, _} =
+        Bitblocks.OrderBook.index_listing(%{
+          txid: "bb" <> String.duplicate("1", 62),
+          vout: 0,
+          block_height: 210,
+          parsed_data: %{
+            "op" => "list",
+            "token_id" => token.token_id,
+            "quantity" => "10",
+            "price_satoshis" => "100",
+            "seller_address" => "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa",
+            "token_utxo" => "bb:0"
+          }
+        })
+
+      {:ok, _view, html} = live(conn, ~p"/tokens/#{token.token_id}")
+
+      assert html =~ "/order-book?token_id=#{token.token_id}"
+      refute html =~ "There are no open listings."
+    end
   end
 
   describe "cross-link from order book" do
