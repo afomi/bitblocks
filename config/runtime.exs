@@ -103,6 +103,12 @@ config :bitblocks, Bitblocks.MiningProxy,
   coinbase_message: System.get_env("MINING_COINBASE_MESSAGE", "mined via bitblocks")
 
 if config_env() == :prod do
+  # Catalog PNGs for /images/rexxies. Unset keeps priv/rexxie_images in the release.
+  # On-chain Rexxie payloads are encrypted, so this directory is the image source.
+  if rexxie_images_dir = System.get_env("REXXIE_IMAGES_DIR") do
+    config :bitblocks, :rexxie_images_dir, rexxie_images_dir
+  end
+
   # Anonymous per-IP API budget (requests per minute). API keys carry their
   # own (Release.create_api_key/2); see BitblocksWeb.Plugs.RateLimiter.
   config :bitblocks, BitblocksWeb.Plugs.RateLimiter,

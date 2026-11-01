@@ -16,7 +16,6 @@ defmodule Bitblocks.Rexxies do
   @behaviour Bitblocks.Collections
 
   @collection_class "12d8ca4bc0eaf26660627cc1671de6a0047246f39f3aa06633f8204223d70cc5"
-  @images_dir Path.expand("~/workspace/rexxie-indexer/images")
   @trait_type_list ["background", "base", "body", "eye", "mouth", "head"]
 
   # ============================================================================
@@ -116,7 +115,18 @@ defmodule Bitblocks.Rexxies do
   # ============================================================================
 
   def collection_class, do: @collection_class
-  def images_dir, do: @images_dir
+
+  @doc """
+  Directory of Rexxie catalog PNGs, one file per `{number}.png`.
+
+  Reads `:rexxie_images_dir` when set.
+  Otherwise uses `priv/rexxie_images` inside the release.
+  """
+  @spec images_dir() :: String.t()
+  def images_dir do
+    Application.get_env(:bitblocks, :rexxie_images_dir) ||
+      Application.app_dir(:bitblocks, "priv/rexxie_images")
+  end
 
   # ============================================================================
   # GenServer

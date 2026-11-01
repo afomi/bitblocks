@@ -70,6 +70,11 @@ config :bitblocks, :woc_client, Bitblocks.WocStub
 # Raw tx bytes go to a local directory in tests (Bitblocks.TxStore).
 config :bitblocks, Bitblocks.TxStore, adapter: Bitblocks.TxStore.Local, root: "tmp/tx_store_test"
 
+# Rexxie catalog PNGs. Tests never read ~/workspace/rexxie-indexer/images.
+config :bitblocks,
+       :rexxie_images_dir,
+       Path.expand("../tmp/rexxie_images_test", __DIR__)
+
 # Disable request auto-ban in tests — the Wallaby browser hits many endpoints
 # from 127.0.0.1 and would otherwise get blocked by the RequestLogger.
 config :bitblocks, :invalid_request_threshold, 10_000

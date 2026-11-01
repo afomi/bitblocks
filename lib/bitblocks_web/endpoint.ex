@@ -28,12 +28,8 @@ defmodule BitblocksWeb.Endpoint do
     gzip: false,
     only: BitblocksWeb.static_paths()
 
-  # Serve Rexxie NFT images from the rexxie-indexer repo
-  plug Plug.Static,
-    at: "/images/rexxies",
-    from: Path.expand("~/workspace/rexxie-indexer/images"),
-    gzip: false,
-    cache_control_for_etags: "public, max-age=86400"
+  # Rexxie catalog PNGs. The directory is config, not a developer checkout.
+  plug BitblocksWeb.Plugs.RexxieImages
 
   # Code reloading can be explicitly enabled under the
   # :code_reloader configuration of your endpoint.

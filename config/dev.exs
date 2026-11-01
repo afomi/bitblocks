@@ -109,3 +109,6 @@ config :bitblocks, Bitblocks.MiningProxy,
 
 # Raw tx bytes go to a local directory in dev (Bitblocks.TxStore); prod uses S3.
 config :bitblocks, Bitblocks.TxStore, adapter: Bitblocks.TxStore.Local, root: "tmp/tx_store"
+
+# Local catalog checkout, when present. Production uses REXXIE_IMAGES_DIR or priv/rexxie_images.
+config :bitblocks, :rexxie_images_dir, Path.expand("~/workspace/rexxie-indexer/images")

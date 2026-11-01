@@ -33,7 +33,15 @@ defmodule BitblocksWeb.RexxiesLive do
         send(self(), :load_data)
         socket
       else
-        assign(socket, loading: false)
+        {nfts, total} = fetch_nfts(page, search, trait_type, trait_value)
+
+        assign(
+          socket,
+          nfts: nfts,
+          total: total,
+          stats: Rexxies.stats(),
+          loading: false
+        )
       end
 
     {:ok, socket}

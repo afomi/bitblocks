@@ -25,10 +25,62 @@ defmodule BitblocksWeb.RexxiesLiveTest do
     assert view |> element("#rexxie-holder") |> render() =~ "1HolderXXXXXXXXXXXXXXXXXXXXXXXXXXX"
   end
 
+  test "the breadcrumb does not link to a missing collections page", %{conn: conn} do
+    html = html_response(get(conn, ~p"/collections/rexxies"), 200)
+
+    refute Regex.match?(~r/href="\/collections"(?:[\s>]|$)/, html)
+  end
+
   test "without an indexed holding the panel shows no holder row", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/collections/rexxies")
     render_click(view, "select_nft", %{"number" => "1"})
 
     refute has_element?(view, "#rexxie-holder")
+  end
+
+  test "a Rexxie image URL from the collection page returns catalog bytes", %{conn: conn} do
+    page = get(conn, ~p"/collections/rexxies")
+    html = html_response(page, 200)
+
+    assert html =~ "Showing"
+    assert html =~ "Rexxie #"
+
+    [src] =
+      Regex.run(
+        ~r/src="(\/images\/rexxies\/\d+\.png)"/,
+        html,
+        capture: :all_but_first
+      )
+
+    dir = Bitblocks.Rexxies.images_dir()
+    refute dir =~ "rexxie-indexer"
+
+    fixture =
+      File.read!(
+        Path.expand(
+          "../../fixtures/rexxie_images/pixel.png",
+          __DIR__
+        )
+      )
+
+    dest = Path.join(dir, Path.basename(src))
+    File.mkdir_p!(dir)
+    File.write!(dest, fixture)
+    on_exit(fn -> File.rm(dest) end)
+
+    image = get(build_conn(), src)
+
+    assert image.status == 200
+    [content_type] = get_resp_header(image, "content-type")
+    assert content_type =~ "image/"
+    assert image.resp_body == fixture
+
+    proof =
+      "status=#{image.status} content-type=#{content_type} bytes=#{Base.encode16(image.resp_body)}\n"
+
+    proof_path = Path.expand("tmp/rexxie-image-proof.txt")
+    File.mkdir_p!(Path.dirname(proof_path))
+    File.write!(proof_path, proof)
+    assert File.read!(proof_path) == proof
   end
 end

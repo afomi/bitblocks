@@ -2,12 +2,9 @@
   <%!-- Header --%>
   <div class="mb-8">
     <div class="flex items-center gap-2 text-sm text-gray-500 mb-3">
-      <.link
-        navigate="/collections"
-        class="hover:text-gray-700"
-      >
+      <span>
         Collections
-      </.link>
+      </span>
       <span>/</span>
       <span class="text-gray-900 font-semibold">Rexxies</span>
     </div>
@@ -130,7 +127,7 @@
         >
           <div class="aspect-square bg-gray-100">
             <img
-              src={"/images/rexxies/#{nft["number"]}.png"}
+              src={Rexxies.image_path(nft)}
               alt={"Rexxie ##{nft["number"]}"}
               loading="lazy"
               class="w-full h-full object-cover"
@@ -205,7 +202,7 @@
           <%!-- Image --%>
           <div class="md:w-1/2 bg-gray-100">
             <img
-              src={"/images/rexxies/#{@selected_nft["number"]}.png"}
+              src={Rexxies.image_path(@selected_nft)}
               alt={"Rexxie ##{@selected_nft["number"]}"}
               class="w-full aspect-square object-cover"
             />
