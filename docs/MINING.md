@@ -1,6 +1,9 @@
 # Mining BSV with an Existing Node
 
 Notes on leveraging a fully synced BSV node for mining — without owning ASICs.
+Fully synced means the node has reached the tip.
+Whether it still stores old blocks is a separate setting.
+See `NODE_MODES.md`.
 
 ## How Bitcoin Mining Works
 

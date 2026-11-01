@@ -61,6 +61,7 @@ Docs marked *(mixed)* are mostly aspirational but contain sections that accurate
 - `OUTPOINT.md` — the `<txid>_<vout>` outpoint format and how inputs reference outputs.
 - `EXTERNAL_APIS.md` — live-probed reference of WhatsOnChain and GorillaPool API shapes to guide Bitblocks' own API.
 - `MINING.md` — how BSV mining works and the template/hashing split architecture (background for the mining proxy).
+- `NODE_MODES.md` — archival, pruned, SPV, and the other node postures, with fully synced treated as a tip state rather than a disk mode.
 - `OP_PUSH_TX.md` — the sighash-preimage technique that lets a locking script inspect and constrain its spending transaction; intermediate-level, for developers and designers.
 - `SCRIPT_RUNTIME.md` — the script execution model from first principles (stack machine, predicate-not-program) and BSV's introspection/meta-programming capabilities across three scopes: within a tx, across existing txs, in the mempool; written for readers from OOP/FP/logic-programming backgrounds, with intuition pumps.
 - `SPV_TUTORIAL.md` — Simplified Payment Verification from whitepaper §8 up: what it is, the four ingredients, a worked payment example, obvious and non-obvious uses (proof-carrying payments/BEEF, in-script SPV, portable receipts), and the failure/misuse/abuse catalog.

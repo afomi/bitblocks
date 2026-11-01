@@ -192,6 +192,7 @@ For bitblocks specifically, the near-term expressions are already latent in the 
 ## 8. Pointers
 
 - Whitepaper §8, *Simplified Payment Verification* — the primary text; also §7 (*Reclaiming Disk Space*) for why headers suffice.
+- `NODE_MODES.md` — how §7, a pruned full node, and an SPV client differ. Fully synced is a tip state, not a disk mode.
 - `MERKLE_PROOFS.md` — proof mechanics, byte order, the bitblocks verifier, and designer-facing framing.
 - `SYNCING.md` / `SYSTEM_ARCHITECTURE.md` — the headers-first sync that doubles as an SPV kernel.
 - `SCRIPT_RUNTIME.md` — the execution model; §5 for why in-script Merkle proofs matter.
