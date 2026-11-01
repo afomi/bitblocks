@@ -54,6 +54,8 @@ defmodule BitblocksWeb do
       use Phoenix.LiveView,
         layout: {BitblocksWeb.Layouts, :app}
 
+      on_mount BitblocksWeb.ReorgNotice
+
       unquote(html_helpers())
     end
   end

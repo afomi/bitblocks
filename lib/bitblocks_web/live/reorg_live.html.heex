@@ -1,0 +1,64 @@
+<div class="bg-surface-base min-h-screen text-neutral-300">
+  <div class="max-w-3xl mx-auto px-4 py-12">
+    <h1 class="text-3xl font-bold text-neutral-50 mb-4">
+      Chain reorganizations
+    </h1>
+    <p class="mb-3 leading-relaxed">
+      A reorganization is the moment the node prefers a different block at a height this index already stored.
+    </p>
+    <p class="mb-3 leading-relaxed">
+      Each entry below is an annotation on Bitcoin SV at that height.
+    </p>
+    <p class="mb-3 leading-relaxed">
+      Bitblocks writes one when tip sync sees the disagreement.
+    </p>
+    <p class="mb-3 leading-relaxed">
+      Earlier chain history is not backfilled on this page.
+    </p>
+    <p class="mb-3 leading-relaxed">
+      Header rows may be replaced.
+    </p>
+    <p class="mb-10 leading-relaxed">
+      Transaction rows from the replaced blocks stay until a later pass.
+    </p>
+
+    <%= if @reorgs == [] do %>
+      <p
+        id="reorg-empty"
+        class="text-neutral-100"
+      >
+        No reorganization has been recorded yet.
+      </p>
+    <% else %>
+      <ol class="border-l border-neutral-700 ml-2 space-y-8">
+        <%= for reorg <- @reorgs do %>
+          <li
+            id={"reorg-#{reorg.id}"}
+            class="pl-6 relative"
+          >
+            <span
+              class="absolute -left-1.5 top-1.5 h-3 w-3 rounded-full bg-neutral-400"
+              aria-hidden="true"
+            >
+            </span>
+            <p class="font-mono text-xs text-neutral-500 mb-1">
+              <time datetime={DateTime.to_iso8601(reorg.detected_at)}>
+                <%= annotation_time(reorg) %>
+              </time>
+              <span class="ml-2 uppercase tracking-wide">
+                <%= if reorg.outcome == "needs_attention" do %>
+                  Needs a person
+                <% else %>
+                  Headers realigned
+                <% end %>
+              </span>
+            </p>
+            <p class="text-neutral-100 leading-relaxed">
+              <%= reorg.summary %>
+            </p>
+          </li>
+        <% end %>
+      </ol>
+    <% end %>
+  </div>
+</div>

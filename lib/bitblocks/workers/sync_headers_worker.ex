@@ -151,6 +151,7 @@ defmodule Bitblocks.Workers.SyncHeadersWorker do
         end)
 
         Logger.warning("SyncHeaders: reorg resolved, re-syncing from #{fork_point + 1}")
+        record_reorg(fork_height, fork_point, orphan_count)
         Bitblocks.Notifications.reorg_alert(fork_height, fork_point, orphan_count)
         notify_projections_of_reorg(fork_point)
         fetch_and_store_headers(fork_point + 1, fork_height, true)
@@ -160,8 +161,30 @@ defmodule Bitblocks.Workers.SyncHeadersWorker do
           "SyncHeaders: reorg exceeds #{@max_reorg_depth} blocks deep — manual intervention required"
         )
 
+        record_reorg(fork_height, nil, nil)
         Bitblocks.Notifications.reorg_alert(fork_height, nil, nil)
     end
+  end
+
+  # Phase 1 of #34: an annotation and a site notice. Derived rows stay put.
+  defp record_reorg(fork_height, fork_point, orphan_count) do
+    outcome = if is_integer(fork_point), do: "resolved", else: "needs_attention"
+
+    case Bitblocks.Reorgs.record_observed(%{
+           fork_height: fork_height,
+           fork_point: fork_point,
+           orphan_count: orphan_count,
+           outcome: outcome
+         }) do
+      {:ok, _reorg} ->
+        :ok
+
+      {:error, changeset} ->
+        Logger.error("SyncHeaders: reorg record failed: #{inspect(changeset.errors)}")
+    end
+  rescue
+    exception ->
+      Logger.error("SyncHeaders: reorg record failed: #{Exception.message(exception)}")
   end
 
   # Webhook projections drop rows above the fork point (#29 step 4). Never

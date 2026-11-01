@@ -11,6 +11,7 @@ Search engines get the public subset at `/sitemap.xml` (`BitblocksWeb.SitemapCon
 | `/about` | About Bitblocks, BSV, Bitcoin Script |
 | `/search` | Search by block height, hash, or txid |
 | `/status` | Node and chain status overview |
+| `/reorgs` | Reorganizations this index has seen, as annotations at a height |
 | `/protocols` | Registered on-chain protocols browser |
 | `/guide` | Getting started guide |
 | `/did` | Decentralized identity explorer |

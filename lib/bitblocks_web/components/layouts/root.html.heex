@@ -149,6 +149,7 @@
     </script>
   </head>
   <body class="bg-white dark:bg-gray-900 antialiased">
+    <BitblocksWeb.ReorgNotice.banner notice={assigns[:reorg_notice]} />
     <div
       id="banner"
       role="region"
@@ -217,6 +218,12 @@
               class="text-sm font-semibold text-gray-900 dark:text-white hover:text-gray-600 dark:hover:text-gray-300"
             >
               Node status
+            </a>
+            <a
+              href="/reorgs"
+              class="text-sm font-semibold text-gray-900 dark:text-white hover:text-gray-600 dark:hover:text-gray-300"
+            >
+              Reorgs
             </a>
             <a
               href="/protocols"

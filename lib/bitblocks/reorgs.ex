@@ -1,0 +1,149 @@
+defmodule Bitblocks.Reorgs do
+  @moduledoc """
+  Records of chain reorganizations.
+
+  Phase 1 of #34: write an annotation when tip sync sees a fork, and surface
+  the recent one as a site notice. Rewinding transactions, spends, and
+  protocol rows is a later phase.
+  """
+
+  import Ecto.Query
+
+  alias Bitblocks.Repo
+  alias Bitblocks.Reorgs.Reorg
+
+  # Tip sync reports a deep fork about once a minute. Collapse those into one row.
+  @dedupe_seconds 6 * 3600
+  # A deep fork that the worker has stopped reporting is no longer "happening now".
+  @attention_seconds 2 * 3600
+  # A resolved reorg stays on the banner for a day, then lives on the timeline.
+  @resolved_notice_seconds 24 * 3600
+
+  @doc """
+  Inserts an annotation, or refreshes `last_seen_at` when the same fork was
+  recorded inside the dedupe window.
+
+  `now` is injectable so tests can place an event in time.
+  """
+  @spec record_observed(map(), DateTime.t()) :: {:ok, Reorg.t()} | {:error, Ecto.Changeset.t()}
+  def record_observed(attrs, now \\ DateTime.utc_now()) do
+    now = DateTime.truncate(now, :second)
+    attrs = Map.new(attrs)
+    fork_height = Map.fetch!(attrs, :fork_height)
+    fork_point = Map.get(attrs, :fork_point)
+    orphan_count = Map.get(attrs, :orphan_count)
+    outcome = Map.fetch!(attrs, :outcome)
+
+    case recent_match(fork_height, fork_point, outcome, now) do
+      %Reorg{} = existing ->
+        existing
+        |> Ecto.Changeset.change(%{last_seen_at: now})
+        |> Repo.update()
+
+      nil ->
+        %Reorg{}
+        |> Reorg.changeset(%{
+          detected_at: now,
+          last_seen_at: now,
+          fork_height: fork_height,
+          fork_point: fork_point,
+          orphan_count: orphan_count,
+          outcome: outcome,
+          summary: summary(outcome, fork_height, fork_point, orphan_count, now)
+        })
+        |> Repo.insert()
+    end
+  end
+
+  @doc "Annotations, highest height first."
+  @spec list_reorgs() :: [Reorg.t()]
+  def list_reorgs do
+    Repo.all(from(r in Reorg, order_by: [desc: r.fork_height, desc: r.detected_at, desc: r.id]))
+  end
+
+  @doc """
+  The reorg the site should announce right now, or nil.
+
+  A `needs_attention` row is announced while tip sync is still reporting it.
+  A `resolved` row is announced for a day after it was first seen.
+  """
+  @spec active_notice(DateTime.t()) :: Reorg.t() | nil
+  def active_notice(now \\ DateTime.utc_now()) do
+    now = DateTime.truncate(now, :second)
+    attention_cutoff = DateTime.add(now, -@attention_seconds, :second)
+    resolved_cutoff = DateTime.add(now, -@resolved_notice_seconds, :second)
+
+    attention =
+      Repo.one(
+        from(r in Reorg,
+          where: r.outcome == "needs_attention",
+          where: r.last_seen_at >= ^attention_cutoff,
+          order_by: [desc: r.last_seen_at, desc: r.id],
+          limit: 1
+        )
+      )
+
+    case attention do
+      %Reorg{} = reorg ->
+        reorg
+
+      nil ->
+        Repo.one(
+          from(r in Reorg,
+            where: r.outcome == "resolved",
+            where: r.detected_at >= ^resolved_cutoff,
+            order_by: [desc: r.detected_at, desc: r.id],
+            limit: 1
+          )
+        )
+    end
+  end
+
+  defp recent_match(fork_height, fork_point, outcome, now) do
+    cutoff = DateTime.add(now, -@dedupe_seconds, :second)
+
+    base =
+      from(r in Reorg,
+        where: r.fork_height == ^fork_height,
+        where: r.outcome == ^outcome,
+        where: r.last_seen_at >= ^cutoff,
+        order_by: [desc: r.id],
+        limit: 1
+      )
+
+    query =
+      if is_nil(fork_point) do
+        from(r in base, where: is_nil(r.fork_point))
+      else
+        from(r in base, where: r.fork_point == ^fork_point)
+      end
+
+    Repo.one(query)
+  end
+
+  defp summary("resolved", fork_height, fork_point, orphan_count, now) do
+    when_seen = Calendar.strftime(now, "%Y-%m-%d %H:%M UTC")
+
+    "On #{when_seen}, the node and this index disagreed at height #{fork_height}. " <>
+      "They meet again at height #{fork_point}. " <>
+      "#{blocks_phrase(orphan_count)} " <>
+      "Headers from height #{fork_point + 1} were fetched again. " <>
+      "Transaction rows from the replaced blocks are still in this index."
+  end
+
+  defp summary("needs_attention", fork_height, _fork_point, _orphan_count, now) do
+    when_seen = Calendar.strftime(now, "%Y-%m-%d %H:%M UTC")
+
+    "On #{when_seen}, the node and this index disagreed at height #{fork_height}. " <>
+      "The fork is deeper than 10 blocks. " <>
+      "Headers were left as they were. " <>
+      "An operator has to compare the node with this index."
+  end
+
+  defp blocks_phrase(1), do: "1 block between those heights was set aside."
+
+  defp blocks_phrase(n) when is_integer(n),
+    do: "#{n} blocks between those heights were set aside."
+
+  defp blocks_phrase(_), do: "The blocks between those heights were set aside."
+end
