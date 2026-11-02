@@ -28,7 +28,7 @@ defmodule Bitblocks.OrdinalFixtures do
     do: %BSV.TxOut{satoshis: 1, script: %BSV.Script{chunks: [:OP_FALSE, tag, :OP_DROP]}}
 
   @doc "A 1-sat collectionItem inscription owned by `owner`."
-  def item(collection_id, name, owner, traits \\ [{"Eyes", "Reptilian"}]) do
+  def item(collection_id, name, owner, traits \\ [{"Eyes", "Reptilian"}], content \\ "<svg/>") do
     {:ok, %BSV.Address{pubkey_hash: pkh}} = BSV.Address.from_string(owner)
     [txid, _] = String.split(collection_id, "_")
 
@@ -53,7 +53,7 @@ defmodule Bitblocks.OrdinalFixtures do
       script: %BSV.Script{
         chunks:
           [:OP_FALSE, :OP_IF, "ord", :OP_TRUE, "image/svg+xml", :OP_3, parent] ++
-            ["1PuQa7K62MiKCtssSLKy1kh56WWU7MtUR5", map, :OP_FALSE, "<svg/>", :OP_ENDIF] ++
+            ["1PuQa7K62MiKCtssSLKy1kh56WWU7MtUR5", map, :OP_FALSE, content, :OP_ENDIF] ++
             lock(pkh)
       }
     }

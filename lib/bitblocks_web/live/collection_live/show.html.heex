@@ -101,12 +101,9 @@
         class="collection-item bg-white shadow rounded-lg overflow-hidden cursor-pointer hover:shadow-lg transition-shadow hover:ring-2 hover:ring-pink-400"
       >
         <div class="aspect-square bg-gray-100">
-          <img
-            :if={OrdinalCollections.image_path(item)}
-            src={OrdinalCollections.image_path(item)}
-            alt={item.name || item.origin}
-            loading="lazy"
-            class="w-full h-full object-cover"
+          <.item_art
+            item={item}
+            layers={@layers[item.id] || []}
           />
         </div>
         <div class="p-3">
@@ -169,12 +166,11 @@
         phx-click-away="close_detail"
       >
         <div class="flex flex-col md:flex-row">
-          <div class="md:w-1/2 bg-gray-100">
-            <img
-              :if={OrdinalCollections.image_path(@selected)}
-              src={OrdinalCollections.image_path(@selected)}
-              alt={@selected.name || @selected.origin}
-              class="w-full aspect-square object-cover"
+          <div class="md:w-1/2 bg-gray-100 aspect-square">
+            <.item_art
+              item={@selected}
+              layers={@layers[@selected.id] || []}
+              loading="eager"
             />
           </div>
 

@@ -2,6 +2,7 @@ defmodule BitblocksWeb.CollectionLiveTest do
   # The LiveView process has to see rows inserted by the test.
   use BitblocksWeb.ConnCase, async: false
 
+  import Bitblocks.OrdinalFixtures
   import Phoenix.LiveViewTest
 
   alias Bitblocks.OrdinalCollections
@@ -127,6 +128,55 @@ defmodule BitblocksWeb.CollectionLiveTest do
 
       assert panel =~ "Not traced yet."
       refute panel =~ "1MinterXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+    end
+
+    test "a layered item stacks its layers, grid and detail", %{conn: conn} do
+      cid = OrdinalCollections.known()["grand-tardinians"]
+      {bottom, top} = {"#{String.duplicate("1", 64)}_0", "#{String.duplicate("2", 64)}_0"}
+
+      svg =
+        ~s(<svg width="100%" xmlns="http://www.w3.org/2000/svg">) <>
+          ~s(<image href="/content/#{bottom}" width="100%" /><image href="/content/#{top}" />) <>
+          "</svg>"
+
+      output = item(cid, "Layered", address(), [], svg)
+      {mint, _hex} = minted = tx([funding_outpoint()], [contract(), output])
+      publish(minted, 840_001)
+      OrdinalCollections.import_txs([mint])
+
+      layered =
+        item!(cid, 1, %{
+          origin: "#{mint}_1",
+          mint_txid: mint,
+          content_type: "image/svg+xml",
+          name: "Layered"
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/collections/grand-tardinians")
+
+      grid = view |> element("#item-#{layered.id}") |> render()
+      assert grid =~ ~s(src="/content/#{bottom}")
+      assert grid =~ ~s(src="/content/#{top}")
+      refute grid =~ ~s(src="/content/#{mint}_1")
+
+      view |> element("#item-#{layered.id}") |> render_click()
+      assert has_element?(view, ~s(#item-detail img[src="/content/#{top}"]))
+    end
+
+    test "only an SVG that does nothing but stack inscriptions is layered" do
+      layer = ~s(<image href="/content/#{String.duplicate("a", 64)}_0" />)
+
+      assert OrdinalCollections.svg_layers("<svg>#{layer}</svg>") ==
+               ["/content/#{String.duplicate("a", 64)}_0"]
+
+      for svg <- [
+            "<svg/>",
+            "<svg>#{layer}<script>alert(1)</script></svg>",
+            ~s(<svg><image href="https://evil.example/x.png" /></svg>),
+            <<0xFF, 0xFE>>
+          ] do
+        assert OrdinalCollections.svg_layers(svg) == []
+      end
     end
 
     test "pages through items, keeping the page in the URL", %{conn: conn} do

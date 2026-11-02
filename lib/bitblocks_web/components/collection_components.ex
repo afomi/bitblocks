@@ -57,6 +57,38 @@ defmodule BitblocksWeb.CollectionComponents do
     """
   end
 
+  @doc """
+  An item's picture: its layers stacked bottom first, or its one image. The
+  parent sizes the frame; `layers` comes from `OrdinalCollections.layers/1`.
+  """
+  attr :item, :map, required: true
+  attr :layers, :list, default: []
+  attr :loading, :string, default: "lazy"
+
+  def item_art(assigns) do
+    ~H"""
+    <div
+      :if={@layers != []}
+      class="relative w-full h-full"
+    >
+      <img
+        :for={{layer, index} <- Enum.with_index(@layers)}
+        src={layer}
+        alt={if index == 0, do: @item.name || @item.origin, else: ""}
+        loading={@loading}
+        class="absolute inset-0 w-full h-full object-contain"
+      />
+    </div>
+    <img
+      :if={@layers == [] && Bitblocks.OrdinalCollections.image_path(@item)}
+      src={Bitblocks.OrdinalCollections.image_path(@item)}
+      alt={@item.name || @item.origin}
+      loading={@loading}
+      class="w-full h-full object-cover"
+    />
+    """
+  end
+
   @doc "The search field and button, in a form the parent names."
   attr :id, :string, required: true
   attr :value, :string, required: true

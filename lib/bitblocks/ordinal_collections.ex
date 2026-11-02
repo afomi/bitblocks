@@ -31,7 +31,8 @@ defmodule Bitblocks.OrdinalCollections do
 
   alias Bitblocks.Chain.{Block, RawTx, Transaction, TxIngest}
   alias Bitblocks.OrdinalCollections.{Item, Walk}
-  alias Bitblocks.{Repo, Woc}
+  alias Bitblocks.Ordinals.Inscription
+  alias Bitblocks.{Repo, TxStore, Woc}
 
   # id: the chain's first link (the collection's origin outpoint).
   # hint: where candidate mint txids come from (only candidates; see sync/3).
@@ -598,6 +599,57 @@ defmodule Bitblocks.OrdinalCollections do
       )
 
     %{trait_types: trait_types, holders: holders}
+  end
+
+  @doc """
+  The layers of layered items, by item id: each a `/content/<outpoint>` path,
+  bottom first. Some collections inscribe traits separately, and an item is
+  an SVG that only stacks them (`<image href="/content/<outpoint>">`). An SVG
+  shown through `<img>` may not load anything, so a page has to stack the
+  layers itself. Read from the mint txs we hold; an item that isn't layered,
+  or whose tx we can't read, has no entry.
+  """
+  def layers(items) do
+    for %Item{content_type: "image/svg+xml"} = item <- items,
+        layers = item_layers(item),
+        layers != [],
+        into: %{} do
+      {item.id, layers}
+    end
+  end
+
+  defp item_layers(item) do
+    [txid, vout] = String.split(item.origin, "_")
+
+    with {:ok, bytes} <- TxStore.raw(txid),
+         {:ok, tx} <- RawTx.parse(Base.encode16(bytes)),
+         %BSV.TxOut{script: script} <- Enum.at(tx.outputs, String.to_integer(vout)),
+         {:ok, %{content: svg}} when is_binary(svg) <- Inscription.parse(script) do
+      svg_layers(svg)
+    else
+      _ -> []
+    end
+  end
+
+  @doc """
+  The `/content/<outpoint>` paths an SVG stacks, or `[]` unless stacking
+  inscriptions is all it does. Inscriptions are untrusted: only the outpoints
+  are taken from the bytes, and the paths are built here.
+  """
+  def svg_layers(svg) when is_binary(svg) do
+    layered =
+      ~r|\A\s*<svg\b[^>]*>(\s*<image href="/content/[0-9a-f]{64}_\d+"[^>]*/>)+\s*</svg>\s*\z|
+
+    if String.valid?(svg) and svg =~ layered do
+      for [outpoint] <-
+            Regex.scan(~r|<image href="/content/([0-9a-f]{64}_\d+)"|, svg,
+              capture: :all_but_first
+            ) do
+        "/content/#{outpoint}"
+      end
+    else
+      []
+    end
   end
 
   @doc """

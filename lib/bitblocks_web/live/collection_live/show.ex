@@ -66,6 +66,7 @@ defmodule BitblocksWeb.CollectionLive.Show do
        trait_type: trait_type,
        trait_value: trait_value,
        items: items,
+       layers: OrdinalCollections.layers(items),
        total: total,
        selected: nil
      )}
