@@ -1,4 +1,4 @@
-defmodule BitblocksWeb.RexxiesLiveTest do
+defmodule BitblocksWeb.CollectionLive.RexxiesTest do
   use BitblocksWeb.ConnCase, async: false
 
   import Phoenix.LiveViewTest
@@ -8,38 +8,47 @@ defmodule BitblocksWeb.RexxiesLiveTest do
   # Rexxie #1's mint, from the bundled catalog.
   @mint "52c8ee4935f983b7ce10b84882cb42b30d989a4385eaec1289fafe88325eb53f"
 
-  test "the detail panel shows the holder traced by the chain index (#30)", %{conn: conn} do
-    Bitblocks.Repo.insert!(%Item{
-      collection_id: Bitblocks.OrdinalCollections.known()["rexxies"],
-      origin: "#{@mint}_3",
-      mint_txid: @mint,
-      current_outpoint: "#{String.duplicate("d", 64)}_1",
-      owner: "1HolderXXXXXXXXXXXXXXXXXXXXXXXXXXX",
-      trace_state: "current"
-    })
+  defp rexxie!(attrs) do
+    Bitblocks.Repo.insert!(
+      struct!(
+        %Item{
+          collection_id: Bitblocks.OrdinalCollections.known()["rexxies"],
+          origin: "#{@mint}_3",
+          mint_txid: @mint,
+          name: "Rexxie #1",
+          traits: [%{"name" => "background", "value" => "Purple"}]
+        },
+        attrs
+      )
+    )
+  end
 
+  defp open_detail(conn, item) do
     {:ok, view, _html} = live(conn, ~p"/collections/rexxies")
-    html = render_click(view, "select_nft", %{"number" => "1"})
+    view |> element("#item-#{item.id}") |> render_click()
+    view
+  end
 
-    assert html =~ "rexxie-holder"
-    panel = view |> element("#rexxie-holder") |> render()
+  test "the detail panel states membership and the traced holder", %{conn: conn} do
+    item =
+      rexxie!(%{
+        current_outpoint: "#{String.duplicate("d", 64)}_1",
+        owner: "1HolderXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+        trace_state: "current"
+      })
+
+    panel = conn |> open_detail(item) |> element("#item-holder") |> render()
+
     assert panel =~ "Membership verified."
     assert panel =~ "Held by 1HolderXXXXXXXXXXXXXXXXXXXXXXXXXXX."
   end
 
   test "an unknown holder reads as words, not a state name", %{conn: conn} do
-    Bitblocks.Repo.insert!(%Item{
-      collection_id: Bitblocks.OrdinalCollections.known()["rexxies"],
-      origin: "#{@mint}_3",
-      mint_txid: @mint,
-      trace_state: "unknown",
-      trace_reason: "whatsonchain: {:error, :timeout}"
-    })
+    item =
+      rexxie!(%{trace_state: "unknown", trace_reason: "whatsonchain: {:error, :timeout}"})
 
-    {:ok, view, _html} = live(conn, ~p"/collections/rexxies")
-    render_click(view, "select_nft", %{"number" => "1"})
+    panel = conn |> open_detail(item) |> element("#item-holder") |> render()
 
-    panel = view |> element("#rexxie-holder") |> render()
     assert panel =~ "Membership verified."
     assert panel =~ "Owner unknown: WhatsOnChain did not answer."
     refute panel =~ ":timeout"
@@ -48,17 +57,11 @@ defmodule BitblocksWeb.RexxiesLiveTest do
   test "the breadcrumb links back to the collections index", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/collections/rexxies")
 
-    assert has_element?(view, ~s(#rexxies-breadcrumb a[href="/collections"]))
-  end
-
-  test "without an indexed holding the panel shows no holder row", %{conn: conn} do
-    {:ok, view, _html} = live(conn, ~p"/collections/rexxies")
-    render_click(view, "select_nft", %{"number" => "1"})
-
-    refute has_element?(view, "#rexxie-holder")
+    assert has_element?(view, ~s(#collection-breadcrumb a[href="/collections"]))
   end
 
   test "a Rexxie image URL from the collection page returns catalog bytes", %{conn: conn} do
+    rexxie!(%{trace_state: "untraced"})
     page = get(conn, ~p"/collections/rexxies")
     html = html_response(page, 200)
 

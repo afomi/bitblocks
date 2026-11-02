@@ -18,8 +18,7 @@ Search engines get the public subset at `/sitemap.xml` (`BitblocksWeb.SitemapCon
 | `/apps` | Applications directory |
 | `/resources` | External resources and links |
 | `/collections` | BSV NFT collections index, with sources |
-| `/collections/rexxies` | Rexxies NFT collection viewer |
-| `/collections/:id` | Collection items and holders, by slug or origin outpoint |
+| `/collections/:id` | One collection's items, traits, and holders, by slug or origin outpoint |
 | `/wall` | Block wall visualization |
 | `/reward_wall` | Mining reward visualization |
 

@@ -1,143 +1,145 @@
-<div class="bg-surface-base min-h-screen text-neutral-300">
-  <div class="max-w-5xl mx-auto px-4 py-12">
-    <h1 class="text-3xl font-bold text-neutral-50 mb-4">
+<.collection_page>
+  <div class="mb-8">
+    <h1 class="text-4xl font-bold mb-2">
       Collections
     </h1>
-    <p class="mb-3 leading-relaxed">
+    <p class="text-gray-600">
       NFT collections on Bitcoin SV, indexed from the chain.
     </p>
-    <p class="mb-8 leading-relaxed">
+    <p class="text-gray-600">
       Membership is proven from each collection's mint chain, and holders are traced through spends.
     </p>
+  </div>
 
-    <form
+  <.panel class="p-4 mb-6">
+    <.search_form
       id="collection-search"
+      value={@q}
+      placeholder="Search by name, standard, source, or origin outpoint..."
+      label="Search collections"
       phx-change="search"
       phx-submit="search"
-      class="mb-4"
-    >
-      <input
-        type="search"
-        name="q"
-        value={@q}
-        phx-debounce="200"
-        placeholder="Search by name, standard, source, or origin outpoint"
-        aria-label="Search collections"
-        class="w-full rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-neutral-100"
-      />
-    </form>
-
+    />
     <div
       id="source-filter"
-      class="flex flex-wrap items-center gap-2 mb-8 text-sm"
+      class="flex flex-wrap items-center gap-2 mt-3 text-sm"
     >
       <.link
-        :for={{label, value} <- [{"All sources", ""} | Enum.map(Enum.reject(@filter_sources, &is_nil/1), &{&1, &1})]}
+        :for={
+          {label, value} <- [
+            {"All sources", ""} | Enum.map(Enum.reject(@filter_sources, &is_nil/1), &{&1, &1})
+          ]
+        }
         patch={index_path(@q, value)}
         aria-current={if @source == value, do: "true"}
         class={[
-          "rounded-full border px-3 py-1",
+          "rounded-md px-3 py-1",
           if(@source == value,
-            do: "border-neutral-300 text-neutral-50",
-            else: "border-neutral-700 text-neutral-400 hover:text-neutral-100"
+            do: "bg-pink-600 text-white",
+            else: "bg-gray-200 text-gray-700 hover:bg-gray-300"
           )
         ]}
       >
         <%= label %>
       </.link>
     </div>
+  </.panel>
 
-    <%= if @shown == [] do %>
-      <p
-        id="collections-empty"
-        class="mb-12 text-neutral-100"
-      >
+  <%= if @shown == [] do %>
+    <div
+      id="collections-empty"
+      class="text-center py-12 bg-gray-50 rounded-lg mb-8"
+    >
+      <div class="text-gray-500 text-lg">
         No collections match.
-      </p>
-    <% else %>
-      <div class="grid gap-4 md:grid-cols-2 mb-12">
-        <.link
-          :for={collection <- @shown}
-          id={"collection-#{collection.slug}"}
-          navigate={~p"/collections/#{collection.slug}"}
-          class="block rounded-lg border border-neutral-800 bg-neutral-900 p-5 hover:border-neutral-500"
-        >
-          <div class="flex items-start justify-between gap-3 mb-2">
-            <h2 class="font-semibold text-neutral-50 break-all">
-              <%= collection.name %>
-            </h2>
-            <span class="shrink-0 rounded-full border border-neutral-700 px-2 py-0.5 text-xs text-neutral-300">
-              <%= collection.standard %>
-            </span>
-          </div>
-          <p
-            :if={collection.description}
-            class="mb-3 text-sm leading-relaxed"
-          >
-            <%= collection.description %>
-          </p>
-          <%= if collection.items == 0 do %>
-            <p class="text-sm text-neutral-400">
-              Not synced yet.
-            </p>
-          <% else %>
-            <p class="text-sm text-neutral-100">
-              <%= item_count(collection.items) %>
-            </p>
-            <p class="text-sm text-neutral-400">
-              <%= collection.traced %> of <%= collection.items %> owners traced
-            </p>
-          <% end %>
-          <p
-            :if={collection.source}
-            class="mt-2 text-xs text-neutral-400"
-          >
-            Source: <%= collection.source %>
-          </p>
-        </.link>
       </div>
-    <% end %>
-
-    <section id="sources">
-      <h2 class="text-xl font-semibold text-neutral-50 mb-2">
-        Sources
-      </h2>
-      <p class="mb-4 leading-relaxed">
-        Collections are minted and traded on these platforms.
-      </p>
-      <p class="mb-6 leading-relaxed">
-        Bitblocks lists a platform's collection here once its items are indexed from the chain.
-      </p>
-      <ul class="divide-y divide-neutral-800">
-        <li
-          :for={source <- @sources}
-          class="py-3"
+    </div>
+  <% else %>
+    <div class="grid gap-4 md:grid-cols-2 mb-8">
+      <.link
+        :for={collection <- @shown}
+        id={"collection-#{collection.slug}"}
+        navigate={~p"/collections/#{collection.slug}"}
+        class="block bg-white shadow rounded-lg p-5 hover:shadow-lg transition-shadow hover:ring-2 hover:ring-pink-400"
+      >
+        <div class="flex items-start justify-between gap-3 mb-2">
+          <h2 class="text-xl font-bold break-all">
+            <%= collection.name %>
+          </h2>
+          <.pill>
+            <%= collection.standard %>
+          </.pill>
+        </div>
+        <p
+          :if={collection.description}
+          class="mb-3 text-sm text-gray-600"
         >
-          <%= if source.url do %>
-            <a
-              href={source.url}
-              target="_blank"
-              rel="noopener"
-              class="font-semibold text-neutral-50 underline"
-            >
-              <%= source.name %>
-            </a>
-          <% else %>
-            <span class="font-semibold text-neutral-50">
-              <%= source.name %>
-            </span>
-          <% end %>
-          <p class="text-sm leading-relaxed">
-            <%= source.description %>
+          <%= collection.description %>
+        </p>
+        <%= if collection.items == 0 do %>
+          <p class="text-sm text-gray-500">
+            Not synced yet.
           </p>
-          <p
-            :if={source.status}
-            class="text-sm text-neutral-400"
+        <% else %>
+          <p class="text-sm font-semibold">
+            <%= item_count(collection.items) %>
+          </p>
+          <p class="text-sm text-gray-500">
+            <%= collection.traced %> of <%= collection.items %> owners traced
+          </p>
+        <% end %>
+        <p
+          :if={collection.source}
+          class="mt-2 text-xs text-gray-500"
+        >
+          Source: <%= collection.source %>
+        </p>
+      </.link>
+    </div>
+  <% end %>
+
+  <section
+    id="sources"
+    class="mt-12 bg-gray-50 border border-gray-200 rounded-lg p-6"
+  >
+    <h2 class="text-xl font-semibold mb-3">
+      Sources
+    </h2>
+    <p class="text-sm text-gray-700">
+      Collections are minted and traded on these platforms.
+    </p>
+    <p class="text-sm text-gray-700 mb-4">
+      Bitblocks lists a platform's collection here once its items are indexed from the chain.
+    </p>
+    <ul class="divide-y divide-gray-200">
+      <li
+        :for={source <- @sources}
+        class="py-3 text-sm text-gray-700"
+      >
+        <%= if source.url do %>
+          <a
+            href={source.url}
+            target="_blank"
+            rel="noopener"
+            class="font-semibold text-blue-600 hover:underline"
           >
-            <%= source.status %>
-          </p>
-        </li>
-      </ul>
-    </section>
-  </div>
-</div>
+            <%= source.name %>
+          </a>
+        <% else %>
+          <span class="font-semibold text-gray-900">
+            <%= source.name %>
+          </span>
+        <% end %>
+        <p>
+          <%= source.description %>
+        </p>
+        <p
+          :if={source.status}
+          class="text-gray-500"
+        >
+          <%= source.status %>
+        </p>
+      </li>
+    </ul>
+  </section>
+</.collection_page>

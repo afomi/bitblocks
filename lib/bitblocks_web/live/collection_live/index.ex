@@ -5,6 +5,8 @@ defmodule BitblocksWeb.CollectionLive.Index do
   """
   use BitblocksWeb, :live_view
 
+  import BitblocksWeb.CollectionComponents
+
   alias Bitblocks.OrdinalCollections
   alias BitblocksWeb.Seo
 

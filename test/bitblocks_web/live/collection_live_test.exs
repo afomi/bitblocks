@@ -101,32 +101,35 @@ defmodule BitblocksWeb.CollectionLiveTest do
   end
 
   describe "show" do
-    test "lists items with holders, and never reads an untraced item as held", %{conn: conn} do
+    test "lists items and states what's proven", %{conn: conn} do
       cid = OrdinalCollections.known()["grand-tardinians"]
-      item!(cid, 1, %{owner: "1HolderXXXXXXXXXXXXXXXXXXXXXXXXXXX"})
-      item!(cid, 2, %{trace_state: "untraced"})
+      item = item!(cid, 1, %{owner: "1HolderXXXXXXXXXXXXXXXXXXXXXXXXXXX"})
 
-      {:ok, _view, html} = live(conn, ~p"/collections/grand-tardinians")
+      {:ok, view, html} = live(conn, ~p"/collections/grand-tardinians")
 
       assert html =~ "Grand Tardinians"
       assert html =~ "Item 1"
-      assert html =~ "1HolderXXXXXXXXXXXXXXXXXXXXXXXXXXX"
-      assert html =~ "Not traced yet."
-      assert html =~ "/content/"
+      assert html =~ "/content/#{item.origin}"
       assert html =~ "Membership is verified"
+
+      panel = view |> element("#item-#{item.id}") |> render_click()
+      assert panel =~ "Held by 1HolderXXXXXXXXXXXXXXXXXXXXXXXXXXX."
     end
 
     test "an untraced item's minter does not read as its holder", %{conn: conn} do
       cid = OrdinalCollections.known()["grand-tardinians"]
-      item!(cid, 1, %{owner: "1MinterXXXXXXXXXXXXXXXXXXXXXXXXXXX", trace_state: "untraced"})
 
-      {:ok, _view, html} = live(conn, ~p"/collections/grand-tardinians")
+      item =
+        item!(cid, 1, %{owner: "1MinterXXXXXXXXXXXXXXXXXXXXXXXXXXX", trace_state: "untraced"})
 
-      assert html =~ "Not traced yet."
-      refute html =~ "1MinterXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+      {:ok, view, _html} = live(conn, ~p"/collections/grand-tardinians")
+      panel = view |> element("#item-#{item.id}") |> render_click()
+
+      assert panel =~ "Not traced yet."
+      refute panel =~ "1MinterXXXXXXXXXXXXXXXXXXXXXXXXXXX"
     end
 
-    test "pages through items with a cursor", %{conn: conn} do
+    test "pages through items, keeping the page in the URL", %{conn: conn} do
       cid = OrdinalCollections.known()["grand-tardinians"]
       for n <- 1..51, do: item!(cid, n)
 
@@ -137,8 +140,52 @@ defmodule BitblocksWeb.CollectionLiveTest do
 
       view |> element("#items-next") |> render_click()
 
+      assert_patch(view, ~p"/collections/grand-tardinians?page=2")
       assert has_element?(view, ".collection-item", "Item 51")
       refute has_element?(view, ".collection-item", "Item 50")
+    end
+
+    test "search matches a name or a trait value", %{conn: conn} do
+      cid = OrdinalCollections.known()["grand-tardinians"]
+      item!(cid, 1, %{traits: [%{"name" => "Eyes", "value" => "Reptilian"}]})
+      item!(cid, 2)
+
+      {:ok, view, _html} = live(conn, ~p"/collections/grand-tardinians")
+
+      view |> form("#item-search", %{"q" => "reptil"}) |> render_submit()
+
+      assert_patch(view, ~p"/collections/grand-tardinians?q=reptil")
+      assert has_element?(view, ".collection-item", "Item 1")
+      refute has_element?(view, ".collection-item", "Item 2")
+    end
+
+    test "a percent sign in a search is literal", %{conn: conn} do
+      item!(OrdinalCollections.known()["grand-tardinians"], 1)
+
+      {:ok, _view, html} = live(conn, ~p"/collections/grand-tardinians?q=%25")
+
+      assert html =~ "No items found"
+    end
+
+    test "the same layout serves every collection, with its trait filter", %{conn: conn} do
+      trait = %{"name" => "Eyes", "value" => "Reptilian"}
+
+      for {slug, n} <- [{"grand-tardinians", 1}, {"rexxies", 2}] do
+        cid = OrdinalCollections.known()[slug]
+        item = item!(cid, n, %{traits: [trait]})
+        item!(cid, n + 10)
+
+        {:ok, view, _html} = live(conn, ~p"/collections/#{slug}")
+
+        assert has_element?(view, "#collection-breadcrumb")
+        assert has_element?(view, "#item-search")
+
+        view |> element("#item-#{item.id}") |> render_click()
+        view |> element("#item-detail a", "Reptilian") |> render_click()
+
+        assert has_element?(view, ".collection-item", "Item #{n}")
+        refute has_element?(view, ".collection-item", "Item #{n + 10}")
+      end
     end
 
     test "an origin outpoint redirects to the collection's own page", %{conn: conn} do

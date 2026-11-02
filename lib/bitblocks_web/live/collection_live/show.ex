@@ -1,10 +1,12 @@
 defmodule BitblocksWeb.CollectionLive.Show do
   @moduledoc """
-  `/collections/:id`: a collection's items in mint order, by slug or origin
-  outpoint. Rexxies have their own page (`BitblocksWeb.RexxiesLive`), so any
-  address but a collection's own redirects there.
+  `/collections/:id`: one collection, by slug or origin outpoint. The same view
+  for every collection: stats, search, trait filters and items, all from the
+  index. Search, filter and page live in the URL.
   """
   use BitblocksWeb, :live_view
+
+  import BitblocksWeb.CollectionComponents
 
   alias Bitblocks.OrdinalCollections
   alias BitblocksWeb.Seo
@@ -29,34 +31,96 @@ defmodule BitblocksWeb.CollectionLive.Show do
             canonical_path: "/collections/#{collection.slug}"
           )
 
-        {:ok, socket |> assign(seo) |> assign(:collection, collection)}
+        {:ok,
+         socket
+         |> assign(seo)
+         |> assign(:collection, collection)
+         |> assign(:stats, OrdinalCollections.stats(collection.id))
+         |> assign(:per_page, @per_page)
+         |> assign(:selected, nil)}
     end
   end
 
   @impl true
   def handle_params(params, _uri, %{assigns: %{collection: collection}} = socket) do
-    cursor = parse_cursor(params["cursor"])
-    page = OrdinalCollections.list_items(collection.id, cursor: cursor, limit: @per_page)
+    page = parse_page(params["page"])
+    search = params["q"] || ""
+    trait_type = params["trait_type"] || ""
+    trait_value = params["trait_value"] || ""
+    trait = if trait_type != "" and trait_value != "", do: {trait_type, trait_value}
+
+    {items, total} =
+      OrdinalCollections.browse_items(
+        collection.id,
+        page: page,
+        per_page: @per_page,
+        q: search,
+        trait: trait
+      )
 
     {:noreply,
-     socket
-     |> assign(:cursor, cursor)
-     |> assign(:items, page.items)
-     |> assign(:next_cursor, page.next_cursor)}
+     assign(
+       socket,
+       page: page,
+       search: search,
+       trait_type: trait_type,
+       trait_value: trait_value,
+       items: items,
+       total: total,
+       selected: nil
+     )}
   end
 
   def handle_params(_params, _uri, socket), do: {:noreply, socket}
 
-  defp parse_cursor(nil), do: nil
+  @impl true
+  def handle_event("search", %{"q" => q}, socket) do
+    params = if q == "", do: [], else: [q: q]
 
-  defp parse_cursor(value) do
+    {:noreply,
+     push_patch(socket, to: ~p"/collections/#{socket.assigns.collection.slug}?#{params}")}
+  end
+
+  def handle_event("select_item", %{"id" => id}, socket) do
+    selected = Enum.find(socket.assigns.items, &(to_string(&1.id) == id))
+    {:noreply, assign(socket, :selected, selected)}
+  end
+
+  def handle_event("close_detail", _params, socket) do
+    {:noreply, assign(socket, :selected, nil)}
+  end
+
+  defp parse_page(nil), do: 1
+
+  defp parse_page(value) do
     case Integer.parse(value) do
-      {n, ""} -> n
-      _ -> nil
+      {n, ""} when n > 0 -> n
+      _ -> 1
     end
   end
 
+  defp page_path(assigns, page) do
+    params =
+      [
+        q: assigns.search,
+        trait_type: assigns.trait_type,
+        trait_value: assigns.trait_value,
+        page: page
+      ]
+      |> Enum.reject(fn {_key, value} -> value in ["", 1] end)
+
+    ~p"/collections/#{assigns.collection.slug}?#{params}"
+  end
+
+  defp trait_path(collection, trait) do
+    ~p"/collections/#{collection.slug}?#{[trait_type: trait["name"], trait_value: trait["value"]]}"
+  end
+
   @doc false
-  def image?(%{content_type: "image/" <> _}), do: true
-  def image?(_item), do: false
+  def subtitle(item) do
+    case item.traits do
+      [%{"value" => value} | _] -> value
+      _ -> nil
+    end
+  end
 end

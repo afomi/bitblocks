@@ -118,7 +118,7 @@ mix assets.deploy           # Build and minify for production
   - `/metanet` - Metanet DAG explorer (enter txid, navigate tree)
   - `/order-book` - Open Order Book (browse BSV-20 token listings)
   - `/tokens` and `/tokens/:id` - BSV-20/BSV-21 token index (supply, holders); read-only, minting lives in qart
-  - `/collections` and `/collections/:id` - BSV NFT collections index and items (`:id` is a slug or origin outpoint; `/collections/rexxies` has its own page)
+  - `/collections` and `/collections/:id` - BSV NFT collections index and show (`:id` is a slug or origin outpoint; one view for every collection)
   - `/bitcom` and `/bitcom/:address` - live Bitcom registry (unwriter's Bitcom): namespaces, on-chain ownership proof, files, routes, usage
   - `/dev/dashboard` - LiveDashboard (dev only)
 

@@ -201,7 +201,6 @@ defmodule BitblocksWeb.Router do
     live "/tokens/:id", TokenLive
     live "/metanet", MetanetLive
     live "/collections", CollectionLive.Index
-    live "/collections/rexxies", RexxiesLive
     live "/collections/:id", CollectionLive.Show
     live "/about", AboutLive
     live "/pricing", PricingLive

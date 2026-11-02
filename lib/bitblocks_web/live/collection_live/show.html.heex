@@ -1,92 +1,291 @@
-<div class="bg-surface-base min-h-screen text-neutral-300">
-  <div class="max-w-6xl mx-auto px-4 py-12">
-    <div class="mb-3 text-sm text-neutral-400">
+<.collection_page>
+  <%!-- Header --%>
+  <div class="mb-8">
+    <div
+      id="collection-breadcrumb"
+      class="flex items-center gap-2 text-sm text-gray-500 mb-3"
+    >
       <.link
         navigate={~p"/collections"}
-        class="underline"
+        class="hover:underline"
       >
         Collections
       </.link>
+      <span>/</span>
+      <span class="text-gray-900 font-semibold break-all">
+        <%= @collection.name %>
+      </span>
     </div>
-    <h1 class="text-3xl font-bold text-neutral-50 mb-4 break-all">
-      <%= @collection.name %>
-    </h1>
+    <div class="flex items-center gap-3 mb-2">
+      <h1 class="text-4xl font-bold break-all">
+        <%= @collection.name %>
+      </h1>
+      <.pill>
+        <%= @collection.standard %>
+      </.pill>
+    </div>
     <p
       :if={@collection.description}
-      class="mb-3 leading-relaxed"
+      class="text-gray-600"
     >
       <%= @collection.description %>
     </p>
-    <p class="mb-3 leading-relaxed">
-      <%= @collection.items %> items are indexed, and <%= @collection.traced %> have a traced current location.
-    </p>
-    <p class="mb-3 leading-relaxed">
-      Membership is verified for every item listed, whether or not its holder is known.
-    </p>
-    <p class="mb-8 text-sm">
-      <a
-        href={"/api/v1/collections/#{@collection.id}"}
-        class="underline"
-      >
-        Collection API
-      </a>
-    </p>
+  </div>
 
-    <%= if @items == [] do %>
-      <p
-        id="items-empty"
-        class="text-neutral-100"
+  <%!-- Stats --%>
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+    <.stat
+      label="Items"
+      value={@collection.items}
+    />
+    <.stat
+      label="Trait Types"
+      value={@stats.trait_types}
+    />
+    <.stat
+      label="Owners Traced"
+      value={@collection.traced}
+    />
+    <.stat
+      label="Holders"
+      value={@stats.holders}
+    />
+  </div>
+
+  <%!-- Search and Filters --%>
+  <.panel class="p-4 mb-6">
+    <div class="flex flex-wrap items-end gap-4">
+      <.search_form
+        id="item-search"
+        value={@search}
+        placeholder="Search by name or trait..."
+        label="Search items"
+        phx-submit="search"
+      />
+
+      <.link
+        :if={@search != "" || @trait_type != ""}
+        patch={~p"/collections/#{@collection.slug}"}
+        class="px-3 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 text-sm"
       >
-        No items are indexed yet.
-      </p>
-    <% else %>
-      <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-8">
-        <div
-          :for={item <- @items}
-          id={"item-#{item.id}"}
-          class="collection-item overflow-hidden rounded-lg border border-neutral-800 bg-neutral-900"
-        >
-          <div class="aspect-square bg-neutral-800">
-            <img
-              :if={image?(item)}
-              src={"/content/#{item.origin}"}
-              alt={item.name || item.origin}
-              loading="lazy"
-              class="h-full w-full object-cover"
-            />
+        Clear Filters
+      </.link>
+    </div>
+
+    <div
+      :if={@search != ""}
+      class="mt-2 text-sm text-gray-500"
+    >
+      Showing results for: <strong class="text-pink-600"><%= @search %></strong>
+    </div>
+    <div
+      :if={@trait_type != ""}
+      class="mt-2 text-sm text-gray-500"
+    >
+      Filtering by: <strong class="text-pink-600"><%= @trait_type %>: <%= @trait_value %></strong>
+    </div>
+  </.panel>
+
+  <%!-- Item Grid --%>
+  <%= if @items != [] do %>
+    <div class="mb-4 text-sm text-gray-500">
+      Showing <%= length(@items) %> of <%= @total %> items
+    </div>
+
+    <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 mb-8">
+      <div
+        :for={item <- @items}
+        id={"item-#{item.id}"}
+        phx-click="select_item"
+        phx-value-id={item.id}
+        class="collection-item bg-white shadow rounded-lg overflow-hidden cursor-pointer hover:shadow-lg transition-shadow hover:ring-2 hover:ring-pink-400"
+      >
+        <div class="aspect-square bg-gray-100">
+          <img
+            :if={OrdinalCollections.image_path(item)}
+            src={OrdinalCollections.image_path(item)}
+            alt={item.name || item.origin}
+            loading="lazy"
+            class="w-full h-full object-cover"
+          />
+        </div>
+        <div class="p-3">
+          <div class="font-bold text-sm truncate">
+            <%= item.name || item.origin %>
           </div>
-          <div class="p-3">
-            <.link
-              navigate={~p"/transactions/#{item.mint_txid}"}
-              class="block truncate text-sm font-semibold text-neutral-50 hover:underline"
-            >
-              <%= item.name || item.origin %>
-            </.link>
-            <p class="mt-1 truncate text-xs font-mono text-neutral-400">
-              <%= OrdinalCollections.ownership_sentence(item) %>
-            </p>
+          <div class="text-xs text-gray-500 mt-1 truncate">
+            <%= subtitle(item) %>
           </div>
         </div>
       </div>
-    <% end %>
+    </div>
 
-    <div class="flex items-center gap-4 text-sm">
+    <%!-- Pagination --%>
+    <% total_pages = ceil(@total / @per_page) %>
+    <div
+      :if={total_pages > 1}
+      class="flex items-center justify-center gap-2"
+    >
       <.link
-        :if={@cursor}
-        id="items-first"
-        patch={~p"/collections/#{@collection.slug}"}
-        class="underline"
+        :if={@page > 1}
+        id="items-prev"
+        patch={page_path(assigns, @page - 1)}
+        class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300 text-sm"
       >
-        First page
+        Prev
       </.link>
+      <span class="text-sm text-gray-600">
+        Page <%= @page %> of <%= total_pages %>
+      </span>
       <.link
-        :if={@next_cursor}
+        :if={@page < total_pages}
         id="items-next"
-        patch={~p"/collections/#{@collection.slug}?#{[cursor: @next_cursor]}"}
-        class="underline"
+        patch={page_path(assigns, @page + 1)}
+        class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300 text-sm"
       >
-        Next page
+        Next
       </.link>
     </div>
+  <% else %>
+    <div
+      id="items-empty"
+      class="text-center py-12 bg-gray-50 rounded-lg"
+    >
+      <div class="text-gray-500 text-lg mb-2">
+        No items found
+      </div>
+      <div class="text-gray-400 text-sm">
+        Try adjusting your search or filters, or the collection may not be synced yet.
+      </div>
+    </div>
+  <% end %>
+
+  <%!-- Item Detail --%>
+  <%= if @selected do %>
+    <div class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+      <div
+        id="item-detail"
+        class="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto"
+        phx-click-away="close_detail"
+      >
+        <div class="flex flex-col md:flex-row">
+          <div class="md:w-1/2 bg-gray-100">
+            <img
+              :if={OrdinalCollections.image_path(@selected)}
+              src={OrdinalCollections.image_path(@selected)}
+              alt={@selected.name || @selected.origin}
+              class="w-full aspect-square object-cover"
+            />
+          </div>
+
+          <div class="md:w-1/2 p-6">
+            <div class="flex items-center justify-between mb-4">
+              <h2 class="text-2xl font-bold break-all">
+                <%= @selected.name || @selected.origin %>
+              </h2>
+              <button
+                phx-click="close_detail"
+                aria-label="Close"
+                class="text-gray-400 hover:text-gray-600 text-2xl"
+              >
+                &times;
+              </button>
+            </div>
+
+            <%!-- Traits --%>
+            <%= if @selected.traits != [] do %>
+              <h3 class="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-2">
+                Traits
+              </h3>
+              <div class="space-y-2 mb-6">
+                <div
+                  :for={trait <- @selected.traits}
+                  class="flex items-center justify-between gap-3 bg-gray-50 rounded px-3 py-2"
+                >
+                  <span class="text-xs text-gray-500 uppercase">
+                    <%= trait["name"] %>
+                  </span>
+                  <.link
+                    patch={trait_path(@collection, trait)}
+                    class="text-sm font-semibold text-pink-600 hover:underline"
+                  >
+                    <%= trait["value"] %>
+                  </.link>
+                </div>
+              </div>
+            <% end %>
+
+            <%!-- On-chain --%>
+            <h3 class="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-2">
+              On-Chain
+            </h3>
+            <div class="space-y-2 mb-4">
+              <div class="flex items-center justify-between">
+                <span class="text-xs text-gray-500">
+                  Mint TX
+                </span>
+                <.link
+                  navigate={~p"/transactions/#{@selected.mint_txid}"}
+                  class="font-mono text-xs text-blue-600 hover:underline"
+                >
+                  <%= String.slice(@selected.mint_txid, 0, 16) %>...
+                </.link>
+              </div>
+              <div
+                id="item-holder"
+                class="text-xs text-gray-700"
+              >
+                <p>
+                  Membership verified.
+                </p>
+                <p class="font-mono break-all">
+                  <%= OrdinalCollections.ownership_sentence(@selected) %>
+                </p>
+              </div>
+            </div>
+
+            <div class="pt-4 border-t">
+              <a
+                href={"https://whatsonchain.com/tx/#{@selected.mint_txid}"}
+                target="_blank"
+                rel="noopener"
+                class="text-xs text-blue-600 hover:underline"
+              >
+                View on WhatsOnChain
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  <% end %>
+
+  <%!-- About --%>
+  <div class="mt-12 bg-gray-50 border border-gray-200 rounded-lg p-6">
+    <h2 class="text-xl font-semibold mb-3">
+      About <%= @collection.name %>
+    </h2>
+    <div class="text-sm text-gray-700 space-y-2">
+      <p :if={@collection.source}>
+        Source: <%= @collection.source %>.
+      </p>
+      <p>
+        Membership is verified for every item listed, whether or not its holder is known.
+      </p>
+      <p>
+        <strong>Collection Origin:</strong>
+        <code class="bg-gray-200 px-1.5 py-0.5 rounded text-xs break-all">
+          <%= @collection.id %>
+        </code>
+      </p>
+      <p>
+        <a
+          href={"/api/v1/collections/#{@collection.id}"}
+          class="text-blue-600 hover:underline"
+        >
+          Collection API
+        </a>
+      </p>
+    </div>
   </div>
-</div>
+</.collection_page>

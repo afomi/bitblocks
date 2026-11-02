@@ -529,6 +529,94 @@ defmodule Bitblocks.OrdinalCollections do
     %{items: items, next_cursor: next}
   end
 
+  @doc """
+  A numbered page of items in mint order, for browsing. Options: `:page`,
+  `:per_page`, `:q` (matches the name or a trait value), `:trait` (a
+  `{name, value}` pair). Returns `{items, total}`.
+  """
+  def browse_items(collection_id, opts \\ []) do
+    per_page = Keyword.get(opts, :per_page, 50)
+    page = opts |> Keyword.get(:page, 1) |> max(1)
+
+    query =
+      from(i in Item, where: i.collection_id == ^collection_id)
+      |> search_items(opts[:q])
+      |> filter_trait(opts[:trait])
+
+    items =
+      query
+      |> order_by(asc: :id)
+      |> limit(^per_page)
+      |> offset(^((page - 1) * per_page))
+      |> Repo.all()
+
+    {items, Repo.aggregate(query, :count)}
+  end
+
+  defp search_items(query, q) when q in [nil, ""], do: query
+
+  defp search_items(query, q) do
+    like = "%#{String.replace(q, ~r/[%_\\\\]/, "\\\\\\0")}%"
+
+    where(
+      query,
+      [i],
+      ilike(i.name, ^like) or
+        fragment("EXISTS (SELECT 1 FROM unnest(?) t WHERE t->>'value' ILIKE ?)", i.traits, ^like)
+    )
+  end
+
+  defp filter_trait(query, nil), do: query
+
+  defp filter_trait(query, {name, value}) do
+    where(
+      query,
+      [i],
+      fragment(
+        "EXISTS (SELECT 1 FROM unnest(?) t WHERE t->>'name' = ? AND t->>'value' = ?)",
+        i.traits,
+        ^name,
+        ^value
+      )
+    )
+  end
+
+  @doc "Figures for a collection's page: trait types, and distinct traced holders."
+  def stats(collection_id) do
+    %{rows: [[trait_types]]} =
+      Repo.query!(
+        "SELECT count(DISTINCT t->>'name') FROM collection_items i, unnest(i.traits) t " <>
+          "WHERE i.collection_id = $1",
+        [collection_id]
+      )
+
+    holders =
+      Repo.one(
+        from i in Item,
+          where: i.collection_id == ^collection_id and i.trace_state == "current",
+          select: count(i.owner, :distinct)
+      )
+
+    %{trait_types: trait_types, holders: holders}
+  end
+
+  @doc """
+  Where an item's image is served from: the catalog's for a collection whose
+  on-chain payloads aren't viewable (Rexxies are encrypted), else the
+  inscription itself. Nil when neither is an image.
+  """
+  def image_path(%Item{} = item) do
+    case config_for(item.collection_id) do
+      %{catalog: catalog} ->
+        with %{number: number} <- catalog.entry(item.mint_txid) do
+          Bitblocks.Rexxies.image_path(%{"number" => number})
+        end
+
+      _ ->
+        if match?("image/" <> _, item.content_type), do: "/content/#{item.origin}"
+    end
+  end
+
   @doc "The item at `outpoint`: by its origin or where it sits now."
   def get_item(collection_id, outpoint) do
     Repo.one(
