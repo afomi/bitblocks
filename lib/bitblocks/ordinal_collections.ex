@@ -30,7 +30,7 @@ defmodule Bitblocks.OrdinalCollections do
   require Logger
 
   alias Bitblocks.Chain.{Block, RawTx, Transaction, TxIngest}
-  alias Bitblocks.OrdinalCollections.Item
+  alias Bitblocks.OrdinalCollections.{Item, Walk}
   alias Bitblocks.{Repo, Woc}
 
   # id: the chain's first link (the collection's origin outpoint).
@@ -38,17 +38,61 @@ defmodule Bitblocks.OrdinalCollections do
   @collections %{
     "grand-tardinians" => %{
       id: "f099182e168c0a30a9f97556d156c8b6284cfc3f76eca8352807b1ceff29da04_0",
+      name: "Grand Tardinians",
+      description: "A 1Sat ordinal collection minted through a Bubblemint mint contract.",
+      standard: "1Sat",
+      source: "Bubblemint",
       protocol: Bitblocks.OrdinalCollections.OneSat,
       hint: :gorillapool
     },
     "rexxies" => %{
       # The Rexxie COL class (`…_o2` in Run notation).
       id: "12d8ca4bc0eaf26660627cc1671de6a0047246f39f3aa06633f8204223d70cc5_2",
+      name: "Rexxies",
+      description: "2,222 unique dinosaur NFTs built with Run protocol.",
+      standard: "Run",
+      source: "RelayX",
       protocol: Bitblocks.OrdinalCollections.RunJig,
       catalog: Bitblocks.Rexxies.Catalog,
       hint: :catalog
     }
   }
+
+  # Where BSV collections are minted and traded. `url` is set only for an
+  # address confirmed to be the platform (checked 2026-11-01): rarecandy.com is
+  # an unrelated trading-card shop and bubblemint.com is a parked domain.
+  @sources [
+    %{
+      name: "RelayX",
+      url: nil,
+      description: "Run-based NFT marketplace where Rexxies were minted and traded.",
+      status: "relayx.com returned 404 when last checked."
+    },
+    %{
+      name: "Twetch",
+      url: "https://twetch.com/market",
+      description: "On-chain social network with an NFT market, including Twonks and Sigils.",
+      status: nil
+    },
+    %{
+      name: "Rare Candy",
+      url: "https://rarecandy.io",
+      description: "NFT launchpad and marketplace, home of the Oni Society and Astro Apes drops.",
+      status: nil
+    },
+    %{
+      name: "Bubblemint",
+      url: "https://www.bubblemint.io",
+      description: "Minting platform for 1Sat collections, including Tardinians and Pixel Foxes.",
+      status: nil
+    },
+    %{
+      name: "Zoide",
+      url: "https://zoide.io/market/collections",
+      description: "BSV NFT marketplace with drops, listings, and rankings.",
+      status: nil
+    }
+  ]
 
   # Per trace. A longer trail stops as "partial" and the next trace resumes.
   @max_hops 100
@@ -58,6 +102,54 @@ defmodule Bitblocks.OrdinalCollections do
 
   @doc "Known collections: slug => collection id (origin outpoint)."
   def known, do: Map.new(@collections, fn {slug, config} -> {slug, config.id} end)
+
+  @doc "Where BSV collections are minted and traded."
+  def sources, do: @sources
+
+  @doc """
+  Every collection we know or hold items for, by name: known collections even
+  before their first sync, then any other indexed collection origin. Counts
+  come from the index; `traced` is items whose location is `current`.
+  """
+  def list_collections do
+    counts =
+      from(i in Item,
+        group_by: [i.collection_id, i.trace_state],
+        select: {i.collection_id, i.trace_state, count()}
+      )
+      |> Repo.all()
+      |> Enum.group_by(&elem(&1, 0), fn {_cid, state, n} -> {state, n} end)
+
+    known =
+      for {slug, config} <- @collections do
+        config |> Map.take([:id, :name, :description, :standard, :source]) |> Map.put(:slug, slug)
+      end
+
+    known_ids = MapSet.new(known, & &1.id)
+
+    indexed =
+      for cid <- Map.keys(counts), not MapSet.member?(known_ids, cid) do
+        %{id: cid, slug: cid, name: cid, description: nil, standard: "1Sat", source: nil}
+      end
+
+    (known ++ indexed)
+    |> Enum.map(fn collection ->
+      states = Map.new(counts[collection.id] || [])
+
+      Map.merge(collection, %{
+        items: states |> Map.values() |> Enum.sum(),
+        traced: states["current"] || 0
+      })
+    end)
+    |> Enum.sort_by(&String.downcase(&1.name))
+  end
+
+  @doc "One entry of `list_collections/0` by slug or collection id; nil if unknown."
+  def get_collection(slug_or_id) do
+    with cid when is_binary(cid) <- resolve(slug_or_id) do
+      Enum.find(list_collections(), &(&1.id == cid))
+    end
+  end
 
   @doc """
   The config for a collection id: a known collection's, or 1Sat rules for any
@@ -151,8 +243,10 @@ defmodule Bitblocks.OrdinalCollections do
   candidates. Options: `follow: false` skips following the chain past the
   hint with WhatsOnChain.
 
-  Returns `%{mints, items, rejected, import}`: `rejected` counts hinted txs
-  that are not on the mint chain.
+  Returns `%{mints, items, rejected, import, complete}`: `rejected` counts
+  hinted txs that are not on the mint chain, and `complete` says the walk
+  reached the end of the chain with no lookup failing (recorded for
+  `absence/2`).
   """
   def sync(collection_id, hint_txids, opts \\ []) do
     [collection_txid, _] = String.split(collection_id, "_")
@@ -160,7 +254,7 @@ defmodule Bitblocks.OrdinalCollections do
 
     spenders = spender_index(hint_txids)
     config = config_for(collection_id)
-    mints = walk_chain(config, spenders, Keyword.get(opts, :follow, true))
+    {mints, complete?} = walk_chain(config, spenders, Keyword.get(opts, :follow, true))
 
     items =
       mints
@@ -169,13 +263,30 @@ defmodule Bitblocks.OrdinalCollections do
 
     mint_ids = MapSet.new(mints, &elem(&1, 0))
     rejected = hint_txids |> Enum.uniq() |> Enum.count(&(not MapSet.member?(mint_ids, &1)))
+    record_walk(collection_id, complete?, length(mints), items)
 
     Logger.info(
       "OrdinalCollections.sync #{collection_id}: #{length(mints)} mints, #{items} items, " <>
         "#{rejected} hinted txs rejected"
     )
 
-    %{mints: length(mints), items: items, rejected: rejected, import: import}
+    %{mints: length(mints), items: items, rejected: rejected, import: import, complete: complete?}
+  end
+
+  # An unfinished walk clears the record: `absence/2` must not answer from a
+  # chain we could no longer follow.
+  defp record_walk(collection_id, false, _mints, _items) do
+    Repo.delete_all(from w in Walk, where: w.collection_id == ^collection_id)
+  end
+
+  defp record_walk(collection_id, true, mints, items) do
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+    Repo.insert!(
+      %Walk{collection_id: collection_id, finished_at: now, mints: mints, items: items},
+      on_conflict: {:replace, [:finished_at, :mints, :items, :updated_at]},
+      conflict_target: :collection_id
+    )
   end
 
   # outpoint ("txid_vout") => spending txid, over the candidate txs we hold.
@@ -191,26 +302,41 @@ defmodule Bitblocks.OrdinalCollections do
   # Breadth-first from the collection outpoint: each chain link is spent by at
   # most one tx, and the protocol decides whether that tx mints and where the
   # chain goes next. Txs that carry the chain on without minting are walked
-  # through but aren't mints.
+  # through but aren't mints. Returns {mints, complete?}: complete? is false
+  # when a link couldn't be followed, which is not the same as the chain ending.
   defp walk_chain(config, spenders, follow?) do
-    do_walk([config.id], spenders, follow?, config, MapSet.new(), [])
+    do_walk([config.id], spenders, follow?, config, MapSet.new(), [], true)
   end
 
-  defp do_walk([], _spenders, _follow?, _config, _seen, mints), do: Enum.reverse(mints)
+  defp do_walk([], _spenders, _follow?, _config, _seen, mints, complete?),
+    do: {Enum.reverse(mints), complete?}
 
-  defp do_walk([link | queue], spenders, follow?, config, seen, mints) do
-    with spender when is_binary(spender) <- spenders[link] || follow_spend(link, follow?),
+  defp do_walk([link | queue], spenders, follow?, config, seen, mints, complete?) do
+    with {:ok, spender} <- spender_of(link, spenders, follow?),
          false <- MapSet.member?(seen, spender),
          {:ok, tx, height} <- load_tx(spender),
          {:ok, items, next_links} <- config.protocol.mint(tx, spender, link, config) do
       mints = if items == [], do: mints, else: [{spender, height, items} | mints]
-      do_walk(queue ++ next_links, spenders, follow?, config, MapSet.put(seen, spender), mints)
+      seen = MapSet.put(seen, spender)
+      do_walk(queue ++ next_links, spenders, follow?, config, seen, mints, complete?)
     else
-      _ -> do_walk(queue, spenders, follow?, config, seen, mints)
+      # The link is unspent, already walked, or spent by a tx that ends the chain.
+      ended when ended in [:unspent, true, :no] ->
+        do_walk(queue, spenders, follow?, config, seen, mints, complete?)
+
+      _ ->
+        do_walk(queue, spenders, follow?, config, seen, mints, false)
     end
   end
 
-  defp follow_spend(_link, false), do: nil
+  defp spender_of(link, spenders, follow?) do
+    case spenders[link] do
+      nil -> follow_spend(link, follow?)
+      spender -> {:ok, spender}
+    end
+  end
+
+  defp follow_spend(_link, false), do: :not_followed
 
   defp follow_spend(link, true) do
     [txid, vout] = String.split(link, "_")
@@ -218,10 +344,13 @@ defmodule Bitblocks.OrdinalCollections do
     case Woc.spent(txid, String.to_integer(vout)) do
       {:ok, %{txid: spender}} ->
         import_txs([spender])
-        spender
+        {:ok, spender}
 
-      _ ->
-        nil
+      {:ok, :unspent} ->
+        :unspent
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -277,6 +406,8 @@ defmodule Bitblocks.OrdinalCollections do
     protocol = config_for(item.collection_id).protocol
     {{state, outpoint, owner, reason}, steps} = follow(start, 0, protocol)
     trail = if resume?, do: Enum.uniq((item.trail || []) ++ steps), else: steps
+    # Unknown with no step means WhatsOnChain gave no spend answer at all.
+    source = if state == "unknown" and steps == [], do: nil, else: "whatsonchain"
 
     item
     |> Ecto.Changeset.change(%{
@@ -285,7 +416,7 @@ defmodule Bitblocks.OrdinalCollections do
       owner: owner,
       trail: trail,
       trace_reason: reason,
-      trace_source: "whatsonchain",
+      trace_source: source,
       traced_at: DateTime.utc_now() |> DateTime.truncate(:second)
     })
     |> Repo.update()
@@ -451,6 +582,76 @@ defmodule Bitblocks.OrdinalCollections do
       acc |> Map.put_new(item.current_outpoint, item) |> Map.put_new(item.origin, item)
     end)
   end
+
+  @doc """
+  What can be said about outpoints that `lookup/2` didn't find, keyed by
+  outpoint: `{false, reason}` or `{"unknown", reason}`.
+
+  `false` needs a finished chain walk and every item's trace settled: an item
+  with an unfinished trace could sit anywhere past its last known location.
+  An outpoint of a tx on an item's trail stays unknown, because the trail
+  records txids and not which output the item left in.
+  """
+  def absence(collection_id, outpoints) do
+    txids = Enum.map(outpoints, &(&1 |> String.split("_") |> hd()))
+
+    on_trail =
+      from(i in Item,
+        where:
+          i.collection_id == ^collection_id and
+            fragment("? && ?", i.trail, type(^txids, {:array, :string})),
+        select: i.trail
+      )
+      |> Repo.all()
+      |> List.flatten()
+      |> MapSet.new()
+
+    walk = Repo.one(from w in Walk, where: w.collection_id == ^collection_id)
+    settled? = walk != nil and not unsettled_items?(collection_id)
+
+    Map.new(outpoints, fn outpoint ->
+      txid = outpoint |> String.split("_") |> hd()
+
+      answer =
+        cond do
+          MapSet.member?(on_trail, txid) ->
+            {"unknown", "an item moved through this transaction; the output is not recorded"}
+
+          settled? ->
+            {false,
+             "not an item of this collection as of #{DateTime.to_iso8601(walk.finished_at)}"}
+
+          true ->
+            {"unknown", "not an indexed item of this collection (or its sync is incomplete)"}
+        end
+
+      {outpoint, answer}
+    end)
+  end
+
+  defp unsettled_items?(collection_id) do
+    Repo.exists?(
+      from i in Item, where: i.collection_id == ^collection_id and i.trace_state != "current"
+    )
+  end
+
+  @doc """
+  The ownership claim in words, separate from membership: an indexed item's
+  membership stands whatever this says. A mint's owner is only where the item
+  started, so nothing reads as held until a trace reaches it.
+  """
+  def ownership_sentence(%Item{trace_state: "current", owner: owner}) when is_binary(owner),
+    do: "Held by #{owner}."
+
+  def ownership_sentence(%Item{trace_state: "untraced"}), do: "Not traced yet."
+
+  def ownership_sentence(%Item{trace_reason: "whatsonchain: " <> _}),
+    do: "Owner unknown: WhatsOnChain did not answer."
+
+  def ownership_sentence(%Item{trace_reason: reason}) when is_binary(reason),
+    do: "Owner unknown: #{reason}."
+
+  def ownership_sentence(%Item{}), do: "Owner unknown."
 
   @doc "Counts for a collection: items, and items by trace_state."
   def summary(collection_id) do

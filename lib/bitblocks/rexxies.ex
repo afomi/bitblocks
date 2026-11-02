@@ -41,6 +41,19 @@ defmodule Bitblocks.Rexxies do
   @impl Bitblocks.Collections
   def item_title(item), do: "Rexxie ##{item["number"]}"
 
+  @doc """
+  The chain index's record for a Rexxie (#30), which says where it sits now;
+  nil until it's indexed. The jig is output 3 of its mint.
+  """
+  def holding(%{"txid" => txid}) when is_binary(txid) do
+    case Bitblocks.OrdinalCollections.resolve(slug()) do
+      nil -> nil
+      cid -> Bitblocks.OrdinalCollections.get_item(cid, "#{txid}_3")
+    end
+  end
+
+  def holding(_nft), do: nil
+
   @impl Bitblocks.Collections
   def metadata do
     %{

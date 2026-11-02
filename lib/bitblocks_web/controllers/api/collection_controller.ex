@@ -19,7 +19,11 @@ defmodule BitblocksWeb.Api.CollectionController do
 
   `spent` and `owner` come from tracing spends: `spent` is null unless
   `trace_state` is `current`, so an untraced or unknown trail never reads as
-  "unspent".
+  "unspent". `ownership` carries that claim on its own, apart from
+  `membership`: its `owner` is null unless the trace reached the item.
+
+  `member` is `true`, `false`, or `"unknown"`. `false` needs a finished chain
+  walk and every trace settled (see `OrdinalCollections.absence/2`).
   """
   use BitblocksWeb, :controller
 
@@ -61,12 +65,11 @@ defmodule BitblocksWeb.Api.CollectionController do
     with {:ok, cid} <- collection(id) do
       case OrdinalCollections.get_item(cid, outpoint) do
         nil ->
+          {member, reason} = OrdinalCollections.absence(cid, [outpoint])[outpoint]
+
           conn
           |> put_status(:not_found)
-          |> json(%{
-            member: "unknown",
-            reason: "not an indexed item of this collection (or its sync is incomplete)"
-          })
+          |> json(%{member: member, reason: reason})
 
         item ->
           item = maybe_refresh(item, params["refresh"])
@@ -82,12 +85,17 @@ defmodule BitblocksWeb.Api.CollectionController do
     with {:ok, cid} <- collection(id) do
       asked = Enum.map(outpoints, &normalize/1)
       found = OrdinalCollections.lookup(cid, asked)
+      absent = OrdinalCollections.absence(cid, Enum.reject(asked, &found[&1]))
 
       data =
         for outpoint <- asked do
           case found[outpoint] do
-            nil -> %{outpoint: outpoint, member: "unknown"}
-            item -> item |> item_json() |> Map.merge(presented(item, outpoint))
+            nil ->
+              {member, reason} = absent[outpoint]
+              %{outpoint: outpoint, member: member, reason: reason}
+
+            item ->
+              item |> item_json() |> Map.merge(presented(item, outpoint))
           end
         end
 
@@ -160,6 +168,13 @@ defmodule BitblocksWeb.Api.CollectionController do
       chain_from: item.collection_id,
       mint_txid: item.mint_txid,
       claim: "MAP subTypeData.collectionId"
+    })
+    |> Map.put(:ownership, %{
+      owner: if(item.trace_state == "current", do: item.owner),
+      state: item.trace_state,
+      reason: item.trace_reason,
+      source: item.trace_source,
+      traced_at: item.traced_at
     })
   end
 

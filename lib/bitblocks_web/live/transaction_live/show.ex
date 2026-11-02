@@ -9,6 +9,7 @@ defmodule BitblocksWeb.TransactionLive.Show do
     {:ok,
      assign(socket,
        collection_item: nil,
+       collection_holding: nil,
        collection_slug: nil,
        collection_module: nil,
        input_satoshis: %{},
@@ -122,6 +123,7 @@ defmodule BitblocksWeb.TransactionLive.Show do
      |> assign(:decoded_tx, decoded_tx)
      |> assign(:coinbase_message, coinbase_message)
      |> assign(:collection_item, collection_item)
+     |> assign(:collection_holding, collection_holding(collection_module, collection_item))
      |> assign(:collection_slug, collection_slug)
      |> assign(:collection_module, collection_module)
      |> assign(:input_satoshis, input_satoshis)
@@ -289,4 +291,7 @@ defmodule BitblocksWeb.TransactionLive.Show do
 
   defp page_title(:show), do: "Show Transaction"
   defp page_title(:edit), do: "Edit Transaction"
+
+  defp collection_holding(Bitblocks.Rexxies, item), do: Bitblocks.Rexxies.holding(item)
+  defp collection_holding(_module, _item), do: nil
 end

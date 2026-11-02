@@ -118,6 +118,7 @@ mix assets.deploy           # Build and minify for production
   - `/metanet` - Metanet DAG explorer (enter txid, navigate tree)
   - `/order-book` - Open Order Book (browse BSV-20 token listings)
   - `/tokens` and `/tokens/:id` - BSV-20/BSV-21 token index (supply, holders); read-only, minting lives in qart
+  - `/collections` and `/collections/:id` - BSV NFT collections index and items (`:id` is a slug or origin outpoint; `/collections/rexxies` has its own page)
   - `/bitcom` and `/bitcom/:address` - live Bitcom registry (unwriter's Bitcom): namespaces, on-chain ownership proof, files, routes, usage
   - `/dev/dashboard` - LiveDashboard (dev only)
 
@@ -207,7 +208,7 @@ GET /api/v1/projections/:id/status — index_state ready | backfilling, indexed_
 GET /api/v1/collections/:id       — collection summary + verification (:id = grand-tardinians | rexxies, or a 1Sat collection origin outpoint)
 GET /api/v1/collections/:id/items — items in mint order: origin, name, traits, current_outpoint, owner, trace_state (?cursor=, ?limit=)
 POST /api/v1/collections/:id/items/lookup — {"outpoints": [...]} up to 200, answered in order from the index (no re-trace)
-GET /api/v1/collections/:id/items/:outpoint — one item by origin or current outpoint; member, spent (null unless traced current), owner (?refresh=1 re-traces)
+GET /api/v1/collections/:id/items/:outpoint — one item by origin or current outpoint; member (true | false | "unknown"; false only after a finished chain walk with every trace settled), spent (null unless traced current), ownership, owner (?refresh=1 re-traces)
 GET /api/v1/outpoints/:txid/:vout — is this outpoint an ordinal/token? answer: yes | no | unknown (spend only on "no")
 GET /api/v1/script/:scripthash/history — tx history for a script (Electrum scripthash: sha256 of scriptPubKey, reversed hex)
 GET /api/v1/script/:scripthash/unspent — UTXOs locked by a script

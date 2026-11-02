@@ -14,7 +14,7 @@ defmodule BitblocksWeb.Api.CollectionControllerTest do
     mint = tx([cid], [contract(), item(cid, "Tardinian 1", minter)]) |> publish(839_716)
 
     OrdinalCollections.sync(cid, [mint], follow: false)
-    %{cid: cid, minter: minter, origin: "#{mint}_1"}
+    %{cid: cid, minter: minter, mint: mint, origin: "#{mint}_1"}
   end
 
   defp get_json(path, status \\ 200), do: build_conn() |> get(path) |> json_response(status)
@@ -94,7 +94,95 @@ defmodule BitblocksWeb.Api.CollectionControllerTest do
     assert cid == ctx.cid
   end
 
+  describe "membership and ownership are separate claims (#37)" do
+    test "an unknown trail keeps membership and has no owner", ctx do
+      Process.put(:woc_spent, %{ctx.origin => {:error, :timeout}})
+      get_json("/api/v1/collections/#{ctx.cid}/items/#{ctx.origin}?refresh=1")
+
+      data = get_json("/api/v1/collections/#{ctx.cid}/items/#{ctx.origin}")["data"]
+
+      assert data["membership"]["verified"] == true
+      assert data["ownership"]["state"] == "unknown"
+      assert data["ownership"]["owner"] == nil
+      assert data["owner"] == nil
+    end
+
+    test "the source is WhatsOnChain only when it answered", ctx do
+      item = OrdinalCollections.get_item(ctx.cid, ctx.origin)
+
+      Process.put(:woc_spent, %{ctx.origin => {:error, :timeout}})
+      {:ok, failed} = OrdinalCollections.trace(item)
+      assert failed.trace_source == nil
+
+      Process.delete(:woc_spent)
+      {:ok, answered} = OrdinalCollections.trace(failed)
+      assert answered.trace_source == "whatsonchain"
+    end
+
+    test "an untraced item's minter is not presented as its owner", ctx do
+      data = get_json("/api/v1/collections/#{ctx.cid}/items/#{ctx.origin}")["data"]
+
+      assert data["ownership"]["state"] == "untraced"
+      assert data["ownership"]["owner"] == nil
+    end
+
+    test "a stranger is false only after the walk finished and traces settled", ctx do
+      stranger = "#{String.duplicate("c", 64)}_0"
+      path = "/api/v1/collections/#{ctx.cid}/items/#{stranger}"
+
+      assert get_json(path, 404)["member"] == "unknown"
+
+      OrdinalCollections.sync(ctx.cid, [ctx.mint])
+      assert get_json(path, 404)["member"] == "unknown"
+
+      OrdinalCollections.trace_all(ctx.cid)
+      assert get_json(path, 404)["member"] == false
+    end
+
+    test "a failed walk takes a false answer back to unknown", ctx do
+      stranger = "#{String.duplicate("c", 64)}_0"
+
+      OrdinalCollections.sync(ctx.cid, [ctx.mint])
+      OrdinalCollections.trace_all(ctx.cid)
+      Process.put(:woc_spent, %{"#{ctx.mint}_0" => {:error, :timeout}})
+
+      assert %{complete: false} = OrdinalCollections.sync(ctx.cid, [ctx.mint])
+
+      assert get_json("/api/v1/collections/#{ctx.cid}/items/#{stranger}", 404)["member"] ==
+               "unknown"
+    end
+
+    test "an outpoint of a tx on an item's trail stays unknown", ctx do
+      spender = String.duplicate("d", 64)
+      OrdinalCollections.sync(ctx.cid, [ctx.mint])
+      OrdinalCollections.trace_all(ctx.cid)
+
+      ctx.cid
+      |> OrdinalCollections.get_item(ctx.origin)
+      |> Ecto.Changeset.change(trail: [spender])
+      |> Bitblocks.Repo.update!()
+
+      assert get_json("/api/v1/collections/#{ctx.cid}/items/#{spender}_1", 404)["member"] ==
+               "unknown"
+    end
+  end
+
   describe "POST /api/v1/collections/:id/items/lookup" do
+    test "a stranger is false after the walk, with a reason", ctx do
+      stranger = "#{String.duplicate("b", 64)}_0"
+      OrdinalCollections.sync(ctx.cid, [ctx.mint])
+      OrdinalCollections.trace_all(ctx.cid)
+
+      [answer] =
+        build_conn()
+        |> post("/api/v1/collections/#{ctx.cid}/items/lookup", %{outpoints: [stranger]})
+        |> json_response(200)
+        |> Map.get("data")
+
+      assert answer["member"] == false
+      assert answer["reason"] =~ "as of"
+    end
+
     test "answers each outpoint in order, unknown ones as member unknown", ctx do
       [txid, vout] = String.split(ctx.origin, "_")
       stranger = "#{String.duplicate("b", 64)}_0"

@@ -1,0 +1,92 @@
+<div class="bg-surface-base min-h-screen text-neutral-300">
+  <div class="max-w-6xl mx-auto px-4 py-12">
+    <div class="mb-3 text-sm text-neutral-400">
+      <.link
+        navigate={~p"/collections"}
+        class="underline"
+      >
+        Collections
+      </.link>
+    </div>
+    <h1 class="text-3xl font-bold text-neutral-50 mb-4 break-all">
+      <%= @collection.name %>
+    </h1>
+    <p
+      :if={@collection.description}
+      class="mb-3 leading-relaxed"
+    >
+      <%= @collection.description %>
+    </p>
+    <p class="mb-3 leading-relaxed">
+      <%= @collection.items %> items are indexed, and <%= @collection.traced %> have a traced current location.
+    </p>
+    <p class="mb-3 leading-relaxed">
+      Membership is verified for every item listed, whether or not its holder is known.
+    </p>
+    <p class="mb-8 text-sm">
+      <a
+        href={"/api/v1/collections/#{@collection.id}"}
+        class="underline"
+      >
+        Collection API
+      </a>
+    </p>
+
+    <%= if @items == [] do %>
+      <p
+        id="items-empty"
+        class="text-neutral-100"
+      >
+        No items are indexed yet.
+      </p>
+    <% else %>
+      <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-8">
+        <div
+          :for={item <- @items}
+          id={"item-#{item.id}"}
+          class="collection-item overflow-hidden rounded-lg border border-neutral-800 bg-neutral-900"
+        >
+          <div class="aspect-square bg-neutral-800">
+            <img
+              :if={image?(item)}
+              src={"/content/#{item.origin}"}
+              alt={item.name || item.origin}
+              loading="lazy"
+              class="h-full w-full object-cover"
+            />
+          </div>
+          <div class="p-3">
+            <.link
+              navigate={~p"/transactions/#{item.mint_txid}"}
+              class="block truncate text-sm font-semibold text-neutral-50 hover:underline"
+            >
+              <%= item.name || item.origin %>
+            </.link>
+            <p class="mt-1 truncate text-xs font-mono text-neutral-400">
+              <%= OrdinalCollections.ownership_sentence(item) %>
+            </p>
+          </div>
+        </div>
+      </div>
+    <% end %>
+
+    <div class="flex items-center gap-4 text-sm">
+      <.link
+        :if={@cursor}
+        id="items-first"
+        patch={~p"/collections/#{@collection.slug}"}
+        class="underline"
+      >
+        First page
+      </.link>
+      <.link
+        :if={@next_cursor}
+        id="items-next"
+        patch={~p"/collections/#{@collection.slug}?#{[cursor: @next_cursor]}"}
+        class="underline"
+      >
+        Next page
+      </.link>
+    </div>
+  </div>
+</div>

@@ -81,7 +81,7 @@ defmodule BitblocksWeb.NavComponent do
             </a>
             <a
               id="nav-collections"
-              href="/collections/rexxies"
+              href="/collections"
               class="text-sm/6 font-semibold text-gray-900 dark:text-white"
             >
               Collections
@@ -218,7 +218,7 @@ defmodule BitblocksWeb.NavComponent do
                 </a>
                 <a
                   id="nav-collections-mobile"
-                  href="/collections/rexxies"
+                  href="/collections"
                   class="-mx-3 block rounded-lg px-3 py-2 text-base/7 font-semibold text-gray-900 hover:bg-gray-50 dark:text-white dark:hover:bg-white/5"
                 >
                   Collections

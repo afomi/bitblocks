@@ -15,7 +15,7 @@ defmodule BitblocksWeb.WayfindingTest do
           {"nav-order-book", "/order-book"},
           {"nav-metanet", "/metanet"},
           {"nav-bitcom", "/bitcom"},
-          {"nav-collections", "/collections/rexxies"},
+          {"nav-collections", "/collections"},
           {"nav-about", "/about"},
           {"nav-blocks-mobile", "/blocks"},
           {"nav-transactions-mobile", "/search"},
@@ -23,7 +23,7 @@ defmodule BitblocksWeb.WayfindingTest do
           {"nav-order-book-mobile", "/order-book"},
           {"nav-metanet-mobile", "/metanet"},
           {"nav-bitcom-mobile", "/bitcom"},
-          {"nav-collections-mobile", "/collections/rexxies"},
+          {"nav-collections-mobile", "/collections"},
           {"nav-about-mobile", "/about"}
         ] do
       assert Regex.match?(

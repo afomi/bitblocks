@@ -22,13 +22,33 @@ defmodule BitblocksWeb.RexxiesLiveTest do
     html = render_click(view, "select_nft", %{"number" => "1"})
 
     assert html =~ "rexxie-holder"
-    assert view |> element("#rexxie-holder") |> render() =~ "1HolderXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+    panel = view |> element("#rexxie-holder") |> render()
+    assert panel =~ "Membership verified."
+    assert panel =~ "Held by 1HolderXXXXXXXXXXXXXXXXXXXXXXXXXXX."
   end
 
-  test "the breadcrumb does not link to a missing collections page", %{conn: conn} do
-    html = html_response(get(conn, ~p"/collections/rexxies"), 200)
+  test "an unknown holder reads as words, not a state name", %{conn: conn} do
+    Bitblocks.Repo.insert!(%Item{
+      collection_id: Bitblocks.OrdinalCollections.known()["rexxies"],
+      origin: "#{@mint}_3",
+      mint_txid: @mint,
+      trace_state: "unknown",
+      trace_reason: "whatsonchain: {:error, :timeout}"
+    })
 
-    refute Regex.match?(~r/href="\/collections"(?:[\s>]|$)/, html)
+    {:ok, view, _html} = live(conn, ~p"/collections/rexxies")
+    render_click(view, "select_nft", %{"number" => "1"})
+
+    panel = view |> element("#rexxie-holder") |> render()
+    assert panel =~ "Membership verified."
+    assert panel =~ "Owner unknown: WhatsOnChain did not answer."
+    refute panel =~ ":timeout"
+  end
+
+  test "the breadcrumb links back to the collections index", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/collections/rexxies")
+
+    assert has_element?(view, ~s(#rexxies-breadcrumb a[href="/collections"]))
   end
 
   test "without an indexed holding the panel shows no holder row", %{conn: conn} do

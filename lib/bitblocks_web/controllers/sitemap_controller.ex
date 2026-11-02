@@ -27,6 +27,8 @@ defmodule BitblocksWeb.SitemapController do
     {"/did", "monthly", "0.4"},
     {"/wall", "daily", "0.4"},
     {"/reward_wall", "daily", "0.4"},
+    {"/collections", "weekly", "0.5"},
+    {"/collections/grand-tardinians", "weekly", "0.3"},
     {"/collections/rexxies", "monthly", "0.3"}
   ]
 

@@ -11,6 +11,25 @@ defmodule BitblocksWeb.TransactionLive.ShowTest do
   @genesis_raw "01000000010000000000000000000000000000000000000000000000000000000000000000ffffffff4d04ffff001d0104455468652054696d65732030332f4a616e2f32303039204368616e63656c6c6f72206f6e206272696e6b206f66207365636f6e64206261696c6f757420666f722062616e6b73ffffffff0100f2052a01000000434104678afdb0fe5548271967f1a67130b7105cd6a828e03909a67962e0ea1f61deb649f6bc3f4cef38c4f35504e51ec112de5c384df7ba0b8d578a4c702b6bf11d5fac00000000"
   @genesis_pubkey "04678afdb0fe5548271967f1a67130b7105cd6a828e03909a67962e0ea1f61deb649f6bc3f4cef38c4f35504e51ec112de5c384df7ba0b8d578a4c702b6bf11d5f"
 
+  test "a Rexxie's banner states membership and ownership in sentences", %{conn: conn} do
+    # Rexxie #1's mint, from the bundled catalog.
+    mint = "52c8ee4935f983b7ce10b84882cb42b30d989a4385eaec1289fafe88325eb53f"
+    insert_tx(@genesis_raw, mint)
+
+    Bitblocks.Repo.insert!(%Bitblocks.OrdinalCollections.Item{
+      collection_id: Bitblocks.OrdinalCollections.known()["rexxies"],
+      origin: "#{mint}_3",
+      mint_txid: mint,
+      trace_state: "untraced"
+    })
+
+    {:ok, view, _html} = live(conn, ~p"/transactions/#{mint}")
+
+    claims = view |> element("#collection-claims") |> render()
+    assert claims =~ "Membership verified."
+    assert claims =~ "Not traced yet."
+  end
+
   defp insert_tx(raw, txid) do
     block = block_fixture()
 

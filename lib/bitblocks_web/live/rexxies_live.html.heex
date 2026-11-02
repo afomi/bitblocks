@@ -1,10 +1,16 @@
 <div class="container mx-auto px-4 py-8 max-w-7xl">
   <%!-- Header --%>
   <div class="mb-8">
-    <div class="flex items-center gap-2 text-sm text-gray-500 mb-3">
-      <span>
+    <div
+      id="rexxies-breadcrumb"
+      class="flex items-center gap-2 text-sm text-gray-500 mb-3"
+    >
+      <.link
+        navigate={~p"/collections"}
+        class="hover:underline"
+      >
         Collections
-      </span>
+      </.link>
       <span>/</span>
       <span class="text-gray-900 font-semibold">Rexxies</span>
     </div>
@@ -276,20 +282,14 @@
               <%= if @selected_holding do %>
                 <div
                   id="rexxie-holder"
-                  class="flex items-center justify-between"
+                  class="text-xs text-gray-700"
                 >
-                  <span class="text-xs text-gray-500">
-                    Holder
-                  </span>
-                  <%= if @selected_holding.owner do %>
-                    <span class="font-mono text-xs text-gray-700">
-                      <%= @selected_holding.owner %>
-                    </span>
-                  <% else %>
-                    <span class="text-xs text-gray-600">
-                      <%= @selected_holding.trace_reason || @selected_holding.trace_state %>
-                    </span>
-                  <% end %>
+                  <p>
+                    Membership verified.
+                  </p>
+                  <p class="font-mono break-all">
+                    <%= Bitblocks.OrdinalCollections.ownership_sentence(@selected_holding) %>
+                  </p>
                 </div>
               <% end %>
               <div class="flex items-center justify-between">

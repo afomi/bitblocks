@@ -99,6 +99,18 @@
           <h3 class="text-xl font-bold text-gray-900">
             <%= @collection_module.item_title(@collection_item) %>
           </h3>
+          <div
+            :if={@collection_holding}
+            id="collection-claims"
+            class="mt-1 text-sm text-gray-700 break-all"
+          >
+            <p>
+              Membership verified.
+            </p>
+            <p>
+              <%= Bitblocks.OrdinalCollections.ownership_sentence(@collection_holding) %>
+            </p>
+          </div>
           <div class="flex flex-wrap gap-1.5 mt-2">
             <%= for type <- @collection_module.trait_types() do %>
               <%= if @collection_item[type] do %>
