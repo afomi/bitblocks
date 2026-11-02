@@ -20,6 +20,7 @@ Docs marked *(mixed)* are mostly aspirational but contain sections that accurate
 - `MERKLE_PROOFS.md` — the `/api/v1/txs/:txid/proof` endpoint and `MerkleVerifier` internals.
 - `THREAT-MODEL.md` — Microsoft-SDL threat model for the public-facing explorer/indexer; most controls are implemented (see BACKLOG Completed → Security).
 - `SITEMAP.md` — all routes, grouped by access level and function.
+- `field-notes/` — dated, single-claim research notes from reading the chain with Bitblocks (see its README).
 - `BSV20_TOKENS.md` — the implemented BSV-20/BSV-21 token indexer (read side of the DEX).
 - `BITCOM.md` — the live Bitcom registry: command log, tiers, `/bitcom` pages, JSON export.
 - `DONATION_ADDRESS.md` — bitblocks' BSV donation address: derivation (wallet, new hardened account), xpub verification, spending rules.

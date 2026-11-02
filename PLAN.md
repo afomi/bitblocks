@@ -35,8 +35,10 @@ Step 5 (tenant keys and quotas, with SSRF protection on webhook URLs) is next; i
 Grand Tardinians is live (`/api/v1/collections/grand-tardinians`, synced on prod 2026-10-29), with explicit verified membership and batch lookup for qart.
 Rexxies (Run) is built on the same engine (`/api/v1/collections/rexxies`): membership proven on the class chain, holders traced by Run payload; traits stay catalog data.
 `/collections` is the HTML index, with source links; `/collections/:id` lists any collection's items and holders.
+Grand Tardinians is 999 items: the 1,494 in #30 counted transfers ([field note](docs/field-notes/2026-11-02-the-495-tardinians.md)).
 #33 TXSTORE: raw tx bytes in S3 (one immutable CDN URL per txid), collections first; images parsed from raw txs on the fly at `/content/:outpoint`.
 Queued after #30: #32 BAP identity index (qart request).
+#48 SCRUBBER: admin three.js scrub from genesis to tip, and the first surface for accounting for misspends and burns.
 
 
 ## Deferred

@@ -5,6 +5,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 When rendering html code, render each attribute on a separate line.
 When rendering markdown in .md files, render each sentence on a separate line. (to improve diffs)
 
+## Commits and pushes
+
+In this repo, Claude may commit and push without asking.
+This overrides the global "never run `git commit` or `git push`" rule, for this repo only.
+A push to `develop` deploys to production (`.github/workflows/aws-deploy.yml`), so run the tests first and confirm the deploy finished.
+Do not commit `.claude/` or `WORKSPACE_BITBLOCKS_AUDIT.md`.
+
 ## Project Overview
 
 Bitblocks is a Phoenix/Elixir application that syncs and displays Bitcoin SV blockchain data.
