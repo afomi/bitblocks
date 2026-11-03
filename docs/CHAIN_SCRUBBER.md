@@ -29,6 +29,12 @@ A historic block moving to `completed` during backfill, or a reorg replacing a h
 The browser fetches a small manifest (`no-cache`) and tile URLs that carry the hash (`?v=`), served `immutable`; a stale hash is a 404 and the client refetches the manifest once.
 
 **A block that isn't `completed` draws as a gap**, and a rolled-up bucket says how many of its blocks are gaps instead of averaging them away.
+A gap draws red at its header tx count, the same height its bucket gives it, so zooming in never flattens a header-only stretch.
+In the bucket holding the tip, heights above the tip are not counted as gaps.
+
+**The axis fits the chain, not the viewport.**
+The column axis spans `axisDecades(largest block)` powers of ten, read from the coarsest tile at load: 4 decades for the first 200,000 blocks, 7 for the whole chain.
+It stays fixed while scrubbing, so columns remain comparable; the status line names the axis top.
 
 **Only classified losses appear.**
 The loss layer reads `priv/data/losses.json`, derived from the field note each entry cites, strong-confidence entries only; the five open Rexxie doubts (#46) stay off the layer.

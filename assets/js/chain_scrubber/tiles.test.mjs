@@ -518,3 +518,118 @@ describe("keyDelta", () => {
     assert.equal(keyDelta(undefined), null)
   })
 })
+
+describe("columnFor", () => {
+  const { columnFor } = tiles
+
+  test("an unloaded record is a placeholder, not data", () => {
+    assert.deepEqual(columnFor(null, 0), { kind: "unloaded", tx: 0, size: 0, gap: 1, mean: 0 })
+  })
+
+  test("a missing leaf has no height", () => {
+    const c = columnFor({ state: 0, numTx: 0, size: 0 }, 0)
+    assert.equal(c.kind, "missing")
+    assert.equal(c.tx, 0)
+  })
+
+  test("a completed leaf draws its tx count", () => {
+    const c = columnFor({ state: COMPLETED, numTx: 12, size: 4000 }, 0)
+    assert.deepEqual(c, { kind: "completed", tx: 12, size: 4000, gap: 0, mean: 0 })
+  })
+
+  test("a gap leaf keeps its header tx count, so zooming in does not flatten it", () => {
+    const leaf = columnFor({ state: 2, numTx: 120, size: 0 }, 0)
+    assert.equal(leaf.kind, "gap")
+    assert.equal(leaf.tx, 120)
+    assert.equal(leaf.gap, 1)
+
+    // The same block rolled up alone into a bucket draws at the same height.
+    const bucket = columnFor({ present: 1, completed: 0, txMax: 120, sizeMax: 0, txSum: 120 }, 1)
+    assert.equal(bucket.tx, leaf.tx)
+    assert.equal(bucket.gap, 1)
+  })
+
+  test("a rollup draws its largest block and its gap share", () => {
+    const c = columnFor({ present: 32, completed: 8, txMax: 900, sizeMax: 2e5, txSum: 3200 }, 1)
+    assert.equal(c.kind, "rollup")
+    assert.equal(c.tx, 900)
+    assert.equal(c.size, 2e5)
+    assert.equal(c.gap, 24 / 32)
+    assert.equal(c.mean, 100)
+  })
+
+  test("heights above the tip are not gaps", () => {
+    // The tip bucket of level 1 holds 20 blocks, all completed.
+    const c = columnFor({ present: 20, completed: 20, txMax: 5, sizeMax: 1, txSum: 40 }, 1, 20)
+    assert.equal(c.gap, 0)
+    assert.equal(columnFor({ present: 20, completed: 10, txMax: 5, sizeMax: 1, txSum: 40 }, 1, 20).gap, 0.5)
+  })
+
+  test("an empty rollup is missing", () => {
+    assert.equal(columnFor({ present: 0, completed: 0, txMax: 0, sizeMax: 0, txSum: 0 }, 2).kind, "missing")
+  })
+})
+
+describe("axisDecades", () => {
+  const { axisDecades } = tiles
+
+  test("the early chain gets a short axis so its columns are not flattened", () => {
+    assert.equal(axisDecades(2_000), 4)
+  })
+
+  test("never below three decades", () => {
+    assert.equal(axisDecades(0), 3)
+    assert.equal(axisDecades(9), 3)
+  })
+
+  test("the whole chain keeps the full axis", () => {
+    assert.equal(axisDecades(3_900_000), 7)
+    assert.equal(axisDecades(1e12), 7.5)
+  })
+
+  test("garbage falls back to the full axis", () => {
+    assert.equal(axisDecades(NaN), 7.5)
+    assert.equal(axisDecades(undefined), 7.5)
+  })
+})
+
+describe("tileTxMax", () => {
+  const { tileTxMax } = tiles
+
+  test("reads the largest block from a rollup tile", () => {
+    const t = decodeTile(
+      buildRollupTile(2, [
+        { present: 10, completed: 0, timeMin: 1, timeMax: 2, sizeSum: 0, txSum: 20, sizeMax: 0, txMax: 7, hist: [0, 0, 0, 0, 0, 0, 0, 0] },
+        { present: 10, completed: 0, timeMin: 1, timeMax: 2, sizeSum: 0, txSum: 20, sizeMax: 0, txMax: 2100, hist: [0, 0, 0, 0, 0, 0, 0, 0] }
+      ])
+    )
+    assert.equal(tileTxMax(t), 2100)
+  })
+
+  test("reads the largest block from a leaf tile", () => {
+    const t = decodeTile(buildLeafTile([{ time: 1, size: 0, numTx: 3, state: 2 }, { time: 2, size: 0, numTx: 1, state: 6 }]))
+    assert.equal(tileTxMax(t), 3)
+  })
+
+  test("no tile, no maximum", () => {
+    assert.equal(tileTxMax(null), null)
+  })
+})
+
+describe("clampView", () => {
+  const { clampView } = tiles
+
+  test("whole-number bounds even for fractional input", () => {
+    assert.deepEqual(clampView(10.4, 99.7, 200_000, 16), { h0: 10, h1: 100 })
+  })
+
+  test("keeps the minimum span and stays inside [0, tip]", () => {
+    assert.deepEqual(clampView(5, 6, 200_000, 16), { h0: 5, h1: 20 })
+    assert.deepEqual(clampView(-50, 10, 200_000, 16), { h0: 0, h1: 60 })
+    assert.deepEqual(clampView(199_990, 200_050, 200_000, 16), { h0: 199_940, h1: 200_000 })
+  })
+
+  test("never wider than the chain", () => {
+    assert.deepEqual(clampView(0, 1e9, 200_000, 16), { h0: 0, h1: 200_000 })
+  })
+})

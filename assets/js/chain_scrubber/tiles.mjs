@@ -230,3 +230,75 @@ export function meanTx(record) {
   if (!record || !record.present) return 0
   return record.txSum / record.present
 }
+
+// What one column draws, the same way at every level, so zooming in or out
+// never changes a block's height: a leaf is its own bucket of one.
+// `tx` and `size` are the largest block in the column (header values count:
+// a block that is not completed still has a tx count from its header);
+// `gap` is the share of the column's blocks that are not completed, which
+// the scene draws as red; pass `blocksInBucket` for the bucket at the tip. Missing rows and unloaded tiles have no height.
+export function columnFor(record, level, blocksInBucket) {
+  if (!record) return { kind: "unloaded", tx: 0, size: 0, gap: 1, mean: 0 }
+  if (level === 0) {
+    if (record.state === 0) return { kind: "missing", tx: 0, size: 0, gap: 1, mean: 0 }
+    const gap = isGap(record.state) ? 1 : 0
+    return { kind: gap ? "gap" : "completed", tx: record.numTx || 0, size: record.size || 0, gap, mean: 0 }
+  }
+  if (!record.present) return { kind: "missing", tx: 0, size: 0, gap: 1, mean: 0 }
+  return {
+    kind: "rollup",
+    tx: record.txMax || 0,
+    size: record.sizeMax || 0,
+    gap: gapFraction(record, bucketBlocks(level, blocksInBucket)),
+    mean: meanTx(record)
+  }
+}
+
+// Blocks that exist in a bucket: the span, or fewer in the bucket holding the
+// tip, so heights above the tip never count as gaps.
+function bucketBlocks(level, blocksInBucket) {
+  const span = spanOf(level)
+  return Number.isFinite(blocksInBucket) && blocksInBucket > 0 ? Math.min(span, blocksInBucket) : span
+}
+
+export const MIN_DECADES = 3
+export const MAX_DECADES = 7.5
+
+// How many powers of ten the column axis spans, from the chain's largest block.
+// Fixed for the whole chain (not the viewport), so columns stay comparable as
+// you scrub; the early chain (a few thousand tx at most) gets a shorter axis.
+export function axisDecades(maxTx) {
+  if (!Number.isFinite(maxTx) || maxTx < 0) return MAX_DECADES
+  const d = Math.ceil(log10Scale(maxTx) + 0.25)
+  return Math.min(MAX_DECADES, Math.max(MIN_DECADES, d))
+}
+
+// The largest tx count in a decoded tile, or null with no tile.
+export function tileTxMax(tile) {
+  if (!tile || !Array.isArray(tile.records)) return null
+  let max = 0
+  for (const r of tile.records) {
+    const n = tile.level === 0 ? r.numTx : r.txMax
+    if (n > max) max = n
+  }
+  return max
+}
+
+// The visible height range [h0, h1] in whole blocks: at least `minSpan`
+// blocks wide (or the whole chain, if shorter) and inside [0, tip].
+export function clampView(h0, h1, tip, minSpan) {
+  const t = Math.max(0, Math.floor(tip))
+  let a = Math.round(h0)
+  let b = Math.round(h1)
+  const span = Math.max(Math.min(minSpan, t + 1), Math.min(t + 1, b - a + 1))
+  b = a + span - 1
+  if (a < 0) {
+    a = 0
+    b = span - 1
+  }
+  if (b > t) {
+    b = t
+    a = Math.max(0, b - span + 1)
+  }
+  return { h0: a, h1: b }
+}

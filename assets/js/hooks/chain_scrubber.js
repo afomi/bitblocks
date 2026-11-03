@@ -4,9 +4,12 @@
 // by the viewport, never one object per block.
 //
 // Column height = log10(num_tx + 1); depth = log10(size_bytes + 1).
-// A block that is not `completed` is a GAP and draws as a dim red low marker.
+// A block that is not `completed` is a GAP and draws red, at its header tx
+// count, so a block keeps its height at every zoom level.
 // Rollups draw the largest block in the bucket (so spikes survive) with a thin
 // inner column for the mean, and mix toward red by the share of gaps.
+// The axis spans the chain's largest block (tiles.axisDecades), fixed while
+// scrubbing; the early chain gets a shorter axis instead of flat columns.
 // Motion is secondary: still scene, hand-scrubbed; reduced-motion disables the
 // view easing and auto-play.
 
@@ -15,7 +18,6 @@ import * as tiles from "../chain_scrubber/tiles.mjs"
 
 const WIDTH = 100 // world units across the viewport, always [h0, h1]
 const MAX_INSTANCES = 4352 // 4096 budget + alignment slack
-const MAX_LOG10_TX = 7.5 // tx counts span 7 orders of magnitude
 const Z_SCALE = 0.45 // depth per log10(bytes + 1)
 const GAP_HEIGHT = 0.25
 const MIN_SPAN = 16
@@ -98,6 +100,7 @@ export default {
     this.height = tiles.step(parseInt(ds.height, 10) || 0, 0, this.tip)
     this.view = {h0: 0, h1: this.tip}
     this.level = tiles.levelFor(this.tip + 1)
+    this.decades = tiles.MAX_DECADES
     this.manifest = null
     this.manifestRefreshed = false
     this.tileCache = new Map() // `${level}/${idx}` -> decoded tile | null (absent)
@@ -117,8 +120,16 @@ export default {
     this.statusNote = ""
     this.loadingTiles = 0
     this.alive = true
-    this.reducedMotion =
-      typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    this.motionQuery =
+      typeof window.matchMedia === "function" ? window.matchMedia("(prefers-reduced-motion: reduce)") : null
+    this.reducedMotion = !!(this.motionQuery && this.motionQuery.matches)
+    this.onMotionChange = (e) => {
+      this.reducedMotion = e.matches
+      if (e.matches) this.stopPlay()
+    }
+    if (this.motionQuery && this.motionQuery.addEventListener) {
+      this.motionQuery.addEventListener("change", this.onMotionChange)
+    }
 
     this.els = {
       canvas: this.el.querySelector("#chain-scrubber-canvas") || this.el.querySelector("canvas"),
@@ -138,7 +149,12 @@ export default {
     this.setupScene()
     this.bindControls()
 
-    this.handleEvent("jump", ({height}) => this.setHeight(height))
+    this.handleEvent("jump", ({height}) => {
+      // Leave the jump field so the arrow keys step from the new height at once.
+      const jump = document.getElementById("chain-scrubber-jump")
+      if (jump && document.activeElement === jump) jump.blur()
+      this.setHeight(height)
+    })
     this.handleEvent("annotations", ({items}) => this.setAnnotations(items || []))
     this.handleEvent("rest_data", (payload) => this.renderDetail(payload))
 
@@ -152,6 +168,7 @@ export default {
       this.setStatus("")
       this.refreshView()
       this.setHeight(this.height)
+      this.loadAxis()
     })
   },
 
@@ -163,6 +180,9 @@ export default {
     if (this.renderFrame) cancelAnimationFrame(this.renderFrame)
     if (this.resizeObserver) this.resizeObserver.disconnect()
     window.removeEventListener("resize", this.onResize)
+    if (this.motionQuery && this.motionQuery.removeEventListener) {
+      this.motionQuery.removeEventListener("change", this.onMotionChange)
+    }
     window.removeEventListener("keydown", this.onKeyDown)
     window.removeEventListener("pointermove", this.onPointerMove)
     window.removeEventListener("pointerup", this.onPointerUp)
@@ -288,8 +308,8 @@ export default {
     const aspect = w / h
     const frustumH = WIDTH / aspect
     this.frustumH = frustumH
-    this.yScale = (0.62 * frustumH) / MAX_LOG10_TX
-    this.yMax = MAX_LOG10_TX * this.yScale
+    this.yScale = (0.62 * frustumH) / this.decades
+    this.yMax = this.decades * this.yScale
     const cy = 0.42 * frustumH
     this.camera.top = frustumH / 2
     this.camera.bottom = -frustumH / 2
@@ -341,6 +361,23 @@ export default {
       this.setStatus(`Tile manifest unreachable (${err && err.message ? err.message : err}).`)
       return false
     }
+  },
+
+  // Size the column axis to the chain's largest block, read from the coarsest
+  // level (one tile up to height 33 million at level 3).
+  async loadAxis() {
+    const levels = (this.manifest.levels || []).filter((l) => l && Array.isArray(l.tiles) && l.tiles.length)
+    if (!levels.length) return
+    const top = levels.reduce((a, b) => (b.level > a.level ? b : a))
+    const loaded = await Promise.all(top.tiles.map((_, idx) => this.fetchTile(top.level, idx)))
+    if (!this.alive) return
+    const maxes = loaded.map(tiles.tileTxMax).filter((n) => n !== null)
+    if (!maxes.length) return
+    const decades = tiles.axisDecades(Math.max(...maxes))
+    if (decades === this.decades) return
+    this.decades = decades
+    this.resize()
+    this.updateStatus()
   },
 
   enqueue(fn) {
@@ -438,15 +475,7 @@ export default {
   // ---------------------------------------------------------------- view
 
   clampView(h0, h1) {
-    let span = Math.max(MIN_SPAN, Math.min(this.tip + 1, h1 - h0 + 1))
-    let a = Math.round(h0)
-    if (a < 0) a = 0
-    let b = a + span - 1
-    if (b > this.tip) {
-      b = this.tip
-      a = Math.max(0, b - span + 1)
-    }
-    return {h0: a, h1: b}
+    return tiles.clampView(h0, h1, this.tip, MIN_SPAN)
   },
 
   setView(h0, h1) {
@@ -537,42 +566,20 @@ export default {
     }
 
     for (let rh = r0; rh <= h1 && n < MAX_INSTANCES; rh += span) {
-      const rec = this.recordAt(rh, level)
+      const col = this.columnAt(rh)
       const x = this.xOf(rh + span / 2)
-      let h
-      let d
+      const h = this.columnHeight(col)
+      const d = col.kind === "unloaded" || col.kind === "missing" ? 0.15 : tiles.log10Scale(col.size) * Z_SCALE
       let color
-      if (!rec) {
-        // Tile not loaded (or absent): draw a faint placeholder, never nothing.
-        h = GAP_HEIGHT * 0.6
-        d = 0.15
+      if (col.kind === "unloaded" || col.kind === "missing") {
+        // Tile not loaded, or no row: a faint placeholder, never nothing.
         color = COLORS.missing
-      } else if (level === 0) {
-        if (tiles.isGap(rec.state)) {
-          h = GAP_HEIGHT
-          d = rec.state === 0 ? 0.15 : tiles.log10Scale(rec.size) * Z_SCALE
-          color = rec.state === 0 ? COLORS.missing : COLORS.gap
-        } else {
-          h = tiles.log10Scale(rec.numTx) * this.yScale
-          d = tiles.log10Scale(rec.size) * Z_SCALE
-          color = COLORS.completed
-        }
       } else {
-        const gf = tiles.gapFraction(rec, span)
-        if (rec.present === 0) {
-          h = GAP_HEIGHT
-          d = 0.15
-          color = COLORS.missing
-        } else {
-          h = Math.max(tiles.log10Scale(rec.txMax) * this.yScale, rec.completed === 0 ? GAP_HEIGHT : 0.01)
-          d = tiles.log10Scale(rec.sizeMax) * Z_SCALE
-          color = this.tmpColor.copy(COLORS.completed).lerp(COLORS.gap, gf)
-          const mean = tiles.meanTx(rec)
-          const mh = tiles.log10Scale(mean) * this.yScale
-          if (mh > 0.01 && m < MAX_INSTANCES) {
-            setBox(this.means, m, x, colW * 0.3, mh + 0.03, d * 0.4 + 0.1, COLORS.mean)
-            m++
-          }
+        color = this.tmpColor.copy(COLORS.completed).lerp(COLORS.gap, col.gap)
+        const mh = tiles.log10Scale(col.mean) * this.yScale
+        if (mh > 0.01 && m < MAX_INSTANCES) {
+          setBox(this.means, m, x, colW * 0.3, mh + 0.03, d * 0.4 + 0.1, COLORS.mean)
+          m++
         }
       }
       setBox(this.columns, n, x, colW, h, d, color)
@@ -593,6 +600,20 @@ export default {
     this.rebuildMarkers()
     this.updateHighlight()
     this.requestRender()
+  },
+
+  // The column drawn for the record starting at `rh` at the current level.
+  columnAt(rh) {
+    const level = this.level
+    const inBucket = Math.min(tiles.spanOf(level), this.tip - rh + 1)
+    return tiles.columnFor(this.recordAt(rh, level), level, inBucket)
+  },
+
+  columnHeight(col) {
+    if (col.kind === "unloaded") return GAP_HEIGHT * 0.6
+    if (col.kind === "missing") return GAP_HEIGHT
+    const h = tiles.log10Scale(col.tx) * this.yScale
+    return col.gap > 0 ? Math.max(h, GAP_HEIGHT) : Math.max(h, 0.01)
   },
 
   instanceFor(height) {
@@ -666,12 +687,8 @@ export default {
       const mesh = this.markers[a.kind]
       const i = counts[a.kind]
       if (i >= mesh.instanceMatrix.count) continue
-      const rec = this.recordAt(a.height, this.level)
-      let top = this.yMax ? this.yMax * 0.5 : 6
-      if (rec) {
-        if (this.level === 0) top = tiles.isGap(rec.state) ? GAP_HEIGHT : tiles.log10Scale(rec.numTx) * this.yScale
-        else top = tiles.log10Scale(rec.txMax) * this.yScale
-      }
+      const col = this.columnAt(Math.floor(a.height / span) * span)
+      const top = col.kind === "unloaded" ? (this.yMax ? this.yMax * 0.5 : 6) : this.columnHeight(col)
       this.tmpPos.set(this.xOf(a.height + 0.5), top + size * 1.6, 0)
       this.tmpScale.set(size, size * 1.4, size)
       this.tmpMatrix.compose(this.tmpPos, this.tmpQuat.identity(), this.tmpScale)
@@ -897,7 +914,9 @@ export default {
   },
 
   updateStatus() {
-    const parts = ["Column height = log10(tx + 1), depth = log10(bytes + 1): log10 scale."]
+    const parts = [
+      `Column height = log10(tx + 1), axis top 10^${this.decades} tx; depth = log10(bytes + 1): log10 scale.`
+    ]
     if (this.statusNote) parts.unshift(this.statusNote)
     if (this.loadingTiles > 0) parts.push(`Loading ${this.loadingTiles} tile${this.loadingTiles === 1 ? "" : "s"}…`)
     this.setText("status", parts.join(" "))
