@@ -207,4 +207,37 @@ defmodule Bitblocks.Workers.SyncHeadersWorkerTest do
       assert SyncHeadersWorker.tip_tx_blocks(blocks, 102) == blocks
     end
   end
+
+  describe "fork point after a 1-block orphan" do
+    # 2026-11-03: our 957,301 was an orphan (the chain agrees through 957,300),
+    # but tip sync recorded "deeper than 10 blocks" because a failed
+    # getblockheader call was reported as :too_deep.
+    setup do
+      BitblocksWeb.RpcStub.setup()
+      block_fixture(%{height: 100, hash: "common_ancestor_100"})
+      block_fixture(%{height: 101, hash: "our_orphan_101"})
+      :ok
+    end
+
+    test "walks back one block to the common ancestor" do
+      BitblocksWeb.RpcStub.stub_getblockheader("node_102", %{
+        "hash" => "node_102",
+        "height" => 102,
+        "previousblockhash" => "node_101"
+      })
+
+      BitblocksWeb.RpcStub.stub_getblockheader("node_101", %{
+        "hash" => "node_101",
+        "height" => 101,
+        "previousblockhash" => "common_ancestor_100"
+      })
+
+      assert {:ok, 100} = SyncHeadersWorker.fork_point(102, "node_102")
+    end
+
+    test "a failed node call is an RPC error to retry, not a deep fork" do
+      # No stub for node_102: the mock answers {:error, {:no_stub, ...}}.
+      assert {:error, {:rpc, _reason}} = SyncHeadersWorker.fork_point(102, "node_102")
+    end
+  end
 end

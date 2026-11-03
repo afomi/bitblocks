@@ -164,7 +164,7 @@ defmodule Bitblocks.Workers.SyncHeadersWorker do
   defp handle_reorg(fork_height, node_hash) do
     Logger.warning("SyncHeaders: reorg detected at height #{fork_height} — resolving")
 
-    case find_fork_point(fork_height, node_hash, 0) do
+    case fork_point(fork_height, node_hash) do
       {:ok, fork_point} ->
         orphan_heights = (fork_point + 1)..fork_height |> Enum.to_list()
         orphan_count = length(orphan_heights)
@@ -185,6 +185,14 @@ defmodule Bitblocks.Workers.SyncHeadersWorker do
         Bitblocks.Notifications.reorg_alert(fork_height, fork_point, orphan_count)
         notify_projections_of_reorg(fork_point)
         fetch_and_store_headers(fork_point + 1, fork_height, true)
+
+      {:error, {:rpc, reason}} ->
+        # The node didn't answer the walk (busy verifying, timeout, 403). That
+        # says nothing about the fork's depth: record nothing, send no alert,
+        # and let the next tip run detect and resolve it again.
+        Logger.warning(
+          "SyncHeaders: reorg at #{fork_height} unresolved, node call failed (#{inspect(reason)}); retrying next run"
+        )
 
       {:error, :too_deep} ->
         Logger.error(
@@ -228,6 +236,9 @@ defmodule Bitblocks.Workers.SyncHeadersWorker do
   # Walk back from `height` following the node's chain via previousblockhash
   # until we find a height where our stored hash matches the node's prevhash
   # (meaning the node and our DB agree on that ancestor).
+  @doc false
+  def fork_point(height, node_hash), do: find_fork_point(height, node_hash, 0)
+
   defp find_fork_point(_height, _node_hash, depth) when depth > @max_reorg_depth,
     do: {:error, :too_deep}
 
@@ -250,8 +261,13 @@ defmodule Bitblocks.Workers.SyncHeadersWorker do
             {:ok, prev_height}
         end
 
-      _ ->
-        {:error, :too_deep}
+      {:error, reason} ->
+        {:error, {:rpc, reason}}
+
+      other ->
+        # A header for a different height, or no previousblockhash: the node
+        # isn't describing the chain we're walking.
+        {:error, {:rpc, {:unexpected_header, other}}}
     end
   end
 
