@@ -59,8 +59,8 @@ Both tx movers now derive "what should this block contain" from `Chain.TxidSourc
 
 ## Sources: where headers, txid lists and bodies come from
 
-Our own node (`BITCOIN_NODE_URL`) has been down since 2026-07.
-Sync now runs from public sources, and every one of them is checked rather than trusted.
+Our own node (`BITCOIN_NODE_URL`) is the primary source.
+It was down from 2026-07 to 2026-11, so public sources can stand in for it, and each one is checked rather than trusted.
 
 | Data | First source | Fallback | Check |
 |---|---|---|---|

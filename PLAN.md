@@ -15,8 +15,9 @@ Run one `Release.analyze_transactions/1` pass on prod to reach v6; it also index
 It runs for hours, so start it detached (see #1).
 Then run the completeness audit and repair, and confirm zero deficit blocks.
 
-Sync from public sources (2026-11-03): our node has been down since July, so headers and recent bodies now come from PublicNode and older bodies from WhatsOnChain, all verified ([docs/SYNCING.md](docs/SYNCING.md#sources-where-headers-txid-lists-and-bodies-come-from)).
-Infra sets the env and closes the 957,301 → tip gap; a paid WoC key decides how fast older history fills.
+Sync catch-up (2026-11-03): our node is back after being down since July, and prod sits at 957,301 while the node catches up.
+Infra confirms the node reaches the tip, lets tip sync close the gap, and clears the failed-block counters.
+If the node can't serve a block, PublicNode and WhatsOnChain are verified fallbacks ([docs/SYNCING.md](docs/SYNCING.md#sources-where-headers-txid-lists-and-bodies-come-from)).
 
 ## Shipped 2026-10-21 (closed)
 
