@@ -9,6 +9,11 @@ defmodule Bitblocks.Config do
   @doc """
   Returns the Bitcoin node RPC URL.
 
+  `BITCOIN_NODE_RPC_URL` (`:rpc_url`) wins over `BITCOIN_NODE_URL`
+  (`:bitcoin_url`), matching `config/runtime.exs`. Either may point at a
+  public no-auth endpoint such as `https://bsv-rpc.publicnode.com`; leave the
+  RPC username and password unset there.
+
   ## Examples
 
       iex> bitcoin_url()
@@ -16,8 +21,15 @@ defmodule Bitblocks.Config do
 
   """
   def bitcoin_url do
-    Application.get_env(:bitblocks, :bitcoin_url)
+    present(Application.get_env(:bitblocks, :rpc_url)) ||
+      present(Application.get_env(:bitblocks, :bitcoin_url))
   end
+
+  defp present(value) when is_binary(value) do
+    if String.trim(value) == "", do: nil, else: String.trim(value)
+  end
+
+  defp present(_), do: nil
 
   @doc """
   Returns the Bitcoin RPC username.

@@ -13,6 +13,13 @@ defmodule Bitblocks.Workers.BackfillTransactionsWorker do
 
       # Or via Release
       Bitblocks.Release.start_backfill_transactions()
+
+      # Close a recent gap first: only blocks at or above a height
+      Bitblocks.Release.start_backfill_transactions(min_height: 957_302)
+
+  Bodies come from the node, then WhatsOnChain for what the node can't serve
+  (`Chain.TxSources`). A rate limit from either is a backoff: the block keeps
+  its attempts and the worker tries again after `:backfill_rate_limit_seconds`.
   """
 
   # Runs on the backfill lane (concurrency 1) so it never competes with tip
@@ -25,20 +32,27 @@ defmodule Bitblocks.Workers.BackfillTransactionsWorker do
   # That breaks the self-rescheduling chain after a single block. Restricting to
   # active states keeps the "only one backfill running at a time" guarantee while
   # letting each completed run enqueue the next.
+  #
+  # `:executing` is left out too: the reschedule is inserted from inside
+  # perform/1, while this very job is still executing, so counting executing
+  # jobs made every self-reschedule a conflict with itself. The chain then
+  # advanced one block per hourly cron instead of one every
+  # @reschedule_seconds. At most one job waits; a cron insert while that one
+  # waits is the duplicate that gets dropped.
   use Oban.Worker,
     queue: :transactions_backfill,
     max_attempts: 3,
     unique: [
       period: 60,
       fields: [:worker],
-      states: [:available, :scheduled, :executing, :retryable]
+      states: [:available, :scheduled, :retryable]
     ]
 
   require Logger
   import Ecto.Query
 
   alias Bitblocks.{Repo, Chain}
-  alias Bitblocks.Chain.{Block, Transaction, TxIngest, TxidSource}
+  alias Bitblocks.Chain.{Block, Transaction, TxIngest, TxidSource, TxSources}
 
   @batch_size Application.compile_env(:bitblocks, :tx_fetch_batch_size, 100)
 
@@ -57,9 +71,15 @@ defmodule Bitblocks.Workers.BackfillTransactionsWorker do
   # throughput work, not latency work: seconds between blocks cost nothing.
   @reschedule_seconds Application.compile_env(:bitblocks, :backfill_reschedule_seconds, 15)
 
+  # A rate limit (PublicNode -32005, WoC 429) says "slow down", not "this block
+  # is broken": wait this long and try the same block again, attempts untouched.
+  @rate_limit_seconds Application.compile_env(:bitblocks, :backfill_rate_limit_seconds, 60)
+
   @impl Oban.Worker
-  def perform(_job) do
-    case next_incomplete_block() do
+  def perform(%Oban.Job{args: args}) do
+    min_height = min_height(args)
+
+    case next_incomplete_block(min_height) do
       nil ->
         # Nothing eligible. Note this is also the resting state when every
         # remaining block has exhausted @max_attempts — the loop STOPS here
@@ -74,7 +94,15 @@ defmodule Bitblocks.Workers.BackfillTransactionsWorker do
         case sync_block(block) do
           :ok ->
             Logger.info("BackfillTxs: block #{block.height} done, scheduling next")
-            reschedule()
+            reschedule(args, @reschedule_seconds)
+            :ok
+
+          {:error, :rate_limited} ->
+            Logger.warning(
+              "BackfillTxs: block #{block.height} rate limited; retrying in #{@rate_limit_seconds}s"
+            )
+
+            reschedule(args, @rate_limit_seconds)
             :ok
 
           {:error, reason} ->
@@ -109,10 +137,14 @@ defmodule Bitblocks.Workers.BackfillTransactionsWorker do
   # terminates the loop: previously a permanently-unfetchable block was
   # re-selected every single pass forever, so the backfill could never advance
   # past it and never went idle.
-  defp next_incomplete_block do
+  defp min_height(%{"min_height" => h}) when is_integer(h), do: h
+  defp min_height(_args), do: 0
+
+  defp next_incomplete_block(min_height) do
     from(b in Block,
       where:
-        coalesce(b.tx_sync_attempts, 0) < @max_attempts and
+        b.height >= ^min_height and
+          coalesce(b.tx_sync_attempts, 0) < @max_attempts and
           (b.sync_state in ["header_only", "header_synced", "txs_syncing", "failed"] or
              (b.sync_state == "txs_queued" and b.hash not in subquery(active_fetch_job_hashes()))),
       order_by: [asc: b.height],
@@ -148,6 +180,9 @@ defmodule Bitblocks.Workers.BackfillTransactionsWorker do
         mark_completed(block)
         :ok
       else
+        {:error, :rate_limited} ->
+          {:error, :rate_limited}
+
         {:error, reason} ->
           mark_failed(block, reason)
           {:error, reason}
@@ -160,6 +195,10 @@ defmodule Bitblocks.Workers.BackfillTransactionsWorker do
       # eligible and was re-selected on every pass: the spin loop. Count these
       # against the block like any other failure so an unreachable node makes
       # the backfill go quiet instead of hammering the DB.
+      # A rate limit is the exception: the block is fine, the source is busy.
+      {:error, :rate_limited} ->
+        {:error, :rate_limited}
+
       {:error, reason} ->
         mark_failed(block, reason)
         {:error, reason}
@@ -218,44 +257,41 @@ defmodule Bitblocks.Workers.BackfillTransactionsWorker do
   end
 
   defp fetch_and_store_batch(txids, block) do
-    case rpc().batch_getrawtransaction(txids, 1) do
-      {:ok, results} ->
-        # A tx the node didn't return (error or missing) is NOT stored. Returning
-        # :ok here would let the block be marked completed with holes — the silent
-        # incompleteness we must avoid. Collect the unfetched txids and fail the
-        # batch so the block stays incomplete and the worker retries it. The retry
-        # is idempotent: stored txs are re-skipped, only the gaps are re-attempted.
-        unfetched =
-          Enum.reduce(txids, [], fn txid, acc ->
-            case Map.get(results, txid) do
-              tx when is_map(tx) ->
-                case TxIngest.store(tx, block) do
-                  :ok ->
-                    acc
+    # Node first, WhatsOnChain for what it can't serve (TxSources). A tx
+    # neither source returned is NOT stored. Returning :ok here would let the
+    # block be marked completed with holes — the silent incompleteness we must
+    # avoid. Collect the unfetched txids and fail the batch so the block stays
+    # incomplete and the worker retries it. The retry is idempotent: stored txs
+    # are re-skipped, only the gaps are re-attempted.
+    results = TxSources.fetch_raw(txids, block)
 
-                  {:error, reason} ->
-                    Logger.warning("BackfillTxs: tx #{txid} rejected: #{inspect(reason)}")
-                    [txid | acc]
-                end
+    unfetched =
+      Enum.reduce(txids, [], fn txid, acc ->
+        case Map.get(results, txid) do
+          tx when is_map(tx) ->
+            case TxIngest.store(tx, block) do
+              :ok ->
+                acc
 
               {:error, reason} ->
-                Logger.warning("BackfillTxs: tx #{txid} error: #{inspect(reason)}")
-                [txid | acc]
-
-              nil ->
-                Logger.warning("BackfillTxs: tx #{txid} no result")
+                Logger.warning("BackfillTxs: tx #{txid} rejected: #{inspect(reason)}")
                 [txid | acc]
             end
-          end)
 
-        case unfetched do
-          [] -> :ok
-          _ -> {:error, {:unfetched_txs, length(unfetched)}}
+          {:error, reason} ->
+            Logger.warning("BackfillTxs: tx #{txid} error: #{inspect(reason)}")
+            [txid | acc]
+
+          nil ->
+            Logger.warning("BackfillTxs: tx #{txid} no result")
+            [txid | acc]
         end
+      end)
 
-      {:error, reason} ->
-        Logger.error("BackfillTxs: batch RPC failed: #{inspect(reason)}")
-        {:error, reason}
+    cond do
+      unfetched == [] -> :ok
+      TxSources.any_rate_limited?(Map.take(results, unfetched)) -> {:error, :rate_limited}
+      true -> {:error, {:unfetched_txs, length(unfetched)}}
     end
   end
 
@@ -317,12 +353,10 @@ defmodule Bitblocks.Workers.BackfillTransactionsWorker do
     end)
   end
 
-  defp reschedule do
-    %{}
-    |> __MODULE__.new(schedule_in: @reschedule_seconds)
+  # Carries args (e.g. min_height) forward so a gap-first run stays on the gap.
+  defp reschedule(args, seconds) do
+    args
+    |> __MODULE__.new(schedule_in: seconds)
     |> Oban.insert()
   end
-
-  # Swappable RPC client — tests point this at BitcoinsvCliMock (config/test.exs).
-  defp rpc, do: Application.get_env(:bitblocks, :bitcoinsv_cli, BitcoinsvCli)
 end

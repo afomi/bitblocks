@@ -45,7 +45,7 @@ defmodule Bitblocks.Workers.FetchTransactionsWorker do
   require Logger
   alias Bitblocks.Repo
   alias Bitblocks.Chain
-  alias Bitblocks.Chain.{Block, TxIngest, TxidSource}
+  alias Bitblocks.Chain.{Block, TxIngest, TxidSource, TxSources}
 
   # How many transactions to fetch and write per batch.
   # Bounds memory: 100 raw transactions ≈ 10-50 MB depending on tx size.
@@ -57,6 +57,8 @@ defmodule Bitblocks.Workers.FetchTransactionsWorker do
   # Minimum confirmations before fetching transactions (0 = fetch immediately).
   # For tip-following, set to 1-6 in production config.
   @min_confirmations Application.compile_env(:bitblocks, :min_confirmations_for_tx_fetch, 0)
+
+  @rate_limit_seconds Application.compile_env(:bitblocks, :backfill_rate_limit_seconds, 60)
 
   @impl Oban.Worker
   def perform(%Oban.Job{args: %{"block_hash" => block_hash}} = job) do
@@ -88,11 +90,21 @@ defmodule Bitblocks.Workers.FetchTransactionsWorker do
 
           :ok
 
+        {:error, :rate_limited} ->
+          Logger.warning("FetchTxs block=#{block.height} rate limited; snoozing")
+          {:snooze, @rate_limit_seconds}
+
         {:error, reason} ->
           transition_to_failed(block, reason)
           {:error, reason}
       end
     else
+      # A rate limit (PublicNode -32005, WoC 429) is a backoff, not a block
+      # failure: snooze the job, leave the block's attempts alone.
+      {:error, :rate_limited} ->
+        Logger.warning("FetchTxs block=#{block_hash} rate limited; snoozing")
+        {:snooze, @rate_limit_seconds}
+
       {:skip, reason} ->
         Logger.info("FetchTxs block=#{block_hash} skipped: #{inspect(reason)}")
         :ok
@@ -122,13 +134,13 @@ defmodule Bitblocks.Workers.FetchTransactionsWorker do
     txids
     |> Stream.chunk_every(@batch_size)
     |> Stream.with_index()
-    |> Enum.each(fn {chunk, index} ->
+    |> Enum.reduce_while(:ok, fn {chunk, index}, :ok ->
       # Diff: fetch only the txids of this chunk not already in the database.
       needed_txids = filter_already_fetched(chunk)
 
-      failed =
+      {failed, rate_limited?} =
         if needed_txids == [] do
-          []
+          {[], false}
         else
           fetch_batch(needed_txids, block)
         end
@@ -146,9 +158,14 @@ defmodule Bitblocks.Workers.FetchTransactionsWorker do
             "failed_in_batch=#{length(failed)}"
         )
       end
-    end)
 
-    verify_complete(block, txids, total)
+      # Stop the pass on a rate limit: the rest would only hit it too.
+      if rate_limited?, do: {:halt, {:error, :rate_limited}}, else: {:cont, :ok}
+    end)
+    |> case do
+      :ok -> verify_complete(block, txids, total)
+      error -> error
+    end
   end
 
   defp verify_complete(block, txids, total) do
@@ -171,37 +188,37 @@ defmodule Bitblocks.Workers.FetchTransactionsWorker do
   # shared ingest path now. See Chain.TxIngest.
   defdelegate body_matches_txid?(raw, expected), to: TxIngest
 
-  # Fetches and stores one batch, returning the txids that failed (fetch error,
-  # missing result, body-hash rejection, or insert failure).
+  # Fetches and stores one batch (node first, WhatsOnChain for what it can't
+  # serve; see Chain.TxSources), returning the txids that failed (fetch error,
+  # missing result, body-hash rejection, or insert failure) and whether any
+  # failure was a rate limit.
   defp fetch_batch(txids, block) do
-    case rpc().batch_getrawtransaction(txids, 1) do
-      {:ok, results} ->
-        Enum.reduce(txids, [], fn txid, failed ->
-          case Map.get(results, txid) do
-            tx when is_map(tx) ->
-              case TxIngest.store(tx, block) do
-                :ok ->
-                  failed
+    results = TxSources.fetch_raw(txids, block)
 
-                {:error, reason} ->
-                  Logger.warning("FetchTxs tx #{txid} rejected: #{inspect(reason)}")
-                  [txid | failed]
-              end
+    failed =
+      Enum.reduce(txids, [], fn txid, failed ->
+        case Map.get(results, txid) do
+          tx when is_map(tx) ->
+            case TxIngest.store(tx, block) do
+              :ok ->
+                failed
 
-            {:error, reason} ->
-              Logger.warning("Failed to fetch tx #{txid}: #{inspect(reason)}")
-              [txid | failed]
+              {:error, reason} ->
+                Logger.warning("FetchTxs tx #{txid} rejected: #{inspect(reason)}")
+                [txid | failed]
+            end
 
-            nil ->
-              Logger.warning("No result for tx #{txid}")
-              [txid | failed]
-          end
-        end)
+          {:error, reason} ->
+            Logger.warning("Failed to fetch tx #{txid}: #{inspect(reason)}")
+            [txid | failed]
 
-      {:error, reason} ->
-        Logger.error("Batch getrawtransaction failed: #{inspect(reason)}")
-        txids
-    end
+          nil ->
+            Logger.warning("No result for tx #{txid}")
+            [txid | failed]
+        end
+      end)
+
+    {failed, TxSources.any_rate_limited?(Map.take(results, failed))}
   end
 
   # -- Diff against stored transactions -----------------------------------------

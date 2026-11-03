@@ -327,4 +327,117 @@ defmodule Bitblocks.Workers.BackfillTransactionsWorkerTest do
       assert RpcStub.calls(:batch_getrawtransaction) == []
     end
   end
+
+  describe "fallback sources (our node down, PublicNode pruned)" do
+    @pruned %{"code" => -1, "message" => "Block file x not available."}
+
+    test "a pruned block completes from WhatsOnChain, verified against the header" do
+      block =
+        block_fixture(%{
+          height: 0,
+          hash: "genesis_pruned",
+          num_tx: 1,
+          tx: [],
+          merkleroot: @genesis_txid,
+          sync_state: "header_only"
+        })
+
+      RpcStub.stub_getblock(block.hash, 1, {:error, @pruned})
+      Process.put(:woc_block_txids, %{block.hash => [@genesis_txid]})
+      Process.put(:woc_txs, %{@genesis_txid => genesis_tx_json(block)})
+
+      assert :ok = BackfillTransactionsWorker.perform(%Oban.Job{args: %{}})
+
+      reloaded = Chain.get_block!(block.height)
+      assert reloaded.sync_state == "completed"
+      assert reloaded.tx_sync_attempts == 0
+      assert %Chain.Transaction{} = Repo.get_by(Chain.Transaction, txid: @genesis_txid)
+    end
+
+    test "a rate limit is a backoff, not a failure: no attempt is used up" do
+      block =
+        block_fixture(%{
+          height: 152_780,
+          hash: "rate_limited_block",
+          num_tx: 1,
+          tx: [@genesis_txid],
+          merkleroot: @genesis_txid,
+          sync_state: "header_synced"
+        })
+
+      Process.put(:woc_txs_error, {:http_status, 429, "slow down"})
+
+      assert :ok = BackfillTransactionsWorker.perform(%Oban.Job{args: %{}})
+
+      reloaded = Chain.get_block!(block.height)
+      assert reloaded.tx_sync_attempts == 0
+      refute reloaded.sync_state in ["failed", "completed"]
+    end
+
+    test "min_height skips older incomplete blocks so a gap can be closed first" do
+      old =
+        block_fixture(%{
+          height: 10,
+          hash: "old_incomplete",
+          num_tx: 1,
+          tx: [String.duplicate("ab", 32)],
+          merkleroot: nil,
+          sync_state: "header_only"
+        })
+
+      block =
+        block_fixture(%{
+          height: 0,
+          hash: "genesis_in_window",
+          num_tx: 1,
+          tx: [@genesis_txid],
+          merkleroot: @genesis_txid,
+          sync_state: "header_only"
+        })
+
+      # Heights: the "gap" block sits above the floor; the old one below it.
+      Repo.update!(Ecto.Changeset.change(block, height: 957_302))
+      RpcStub.stub_getrawtransaction(@genesis_txid, 1, genesis_tx_json(block))
+
+      assert :ok =
+               BackfillTransactionsWorker.perform(%Oban.Job{args: %{"min_height" => 957_302}})
+
+      assert Chain.get_block!(957_302).sync_state == "completed"
+      assert Chain.get_block!(old.height).sync_state == "header_only"
+    end
+  end
+
+  describe "self-rescheduling chain" do
+    test "a finished block schedules the next run even while this job is still executing" do
+      import Ecto.Query
+
+      {:ok, running} = Oban.insert(BackfillTransactionsWorker.new(%{"min_height" => 1}))
+
+      Repo.update_all(from(j in Oban.Job, where: j.id == ^running.id),
+        set: [state: "executing"]
+      )
+
+      tx = transaction_fixture(%{})
+
+      block_fixture(%{
+        height: 152_790,
+        hash: "chain_block",
+        num_tx: 1,
+        tx: [tx.txid],
+        merkleroot: nil,
+        sync_state: "header_synced"
+      })
+
+      assert :ok = BackfillTransactionsWorker.perform(%Oban.Job{args: %{"min_height" => 1}})
+
+      scheduled =
+        Repo.all(
+          from j in Oban.Job,
+            where: j.worker == "Bitblocks.Workers.BackfillTransactionsWorker",
+            where: j.state == "scheduled"
+        )
+
+      assert [%{args: %{"min_height" => 1}}] = scheduled
+    end
+  end
 end

@@ -19,6 +19,13 @@ defmodule Bitblocks.Chain.TxidSource do
   costs a transient list per fetch (bounded: both tx lanes are concurrency-1)
   instead of a permanent multi-hundred-MB table row.
 
+  ## Fallback source
+  When the node can't supply the list (pruned: "Block file … not available",
+  unreachable, rate limited), the list is taken from WhatsOnChain
+  (`Bitblocks.Woc.block_txids/1`). A third-party list must rebuild the
+  header's merkleroot: a block with no stored merkleroot is refused
+  (`:unverifiable_fallback_txids`) rather than trusted.
+
   ## Verification
   Every list used — stored or fetched — is rebuilt into a merkleroot and
   checked against the header's (T4). This closes the previous hole where >10k
@@ -31,7 +38,8 @@ defmodule Bitblocks.Chain.TxidSource do
   require Logger
 
   alias Bitblocks.Repo
-  alias Bitblocks.Chain.{Block, MerkleVerifier}
+  alias Bitblocks.Chain.{Block, MerkleVerifier, TxSources}
+  alias Bitblocks.Woc
 
   # Above this, the txid array is never persisted (memory optimization,
   # mirrored in Chain.do_upgrade_block_to_header_synced/1).
@@ -73,7 +81,10 @@ defmodule Bitblocks.Chain.TxidSource do
         "(have=#{length(block.tx || [])} expected=#{expected_tx_count(block)}) — fetching txid list"
     )
 
-    case rpc().getblock(hash, 1) do
+    node_result =
+      if TxSources.node_has_block?(block), do: rpc().getblock(hash, 1), else: {:error, :pruned}
+
+    case node_result do
       %{"tx" => txids} when is_list(txids) and txids != [] ->
         with :ok <- verify_merkleroot(block, txids),
              {:ok, block} <- self_heal(block, txids) do
@@ -84,11 +95,41 @@ defmodule Bitblocks.Chain.TxidSource do
         {:error, :no_txids_in_block_response}
 
       {:error, reason} ->
-        {:error, reason}
+        fallback_txids(block, reason)
 
       other ->
         Logger.error("TxidSource: unexpected getblock response for #{height}: #{inspect(other)}")
         {:error, :unexpected_response}
+    end
+  end
+
+  # The node can't serve the list; ask WhatsOnChain. Its list is held to a
+  # stricter bar than the node's: no merkleroot, no trust.
+  defp fallback_txids(%Block{} = block, node_reason) do
+    if TxSources.fallback_enabled?() do
+      case Woc.block_txids(block.hash) do
+        {:ok, txids} when is_list(txids) and txids != [] ->
+          if is_binary(block.merkleroot) and block.merkleroot != "" do
+            Logger.info("TxidSource: block #{block.height} txid list from WhatsOnChain")
+
+            with :ok <- verify_merkleroot(block, txids),
+                 {:ok, block} <- self_heal(block, txids) do
+              {:ok, txids, block}
+            end
+          else
+            {:error, :unverifiable_fallback_txids}
+          end
+
+        {:error, reason} ->
+          if TxSources.rate_limited?(reason) or TxSources.rate_limited?(node_reason),
+            do: {:error, :rate_limited},
+            else: {:error, node_reason}
+
+        _ ->
+          {:error, node_reason}
+      end
+    else
+      {:error, node_reason}
     end
   end
 

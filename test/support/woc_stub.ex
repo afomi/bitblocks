@@ -5,10 +5,28 @@ defmodule Bitblocks.WocStub do
 
     * `:woc_txs` — txid => getrawtransaction-style map (see
       `Bitblocks.OrdinalFixtures.publish/2`);
-    * `:woc_spent` — "txid_vout" => `{spending_txid, vin}`; absent means unspent.
+    * `:woc_spent` — "txid_vout" => `{spending_txid, vin}`; absent means unspent;
+    * `:woc_block_txids` — block hash => txid list (or `{:error, reason}`);
+      absent means WoC doesn't know the block (`{:error, :not_found}`);
+    * `:woc_txs_error` — when set, `txs/1` returns `{:error, value}`.
   """
 
+  def block_txids(hash) do
+    case Process.get(:woc_block_txids, %{})[hash] do
+      nil -> {:error, :not_found}
+      {:error, reason} -> {:error, reason}
+      txids when is_list(txids) -> {:ok, txids}
+    end
+  end
+
   def txs(txids) do
+    case Process.get(:woc_txs_error) do
+      nil -> known_txs(txids)
+      reason -> {:error, reason}
+    end
+  end
+
+  defp known_txs(txids) do
     known = Process.get(:woc_txs, %{})
     {:ok, for(txid <- txids, tx = known[txid], do: tx)}
   end

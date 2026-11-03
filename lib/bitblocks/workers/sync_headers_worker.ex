@@ -28,8 +28,29 @@ defmodule Bitblocks.Workers.SyncHeadersWorker do
   alias Bitblocks.Chain.Block
   alias Bitblocks.Chain.HeaderVerifier
 
-  @batch_size 500
+  # Headers per batch (one batch_getblockhash + one batch_getblockheader). A
+  # public endpoint (PublicNode) rate limits bursts, so the size and the pause
+  # before each batch are runtime config (HEADER_BATCH_SIZE,
+  # HEADER_BATCH_PAUSE_MS); BitcoinsvCli backs off and retries on a 429 too.
+  defp batch_size, do: Application.get_env(:bitblocks, :header_batch_size, 500)
   @tip_delay_seconds 30
+
+  # After a long outage, tip mode catches up thousands of headers at once.
+  # Only the newest @tip_tx_window of them get a tip-lane tx fetch; the rest
+  # stay header_only for the sequential backfill lane, instead of flooding
+  # oban_jobs with one tip job per block.
+  @tip_tx_window Application.compile_env(:bitblocks, :tip_tx_window, 100)
+
+  @doc "How many of the newest blocks tip mode queues a tx fetch for."
+  def tip_tx_window, do: @tip_tx_window
+
+  @doc """
+  The newly stored `blocks` that get a tip-lane tx fetch: those within
+  `tip_tx_window/0` of `chain_tip`.
+  """
+  def tip_tx_blocks(blocks, chain_tip) when is_integer(chain_tip) do
+    Enum.filter(blocks, &(&1.height > chain_tip - @tip_tx_window))
+  end
 
   # -- perform -----------------------------------------------------------------
 
@@ -70,10 +91,10 @@ defmodule Bitblocks.Workers.SyncHeadersWorker do
 
   defp process_gap({gap_start, gap_end}, enqueue_txs?) do
     gap_start
-    |> Stream.iterate(&(&1 + @batch_size))
+    |> Stream.iterate(&(&1 + batch_size()))
     |> Stream.take_while(&(&1 <= gap_end))
     |> Enum.each(fn batch_start ->
-      batch_end = min(batch_start + @batch_size - 1, gap_end)
+      batch_end = min(batch_start + batch_size() - 1, gap_end)
       fetch_and_store_headers(batch_start, batch_end, enqueue_txs?)
     end)
   end
@@ -96,7 +117,7 @@ defmodule Bitblocks.Workers.SyncHeadersWorker do
         # Tip mode enqueues tx fetches for the new blocks so the chain stays
         # fully synced with no manual intervention (volume is bounded — a few
         # blocks per cycle).
-        case sync_range_tip(our_tip + 1, chain_tip) do
+        case sync_range_tip(our_tip + 1, chain_tip, chain_tip) do
           {:reorg, fork_height, node_hash} ->
             handle_reorg(fork_height, node_hash)
 
@@ -115,11 +136,20 @@ defmodule Bitblocks.Workers.SyncHeadersWorker do
   end
 
   # Tip-mode range sync — propagates {:reorg, height, hash} up if detected.
-  defp sync_range_tip(from, to) do
+  # Walked in batch_size() chunks, like range mode, so a catch-up after an
+  # outage never sends one huge batch_getblockhash.
+  defp sync_range_tip(from, to, chain_tip) do
     gaps = Chain.missing_block_ranges(from, to)
 
-    Enum.reduce_while(gaps, :ok, fn {gap_start, gap_end}, _acc ->
-      case fetch_and_store_headers_tip(gap_start, gap_end) do
+    size = batch_size()
+
+    chunks =
+      for {gap_start, gap_end} <- gaps,
+          batch_start <- gap_start..gap_end//size,
+          do: {batch_start, min(batch_start + size - 1, gap_end)}
+
+    Enum.reduce_while(chunks, :ok, fn {chunk_start, chunk_end}, _acc ->
+      case fetch_and_store_headers_tip(chunk_start, chunk_end, chain_tip) do
         {:reorg, _, _} = reorg -> {:halt, reorg}
         _ -> {:cont, :ok}
       end
@@ -271,7 +301,7 @@ defmodule Bitblocks.Workers.SyncHeadersWorker do
   end
 
   # Tip variant — halts on first reorg signal and returns it so the caller can resolve.
-  defp fetch_and_store_headers_tip(from, to) do
+  defp fetch_and_store_headers_tip(from, to, chain_tip) do
     case do_fetch_and_store_headers(from, to, true, _stop_on_reorg = true) do
       {inserted, {:reorg, _, _} = reorg} ->
         if inserted != [],
@@ -282,7 +312,10 @@ defmodule Bitblocks.Workers.SyncHeadersWorker do
       {inserted, _} ->
         if inserted != [] do
           Logger.info("SyncHeaders: stored #{length(inserted)} headers (#{from}..#{to})")
-          Enum.each(inserted, &Chain.queue_transaction_fetch(&1, lane: :tip))
+
+          inserted
+          |> tip_tx_blocks(chain_tip)
+          |> Enum.each(&Chain.queue_transaction_fetch(&1, lane: :tip))
         end
 
         :ok
@@ -290,13 +323,16 @@ defmodule Bitblocks.Workers.SyncHeadersWorker do
   end
 
   defp do_fetch_and_store_headers(from, to, _enqueue_txs?, stop_on_reorg) do
+    pause_ms = Application.get_env(:bitblocks, :header_batch_pause_ms, 0)
+    if pause_ms > 0, do: Process.sleep(pause_ms)
     heights = Enum.to_list(from..to)
     hashes = fetch_hashes(heights)
+    headers = prefetch_headers(hashes)
 
     Enum.reduce_while(heights, {[], :ok}, fn height, {acc, _} ->
       case Map.get(hashes, height) do
         hash when is_binary(hash) ->
-          case insert_header(height, hash) do
+          case insert_header(height, hash, Map.get(headers, hash)) do
             {:ok, block} ->
               {:cont, {[block | acc], :ok}}
 
@@ -331,8 +367,23 @@ defmodule Bitblocks.Workers.SyncHeadersWorker do
     end
   end
 
-  defp insert_header(height, hash) do
-    case rpc().getblockheader(hash, true) do
+  # One batch request for the whole chunk's headers. Anything the batch
+  # didn't return is fetched singly in insert_header/3.
+  defp prefetch_headers(hashes) do
+    case hashes |> Map.values() |> Enum.filter(&is_binary/1) do
+      [] ->
+        %{}
+
+      list ->
+        case rpc().batch_getblockheader(list) do
+          {:ok, results} -> for {hash, %{} = header} <- results, into: %{}, do: {hash, header}
+          {:error, _} -> %{}
+        end
+    end
+  end
+
+  defp insert_header(height, hash, prefetched) do
+    case prefetched || rpc().getblockheader(hash, true) do
       %{"hash" => ^hash} = header ->
         # TB2: the node is not unconditionally trusted. Confirm the header
         # actually hashes to the hash we asked for (and meets PoW) before

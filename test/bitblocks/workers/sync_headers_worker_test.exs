@@ -189,4 +189,22 @@ defmodule Bitblocks.Workers.SyncHeadersWorkerTest do
       assert job.priority == 0
     end
   end
+
+  describe "tip catch-up window" do
+    test "after a long outage, only blocks near the chain tip get a tip-lane tx fetch" do
+      # Tip mode catching up 16k blocks would otherwise enqueue 16k tip-lane
+      # jobs; older blocks are left header_only for the backfill lane.
+      blocks = for h <- 957_302..973_960, do: %Bitblocks.Chain.Block{height: h}
+
+      queued = SyncHeadersWorker.tip_tx_blocks(blocks, 973_960)
+
+      assert length(queued) == SyncHeadersWorker.tip_tx_window()
+      assert Enum.all?(queued, &(&1.height > 973_960 - SyncHeadersWorker.tip_tx_window()))
+    end
+
+    test "in steady state every new block is queued" do
+      blocks = for h <- 100..102, do: %Bitblocks.Chain.Block{height: h}
+      assert SyncHeadersWorker.tip_tx_blocks(blocks, 102) == blocks
+    end
+  end
 end

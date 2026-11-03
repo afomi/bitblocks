@@ -5,9 +5,16 @@ defmodule Bitblocks.Woc do
   bodies are checked against their txids by `Chain.TxIngest`, and membership
   and ownership are derived from those bytes.
 
-  Free tier: about 3 requests a second. Calls are spaced by `:interval_ms` and
-  a 429 is retried after a pause. The client is swapped in tests via
-  `config :bitblocks, :woc_client`.
+  It is also the historical source for block sync while our own node is down
+  and PublicNode is pruned: `block_txids/1` supplies a block's txid list,
+  which `Chain.TxidSource` merkleroot-verifies against the PoW header before
+  anything is fetched (fail closed), and `txs/1` supplies the bodies.
+
+  Free tier: about 3 requests a second, no key. With `WOC_API_KEY` set the
+  key is sent as the `Authorization` header and `WOC_RPS` (default 10) sets
+  the pace; paid plans are 10, 20 or 40 requests a second. Calls are spaced
+  by the configured interval and a 429 is retried after a pause. The client
+  is swapped in tests via `config :bitblocks, :woc_client`.
   """
 
   # WoC caps bulk tx lookups at 20 txids per request.
@@ -25,6 +32,14 @@ defmodule Bitblocks.Woc do
   def txs(txids) when length(txids) <= @bulk, do: client().txs(txids)
 
   @doc """
+  A block's full txid list, in block order: the first 100 txids from
+  `/block/hash/:hash`, then its 50,000-txid pages. Unverified: callers must
+  check it against the header merkleroot (`Chain.TxidSource` does).
+  """
+  @spec block_txids(String.t()) :: {:ok, [String.t()]} | {:error, term()}
+  def block_txids(hash), do: client().block_txids(hash)
+
+  @doc """
   The input spending `txid:vout`: `{:ok, %{txid, vin}}`, `{:ok, :unspent}`, or
   `{:error, reason}`.
   """
@@ -40,7 +55,6 @@ defmodule Bitblocks.Woc do
     require Logger
 
     @base "https://api.whatsonchain.com/v1/bsv/main"
-    @interval_ms 400
 
     def txs(txids) do
       body = Jason.encode!(%{txids: txids})
@@ -55,6 +69,34 @@ defmodule Bitblocks.Woc do
            |> Map.put("hex", hex_by_txid[tx["txid"]])
            |> Map.put("height", tx["blockheight"])
          end}
+      end
+    end
+
+    def block_txids(hash) do
+      case request(:get, "/block/hash/#{hash}", "") do
+        {:ok, 200, %{"hash" => ^hash, "tx" => first} = block} when is_list(first) ->
+          pages = get_in(block, ["pages", "uri"]) || []
+
+          Enum.reduce_while(pages, {:ok, [first]}, fn uri, {:ok, acc} ->
+            case request(:get, uri, "") do
+              {:ok, 200, page} when is_list(page) -> {:cont, {:ok, [page | acc]}}
+              {:ok, status, body} -> {:halt, {:error, {:http_status, status, body}}}
+              error -> {:halt, error}
+            end
+          end)
+          |> case do
+            {:ok, chunks} -> {:ok, chunks |> Enum.reverse() |> Enum.concat()}
+            error -> error
+          end
+
+        {:ok, 404, _} ->
+          {:error, :not_found}
+
+        {:ok, status, body} ->
+          {:error, {:http_status, status, body}}
+
+        error ->
+          error
       end
     end
 
@@ -76,8 +118,8 @@ defmodule Bitblocks.Woc do
     end
 
     defp request(method, path, body, attempt \\ 1) do
-      Process.sleep(@interval_ms)
-      headers = [{"content-type", "application/json"}, {"accept", "application/json"}]
+      Process.sleep(interval_ms())
+      headers = [{"content-type", "application/json"}, {"accept", "application/json"}] ++ auth()
       opts = [timeout: 10_000, recv_timeout: 60_000]
 
       case HTTPoison.request(method, @base <> path, body, headers, opts) do
@@ -91,6 +133,24 @@ defmodule Bitblocks.Woc do
 
         {:error, %HTTPoison.Error{reason: reason}} ->
           {:error, reason}
+      end
+    end
+
+    defp config, do: Application.get_env(:bitblocks, Bitblocks.Woc, [])
+
+    defp auth do
+      case config()[:api_key] do
+        key when is_binary(key) and key != "" -> [{"authorization", key}]
+        _ -> []
+      end
+    end
+
+    # Free tier is ~3 req/s; 400 ms keeps a single caller under it. A key's
+    # plan sets its own pace via :rps.
+    defp interval_ms do
+      case config()[:rps] do
+        rps when is_integer(rps) and rps > 0 -> div(1_000, rps) + 1
+        _ -> 400
       end
     end
 

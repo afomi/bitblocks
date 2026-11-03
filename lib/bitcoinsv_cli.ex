@@ -202,21 +202,52 @@ defmodule BitcoinsvCli do
     bitcoin_rpc("sendrawtransaction", [hex])
   end
 
+  @doc """
+  HTTP headers for an RPC call. Basic auth is sent only when both a user and a
+  password are configured and non-blank, so a public no-auth endpoint (e.g.
+  `https://bsv-rpc.publicnode.com`) works by leaving the credentials unset or
+  empty.
+  """
   def headers do
-    case {rpc_user(), rpc_password()} do
-      {nil, _} ->
-        [{"Content-Type", "application/json"}]
-
-      {_, nil} ->
-        [{"Content-Type", "application/json"}]
-
-      {user, password} ->
+    case {blank_to_nil(rpc_user()), blank_to_nil(rpc_password())} do
+      {user, password} when is_binary(user) and is_binary(password) ->
         [
           {"Authorization", "Basic " <> Base.encode64("#{user}:#{password}")},
           {"Content-Type", "application/json"}
         ]
+
+      _ ->
+        [{"Content-Type", "application/json"}]
     end
   end
+
+  defp blank_to_nil(value) when is_binary(value) do
+    if String.trim(value) == "", do: nil, else: value
+  end
+
+  defp blank_to_nil(_), do: nil
+
+  @doc """
+  True when an RPC error means "this node does not have the data", rather than
+  "the request failed": a pruned node answers `getblock` with code -1 "Block
+  file … not available." and `getrawtransaction` with code -5. Callers fall
+  back to another source on these instead of counting them as failures.
+  """
+  def not_available?(%{"code" => -5}), do: true
+
+  def not_available?(%{"code" => -1, "message" => message}) when is_binary(message),
+    do: String.contains?(message, "not available")
+
+  def not_available?(_), do: false
+
+  @doc """
+  True when an RPC error is a rate limit (HTTP 429, or JSON-RPC -32005 as sent
+  by PublicNode). That is a backoff signal, never a block failure.
+  """
+  def rate_limited?(:rate_limited), do: true
+  def rate_limited?(%{"code" => -32005}), do: true
+  def rate_limited?({:http_error, 429, _}), do: true
+  def rate_limited?(_), do: false
 
   @doc """
   Batch RPC request - sends multiple RPC calls in a single HTTP request.
@@ -279,7 +310,7 @@ defmodule BitcoinsvCli do
       with {:ok, url} <- bitcoin_url(),
            {:ok, body} <- Poison.encode(batch_commands),
            {:ok, %HTTPoison.Response{status_code: 200, body: response_body}} <-
-             HTTPoison.post(url, body, headers(),
+             post_with_backoff(url, body,
                timeout: timeout,
                recv_timeout: recv_timeout,
                max_body_length: 500_000_000
@@ -305,6 +336,9 @@ defmodule BitcoinsvCli do
       else
         {:error, :missing_bitcoin_url} ->
           {:error, :missing_bitcoin_url}
+
+        {:ok, %HTTPoison.Response{status_code: 429}} ->
+          {:error, :rate_limited}
 
         {:ok, %HTTPoison.Response{status_code: status, body: body}} ->
           {:error, {:http_error, status, body}}
@@ -332,6 +366,15 @@ defmodule BitcoinsvCli do
   """
   def batch_getblockhash(heights) when is_list(heights) do
     requests = Enum.map(heights, fn height -> {height, "getblockhash", [height]} end)
+    batch_rpc(requests)
+  end
+
+  @doc """
+  Batch getblockheader - fetches multiple verbose headers in one request,
+  keyed by hash.
+  """
+  def batch_getblockheader(hashes) when is_list(hashes) do
+    requests = Enum.map(hashes, fn hash -> {hash, "getblockheader", [hash, 1]} end)
     batch_rpc(requests)
   end
 
@@ -428,7 +471,9 @@ defmodule BitcoinsvCli do
   #
   def bitcoin_rpc(method, params \\ []) do
     Bitblocks.TelemetryHelper.measure_rpc(method, fn ->
-      command = %{jsonrpc: "1.0", method: method, params: params}
+      # An id is required by stricter JSON-RPC servers: PublicNode answers a
+      # request without one with -32700 "Parse error".
+      command = %{jsonrpc: "1.0", id: "bitblocks", method: method, params: params}
 
       # IO.inspect(command, label: "Bitcoin RPC Command")
 
@@ -436,8 +481,9 @@ defmodule BitcoinsvCli do
 
       with {:ok, url} <- bitcoin_url(),
            {:ok, body} <- Poison.encode(command),
-           {:ok, %HTTPoison.Response{status_code: _status, body: response_body}} <-
-             HTTPoison.post(url, body, headers(),
+           {:ok, %HTTPoison.Response{status_code: status, body: response_body}}
+           when status != 429 <-
+             post_with_backoff(url, body,
                timeout: timeout,
                recv_timeout: recv_timeout,
                # 500MB max response
@@ -449,6 +495,10 @@ defmodule BitcoinsvCli do
         {:error, :missing_bitcoin_url} ->
           Logger.error("Bitcoin RPC Error: BITCOIN_NODE_URL is not configured")
           {:error, :missing_bitcoin_url}
+
+        {:ok, %HTTPoison.Response{status_code: 429}} ->
+          Logger.warning("Bitcoin RPC rate limited on #{method} after retries")
+          {:error, :rate_limited}
 
         {:ok, %HTTPoison.Response{status_code: status, body: body}} ->
           Logger.error("Bitcoin RPC HTTP #{status}: #{redact(body)}")
@@ -467,7 +517,12 @@ defmodule BitcoinsvCli do
           bitcoin_rpc(method, params)
 
         {:ok, %{"error" => reason}} ->
-          Logger.error("Bitcoin RPC error: #{redact(reason)}")
+          # A pruned node's "not available" is an expected answer, and callers
+          # fall back to another source; keep it out of the error log.
+          if not_available?(reason) or rate_limited?(reason),
+            do: Logger.info("Bitcoin RPC #{method}: #{redact(reason)}"),
+            else: Logger.error("Bitcoin RPC error: #{redact(reason)}")
+
           {:error, reason}
 
         {:error, %HTTPoison.Error{reason: reason}} ->
@@ -483,6 +538,26 @@ defmodule BitcoinsvCli do
           {:error, reason}
       end
     end)
+  end
+
+  # PublicNode (and any shared endpoint) answers bursts with HTTP 429 /
+  # JSON-RPC -32005. Back off and retry a few times before giving up, so a
+  # rate limit slows sync down instead of failing blocks. The final 429 is
+  # returned to the caller, which maps it to {:error, :rate_limited}.
+  defp post_with_backoff(url, body, opts, attempt \\ 1) do
+    retries = Application.get_env(:bitblocks, :rpc_rate_limit_retries, 5)
+    base_ms = Application.get_env(:bitblocks, :rpc_rate_limit_backoff_ms, 2_000)
+
+    case HTTPoison.post(url, body, headers(), opts) do
+      {:ok, %HTTPoison.Response{status_code: 429}} when attempt <= retries ->
+        wait = base_ms * Integer.pow(2, attempt - 1)
+        Logger.warning("Bitcoin RPC 429 (attempt #{attempt}); backing off #{wait}ms")
+        Process.sleep(wait)
+        post_with_backoff(url, body, opts, attempt + 1)
+
+      other ->
+        other
+    end
   end
 
   defp bitcoin_url do

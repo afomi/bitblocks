@@ -249,4 +249,61 @@ defmodule Bitblocks.Workers.FetchTransactionsWorkerTest do
       end
     end
   end
+
+  describe "fallback sources (our node down, PublicNode pruned)" do
+    test "a pruned block completes from WhatsOnChain" do
+      block =
+        block_fixture(%{
+          height: 999_050,
+          hash: "fetch_pruned_hash",
+          merkleroot: @genesis_merkleroot,
+          num_tx: 1,
+          tx: [],
+          sync_state: "txs_queued"
+        })
+
+      RpcStub.stub_getblock(
+        block.hash,
+        1,
+        {:error, %{"code" => -1, "message" => "Block file x not available."}}
+      )
+
+      Process.put(:woc_block_txids, %{block.hash => [@genesis_txid]})
+
+      Process.put(:woc_txs, %{
+        @genesis_txid => %{
+          "txid" => @genesis_txid,
+          "hex" => @genesis_raw,
+          "vin" => [],
+          "vout" => []
+        }
+      })
+
+      assert :ok =
+               FetchTransactionsWorker.perform(%Oban.Job{args: %{"block_hash" => block.hash}})
+
+      assert Chain.get_block!(block.height).sync_state == "completed"
+    end
+
+    test "a rate limit snoozes the job instead of failing the block" do
+      block =
+        block_fixture(%{
+          height: 999_051,
+          hash: "fetch_rate_limited_hash",
+          merkleroot: @genesis_merkleroot,
+          num_tx: 1,
+          tx: [@genesis_txid],
+          sync_state: "txs_queued"
+        })
+
+      Process.put(:woc_txs_error, {:http_status, 429, "slow down"})
+
+      assert {:snooze, _} =
+               FetchTransactionsWorker.perform(%Oban.Job{args: %{"block_hash" => block.hash}})
+
+      reloaded = Chain.get_block!(block.height)
+      refute reloaded.sync_state == "failed"
+      assert reloaded.tx_sync_attempts == 0
+    end
+  end
 end

@@ -176,12 +176,24 @@ defmodule Bitblocks.Release do
 
   Processes one block at a time using batch RPC, then moves to the next.
 
+  Pass `min_height:` to work only on blocks at or above a height, e.g. to
+  close the gap since the node went down before going back to old history.
+  The floor carries through each self-reschedule. Only one backfill job runs
+  at a time, so cancel a running one first (`stop_backfill_transactions/0`).
+
   ## Usage
 
       bin/bitblocks rpc 'Bitblocks.Release.start_backfill_transactions()'
+      bin/bitblocks rpc 'Bitblocks.Release.start_backfill_transactions(min_height: 957_302)'
   """
-  def start_backfill_transactions do
+  def start_backfill_transactions(opts \\ []) do
     now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+    args =
+      case Keyword.get(opts, :min_height) do
+        h when is_integer(h) and h > 0 -> %{"min_height" => h}
+        _ -> %{}
+      end
 
     Bitblocks.Repo.insert_all(
       "oban_jobs",
@@ -189,7 +201,7 @@ defmodule Bitblocks.Release do
         %{
           queue: "transactions_backfill",
           worker: "Bitblocks.Workers.BackfillTransactionsWorker",
-          args: %{},
+          args: args,
           state: "available",
           max_attempts: 3,
           inserted_at: now,
@@ -199,7 +211,7 @@ defmodule Bitblocks.Release do
       on_conflict: :nothing
     )
 
-    IO.puts("Backfill job inserted")
+    IO.puts("Backfill job inserted #{inspect(args)}")
     :ok
   end
 

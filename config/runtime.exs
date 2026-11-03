@@ -43,6 +43,25 @@ config :bitblocks,
   bitcoin_rpc_batch_timeout_ms: rpc_batch_timeout_ms,
   slow_rpc_log_threshold_ms: slow_rpc_threshold_ms
 
+# Header sync pacing for a rate-limited public endpoint (PublicNode answers
+# bursts with 429 / -32005): headers per batch and a pause before each batch.
+config :bitblocks,
+  header_batch_size: parse_env_integer.(System.get_env("HEADER_BATCH_SIZE"), 500),
+  header_batch_pause_ms: parse_env_integer.(System.get_env("HEADER_BATCH_PAUSE_MS"), 0)
+
+# WhatsOnChain: historical txid lists and tx bodies while our node is down or
+# pruned (Bitblocks.Woc). No key = free tier (~3 req/s). With WOC_API_KEY,
+# WOC_RPS sets the pace for the plan (10, 20 or 40).
+woc_api_key = System.get_env("WOC_API_KEY")
+
+config :bitblocks, Bitblocks.Woc,
+  api_key: woc_api_key,
+  rps:
+    if(woc_api_key in [nil, ""],
+      do: nil,
+      else: parse_env_integer.(System.get_env("WOC_RPS"), 10)
+    )
+
 # config/runtime.exs is executed for all environments, including
 # during releases. It is executed after compilation and before the
 # system starts, so it is typically used to load production configuration

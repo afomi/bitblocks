@@ -223,11 +223,11 @@ defmodule BitblocksWeb.PageController do
 
   def config(conn, _params) do
     # Check if Bitcoin node is configured
-    bitcoin_url = Application.get_env(:bitblocks, :bitcoin_url)
+    bitcoin_url = Bitblocks.Config.bitcoin_url()
     rpc_user = Application.get_env(:bitblocks, :rpc_user)
-    rpc_password = Application.get_env(:bitblocks, :rpc_password)
 
-    configured = bitcoin_url != nil && rpc_user != nil && rpc_password != nil
+    # A public no-auth endpoint (PublicNode) is configured with a URL alone.
+    configured = bitcoin_url != nil
 
     # Try to connect if configured
     connection_status =
@@ -263,7 +263,7 @@ defmodule BitblocksWeb.PageController do
       end
 
     # Get Bitcoin configuration
-    bitcoin_url = Application.get_env(:bitblocks, :bitcoin_url)
+    bitcoin_url = Bitblocks.Config.bitcoin_url()
     rpc_user = Application.get_env(:bitblocks, :rpc_user)
 
     render(conn, :debug,

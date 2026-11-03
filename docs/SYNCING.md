@@ -57,6 +57,38 @@ Both tx movers now derive "what should this block contain" from `Chain.TxidSourc
 
 ---
 
+## Sources: where headers, txid lists and bodies come from
+
+Our own node (`BITCOIN_NODE_URL`) has been down since 2026-07.
+Sync now runs from public sources, and every one of them is checked rather than trusted.
+
+| Data | First source | Fallback | Check |
+|---|---|---|---|
+| Headers and chain tip | the RPC endpoint: `BITCOIN_NODE_RPC_URL`, else `BITCOIN_NODE_URL` | none | `HeaderVerifier` (hash, PoW) and prevhash continuity |
+| Txid list | `getblock(hash, 1)` on the RPC endpoint | WhatsOnChain `/block/hash/:hash` plus its 50,000-txid pages | rebuilt merkleroot must equal the stored header's; a fallback list with no merkleroot to check is refused |
+| Tx bodies | `getrawtransaction` batches on the RPC endpoint | WhatsOnChain bulk `/txs` and `/txs/hex`, 20 per call | each body must hash to its txid (`TxIngest`) |
+
+- **PublicNode** (`https://bsv-rpc.publicnode.com`) is free, needs no auth, and is pruned to about the last 300 blocks.
+  Point `BITCOIN_NODE_RPC_URL` at it and leave `BITCOIN_NODE_RPC_USERNAME`/`PASSWORD` unset or empty; blank credentials send no `Authorization` header.
+  Every request carries a JSON-RPC `id`, which PublicNode requires.
+- **Pruned blocks** answer `getblock` with code -1 "Block file … not available." and `getrawtransaction` with -5.
+  `BitcoinsvCli.not_available?/1` names these, and `Chain.TxSources` skips the node entirely for blocks below its reported `pruneheight`.
+  They are routed to the fallback, never counted as block failures.
+- **Rate limits** (HTTP 429, PublicNode's JSON-RPC -32005, WoC 429) are backoff signals.
+  `BitcoinsvCli` retries a 429 with exponential backoff (5 tries from 2 s).
+  If a source is still limited, the backfill worker reschedules the same block after 60 s and the fetch worker snoozes; neither touches `tx_sync_attempts`.
+- **WhatsOnChain** free tier is about 3 requests a second with no key.
+  Set `WOC_API_KEY` (sent as the `Authorization` header) and `WOC_RPS` (default 10 with a key) for a paid plan of 10, 20 or 40 requests a second.
+  `config :bitblocks, :woc_fallback, false` turns the fallback off.
+- **Header pacing**: `HEADER_BATCH_SIZE` (default 500) and `HEADER_BATCH_PAUSE_MS` (default 0).
+  Each batch is one `batch_getblockhash` and one `batch_getblockheader`.
+  For PublicNode, start at a batch of 100 and a 500 ms pause, close to the pace the dev header load settled at.
+- **Catching up after an outage**: tip mode walks the gap in header batches and queues a tip-lane tx fetch only for the newest 100 blocks (`:tip_tx_window`).
+  Older blocks stay `header_only` for the backfill lane.
+  `Release.start_backfill_transactions(min_height: h)` makes the backfill close a recent gap before going back to old history.
+
+---
+
 ## What actually happens today (the real flow)
 
 ```mermaid
@@ -120,8 +152,10 @@ stateDiagram-v2
 | Backfill cron | hourly (`0 * * * *`), no-op when nothing incomplete | `config.exs` Oban crontab |
 | Tip self-reschedule | **none in steady state** — cron is the only scheduler; 60 s backoff only when the node is unreachable | `sync_headers_worker.ex` `reschedule_tip/1` |
 | Backfill gap between blocks | 15 s (`:backfill_reschedule_seconds`) | `backfill_transactions_worker.ex` |
+| Backfill / fetch wait on a rate limit | 60 s (`:backfill_rate_limit_seconds`), attempts untouched | `backfill_transactions_worker.ex`, `fetch_transactions_worker.ex` |
+| Tip-lane tx fetch window | newest 100 blocks of a catch-up (`:tip_tx_window`) | `sync_headers_worker.ex` |
 | Backfill retry budget per block | 3 (`:backfill_max_attempts`), then skipped until `Release.retry_failed_blocks/0` | `backfill_transactions_worker.ex` |
-| Header range batch | 500 (`@batch_size`) | `sync_headers_worker.ex:27` |
+| Header batch | 500 (`HEADER_BATCH_SIZE`), pause `HEADER_BATCH_PAUSE_MS` | `sync_headers_worker.ex` |
 | Tx fetch batch | 100 (`:tx_fetch_batch_size`) | `fetch_transactions_worker.ex` |
 | `transactions_tip` / `transactions_backfill` concurrency | **1 each** (separate lanes) | `config.exs` / `prod.exs` |
 | `blocks` queue concurrency | prod **1**, dev 3 | `prod.exs` / `config.exs` |
@@ -141,7 +175,8 @@ These are the realistic ways the chain stops advancing — useful when diagnosin
 
 1. **A wedged Oban job suppresses the cron.** Tip jobs are `unique` on args within a window; a job stuck `executing` (e.g. blocked on a hung RPC) can cause new cron inserts to be no-ops until it clears.
 2. **Header verification rejects at a boundary.** `HeaderVerifier.verify` / continuity rejects a header (PoW, hash mismatch, or `prevhash` not matching the predecessor we hold). It's logged and **not stored**, so `our_tip` never advances past that height — and since tx-fetch is enqueued per *stored* header, tx fetching stops there too.
-3. **Persisted Oban backlog re-fires on boot.** `available`/`scheduled`/`retryable` jobs are durable. A big backlog queued via `/sync` re-runs on every app restart — this is the likely cause of "some jobs start on boot." (Mitigated now that `SyncServer` is gone and tip enqueues are bounded, but a previously-queued backfill backlog still persists.)
+3. **The backfill chain dropped its own reschedule (fixed 2026-11-03).** Its uniqueness counted `executing` jobs, and the reschedule is inserted while the job itself is still executing, so every reschedule conflicted with itself. The backfill advanced one block per hourly cron. Uniqueness now covers `available`, `scheduled` and `retryable` only.
+4. **Persisted Oban backlog re-fires on boot.** `available`/`scheduled`/`retryable` jobs are durable. A big backlog queued via `/sync` re-runs on every app restart — this is the likely cause of "some jobs start on boot." (Mitigated now that `SyncServer` is gone and tip enqueues are bounded, but a previously-queued backfill backlog still persists.)
 
 > *Historical:* before tip mode enqueued tx fetches, headers advanced but transactions never auto-fetched — blocks sat at `header_only` unless `/sync` or the old `SyncServer` was driven manually. This was the original cause of the indexed tip lagging the node. Fixed by the tip after-create enqueue.
 

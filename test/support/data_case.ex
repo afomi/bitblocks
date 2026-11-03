@@ -50,6 +50,10 @@ defmodule Bitblocks.DataCase do
   against the Bitcoin RPC.
   """
   def setup_bitcoin_rpc do
+    # :rpc_url wins over :bitcoin_url (Bitblocks.Config.bitcoin_url/0); clear
+    # it so a BITCOIN_NODE_RPC_URL in the shell can't redirect cassette tests.
+    saved_rpc_url = Application.get_env(:bitblocks, :rpc_url)
+    Application.delete_env(:bitblocks, :rpc_url)
     Application.put_env(:bitblocks, :bitcoin_url, @bitcoin_rpc_url)
     Application.put_env(:bitblocks, :rpc_user, "testuser")
     Application.put_env(:bitblocks, :rpc_password, "testpassword")
@@ -58,6 +62,7 @@ defmodule Bitblocks.DataCase do
       Application.delete_env(:bitblocks, :bitcoin_url)
       Application.delete_env(:bitblocks, :rpc_user)
       Application.delete_env(:bitblocks, :rpc_password)
+      if saved_rpc_url, do: Application.put_env(:bitblocks, :rpc_url, saved_rpc_url)
     end)
   end
 

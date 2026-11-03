@@ -65,6 +65,22 @@ defmodule BitcoinsvCliMock do
     end
   end
 
+  def batch_getblockheader(hashes) when is_list(hashes) do
+    RpcStub.record_call(:batch_getblockheader, [hashes])
+
+    results =
+      for hash <- hashes,
+          {:ok, header} <- [RpcStub.lookup({:getblockheader, hash})],
+          into: %{},
+          do: {hash, header}
+
+    if map_size(results) == 0 do
+      {:error, {:no_stub, :batch_getblockheader, [hashes]}}
+    else
+      {:ok, results}
+    end
+  end
+
   def batch_getblock(hashes, level \\ 1) when is_list(hashes) do
     RpcStub.record_call(:batch_getblock, [hashes, level])
 
