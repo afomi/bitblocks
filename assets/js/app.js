@@ -34,6 +34,7 @@ import BlockGraph from "./hooks/block_graph"
 import PeerMap from "./hooks/peer_map"
 import NetworkPulse from "./hooks/network_pulse"
 import EcosystemGraph from "./hooks/ecosystem_graph"
+import ChainScrubber from "./hooks/chain_scrubber"
 
 let Hooks = {
   TxChart: TxChart,
@@ -46,7 +47,8 @@ let Hooks = {
   BlockGraph: BlockGraph,
   PeerMap: PeerMap,
   NetworkPulse: NetworkPulse,
-  EcosystemGraph: EcosystemGraph
+  EcosystemGraph: EcosystemGraph,
+  ChainScrubber: ChainScrubber
 }
 
 let csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")

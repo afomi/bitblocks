@@ -408,7 +408,13 @@ defmodule Bitblocks.Release do
 
           {count, _} =
             from(b in Bitblocks.Chain.Block, where: b.hash in ^hashes)
-            |> Bitblocks.Repo.update_all(set: [sync_state: "header_synced"])
+            |> Bitblocks.Repo.update_all(
+              set: [
+                sync_state: "header_synced",
+                # chain tiles (#48) find changed blocks by updated_at
+                updated_at: NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second)
+              ]
+            )
 
           count
       end
@@ -1138,6 +1144,72 @@ defmodule Bitblocks.Release do
   @doc "Lists managed projections as `{id, tenant, name, status}`."
   def list_projections do
     for p <- Bitblocks.Projections.list(), do: {p.id, p.tenant, p.name, p.status}
+  end
+
+  @doc """
+  Builds every chain-scrubber tile from genesis to the tip (#48).
+
+  Enqueued on the `:chain_tiles` queue (concurrency 1) so it never contends
+  with tip sync; reads `blocks` only, about a thousand 1,024-row range reads
+  on the height index. Run it once; the five-minute cron keeps tiles current
+  after that with incremental builds. `inline: true` runs it in this shell
+  instead of the queue.
+
+      bin/bitblocks rpc 'Bitblocks.Release.build_chain_tiles()'
+  """
+  def build_chain_tiles(opts \\ []) do
+    if Keyword.get(opts, :inline, false) do
+      {elapsed_us, result} = :timer.tc(fn -> Bitblocks.ChainTiles.build(mode: :full) end)
+
+      IO.puts(
+        "chain tiles full build: #{inspect(result, limit: 20)} in #{div(elapsed_us, 1000)} ms"
+      )
+
+      result
+    else
+      case %{"mode" => "full"} |> Bitblocks.Workers.ChainTilesWorker.new() |> Oban.insert() do
+        {:ok, %Oban.Job{id: id, conflict?: false} = job} ->
+          IO.puts("chain tiles full build queued (Oban ##{id}); check chain_tiles_status()")
+          {:ok, job}
+
+        {:ok, %Oban.Job{conflict?: true} = job} ->
+          IO.puts("a chain tiles build is already queued or running (Oban ##{job.id})")
+          {:ok, job}
+
+        {:error, reason} ->
+          IO.puts("failed to queue: #{inspect(reason)}")
+          {:error, reason}
+      end
+    end
+  end
+
+  @doc """
+  Prints tile counts per level and the last builds.
+
+      bin/bitblocks rpc 'Bitblocks.Release.chain_tiles_status()'
+  """
+  def chain_tiles_status do
+    counts = Bitblocks.ChainTiles.tile_counts()
+    builds = Bitblocks.ChainTiles.list_builds(5)
+
+    IO.puts(
+      "chain tiles: " <>
+        Enum.map_join(Enum.sort(counts), ", ", fn {l, n} -> "level #{l}: #{n}" end)
+    )
+
+    IO.puts(
+      "tip: #{inspect(Bitblocks.ChainTiles.chain_tip())}; cached: #{length(Bitblocks.ChainTiles.Cache.all())}"
+    )
+
+    Enum.each(builds, fn b ->
+      IO.puts(
+        "  #{b.started_at} #{b.mode} #{b.status}: #{b.leaves_scanned} leaves scanned, " <>
+          "#{b.tiles_written} written, #{b.tiles_unchanged} unchanged" <>
+          if(b.error, do: " — #{b.error}", else: "")
+      )
+    end)
+
+    %{tiles: counts, builds: builds}
   end
 
   # Private helpers

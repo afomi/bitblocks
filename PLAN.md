@@ -39,6 +39,8 @@ Grand Tardinians is 999 items: the 1,494 in #30 counted transfers ([field note](
 #33 TXSTORE: raw tx bytes in S3 (one immutable CDN URL per txid), collections first; images parsed from raw txs on the fly at `/content/:outpoint`.
 Queued after #30: #32 BAP identity index (qart request).
 #48 SCRUBBER: admin three.js scrub from genesis to tip, and the first surface for accounting for misspends and burns.
+Built in the working tree (2026-11-03): tile pyramid, incremental builds, `/chain-scrubber`, reorg and classified-loss layers ([docs/CHAIN_SCRUBBER.md](docs/CHAIN_SCRUBBER.md)).
+Needs on prod, after deploy: `Release.build_chain_tiles()` once; a browser pass on the WebGL scene.
 
 
 ## Deferred

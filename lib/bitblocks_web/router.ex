@@ -159,6 +159,13 @@ defmodule BitblocksWeb.Router do
     plug :basic_auth
   end
 
+  # Admin data the browser fetches by script: basic auth and nothing else.
+  # :browser runs ReorgNotice, which queries the database on every request;
+  # chain-scrubber tiles must be served without a query (#48).
+  pipeline :admin_data do
+    plug :basic_auth
+  end
+
   # The operator surface is gated in EVERY env — no more compile-time
   # dev/test bypass. Enforcement is a runtime toggle
   # (`config :bitblocks, :admin_auth, enabled: true|false`, default true):
@@ -247,6 +254,7 @@ defmodule BitblocksWeb.Router do
     live "/ecosystem", EcosystemLive
     live "/tx-graph", TxGraphLive
     live "/shape-layers", ShapeLayerLive
+    live "/chain-scrubber", ChainScrubberLive
 
     # Block detail/mutation pages stay dev/admin (index is public, see :browser scope)
     live "/blocks/new", BlockLive.Index, :new
@@ -260,6 +268,13 @@ defmodule BitblocksWeb.Router do
     live "/transactions/:id", TransactionLive.Show, :show
     live "/transactions/:id/edit", TransactionLive.Index, :edit
     live "/transactions/:id/show/edit", TransactionLive.Show, :edit
+  end
+
+  scope "/chain-scrubber", BitblocksWeb do
+    pipe_through :admin_data
+
+    get "/tiles/manifest", ChainTileController, :manifest
+    get "/tiles/:level/:idx", ChainTileController, :tile
   end
 
   scope "/" do

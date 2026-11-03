@@ -97,6 +97,8 @@ mix assets.deploy           # Build and minify for production
   - Runs `TransactionParser.analyze` and `Chain.record_spends` on each tx
   - Transitions block: `txs_queued → txs_syncing → completed|failed`
 
+- `Bitblocks.Workers.ChainTilesWorker` — builds chain-scrubber tiles (`Bitblocks.ChainTiles`) on the `:chain_tiles` lane (concurrency 1), reading `blocks` only. Cron every 5 minutes in incremental mode: a no-op until `Release.build_chain_tiles()` has run once, and when no block changed. See `docs/CHAIN_SCRUBBER.md`.
+
 ### Data Layer
 
 - `Bitblocks.Chain` (lib/bitblocks/chain.ex) - Context module for blockchain data
@@ -127,6 +129,7 @@ mix assets.deploy           # Build and minify for production
   - `/tokens` and `/tokens/:id` - BSV-20/BSV-21 token index (supply, holders); read-only, minting lives in qart
   - `/collections` and `/collections/:id` - BSV NFT collections index and show (`:id` is a slug or origin outpoint; one view for every collection)
   - `/bitcom` and `/bitcom/:address` - live Bitcom registry (unwriter's Bitcom): namespaces, on-chain ownership proof, files, routes, usage
+  - `/chain-scrubber` - admin only: scrub the chain genesis to tip in three.js from precomputed tiles (`docs/CHAIN_SCRUBBER.md`); `/chain-scrubber/tiles/manifest` and `/chain-scrubber/tiles/:level/:idx` serve the tiles from ETS with no DB query
   - `/dev/dashboard` - LiveDashboard (dev only)
 
 **Request Logging:**
@@ -169,6 +172,10 @@ bin/bitblocks rpc 'Bitblocks.Release.stop_tip_sync()'
 bin/bitblocks rpc 'Bitblocks.Release.gaps()'
 bin/bitblocks rpc 'Bitblocks.Release.sync_status()'
 bin/bitblocks rpc 'Bitblocks.Release.status()'
+
+# Chain-scrubber tiles (#48): full build once, then the cron keeps them current
+bin/bitblocks rpc 'Bitblocks.Release.build_chain_tiles()'
+bin/bitblocks rpc 'Bitblocks.Release.chain_tiles_status()'
 ```
 
 The `/sync` page provides a web UI for these operations with live job monitoring.

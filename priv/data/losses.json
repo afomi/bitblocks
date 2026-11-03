@@ -1,0 +1,277 @@
+{
+  "note": "docs/field-notes/2026-11-02-rexxies-spent-outside-run.md",
+  "note_url": "https://github.com/afomi/bitblocks/blob/develop/docs/field-notes/2026-11-02-rexxies-spent-outside-run.md",
+  "rule": "An entry appears only with confidence strong in the field note data; open entries (#46) are left out.",
+  "losses": [
+    {
+      "kind": "destroyed",
+      "collection": "rexxies",
+      "item": "Rexxie #159",
+      "origin": "2862cc888c3dae2183b428af0eab505704c893605c2011d86862df3c172264c7_3",
+      "spender": "1f34afe214dadc5c0324428fdfa1264ffa122ea6aa3b50b0889721a581868a1c",
+      "height": 875850,
+      "date": "2024-12-19"
+    },
+    {
+      "kind": "destroyed",
+      "collection": "rexxies",
+      "item": "Rexxie #193",
+      "origin": "1c33e06f1eb51af3e6f2fc191388f8db1a17015a55011068a7fdc4e6535c6721_3",
+      "spender": "0d2fc102ebfed8bcc44fe2e4cf6b2cbdf7673a9a0d9b38e2ed953eb14586108e",
+      "height": 905627,
+      "date": "2025-07-15"
+    },
+    {
+      "kind": "destroyed",
+      "collection": "rexxies",
+      "item": "Rexxie #437",
+      "origin": "4d9dbc1011de46e5406c2102e9ae6c4b2569d11b5aeab88051ab59ddb5cecd8e_3",
+      "spender": "3a2758cc521d8ab328aae3f9c9eebd59cd7d0ea5929af3235347147f0b690b59",
+      "height": 906579,
+      "date": "2025-07-22"
+    },
+    {
+      "kind": "destroyed",
+      "collection": "rexxies",
+      "item": "Rexxie #602",
+      "origin": "d4a70af5639aa2b48ca8d9bfabb2d6c03a3c65aa16946f01b0cfbb87a7f51396_3",
+      "spender": "496fa2a54020b177bdf10f8126216f253353876301607d429cbe8f0e3ce740b4",
+      "height": 877826,
+      "date": "2025-01-02"
+    },
+    {
+      "kind": "destroyed",
+      "collection": "rexxies",
+      "item": "Rexxie #699",
+      "origin": "16a0e2758adc963557af0f13a81e0df9f702b5ae456458873a83eae5fb4b70c8_3",
+      "spender": "3a2758cc521d8ab328aae3f9c9eebd59cd7d0ea5929af3235347147f0b690b59",
+      "height": 906579,
+      "date": "2025-07-22"
+    },
+    {
+      "kind": "destroyed",
+      "collection": "rexxies",
+      "item": "Rexxie #841",
+      "origin": "f4bebd60e1ea4c264df64af6fad567e1d230cd0789af3be720e52b1792906fd8_3",
+      "spender": "5f5a8598460015d9ba2f705973538cdbfb9af80500d2a29d70dfb82227f76535",
+      "height": 884161,
+      "date": "2025-02-15"
+    },
+    {
+      "kind": "destroyed",
+      "collection": "rexxies",
+      "item": "Rexxie #949",
+      "origin": "09f05b6e33e2333cd1b7e8c0750e41190feda6de4969d9594adeec271e3e9d11_3",
+      "spender": "c4dd09a46ca2644b70405f4ed6703565074bd093479b4d9b8100e3bf93e67275",
+      "height": 889073,
+      "date": "2025-03-21"
+    },
+    {
+      "kind": "destroyed",
+      "collection": "rexxies",
+      "item": "Rexxie #1096",
+      "origin": "d26643c03807518dc4e68c7b8973c87fae460c8fde2ad828d58834db3caeb2b4_3",
+      "spender": "8dc8d16a673bfab3a06a5ac031d26c3d5219c404350d62db839152ec3266420e",
+      "height": 910573,
+      "date": "2025-08-19"
+    },
+    {
+      "kind": "destroyed",
+      "collection": "rexxies",
+      "item": "Rexxie #1097",
+      "origin": "517a16888fec81b8c975ab54a18cad1b475f4d71632501bc6dabfb002923b518_3",
+      "spender": "8dc8d16a673bfab3a06a5ac031d26c3d5219c404350d62db839152ec3266420e",
+      "height": 910573,
+      "date": "2025-08-19"
+    },
+    {
+      "kind": "destroyed",
+      "collection": "rexxies",
+      "item": "Rexxie #1104",
+      "origin": "39737b5ab5e4f79efa9a093265243e387706f814377c5e1362afd1ad8d9f5a91_3",
+      "spender": "8dc8d16a673bfab3a06a5ac031d26c3d5219c404350d62db839152ec3266420e",
+      "height": 910573,
+      "date": "2025-08-19"
+    },
+    {
+      "kind": "destroyed",
+      "collection": "rexxies",
+      "item": "Rexxie #1105",
+      "origin": "7cb6c1d44f9d39e42760cf7c11e999ae4ee987988a6587779557870128b238ae_3",
+      "spender": "8dc8d16a673bfab3a06a5ac031d26c3d5219c404350d62db839152ec3266420e",
+      "height": 910573,
+      "date": "2025-08-19"
+    },
+    {
+      "kind": "destroyed",
+      "collection": "rexxies",
+      "item": "Rexxie #1108",
+      "origin": "09184c167828c79bd4fd615512fa17c39b5fe250e5972df9836ef3d4075fc918_3",
+      "spender": "8dc8d16a673bfab3a06a5ac031d26c3d5219c404350d62db839152ec3266420e",
+      "height": 910573,
+      "date": "2025-08-19"
+    },
+    {
+      "kind": "destroyed",
+      "collection": "rexxies",
+      "item": "Rexxie #1115",
+      "origin": "9f4fef8e67cfba0ac1c0e0c87a0b444e0bffbfd0bc9169cd9260244b3c4317ca_3",
+      "spender": "8dc8d16a673bfab3a06a5ac031d26c3d5219c404350d62db839152ec3266420e",
+      "height": 910573,
+      "date": "2025-08-19"
+    },
+    {
+      "kind": "destroyed",
+      "collection": "rexxies",
+      "item": "Rexxie #1126",
+      "origin": "619ed8c06d04875b52bcc836c592f19a27d196185723db7a2f645846d4a41ec9_3",
+      "spender": "8dc8d16a673bfab3a06a5ac031d26c3d5219c404350d62db839152ec3266420e",
+      "height": 910573,
+      "date": "2025-08-19"
+    },
+    {
+      "kind": "destroyed",
+      "collection": "rexxies",
+      "item": "Rexxie #1128",
+      "origin": "87ad793c6a2537069d194539902bfa158ca1cb3ad3d76914f74ee051579553df_3",
+      "spender": "8dc8d16a673bfab3a06a5ac031d26c3d5219c404350d62db839152ec3266420e",
+      "height": 910573,
+      "date": "2025-08-19"
+    },
+    {
+      "kind": "destroyed",
+      "collection": "rexxies",
+      "item": "Rexxie #1129",
+      "origin": "8d5c30f41c154c2a3146b2801136efba64b7fe83be6e9ff95e2de8c3b1546c71_3",
+      "spender": "8dc8d16a673bfab3a06a5ac031d26c3d5219c404350d62db839152ec3266420e",
+      "height": 910573,
+      "date": "2025-08-19"
+    },
+    {
+      "kind": "destroyed",
+      "collection": "rexxies",
+      "item": "Rexxie #1140",
+      "origin": "e9a288925a6df4e3d6b44c5bf8232cbe9888781ad2f7caa002f50a4d81e67b1d_3",
+      "spender": "8dc8d16a673bfab3a06a5ac031d26c3d5219c404350d62db839152ec3266420e",
+      "height": 910573,
+      "date": "2025-08-19"
+    },
+    {
+      "kind": "destroyed",
+      "collection": "rexxies",
+      "item": "Rexxie #1143",
+      "origin": "e43f9d5f4933642df26d1ca37177e15d818c735e2630e44319bbbe7656e8b429_3",
+      "spender": "8dc8d16a673bfab3a06a5ac031d26c3d5219c404350d62db839152ec3266420e",
+      "height": 910573,
+      "date": "2025-08-19"
+    },
+    {
+      "kind": "destroyed",
+      "collection": "rexxies",
+      "item": "Rexxie #1154",
+      "origin": "c936fa79eb6a2b7972e2bc1252209b6a9000d792c70550a54bc43ac37f70020d_3",
+      "spender": "8dc8d16a673bfab3a06a5ac031d26c3d5219c404350d62db839152ec3266420e",
+      "height": 910573,
+      "date": "2025-08-19"
+    },
+    {
+      "kind": "destroyed",
+      "collection": "rexxies",
+      "item": "Rexxie #1163",
+      "origin": "745ef7846b4d04bc13217b59314d5e707014654b70cc007d0edc1c4f951bbe26_3",
+      "spender": "8dc8d16a673bfab3a06a5ac031d26c3d5219c404350d62db839152ec3266420e",
+      "height": 910573,
+      "date": "2025-08-19"
+    },
+    {
+      "kind": "destroyed",
+      "collection": "rexxies",
+      "item": "Rexxie #1165",
+      "origin": "3a09d883d234d233093294a0501492c4732d3b6e35dddbbdfae47271f6308b92_3",
+      "spender": "8dc8d16a673bfab3a06a5ac031d26c3d5219c404350d62db839152ec3266420e",
+      "height": 910573,
+      "date": "2025-08-19"
+    },
+    {
+      "kind": "destroyed",
+      "collection": "rexxies",
+      "item": "Rexxie #1202",
+      "origin": "a048db81a76adf3e06fba2be11d429109b610031e97198c777d2aa0b4c010b86_3",
+      "spender": "3a2758cc521d8ab328aae3f9c9eebd59cd7d0ea5929af3235347147f0b690b59",
+      "height": 906579,
+      "date": "2025-07-22"
+    },
+    {
+      "kind": "destroyed",
+      "collection": "rexxies",
+      "item": "Rexxie #1303",
+      "origin": "8c67b06aef5806f5cfce72ef4d227024c8036fd497ad8e4741407341b6658fd1_3",
+      "spender": "aac2c6582e80601eaa3ba5733cc7ac21270db94a21f8b8d8c70b5c934e004daa",
+      "height": 904876,
+      "date": "2025-07-10"
+    },
+    {
+      "kind": "destroyed",
+      "collection": "rexxies",
+      "item": "Rexxie #1515",
+      "origin": "cb1261f85cca526e5c200e1b61e041d48407da961b95eb067917c55862f5b85c_3",
+      "spender": "fb7ea494f25f4a37f64ff1d12fef4667219a92a603581051883254e28f8a5ad7",
+      "height": 889601,
+      "date": "2025-03-25"
+    },
+    {
+      "kind": "destroyed",
+      "collection": "rexxies",
+      "item": "Rexxie #1766",
+      "origin": "849768a2efbb89516a2ace5d7fc343f31a0d3cc3395a63b969873b9d540aade3_3",
+      "spender": "5f5a8598460015d9ba2f705973538cdbfb9af80500d2a29d70dfb82227f76535",
+      "height": 884161,
+      "date": "2025-02-15"
+    },
+    {
+      "kind": "destroyed",
+      "collection": "rexxies",
+      "item": "Rexxie #1783",
+      "origin": "d0cc0572cdde8f6c06fc38fcb3b0b7c6812d35b9051613d74682d8900ce61576_3",
+      "spender": "5f5a8598460015d9ba2f705973538cdbfb9af80500d2a29d70dfb82227f76535",
+      "height": 884161,
+      "date": "2025-02-15"
+    },
+    {
+      "kind": "destroyed",
+      "collection": "rexxies",
+      "item": "Rexxie #1907",
+      "origin": "cf816ad99a3c9642b9b7a7f9edec0c3fbfcbc11b4419ec92bf69575cf55d90ac_3",
+      "spender": "96e663e6e462b8b0b0289e061ba2ae05de9b1c9ea5f17803ceb0c8aee761844a",
+      "height": 969927,
+      "date": "2026-10-06"
+    },
+    {
+      "kind": "destroyed",
+      "collection": "rexxies",
+      "item": "Rexxie #1939",
+      "origin": "9ef222a706ba66744345f656e008e37de0fc5a3acb695e02b8d695fb7904961b_3",
+      "spender": "71e549b40463500b4ee0e7693aeef612ee0d820e2c9e90c7caaa0aec35badda0",
+      "height": 971961,
+      "date": "2026-10-21"
+    },
+    {
+      "kind": "destroyed",
+      "collection": "rexxies",
+      "item": "Rexxie #2023",
+      "origin": "255a6d7b5fc7820257450ba8becf0513ac1ae56617e82726a61265ae2c44b658_3",
+      "spender": "aac2c6582e80601eaa3ba5733cc7ac21270db94a21f8b8d8c70b5c934e004daa",
+      "height": 904876,
+      "date": "2025-07-10"
+    },
+    {
+      "kind": "destroyed",
+      "collection": "rexxies",
+      "item": "Rexxie #2194",
+      "origin": "b6a942bf1e157edb5372ceee88d9255bbe13159374e9e8d71ad72eb637bd4832_3",
+      "spender": "5f5a8598460015d9ba2f705973538cdbfb9af80500d2a29d70dfb82227f76535",
+      "height": 884161,
+      "date": "2025-02-15"
+    }
+  ]
+}

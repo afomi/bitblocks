@@ -45,6 +45,7 @@ Protected by basic auth in production; open in dev/test.
 | `/pulse` | Network pulse / activity monitor |
 | `/peers` | Peer map visualization |
 | `/shape-layers` | Geographic shape layer viewer |
+| `/chain-scrubber` | Scrub the chain from genesis to tip in three.js; tiles at `/chain-scrubber/tiles/manifest` and `/chain-scrubber/tiles/:level/:idx` |
 | `/rpc_admin` | Direct RPC command interface |
 | `/address_repo` | Address event playground (event sourcing) |
 | `/dev/dashboard` | Phoenix LiveDashboard |

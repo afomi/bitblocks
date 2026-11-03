@@ -23,6 +23,7 @@ Docs marked *(mixed)* are mostly aspirational but contain sections that accurate
 - `field-notes/` — dated, single-claim research notes from reading the chain with Bitblocks (see its README).
 - `BSV20_TOKENS.md` — the implemented BSV-20/BSV-21 token indexer (read side of the DEX).
 - `BITCOM.md` — the live Bitcom registry: command log, tiers, `/bitcom` pages, JSON export.
+- `CHAIN_SCRUBBER.md` — the admin three.js chain scrubber (#48): tile pyramid, rollup rules, measured budget, rest read, loss annotations, ops commands.
 - `DONATION_ADDRESS.md` — bitblocks' BSV donation address: derivation (wallet, new hardened account), xpub verification, spending rules.
 - `ORDER_BOOK_PROTOCOL.md` — the Open Order Book protocol spec and its implemented indexing/query surface.
 - `MINING_PROXY.md` — the Elixir block-template server; written as a design doc but the steps are implemented (`Bitblocks.MiningProxy`, `getblocktemplate`, `/api/v1/mining/*`).

@@ -70,6 +70,9 @@ config :bitblocks, :woc_client, Bitblocks.WocStub
 # Raw tx bytes go to a local directory in tests (Bitblocks.TxStore).
 config :bitblocks, Bitblocks.TxStore, adapter: Bitblocks.TxStore.Local, root: "tmp/tx_store_test"
 
+# Chain-scrubber tiles: no boot-time warm (the sandbox owns the connection).
+config :bitblocks, Bitblocks.ChainTiles, warm_on_boot: false
+
 # Rexxie catalog PNGs. Tests never read ~/workspace/rexxie-indexer/images.
 config :bitblocks,
        :rexxie_images_dir,

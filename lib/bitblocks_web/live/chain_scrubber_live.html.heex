@@ -1,0 +1,214 @@
+<div
+  class="fixed inset-0 bg-neutral-950 text-neutral-200 flex flex-col"
+>
+  <header
+    class="flex flex-wrap items-center gap-4 px-4 py-2 bg-neutral-900 border-b border-neutral-800 z-10"
+  >
+    <a
+      href="/admin"
+      class="text-neutral-400 hover:text-neutral-200 text-sm"
+    >
+      &larr; Admin
+    </a>
+    <h1
+      class="text-lg font-semibold text-neutral-100"
+    >
+      Chain scrubber
+    </h1>
+    <p
+      class="text-xs text-neutral-400"
+    >
+      Height is the axis.
+      Columns are log10 of tx count.
+      A block that is not completed draws as a gap.
+    </p>
+
+    <form
+      phx-submit="jump"
+      class="ml-auto flex items-center gap-2"
+    >
+      <label
+        for="chain-scrubber-jump"
+        class="text-xs text-neutral-400"
+      >
+        Jump to height
+      </label>
+      <input
+        id="chain-scrubber-jump"
+        type="text"
+        name="height"
+        inputmode="numeric"
+        value={@height}
+        class="w-28 px-2 py-1 text-sm bg-neutral-800 border border-neutral-700 rounded text-neutral-200 focus:outline-none focus:ring-1 focus:ring-amber-500"
+      />
+      <button
+        type="submit"
+        class="px-3 py-1 text-sm rounded bg-amber-600 text-white hover:bg-amber-700"
+      >
+        Go
+      </button>
+      <span
+        :if={@jump_error}
+        id="chain-scrubber-jump-error"
+        role="alert"
+        class="text-xs text-red-400"
+      >
+        {@jump_error}
+      </span>
+    </form>
+  </header>
+
+  <div
+    :if={!@built?}
+    id="chain-scrubber-not-built"
+    class="px-4 py-3 bg-amber-950 text-amber-200 text-sm"
+  >
+    Tiles are not built yet.
+    Run <code>bin/bitblocks rpc 'Bitblocks.Release.build_chain_tiles()'</code> once; the cron keeps them current after that.
+  </div>
+
+  <div
+    id="chain-scrubber"
+    phx-hook="ChainScrubber"
+    phx-update="ignore"
+    data-manifest-url="/chain-scrubber/tiles/manifest"
+    data-tile-base="/chain-scrubber/tiles"
+    data-tip-height={@tip_height}
+    data-height={@height}
+    class="relative flex-1 min-h-0"
+  >
+    <canvas
+      id="chain-scrubber-canvas"
+      class="block w-full h-full"
+    >
+    </canvas>
+
+    <div
+      id="chain-scrubber-readout"
+      aria-live="polite"
+      class="absolute top-2 left-4 flex flex-wrap gap-x-4 gap-y-1 text-xs font-mono text-neutral-300 pointer-events-none"
+    >
+      <span
+        data-readout="height"
+      >
+      </span>
+      <span
+        data-readout="time"
+      >
+      </span>
+      <span
+        data-readout="size"
+      >
+      </span>
+      <span
+        data-readout="num_tx"
+      >
+      </span>
+      <span
+        data-readout="state"
+      >
+      </span>
+      <span
+        data-readout="level"
+      >
+      </span>
+      <span
+        data-readout="status"
+      >
+      </span>
+    </div>
+
+    <div
+      id="chain-scrubber-detail"
+      class="absolute bottom-16 left-4 right-4 max-h-64 overflow-auto text-xs text-neutral-300"
+    >
+    </div>
+
+    <div
+      id="chain-scrubber-controls"
+      class="absolute bottom-2 left-4 right-4 flex items-center gap-2"
+    >
+      <button
+        type="button"
+        data-scrubber-action="step-back"
+        aria-label="Step back one block"
+        class="px-2 py-1 rounded bg-neutral-800 hover:bg-neutral-700"
+      >
+        &larr;
+      </button>
+      <button
+        type="button"
+        data-scrubber-action="play"
+        aria-label="Play"
+        class="px-2 py-1 rounded bg-neutral-800 hover:bg-neutral-700"
+      >
+        Play
+      </button>
+      <button
+        type="button"
+        data-scrubber-action="pause"
+        aria-label="Pause"
+        class="px-2 py-1 rounded bg-neutral-800 hover:bg-neutral-700"
+      >
+        Pause
+      </button>
+      <button
+        type="button"
+        data-scrubber-action="step-forward"
+        aria-label="Step forward one block"
+        class="px-2 py-1 rounded bg-neutral-800 hover:bg-neutral-700"
+      >
+        &rarr;
+      </button>
+      <input
+        type="range"
+        id="chain-scrubber-range"
+        min="0"
+        max={@tip_height}
+        step="1"
+        value={@height}
+        aria-label="Block height"
+        class="flex-1 accent-amber-500"
+      />
+    </div>
+  </div>
+
+  <footer
+    class="flex flex-wrap items-center gap-4 px-4 py-1 bg-neutral-900 border-t border-neutral-800 text-xs text-neutral-400"
+  >
+    <span
+      id="chain-scrubber-tip"
+    >
+      Tip {@tip_height}
+    </span>
+    <span
+      :if={@built_at}
+    >
+      Tiles built {Calendar.strftime(@built_at, "%Y-%m-%d %H:%M UTC")}
+    </span>
+    <span
+      :if={@last_build}
+    >
+      Last build: {@last_build.mode}, {@last_build.tiles_written} written, {@last_build.tiles_unchanged} unchanged
+    </span>
+    <span
+      id="chain-scrubber-annotations"
+    >
+      {length(@annotations)} annotations ({Enum.count(@annotations, &(&1.kind == "reorg"))} reorgs, {Enum.count(
+        @annotations,
+        &(&1.kind == "loss")
+      )} classified losses)
+    </span>
+    <span
+      :if={@rest}
+      id="chain-scrubber-rest"
+      class="font-mono"
+    >
+      Rest: block {@rest.height} {@rest.kind}
+    </span>
+    <span>
+      Arrow keys step one block.
+      Keyboard and scrubbing read tiles only.
+    </span>
+  </footer>
+</div>

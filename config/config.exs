@@ -138,7 +138,12 @@ config :bitblocks, Oban,
        # (which don't auto-enqueue tx fetches) eventually get their
        # transactions even if a manual backfill run is interrupted.
        # Active-states uniqueness on the worker prevents pileup.
-       {"0 * * * *", Bitblocks.Workers.BackfillTransactionsWorker}
+       {"0 * * * *", Bitblocks.Workers.BackfillTransactionsWorker},
+       # Chain-scrubber tiles (#48): the incremental build is one index probe
+       # when nothing changed, rebuilds only the tiles whose blocks moved
+       # otherwise, and does nothing until a person has run a full build
+       # (Release.build_chain_tiles/1). Never heavy work on deploy.
+       {"*/5 * * * *", Bitblocks.Workers.ChainTilesWorker, args: %{"mode" => "incremental"}}
      ]}
   ],
   queues: [
@@ -152,7 +157,10 @@ config :bitblocks, Oban,
     webhooks: 5,
     # Collection syncs (#30): WhatsOnChain-paced, one job at a time.
     collections: 1,
-    blocks: 3
+    blocks: 3,
+    # Chain-scrubber tile builds (#48): own lane so a full build never
+    # contends with :transactions_tip.
+    chain_tiles: 1
   ]
 
 # Mining proxy — COMPILE-TIME settings only (read via Application.compile_env in
