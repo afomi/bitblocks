@@ -18,7 +18,8 @@ defmodule BitblocksWeb.ChainScrubberLive do
   def mount(params, _session, socket) do
     manifest = Cache.manifest()
     tip = (manifest && manifest.tip_height) || ChainTiles.chain_tip() || 0
-    height = params |> Map.get("height") |> parse_height(tip) || 0
+    {view_from, view_to} = parse_view(params, tip)
+    height = params |> Map.get("height") |> parse_height(tip) || view_from
     annotations = ChainScrubber.annotations()
 
     socket =
@@ -26,6 +27,8 @@ defmodule BitblocksWeb.ChainScrubberLive do
         page_title: "Chain scrubber",
         tip_height: tip,
         height: height,
+        view_from: view_from,
+        view_to: view_to,
         built?: manifest != nil,
         built_at: manifest && DateTime.from_unix!(manifest.built_at),
         last_build: ChainTiles.last_build(),
@@ -73,6 +76,21 @@ defmodule BitblocksWeb.ChainScrubberLive do
          socket
          |> assign(height: height, rest: payload)
          |> push_event("rest_data", payload)}
+    end
+  end
+
+  @doc """
+  The opening view from `?from=&to=` (both heights in `0..tip`, `from < to`),
+  so a stretch such as the first 200,000 blocks can be studied on its own.
+  Anything else opens the whole chain.
+  """
+  @spec parse_view(map(), non_neg_integer()) :: {non_neg_integer(), non_neg_integer()}
+  def parse_view(params, tip) do
+    with from when is_integer(from) <- parse_height(params["from"], tip),
+         to when is_integer(to) and to > from <- parse_height(params["to"], tip) do
+      {from, to}
+    else
+      _ -> {0, tip}
     end
   end
 

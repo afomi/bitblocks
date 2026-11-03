@@ -64,6 +64,23 @@ defmodule BitblocksWeb.ChainScrubberLiveTest do
     assert html =~ "Last build: full"
   end
 
+  test "from and to frame the opening view on a stretch of the chain", %{conn: conn} do
+    insert_blocks(0..500)
+
+    {:ok, _view, html} = live(conn, "/chain-scrubber?from=100&to=200")
+    assert html =~ ~s(data-view-from="100")
+    assert html =~ ~s(data-view-to="200")
+
+    # Out of range or reversed bounds fall back to the whole chain.
+    {:ok, _view, html} = live(conn, "/chain-scrubber?from=300&to=900")
+    assert html =~ ~s(data-view-from="0")
+    assert html =~ ~s(data-view-to="500")
+
+    {:ok, _view, html} = live(conn, "/chain-scrubber?from=200&to=100")
+    assert html =~ ~s(data-view-from="0")
+    assert html =~ ~s(data-view-to="500")
+  end
+
   test "typing a height jumps to that block", %{conn: conn} do
     insert_blocks(0..1_100)
     {:ok, _} = ChainTiles.build(mode: :full)

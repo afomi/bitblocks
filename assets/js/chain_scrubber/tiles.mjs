@@ -273,11 +273,14 @@ export function axisDecades(maxTx) {
   return Math.min(MAX_DECADES, Math.max(MIN_DECADES, d))
 }
 
-// The largest tx count in a decoded tile, or null with no tile.
-export function tileTxMax(tile) {
+// The largest tx count in a decoded tile, or null with no tile. With
+// [h0, h1], only records overlapping that range count.
+export function tileTxMax(tile, h0 = 0, h1 = Infinity) {
   if (!tile || !Array.isArray(tile.records)) return null
+  const span = spanOf(tile.level)
   let max = 0
   for (const r of tile.records) {
+    if (r.height > h1 || r.height + span - 1 < h0) continue
     const n = tile.level === 0 ? r.numTx : r.txMax
     if (n > max) max = n
   }

@@ -98,8 +98,13 @@ export default {
     this.tileBase = ds.tileBase || "/chain-scrubber/tiles"
     this.tip = Math.max(0, parseInt(ds.tipHeight, 10) || 0)
     this.height = tiles.step(parseInt(ds.height, 10) || 0, 0, this.tip)
-    this.view = {h0: 0, h1: this.tip}
-    this.level = tiles.levelFor(this.tip + 1)
+    // ?from=&to= opens on a stretch of the chain; the axis fits that stretch.
+    const vf = parseInt(ds.viewFrom, 10)
+    const vt = parseInt(ds.viewTo, 10)
+    this.framed = Number.isFinite(vf) && Number.isFinite(vt) && vt > vf && (vf > 0 || vt < this.tip)
+    this.view = this.framed ? tiles.clampView(vf, vt, this.tip, MIN_SPAN) : {h0: 0, h1: this.tip}
+    this.frame = {...this.view}
+    this.level = tiles.levelFor(this.view.h1 - this.view.h0 + 1)
     this.decades = tiles.MAX_DECADES
     this.manifest = null
     this.manifestRefreshed = false
@@ -351,7 +356,7 @@ export default {
       this.manifest = manifest
       if (Number.isFinite(manifest.tip_height) && manifest.tip_height > this.tip) {
         this.tip = manifest.tip_height
-        this.view.h1 = Math.min(Math.max(this.view.h1, this.tip), this.tip)
+        if (!this.framed) this.view.h1 = this.tip
         this.updateRangeBounds()
       }
       // Hashes may have changed: drop tiles we know to be absent so they get retried.
@@ -363,15 +368,17 @@ export default {
     }
   },
 
-  // Size the column axis to the chain's largest block, read from the coarsest
-  // level (one tile up to height 33 million at level 3).
+  // Size the column axis to the largest block in the opening frame (the whole
+  // chain unless ?from=&to= is given), read from the coarsest level: one tile
+  // up to height 33 million at level 3.
   async loadAxis() {
     const levels = (this.manifest.levels || []).filter((l) => l && Array.isArray(l.tiles) && l.tiles.length)
     if (!levels.length) return
     const top = levels.reduce((a, b) => (b.level > a.level ? b : a))
     const loaded = await Promise.all(top.tiles.map((_, idx) => this.fetchTile(top.level, idx)))
     if (!this.alive) return
-    const maxes = loaded.map(tiles.tileTxMax).filter((n) => n !== null)
+    const {h0, h1} = this.frame
+    const maxes = loaded.map((t) => tiles.tileTxMax(t, h0, h1)).filter((n) => n !== null)
     if (!maxes.length) return
     const decades = tiles.axisDecades(Math.max(...maxes))
     if (decades === this.decades) return

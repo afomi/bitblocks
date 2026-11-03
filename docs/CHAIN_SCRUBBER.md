@@ -35,6 +35,7 @@ In the bucket holding the tip, heights above the tip are not counted as gaps.
 **The axis fits the chain, not the viewport.**
 The column axis spans `axisDecades(largest block)` powers of ten, read from the coarsest tile at load: 4 decades for the first 200,000 blocks, 7 for the whole chain.
 It stays fixed while scrubbing, so columns remain comparable; the status line names the axis top.
+`/chain-scrubber?from=0&to=200000` opens on that stretch, and the axis fits the stretch instead of the whole chain.
 
 **Only classified losses appear.**
 The loss layer reads `priv/data/losses.json`, derived from the field note each entry cites, strong-confidence entries only; the five open Rexxie doubts (#46) stay off the layer.

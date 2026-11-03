@@ -611,6 +611,16 @@ describe("tileTxMax", () => {
     assert.equal(tileTxMax(t), 3)
   })
 
+  test("only counts records that overlap [h0, h1]", () => {
+    const rec = (txMax) => ({ present: 1, completed: 0, timeMin: 1, timeMax: 2, sizeSum: 0, txSum: txMax, sizeMax: 0, txMax, hist: [0, 0, 0, 0, 0, 0, 0, 0] })
+    // Level 1: records cover 32 heights each, so [0, 31], [32, 63], [64, 95].
+    const t = decodeTile(buildRollupTile(1, [rec(5), rec(40), rec(9_000_000)]))
+    assert.equal(tileTxMax(t, 0, 63), 40)
+    assert.equal(tileTxMax(t, 40, 64), 9_000_000)
+    assert.equal(tileTxMax(t, 0, 10), 5)
+    assert.equal(tileTxMax(t, 200, 300), 0)
+  })
+
   test("no tile, no maximum", () => {
     assert.equal(tileTxMax(null), null)
   })
