@@ -52,41 +52,6 @@ defmodule BitblocksWeb.NavComponent do
               Transactions
             </a>
             <a
-              id="nav-tokens"
-              href="/tokens"
-              class="text-sm/6 font-semibold text-gray-900 dark:text-white"
-            >
-              Tokens
-            </a>
-            <a
-              id="nav-order-book"
-              href="/order-book"
-              class="text-sm/6 font-semibold text-gray-900 dark:text-white"
-            >
-              Order book
-            </a>
-            <a
-              id="nav-metanet"
-              href="/metanet"
-              class="text-sm/6 font-semibold text-gray-900 dark:text-white"
-            >
-              Metanet
-            </a>
-            <a
-              id="nav-bitcom"
-              href="/bitcom"
-              class="text-sm/6 font-semibold text-gray-900 dark:text-white"
-            >
-              Bitcom
-            </a>
-            <a
-              id="nav-collections"
-              href="/collections"
-              class="text-sm/6 font-semibold text-gray-900 dark:text-white"
-            >
-              Collections
-            </a>
-            <a
               id="nav-about"
               href="/about"
               class="text-sm/6 font-semibold text-gray-900 dark:text-white"
@@ -187,41 +152,6 @@ defmodule BitblocksWeb.NavComponent do
                   class="-mx-3 block rounded-lg px-3 py-2 text-base/7 font-semibold text-gray-900 hover:bg-gray-50 dark:text-white dark:hover:bg-white/5"
                 >
                   Transactions
-                </a>
-                <a
-                  id="nav-tokens-mobile"
-                  href="/tokens"
-                  class="-mx-3 block rounded-lg px-3 py-2 text-base/7 font-semibold text-gray-900 hover:bg-gray-50 dark:text-white dark:hover:bg-white/5"
-                >
-                  Tokens
-                </a>
-                <a
-                  id="nav-order-book-mobile"
-                  href="/order-book"
-                  class="-mx-3 block rounded-lg px-3 py-2 text-base/7 font-semibold text-gray-900 hover:bg-gray-50 dark:text-white dark:hover:bg-white/5"
-                >
-                  Order book
-                </a>
-                <a
-                  id="nav-metanet-mobile"
-                  href="/metanet"
-                  class="-mx-3 block rounded-lg px-3 py-2 text-base/7 font-semibold text-gray-900 hover:bg-gray-50 dark:text-white dark:hover:bg-white/5"
-                >
-                  Metanet
-                </a>
-                <a
-                  id="nav-bitcom-mobile"
-                  href="/bitcom"
-                  class="-mx-3 block rounded-lg px-3 py-2 text-base/7 font-semibold text-gray-900 hover:bg-gray-50 dark:text-white dark:hover:bg-white/5"
-                >
-                  Bitcom
-                </a>
-                <a
-                  id="nav-collections-mobile"
-                  href="/collections"
-                  class="-mx-3 block rounded-lg px-3 py-2 text-base/7 font-semibold text-gray-900 hover:bg-gray-50 dark:text-white dark:hover:bg-white/5"
-                >
-                  Collections
                 </a>
                 <a
                   id="nav-about-mobile"

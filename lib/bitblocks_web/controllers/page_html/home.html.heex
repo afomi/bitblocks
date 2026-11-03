@@ -68,4 +68,80 @@
       blocks={@recent_blocks}
     />
   </div>
+
+  <%!-- Beta features: indexed on-chain products, off the header until they're current --%>
+  <section
+    id="beta-features"
+    aria-labelledby="beta-features-heading"
+    class="max-w-2xl mx-auto mb-8"
+  >
+    <div
+      class="flex items-center gap-3 mb-2"
+    >
+      <h2
+        id="beta-features-heading"
+        class="text-lg font-semibold text-gray-900 dark:text-white"
+      >
+        Beta features
+      </h2>
+      <span
+        class="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-900 dark:bg-amber-900/40 dark:text-amber-200"
+      >
+        Beta
+      </span>
+    </div>
+    <p
+      class="text-sm text-gray-600 dark:text-gray-400 mb-4"
+    >
+      These views are built on the same index and are filling in as the sync reaches the tip.
+      Try them, and expect gaps while they do.
+    </p>
+    <ul
+      role="list"
+      class="grid grid-cols-1 gap-3 sm:grid-cols-2"
+    >
+      <li
+        :for={
+          {id, href, title, blurb} <- [
+            {"beta-tokens", "/tokens", "Tokens",
+             "BSV-20 and BSV-21 tokens with their supply, holders and transfers."},
+            {"beta-order-book", "/order-book", "Order book",
+             "Open listings for BSV-20 tokens, read straight from the chain."},
+            {"beta-metanet", "/metanet", "Metanet",
+             "Walk Metanet trees from a root to its children and versions."},
+            {"beta-bitcom", "/bitcom", "Bitcom",
+             "A live registry of Bitcom namespaces, with on-chain proof of ownership."},
+            {"beta-collections", "/collections", "Collections",
+             "NFT collections with membership and current owners for each item."}
+          ]
+        }
+      >
+        <a
+          id={id}
+          href={href}
+          class="block h-full rounded-lg border border-gray-200 p-4 hover:border-gray-400 dark:border-gray-700 dark:hover:border-gray-500"
+        >
+          <span
+            class="flex items-center justify-between gap-2"
+          >
+            <span
+              class="font-semibold text-gray-900 dark:text-white"
+            >
+              {title}
+            </span>
+            <span
+              class="text-xs font-medium text-amber-900 dark:text-amber-200"
+            >
+              Beta
+            </span>
+          </span>
+          <span
+            class="mt-1 block text-sm text-gray-600 dark:text-gray-400"
+          >
+            {blurb}
+          </span>
+        </a>
+      </li>
+    </ul>
+  </section>
 </div>

@@ -5,25 +5,16 @@ defmodule BitblocksWeb.WayfindingTest do
 
   alias Bitblocks.ProtocolRegistry
 
-  test "the header lists the on-chain products and sends Transactions to search", %{conn: conn} do
+  test "the header keeps to blocks, transactions and about, and sends Transactions to search",
+       %{conn: conn} do
     html = html_response(get(conn, "/"), 200)
 
     for {id, href} <- [
           {"nav-blocks", "/blocks"},
           {"nav-transactions", "/search"},
-          {"nav-tokens", "/tokens"},
-          {"nav-order-book", "/order-book"},
-          {"nav-metanet", "/metanet"},
-          {"nav-bitcom", "/bitcom"},
-          {"nav-collections", "/collections"},
           {"nav-about", "/about"},
           {"nav-blocks-mobile", "/blocks"},
           {"nav-transactions-mobile", "/search"},
-          {"nav-tokens-mobile", "/tokens"},
-          {"nav-order-book-mobile", "/order-book"},
-          {"nav-metanet-mobile", "/metanet"},
-          {"nav-bitcom-mobile", "/bitcom"},
-          {"nav-collections-mobile", "/collections"},
           {"nav-about-mobile", "/about"}
         ] do
       assert Regex.match?(
@@ -32,6 +23,36 @@ defmodule BitblocksWeb.WayfindingTest do
              ),
              "missing #{id} -> #{href}"
     end
+
+    for id <- ~w(tokens order-book metanet bitcom collections),
+        suffix <- ["", "-mobile"] do
+      refute html =~ ~s(id="nav-#{id}#{suffix}"), "nav-#{id}#{suffix} should be off the header"
+    end
+  end
+
+  test "the homepage features beta products below the recent blocks", %{conn: conn} do
+    html = html_response(get(conn, "/"), 200)
+
+    assert html =~ ~s(id="beta-features")
+    assert html =~ "Beta"
+
+    for {id, href} <- [
+          {"beta-tokens", "/tokens"},
+          {"beta-order-book", "/order-book"},
+          {"beta-metanet", "/metanet"},
+          {"beta-bitcom", "/bitcom"},
+          {"beta-collections", "/collections"}
+        ] do
+      assert Regex.match?(
+               ~r/id="#{id}"[^>]*href="#{Regex.escape(href)}"/,
+               html
+             ),
+             "missing #{id} -> #{href}"
+    end
+
+    {recent, _} = :binary.match(html, "Recent Blocks")
+    {beta, _} = :binary.match(html, ~s(id="beta-features"))
+    assert beta > recent, "beta features should sit below the recent blocks"
   end
 
   test "the applications page describes on-chain apps", %{conn: conn} do
