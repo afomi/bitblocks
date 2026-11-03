@@ -1,0 +1,127 @@
+#!/usr/bin/env bash
+# Run bitcoin-cli on our SV node over SSH, from your own machine.
+#
+#   scripts/bsvnode info              chain, network and sync summary vs. the public tip
+#   scripts/bsvnode diagnose          why is it behind? tips, peers, bans, recent log errors
+#   scripts/bsvnode cli <args...>     any bitcoin-cli call, e.g. `cli getblockhash 957301`
+#   scripts/bsvnode logs [n]          last n node log lines (default 200)
+#
+# Settings (environment, or ~/.bsvnode.env on this machine):
+#   BSV_SSH_HOST    required: the host you normally ssh into (alias or user@host)
+#   BSV_CONTAINER   the node's container name; found automatically when unset
+#   BSV_CLI_ARGS    extra bitcoin-cli flags, e.g. -datadir=/data
+#
+# Read-only: info and diagnose only call read RPCs. `cli` passes through whatever you give it.
+
+set -euo pipefail
+
+[ -f "$HOME/.bsvnode.env" ] && source "$HOME/.bsvnode.env"
+
+case "${1:-}" in info|diagnose|cli|logs) : "${BSV_SSH_HOST:?set BSV_SSH_HOST to the host you ssh into (in your shell or ~/.bsvnode.env)}" ;; esac
+
+die() { echo "bsvnode: $*" >&2; exit 1; }
+
+remote() { ssh -o BatchMode=yes -o ConnectTimeout=10 "$BSV_SSH_HOST" "$@"; }
+
+container() {
+  if [ -z "${BSV_CONTAINER:-}" ]; then
+    BSV_CONTAINER=$(remote "docker ps --format '{{.Names}} {{.Image}}'" |
+      grep -iE 'bsv|bitcoin|svnode|sv-node' | head -1 | cut -d' ' -f1 || true)
+    [ -n "$BSV_CONTAINER" ] || die "no running node container found on $BSV_SSH_HOST; set BSV_CONTAINER (docker ps shows the name)"
+  fi
+  echo "$BSV_CONTAINER"
+}
+
+cli() {
+  local c
+  c=$(container)
+  remote "docker exec $c bitcoin-cli ${BSV_CLI_ARGS:-} $(printf '%q ' "$@")"
+}
+
+public_tip() {
+  curl -s -m 15 https://api.whatsonchain.com/v1/bsv/main/chain/info |
+    python3 -c 'import sys,json; print(json.load(sys.stdin)["blocks"])' 2>/dev/null || echo ""
+}
+
+info() {
+  local chain net tip
+  chain=$(cli getblockchaininfo) || die "getblockchaininfo failed"
+  net=$(cli getnetworkinfo) || die "getnetworkinfo failed"
+  tip=$(public_tip)
+  CHAIN="$chain" NET="$net" TIP="$tip" python3 - <<'EOF'
+import json, os
+c = json.loads(os.environ["CHAIN"]); n = json.loads(os.environ["NET"])
+tip = int(os.environ["TIP"]) if os.environ["TIP"] else None
+print(f"node        {n.get('subversion')}  (version {n.get('version')})")
+print(f"chain       {c.get('chain')}   pruned: {c.get('pruned')}")
+print(f"peers       {n.get('connections')}")
+print(f"blocks      {c['blocks']:,}   (verified)")
+print(f"headers     {c['headers']:,}   (known)")
+if tip:
+    print(f"public tip  {tip:,}   (WhatsOnChain)")
+    print(f"behind      blocks {tip - c['blocks']:,}   headers {tip - c['headers']:,}")
+print(f"progress    {c.get('verificationprogress', 0) * 100:.4f}%")
+w = (c.get("warnings") or "") + " " + (n.get("warnings") or "")
+if w.strip():
+    print(f"warnings    {w.strip()}")
+if tip and tip - c["headers"] > 6:
+    print("\n! headers are behind the public tip: peers aren't giving us the new chain. Run `scripts/bsvnode diagnose`.")
+elif c["headers"] - c["blocks"] > 6:
+    print("\nHeaders are current; the node is still verifying blocks. Give it time.")
+EOF
+}
+
+diagnose() {
+  info
+  echo
+  echo "== chain tips (anything not 'active' above our blocks matters) =="
+  TIPS=$(cli getchaintips) python3 - <<'EOF'
+import json, os
+tips = sorted(json.loads(os.environ["TIPS"]), key=lambda t: -t["height"])
+for t in tips[:10]:
+    print(f"  {t['height']:>9,}  {t['status']:<14} branchlen {t.get('branchlen', 0):<6} {t['hash']}")
+bad = [t for t in tips if t["status"] in ("invalid",)]
+if bad:
+    print(f"\n! {len(bad)} invalid tip(s). The node rejected a chain; check the version against the current SV Node release and the log below.")
+EOF
+  echo
+  echo "== peers =="
+  PEERS=$(cli getpeerinfo) python3 - <<'EOF'
+import json, os, collections
+peers = json.loads(os.environ["PEERS"])
+if not peers:
+    print("  ! no peers connected")
+for p in peers:
+    print(f"  {p.get('addr',''):<28} {p.get('subver',''):<28} start {p.get('startingheight',0):>9,}  headers {p.get('synced_headers',-1):>9,}  blocks {p.get('synced_blocks',-1):>9,}  {'in' if p.get('inbound') else 'out'}")
+heights = [p.get("startingheight", 0) for p in peers]
+if heights:
+    print(f"\n  peers' best starting height: {max(heights):,}")
+print("  versions: " + ", ".join(f"{v} x{n}" for v, n in collections.Counter(p.get('subver','') for p in peers).most_common()))
+EOF
+  echo
+  echo "== bans =="
+  cli listbanned | python3 -c 'import sys,json; b=json.load(sys.stdin); print(f"  {len(b)} banned"); [print("  ", x.get("address"), x.get("ban_reason","")) for x in b[:10]]'
+  echo
+  echo "== recent log lines about rejects, invalid blocks, errors =="
+  logs 3000 | grep -iE 'invalid|reject|error|ban|misbehav|stall|disconnect|ERROR' | tail -40 || echo "  (none matched)"
+}
+
+logs() {
+  local c
+  c=$(container)
+  local out
+  out=$(remote "docker logs --tail ${1:-200} $c 2>&1")
+  # Some images write to debug.log in the data dir instead of stdout.
+  if [ "$(printf '%s' "$out" | wc -l)" -lt 5 ]; then
+    out=$(remote "docker exec $c sh -c 'f=\$(find / -name debug.log -path \"*bitcoin*\" 2>/dev/null | head -1); [ -n \"\$f\" ] && tail -n ${1:-200} \"\$f\"'" || true)
+  fi
+  printf '%s\n' "$out"
+}
+
+case "${1:-}" in
+  info) info ;;
+  diagnose) diagnose ;;
+  cli) shift; cli "$@" ;;
+  logs) shift; logs "${1:-200}" ;;
+  *) sed -n '2,15p' "$0"; exit 1 ;;
+esac

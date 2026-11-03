@@ -12,6 +12,7 @@ Docs marked *(mixed)* are mostly aspirational but contain sections that accurate
 - `SYSTEM_ARCHITECTURE.md` — background services, job queues, and async work that keep the index in sync.
 - `SYNCING.md` — single source of truth for how Bitblocks syncs the chain (code-authoritative).
 - `SYNC_PIPELINE.md` — process map of the running sync pipeline.
+- `NODE_OPERATIONS.md` — operator runbook for our Dockerized SV node: config, clean shutdown, disk, health check, upgrades.
 - `PERFORMANCE.md` — RPC- and HTTP-layer optimizations under the sync jobs.
 - `MEMORY_OPTIMIZATION.md` — diagnosing and fixing BEAM memory pressure in the running app.
 - `LARGE_BLOCKS.md` — handling multi-million-tx blocks and hundreds-of-MB RPC responses.
