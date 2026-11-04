@@ -43,6 +43,7 @@ defmodule BitblocksWeb.BlockSyncCardComponent do
       |> assign(:pct_downloading, pct_downloading)
       |> assign(:batch_size, @batch_size)
       |> assign(:syncing?, syncing?)
+      |> assign(:elapsed_minutes, elapsed_minutes(assigns.block[:tx_sync_started_at]))
 
     ~H"""
     <div class="bg-white dark:bg-gray-800 shadow-md rounded-lg p-5 border border-gray-200 dark:border-gray-700">
@@ -78,6 +79,14 @@ defmodule BitblocksWeb.BlockSyncCardComponent do
           transaction IDs
         </div>
       </div>
+
+      <p
+        :if={@elapsed_minutes}
+        id={"block-sync-#{@block.height}-elapsed"}
+        class="mb-3 text-xs text-gray-600 dark:text-gray-300"
+      >
+        Started {@elapsed_minutes} min ago.
+      </p>
 
       <%!-- Info row: batch size + created count --%>
       <div class="flex items-center justify-between mb-3 text-xs text-gray-500 dark:text-gray-400">
@@ -132,6 +141,12 @@ defmodule BitblocksWeb.BlockSyncCardComponent do
     </div>
     """
   end
+
+  # When this block's fetch began (its first move to txs_syncing).
+  defp elapsed_minutes(%DateTime{} = at),
+    do: max(div(DateTime.diff(DateTime.utc_now(), at), 60), 0)
+
+  defp elapsed_minutes(_), do: nil
 
   defp format_number(number) when is_integer(number) do
     number

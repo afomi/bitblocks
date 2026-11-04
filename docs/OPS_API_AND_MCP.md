@@ -184,6 +184,11 @@ It reads cached state only: the /syncing snapshot, the node info cache and our n
 
 A node catching up, with its headers far ahead of its blocks, is not a stall on our side while blocks keep completing.
 
+`sync_paused` (with `index.paused: true`) means an admin paused the loop on /sync (docs/SYNCING.md); it replaces `index_stalled` and sends no email.
+`index.failed` counts blocks in `failed`, each retrying; nothing is parked.
+
+/sync and /status lead with the same answer in one paragraph (`BitblocksWeb.HealthLine`), so the pages, this endpoint and the alert emails agree.
+
 ---
 
 ## Order of work

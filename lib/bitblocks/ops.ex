@@ -29,7 +29,8 @@ defmodule Bitblocks.Ops do
   @doc """
   Health from given facts (for tests): `%{node: blockchain_info | {:error, _},
   overview: SyncProgress overview, latest_block_at: DateTime | nil,
-  last_completed_at: DateTime | nil, blocks_in_progress: integer, now:}`.
+  last_completed_at: DateTime | nil, blocks_in_progress: integer,
+  paused: boolean, now:}`.
 
   `latest_block_at` is when our newest header row landed,
   `last_completed_at` when the newest block reached `completed`, and
@@ -50,9 +51,14 @@ defmodule Bitblocks.Ops do
     completed_at = facts[:last_completed_at]
 
     index_behind = diff(node_blocks, our_tip)
+    paused = facts[:paused] == true
 
     stalled =
       cond do
+        # An operator's pause (Sync.paused?/0) is not a stall.
+        paused ->
+          nil
+
         is_integer(index_behind) and index_behind > @stall_blocks and idle?(latest_at, now) ->
           "headers"
 
@@ -69,7 +75,8 @@ defmodule Bitblocks.Ops do
         [
           match?({:unreachable, _}, node_state) && "node_unreachable",
           match?({:warming_up, _}, node_state) && "node_warming_up",
-          stalled && "index_stalled"
+          stalled && "index_stalled",
+          paused && "sync_paused"
         ],
         &(&1 in [false, nil])
       )
@@ -83,7 +90,9 @@ defmodule Bitblocks.Ops do
         complete_through: through,
         latest_block_at: iso(latest_at),
         last_completed_at: iso(completed_at),
-        stalled: stalled
+        stalled: stalled,
+        paused: paused,
+        failed: failed(overview[:states])
       },
       node: %{
         state: node_state_name(node_state),
@@ -106,6 +115,13 @@ defmodule Bitblocks.Ops do
   # (Notifications.sync_stall_alert/3) and counts as a stall here.
   defp idle?(nil, _now), do: false
   defp idle?(at, now), do: DateTime.diff(now, at) > @stall_seconds
+
+  # Blocks in `failed` (retrying; nothing is parked), from the snapshot's
+  # per-state counts. nil before the first count.
+  defp failed(states) when is_list(states),
+    do: Enum.find_value(states, 0, fn {s, n} -> s == "failed" && n end)
+
+  defp failed(_), do: nil
 
   defp iso(nil), do: nil
   defp iso(at), do: DateTime.to_iso8601(at)
@@ -243,6 +259,7 @@ defmodule Bitblocks.Ops do
       latest_block_at: latest_block_at(),
       last_completed_at: last_completed_at(snapshot.recent),
       blocks_in_progress: blocks_in_progress(snapshot.sync),
+      paused: safe(&Bitblocks.Sync.paused?/0) == true,
       now: DateTime.utc_now() |> DateTime.truncate(:second)
     }
   end

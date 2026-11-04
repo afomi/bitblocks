@@ -152,6 +152,21 @@ defmodule Bitblocks.OpsTest do
       refute "index_stalled" in h.problems
     end
 
+    test "a paused sync is not a stall: it says paused, and emails nothing" do
+      Ops.reset_alerts()
+
+      h =
+        Ops.health(
+          catching_up(%{last_completed_at: DateTime.add(@now, -7200, :second), paused: true})
+        )
+
+      assert h.problems == ["sync_paused"]
+      assert h.status == "degraded"
+      assert h.index.paused == true
+      assert h.index.stalled == nil
+      assert Ops.alert(h) == []
+    end
+
     test "a node loading its block index says so, with no lag it can't know" do
       h =
         Ops.health(

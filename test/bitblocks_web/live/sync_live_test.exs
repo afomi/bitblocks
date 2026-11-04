@@ -76,6 +76,75 @@ defmodule BitblocksWeb.SyncLiveTest do
     end
   end
 
+  # #44: the page says what the loop and the buttons actually do.
+  describe "matches what it does" do
+    test "leads with the health sentence", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/sync")
+      assert has_element?(view, "#sync-health")
+    end
+
+    test "the failed count opens the failed heights, with their error", %{conn: conn} do
+      block_fixture(%{
+        height: 810_010,
+        sync_state: "failed",
+        tx_sync_attempts: 3,
+        tx_sync_error: "merkle mismatch"
+      })
+
+      {:ok, view, _html} = live(conn, ~p"/sync")
+
+      assert has_element?(view, "#sync-failed-blocks a[href='/blocks/810010']")
+      assert has_element?(view, "#sync-failed-blocks", "merkle mismatch")
+      assert has_element?(view, "#sync-failed-blocks", "3 in a row")
+    end
+
+    test "the audit's confirm says it scans transactions", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/sync")
+      assert has_element?(view, "button[data-confirm*='scans the whole transactions table']")
+    end
+
+    test "a block being fetched shows how long it has been working", %{conn: conn} do
+      block_fixture(%{
+        height: 810_011,
+        num_tx: 10,
+        sync_state: "txs_syncing",
+        tx_sync_started_at: DateTime.add(DateTime.utc_now(), -300, :second)
+      })
+
+      {:ok, view, _html} = live(conn, ~p"/sync")
+      assert has_element?(view, "#block-sync-810011-elapsed", "Started 5 min ago")
+    end
+
+    test "pause stops new dispatch and says so; resume starts it again", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/sync")
+      assert has_element?(view, "#sync-pause-state", "Running")
+
+      view |> element("#sync-pause button", "Pause the sync") |> render_click()
+
+      assert Bitblocks.Sync.paused?()
+      assert has_element?(view, "#sync-pause-state", "Paused")
+      assert has_element?(view, "#sync-pause-state", "No new blocks are dispatched")
+
+      view |> element("#sync-pause button", "Resume the sync") |> render_click()
+
+      refute Bitblocks.Sync.paused?()
+      assert has_element?(view, "#sync-pause-state", "Running")
+    end
+
+    test "cancelling header range jobs cancels them, the executing one included", %{conn: conn} do
+      {:ok, job} =
+        %{"mode" => "range", "from" => 0, "to" => 10}
+        |> Bitblocks.Workers.SyncHeadersWorker.new()
+        |> Oban.insert()
+
+      {:ok, view, _html} = live(conn, ~p"/sync")
+      view |> element("button", "Cancel header range jobs") |> render_click()
+
+      assert Repo.reload!(job).state == "cancelled"
+      refute render(view) =~ "Cancel All Jobs"
+    end
+  end
+
   describe "worker slots" do
     test "an admin's choice is clamped to the limit, named, and applied", %{conn: conn} do
       Application.put_env(:bitblocks, :sync_rpc_limit, 2)
