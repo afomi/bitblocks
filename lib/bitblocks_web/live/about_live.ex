@@ -193,7 +193,7 @@ defmodule BitblocksWeb.AboutLive do
                   <span class="text-sm text-neutral-400 group-hover:text-neutral-50 transition-colors duration-150">
                     Bitblocks on GitHub
                   </span>
-                  <span class="text-neutral-700 group-hover:text-brand transition-colors duration-150">
+                  <span class="text-neutral-700 group-hover:text-brand-strong dark:group-hover:text-brand transition-colors duration-150">
                     →
                   </span>
                 </a>
@@ -206,7 +206,7 @@ defmodule BitblocksWeb.AboutLive do
                   <span class="text-sm text-neutral-400 group-hover:text-neutral-50 transition-colors duration-150">
                     Bitcoin SV Wiki
                   </span>
-                  <span class="text-neutral-700 group-hover:text-brand transition-colors duration-150">
+                  <span class="text-neutral-700 group-hover:text-brand-strong dark:group-hover:text-brand transition-colors duration-150">
                     →
                   </span>
                 </a>

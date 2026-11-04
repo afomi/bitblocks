@@ -15,7 +15,14 @@ module.exports = {
   theme: {
     extend: {
       colors: {
-        brand: "#FD4F00",
+        // #FD4F00 is the brand accent (logo, marks, borders). Text and filled
+        // buttons use brand-strong in light mode: white on it is 5.3:1, and
+        // it reads 5.1:1 on gray-50 (#16). On dark surfaces the accent itself
+        // passes as text (5.3:1 on gray-900).
+        brand: {
+          DEFAULT: "#FD4F00",
+          strong: "#C23C00",
+        },
         surface: {
           base: "var(--surface-base)",
           raised: "var(--surface-raised)",

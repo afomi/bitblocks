@@ -69,7 +69,7 @@ defmodule BitblocksWeb.RecentBlocksComponent do
       </div>
       <a
         href="/blocks"
-        class="block mt-4 font-mono text-xs text-neutral-500 hover:text-brand transition-colors duration-150"
+        class="block mt-4 font-mono text-xs text-neutral-500 hover:text-brand-strong dark:hover:text-brand transition-colors duration-150"
       >
         View all blocks →
       </a>

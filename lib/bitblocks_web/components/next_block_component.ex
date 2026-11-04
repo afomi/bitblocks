@@ -17,7 +17,7 @@ defmodule BitblocksWeb.NextBlockComponent do
     <div class="border border-dashed border-neutral-700 rounded py-4 px-5 mb-2">
       <div class="flex items-center justify-between">
         <div class="flex items-center gap-3">
-          <span class="w-2 h-2 rounded-full bg-brand animate-pulse"></span>
+          <span class="w-2 h-2 rounded-full bg-brand-strong animate-pulse"></span>
           <span class="font-mono text-sm text-neutral-50 tabular-nums">
             {@next_height}
           </span>

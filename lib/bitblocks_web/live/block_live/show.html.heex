@@ -71,7 +71,7 @@
             "px-4 py-2 rounded text-sm font-medium transition-colors",
             if(@downloading || @transactions_downloaded,
               do: "bg-surface-raised text-neutral-500 border border-neutral-800 cursor-not-allowed",
-              else: "bg-brand text-white hover:opacity-90"
+              else: "bg-brand-strong text-white hover:opacity-90"
             )
           ]}
           disabled={@downloading || @transactions_downloaded}
@@ -99,7 +99,7 @@
               cond do
                 @block.sync_state == "failed" && idx == current_idx -> "bg-red-500"
                 idx < current_idx -> "bg-green-500"
-                idx == current_idx -> "bg-brand"
+                idx == current_idx -> "bg-brand-strong"
                 true -> "bg-neutral-800"
               end
             ]}>
@@ -190,7 +190,7 @@
               <% blocks_away = next - @block.height %>
               <.link
                 navigate={~p"/blocks/#{next}"}
-                class="hover:text-brand transition-colors"
+                class="hover:text-brand-strong dark:hover:text-brand transition-colors"
               >
                 <%= next %>
               </.link>
@@ -220,7 +220,7 @@
             <span class="font-mono text-xs text-neutral-500 block mb-1">Previous Block</span>
             <.link
               navigate={~p"/blocks/#{@block.height - 1}"}
-              class="font-mono text-xs text-neutral-400 hover:text-brand transition-colors duration-150 break-all"
+              class="font-mono text-xs text-neutral-400 hover:text-brand-strong dark:hover:text-brand transition-colors duration-150 break-all"
             >
               <%= @block.prevblockhash %>
             </.link>
@@ -229,7 +229,7 @@
             <span class="font-mono text-xs text-neutral-500 block mb-1">Next Block</span>
             <.link
               navigate={~p"/blocks/#{@block.height + 1}"}
-              class="font-mono text-xs text-neutral-400 hover:text-brand transition-colors duration-150 break-all"
+              class="font-mono text-xs text-neutral-400 hover:text-brand-strong dark:hover:text-brand transition-colors duration-150 break-all"
             >
               <%= if @block.nextblockhash && @block.nextblockhash != "",
                 do: @block.nextblockhash,
@@ -256,7 +256,7 @@
             <%= for txid <- @txids do %>
               <.link
                 navigate={~p"/transactions/#{txid}"}
-                class="block py-2 border-b border-neutral-800 font-mono text-xs text-neutral-400 hover:text-brand transition-colors duration-150 break-all"
+                class="block py-2 border-b border-neutral-800 font-mono text-xs text-neutral-400 hover:text-brand-strong dark:hover:text-brand transition-colors duration-150 break-all"
               >
                 <%= txid %>
               </.link>

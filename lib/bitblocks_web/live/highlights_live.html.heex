@@ -18,7 +18,7 @@
           href="https://github.com/afomi/bitblocks/blob/main/CONTRIBUTING.md"
           target="_blank"
           rel="noopener noreferrer"
-          class="text-brand hover:opacity-80"
+          class="text-brand-strong dark:text-brand hover:opacity-80"
         >
           Submit a PR
         </a>
@@ -29,7 +29,7 @@
     <%!-- Category Filter --%>
     <section class="border-b border-neutral-800 py-6">
       <div class="flex gap-3 overflow-x-auto">
-        <span class="text-[10px] font-mono font-medium px-2 py-0.5 bg-brand text-white rounded">
+        <span class="text-[10px] font-mono font-medium px-2 py-0.5 bg-brand-strong text-white rounded">
           ALL
         </span>
         <span class="text-[10px] font-mono font-medium px-2 py-0.5 bg-neutral-600 text-white rounded cursor-pointer hover:bg-neutral-500 transition-colors">
@@ -79,7 +79,7 @@
                 <span class="font-mono text-xs text-neutral-500">Block</span>
                 <.link
                   navigate={~p"/blocks/#{highlight.block_height}"}
-                  class="ml-2 font-mono text-xs text-neutral-400 hover:text-brand transition-colors duration-150"
+                  class="ml-2 font-mono text-xs text-neutral-400 hover:text-brand-strong dark:hover:text-brand transition-colors duration-150"
                 >
                   <%= highlight.block_height %>
                 </.link>
@@ -91,7 +91,7 @@
                 <span class="font-mono text-xs text-neutral-500">TX</span>
                 <.link
                   navigate={~p"/transactions/#{highlight.txid}"}
-                  class="ml-2 font-mono text-xs text-neutral-400 hover:text-brand transition-colors duration-150"
+                  class="ml-2 font-mono text-xs text-neutral-400 hover:text-brand-strong dark:hover:text-brand transition-colors duration-150"
                 >
                   <%= String.slice(highlight.txid, 0, 16) %>...
                 </.link>
@@ -133,21 +133,21 @@
 
       <div class="border-t border-neutral-800">
         <div class="py-4 border-b border-neutral-800">
-          <span class="text-brand font-mono text-sm">01</span>
+          <span class="text-brand-strong dark:text-brand font-mono text-sm">01</span>
           <p class="text-sm text-neutral-400 mt-2">
             Fork the
             <a
               href="https://github.com/afomi/bitblocks"
               target="_blank"
               rel="noopener noreferrer"
-              class="text-brand hover:opacity-80"
+              class="text-brand-strong dark:text-brand hover:opacity-80"
             >
               Bitblocks repository
             </a>
           </p>
         </div>
         <div class="py-4 border-b border-neutral-800">
-          <span class="text-brand font-mono text-sm">02</span>
+          <span class="text-brand-strong dark:text-brand font-mono text-sm">02</span>
           <p class="text-sm text-neutral-400 mt-2">
             Edit
             <code class="text-xs font-mono bg-surface-raised px-1.5 py-0.5 rounded">
@@ -156,7 +156,7 @@
           </p>
         </div>
         <div class="py-4 border-b border-neutral-800">
-          <span class="text-brand font-mono text-sm">03</span>
+          <span class="text-brand-strong dark:text-brand font-mono text-sm">03</span>
           <p class="text-sm text-neutral-400 mt-2">
             Add your highlight to the
             <code class="text-xs font-mono bg-surface-raised px-1.5 py-0.5 rounded">
@@ -166,7 +166,7 @@
           </p>
         </div>
         <div class="py-4 border-b border-neutral-800">
-          <span class="text-brand font-mono text-sm">04</span>
+          <span class="text-brand-strong dark:text-brand font-mono text-sm">04</span>
           <p class="text-sm text-neutral-400 mt-2">
             Submit a pull request with your story
           </p>
