@@ -623,7 +623,9 @@ defmodule Bitblocks.Release do
     import Ecto.Query
 
     total_blocks = Repo.aggregate(Block, :count, :id)
-    total_txs = Repo.aggregate(Chain.Transaction, :count, :id)
+    # An exact count over ~10M rows outruns the pool's query timeout on prod
+    # (2026-11-04). The planner's estimate is instant and close enough here.
+    total_txs = estimated_row_count("transactions")
     latest = Chain.get_latest_block()
     tip = if latest, do: latest.height, else: 0
 
@@ -651,7 +653,7 @@ defmodule Bitblocks.Release do
     IO.puts("  Blocks completed:   #{completed}/#{total_blocks} (txs fully synced)")
     IO.puts("  Blocks remaining:   #{total_blocks - completed}")
     IO.puts("  Lowest incomplete:  #{lowest_incomplete || "none — all done!"}")
-    IO.puts("  Transactions in DB: #{total_txs}")
+    IO.puts("  Transactions in DB: ~#{total_txs} (estimate)")
 
     audit =
       if Keyword.get(opts, :audit, false) do
@@ -1238,5 +1240,14 @@ defmodule Bitblocks.Release do
     rescue
       _ -> "unknown"
     end
+  end
+
+  # Postgres's row estimate for a table (pg_class.reltuples, refreshed by
+  # ANALYZE). -1 means never analyzed; report 0 then.
+  defp estimated_row_count(table) do
+    %{rows: [[n]]} =
+      Bitblocks.Repo.query!("SELECT reltuples::bigint FROM pg_class WHERE relname = $1", [table])
+
+    max(n, 0)
   end
 end

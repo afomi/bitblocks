@@ -2,14 +2,19 @@ defmodule BitblocksWeb.Utils.IpHelper do
   @moduledoc """
   Utilities for extracting and working with IP addresses from connections.
 
-  Handles both direct connections and proxied connections (e.g., via Fly.io).
+  Handles both direct connections and connections through the AWS ALB.
   """
 
   @doc """
   Extracts the client IP address from a connection.
 
-  Checks the X-Forwarded-For header first (for proxied connections like Fly.io),
-  then falls back to the remote_ip from the connection.
+  Behind the AWS ALB (`xff_header_processing.mode = append`, no CloudFront in
+  the app's path), the load balancer appends the address it saw as the LAST
+  X-Forwarded-For entry. Earlier entries are whatever the client sent, so only
+  the last one can be trusted for rate limits and bans. If a proxy is ever put
+  in front of the ALB, its entry becomes last and this must change.
+
+  Falls back to the socket's remote_ip when there is no header.
 
   ## Examples
 
@@ -21,15 +26,18 @@ defmodule BitblocksWeb.Utils.IpHelper do
 
   """
   def get_ip_address(conn) do
-    forwarded = get_header(conn, "x-forwarded-for")
+    case Plug.Conn.get_req_header(conn, "x-forwarded-for") do
+      [] ->
+        format_remote_ip(conn.remote_ip)
 
-    if forwarded && forwarded != "" do
-      forwarded
-      |> String.split(",")
-      |> List.first()
-      |> String.trim()
-    else
-      format_remote_ip(conn.remote_ip)
+      values ->
+        values
+        |> Enum.join(",")
+        |> String.split(",")
+        |> Enum.map(&String.trim/1)
+        |> Enum.reject(&(&1 == ""))
+        |> List.last()
+        |> Kernel.||(format_remote_ip(conn.remote_ip))
     end
   end
 

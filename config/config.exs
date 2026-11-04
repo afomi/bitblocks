@@ -123,12 +123,17 @@ config :phoenix, :json_library, Jason
 # Configure Oban for background job processing
 config :bitblocks, Oban,
   repo: Bitblocks.Repo,
+  # On SIGTERM (a deploy), give running jobs a minute to finish before the
+  # node exits. .github/scripts/deploy.sh stops the container with a longer
+  # timeout, so Docker doesn't SIGKILL inside this window.
+  shutdown_grace_period: :timer.seconds(60),
   plugins: [
     Oban.Plugins.Pruner,
-    # A deploy stops nodes mid-job; Oban's shutdown grace is short, and a job
-    # left `executing` is never picked up again without this. Collection trace
-    # batches are small (10 items) so none legitimately runs this long.
-    {Oban.Plugins.Lifeline, rescue_after: :timer.minutes(60)},
+    # A job that outlives the grace period is left `executing` by its dead
+    # node, and only Lifeline puts it back. 2026-11-04: a deploy mid-sync parked
+    # two collection trace batches for the old 60 minutes. The longest real
+    # batch seen ran over 13 minutes, so 30 keeps a margin.
+    {Oban.Plugins.Lifeline, rescue_after: :timer.minutes(30)},
     {Oban.Plugins.Cron,
      crontab: [
        {"* * * * *", Bitblocks.Workers.SyncHeadersWorker, args: %{"mode" => "tip"}},

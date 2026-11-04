@@ -16,7 +16,9 @@ aws ecr get-login-password --region us-east-1 | docker login --username AWS --pa
 docker pull "$IMAGE"
 
 # Restart container
-docker stop bitblocks 2>/dev/null || true
+# Longer than Oban's shutdown_grace_period (60 s, config/config.exs), so
+# running jobs can finish before Docker sends SIGKILL.
+docker stop -t 90 bitblocks 2>/dev/null || true
 docker rm bitblocks 2>/dev/null || true
 INSTANCE_ID=$(ec2-metadata -i | cut -d' ' -f2)
 PRIVATE_IP=$(curl -s http://169.254.169.254/latest/meta-data/local-ipv4)
