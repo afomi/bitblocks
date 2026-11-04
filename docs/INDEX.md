@@ -28,6 +28,7 @@ Docs marked *(mixed)* are mostly aspirational but contain sections that accurate
 - `BSV20_TOKENS.md` — the implemented BSV-20/BSV-21 token indexer (read side of the DEX).
 - `BITCOM.md` — the live Bitcom registry: command log, tiers, `/bitcom` pages, JSON export.
 - `CHAIN_SCRUBBER.md` — the admin three.js chain scrubber (#48): tile pyramid, rollup rules, measured budget, rest read, loss annotations, ops commands.
+- `TX_STORAGE.md` — proposal: every tx in the CDN packed by block, metadata for every tx in Postgres, raw bytes in the row only up to a size threshold.
 - `TX_FLOW.md` — the admin transaction flow space (`/tx-graph`): fixed placement, the playhead, the flow payload; and chain annotations (`/annotations`, `/api/v1/annotations`).
 - `DONATION_ADDRESS.md` — bitblocks' BSV donation address: derivation (wallet, new hardened account), xpub verification, spending rules.
 - `ORDER_BOOK_PROTOCOL.md` — the Open Order Book protocol spec and its implemented indexing/query surface.
