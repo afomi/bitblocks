@@ -224,8 +224,8 @@
         "kind": "template",
         "vector": "ordlock_listing",
         "template_hashes": [
-          "515d5c67348414fd7f16182ad510e4a2010c659b5b92020b2ba26c73d1318e7f",
-          "f53f98ec68a232c69c0bd4aff530807f4bb4c5d48890149fc93ecccd32302875"
+          "f53f98ec68a232c69c0bd4aff530807f4bb4c5d48890149fc93ecccd32302875",
+          "515d5c67348414fd7f16182ad510e4a2010c659b5b92020b2ba26c73d1318e7f"
         ]
       }
     },
@@ -633,8 +633,8 @@
         "kind": "template",
         "vector": "unknown_op_true",
         "template_hashes": [
-          "a50d721c4c96b8ba82756e868513bea40160267af3e96fb80b214cdc0a5ce04c",
-          "df289db2dd16ed83ae5ab3d2aa71c254df1c2a18ef7a945f8dcc45173ebc60b8"
+          "df289db2dd16ed83ae5ab3d2aa71c254df1c2a18ef7a945f8dcc45173ebc60b8",
+          "a50d721c4c96b8ba82756e868513bea40160267af3e96fb80b214cdc0a5ce04c"
         ]
       }
     },

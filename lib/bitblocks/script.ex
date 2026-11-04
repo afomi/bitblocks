@@ -132,16 +132,42 @@ defmodule Bitblocks.Script do
   on `script_analysis_version`, and golden vectors in `script_test.exs` fail if
   a BSV library upgrade changes opcode naming. Small-int opcodes (`OP_1`…)
   are structure, not `PUSH`.
+
+  Each opcode is named by its byte (`opcode_name/1`), so a byte with two
+  names in the BSV library hashes the same whichever name the decoder
+  picked (afomi/bitblocks#49).
   """
   def template_hash(%Script{} = script) do
     script.chunks
     |> Enum.map_join(" ", fn
       chunk when is_binary(chunk) -> "PUSH"
-      opcode when is_atom(opcode) -> Atom.to_string(opcode)
+      opcode when is_atom(opcode) -> opcode_name(opcode)
     end)
     |> then(&:crypto.hash(:sha256, &1))
     |> Base.encode16(case: :lower)
   end
+
+  # Bytes with two names in `BSV.OpCode`. `BSV.OpCode.to_atom/1` picks one by
+  # map iteration order, which differs between boots, so the template hash
+  # names these by the byte: OP_FALSE (the library pins byte 0 to it), OP_1
+  # (a small int, like OP_2…OP_16), and OP_NOP2 and OP_NOP3 (what bytes 177
+  # and 178 do on BSV since Genesis).
+  @canonical_names %{
+    OP_0: "OP_FALSE",
+    OP_TRUE: "OP_1",
+    OP_CHECKLOCKTIMEVERIFY: "OP_NOP2",
+    OP_CHECKSEQUENCEVERIFY: "OP_NOP3"
+  }
+
+  @doc """
+  The one name `template_hash/1` gives an opcode: its own, except for the
+  four bytes with two names (`OP_0`/`OP_FALSE` is `OP_FALSE`, `OP_TRUE`/`OP_1`
+  is `OP_1`, `OP_CHECKLOCKTIMEVERIFY`/`OP_NOP2` is `OP_NOP2`,
+  `OP_CHECKSEQUENCEVERIFY`/`OP_NOP3` is `OP_NOP3`).
+  """
+  @spec opcode_name(atom()) :: String.t()
+  def opcode_name(opcode) when is_atom(opcode),
+    do: Map.get_lazy(@canonical_names, opcode, fn -> Atom.to_string(opcode) end)
 
   @doc """
   True when the chunk list forms a valid bare m-of-n multisig script.

@@ -20,7 +20,7 @@ Better code gives better answers, so derived data can change while the chain doe
 
 So every derived value carries its provenance: what computed it, at which version, and when.
 That is what lets a research claim stand up.
-"Type X first appeared at block H" is only reproducible as "first seen at block H, computed by script analysis v6, over blocks verified complete through H".
+"Type X first appeared at block H" is only reproducible as "first seen at block H, computed by script analysis v7, over blocks verified complete through H".
 A reader can then check the claim, rerun it, or see that a later version changes it.
 
 ## Versions
@@ -37,7 +37,7 @@ Removing a step would lower it, so a removal also bumps a remaining step of the 
 
 | Step | Stage | Version | Derivation | Writes |
 | --- | --- | --- | --- | --- |
-| `script_analysis` | chunk | 6 | `script_analysis` | `output_types`, `protocols`, `coinbase`, `output_script_hashes`, `output_template_hashes`, `aip_signers` |
+| `script_analysis` | chunk | 7 | `script_analysis` | `output_types`, `protocols`, `coinbase`, `output_script_hashes`, `output_template_hashes`, `aip_signers` |
 | `sats_out` | chunk | 1 | `tallies` | `total_output_satoshis` |
 | `burned` | chunk | 1 | `tallies` | `burned_satoshis` |
 | `sats_in` | chunk | 1 | `tallies` | `total_input_satoshis` |
@@ -48,16 +48,20 @@ Removing a step would lower it, so a removal also bumps a remaining step of the 
 | `block_totals` | block | 1 | `block_totals` | `blocks.sats_out`, `fees`, `miner_reward`, `subsidy`, `burned`, `fees_verified` |
 
 The `script_analysis` step's version is `TransactionParser.script_analysis_version/0`: one number, kept beside the analyzer it versions.
+v7 (#49) names each opcode byte once in `output_template_hashes` (`Bitblocks.Script.opcode_name/1`: `OP_1`, `OP_NOP2`, `OP_NOP3`).
+Before it, a shape holding byte 81, 177 or 178 got whichever name `BSV.OpCode` picked at boot, so one shape could carry two hashes.
+On the dev DB, 1,186 of 7,641 decodable txs hold such a shape (13 shapes), and 65 of them were stamped with a hash v7 no longer produces.
+Until the v7 backfill has run, `TxTypes.template_hash_variants/1` still matches both names.
 
 ### Derivations
 
 | Derivation | Steps | Version | Stamped in | Backfill |
 | --- | --- | --- | --- | --- |
-| `script_analysis` | `script_analysis` | 6 | `transactions.script_analysis_version` | `Release.backfill_script_analysis/3` |
+| `script_analysis` | `script_analysis` | 7 | `transactions.script_analysis_version` | `Release.backfill_script_analysis/3` |
 | `tallies` | `sats_out`, `burned`, `sats_in`, `fee` | 4 | `transactions.tallies_version` | `Release.backfill_tx_tallies/3` |
 | `block_totals` | `block_totals` | 1 | `blocks.tallies_version` | `Release.backfill_tx_tallies/3` |
 
-Stage versions today: chunk 10, tx 4, block 1.
+Stage versions today: chunk 11, tx 4, block 1.
 `GET /api/v1/status/derivations` answers all of these live.
 
 ### Where the stamps are written
@@ -74,7 +78,7 @@ A row with a nil stamp (computed before versions existed, or not computed) or an
 A tx's tallies date is the row's `updated_at`: set when it was stored, and when the tallies backfill stamps it.
 The script analysis backfill never sets `updated_at`.
 Moving a tx off an orphaned block after a reorg also sets it (#34), so read the date as "computed on or before".
-The tx page shows "Tallies v4 · computed 2026-11-05 · Script analysis v6"; the block page shows "Totals v1".
+The tx page shows "Tallies v4 · computed 2026-11-05 · Script analysis v7"; the block page shows "Totals v1".
 
 A backfill run is dated exactly, in `derivation_runs`.
 

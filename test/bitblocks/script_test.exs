@@ -130,5 +130,45 @@ defmodule Bitblocks.ScriptTest do
       two_of_two = BSV.Script.from_binary!(<<0x52, 0x21>> <> @pubkey33 <> <<0x52, 0xAE>>)
       refute Script.template_hash(one_of_one) == Script.template_hash(two_of_two)
     end
+
+    # afomi/bitblocks#49: bytes with two names in the BSV library (0, 81,
+    # 177, 178) hash by the byte, whichever name the decoder picked.
+    test "an opcode with two names hashes the same under either name" do
+      for {a, b} <- [
+            {:OP_FALSE, :OP_0},
+            {:OP_TRUE, :OP_1},
+            {:OP_CHECKLOCKTIMEVERIFY, :OP_NOP2},
+            {:OP_CHECKSEQUENCEVERIFY, :OP_NOP3}
+          ] do
+        assert Script.template_hash(script([a, :OP_DROP])) ==
+                 Script.template_hash(script([b, :OP_DROP])),
+               "#{a} and #{b} hash differently"
+      end
+    end
+
+    test "the canonical names are OP_FALSE, OP_1, OP_NOP2 and OP_NOP3" do
+      for {opcode, name} <- [
+            {:OP_0, "OP_FALSE"},
+            {:OP_TRUE, "OP_1"},
+            {:OP_CHECKLOCKTIMEVERIFY, "OP_NOP2"},
+            {:OP_CHECKSEQUENCEVERIFY, "OP_NOP3"}
+          ] do
+        assert Script.template_hash(script([opcode])) == sha256(name)
+      end
+    end
+
+    test "bare OP_TRUE parsed from raw bytes is pinned" do
+      assert Script.template_hash(BSV.Script.from_binary!(<<0x51>>)) == sha256("OP_1")
+    end
+  end
+
+  defp sha256(text), do: :crypto.hash(:sha256, text) |> Base.encode16(case: :lower)
+
+  describe "opcode_name/1" do
+    test "names each byte once, whichever alias it was decoded as" do
+      assert Script.opcode_name(:OP_TRUE) == "OP_1"
+      assert Script.opcode_name(:OP_1) == "OP_1"
+      assert Script.opcode_name(:OP_CHECKSIG) == "OP_CHECKSIG"
+    end
   end
 end
