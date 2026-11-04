@@ -116,9 +116,8 @@ defmodule BitblocksWeb.Api.WocController do
   # --- Tier 2: TSC merkle proof — DEFERRED ------------------------------------
   #
   # WoC exposes GET /tx/{txid}/proof/tsc returning a TSC-format merkle proof.
-  # We only have the node's `gettxoutproof` today (a raw binary blob, served by
-  # the native ProofController at /api/v1/txs/:txid/proof) — that is NOT TSC
-  # format. Rather than mislabel a non-TSC blob as TSC, this alias is left
-  # unimplemented until a real TSC encoder exists (build the merkle branch for
-  # the txid and encode {index, txOrId, target, nodes}). See docs/EXTERNAL_APIS.md.
+  # The native ProofController (/api/v1/txs/:txid/proof) returns a checked
+  # merkle branch (Bitblocks.Chain.MerkleProof), but not in TSC encoding. This
+  # alias is left unimplemented until that branch is encoded as
+  # {index, txOrId, target, nodes}. See docs/EXTERNAL_APIS.md.
 end
