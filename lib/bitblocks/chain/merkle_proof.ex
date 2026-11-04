@@ -31,7 +31,8 @@ defmodule Bitblocks.Chain.MerkleProof do
 
     * a block row with the tx's `block_hash` exists (heights are unique, so
       it is the only block we hold at that height);
-    * its height equals the tx row's `block_height`;
+    * its height equals the tx row's `block_height`, when the row has one
+      (older rows were stored without it; `Release.backfill_tx_block_heights/0`);
     * the stored block one height up, if any, names it as `prevblockhash`
       (tip sync checks that continuity on insert; this catches a stale pair).
 
@@ -116,7 +117,9 @@ defmodule Bitblocks.Chain.MerkleProof do
 
   defp canonical_block(tx) do
     with %Block{} = block <- Repo.one(from b in Block, where: b.hash == ^tx.block_hash),
-         true <- block.height == tx.block_height,
+         # A row stored before block_height was written has none; the
+         # block_hash still names its block. Only a different height is a mismatch.
+         true <- tx.block_height in [nil, block.height],
          true <- child_builds_on?(block) do
       {:ok, block}
     else

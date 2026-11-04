@@ -44,6 +44,14 @@ defmodule Bitblocks.Chain.UtxosTest do
       assert spender == Repo.one(from(s in Spend, select: s.spending_txid))
     end
 
+    test "a tx row stored without block_height reports its block's height" do
+      Repo.update_all(from(t in Transaction, where: t.txid == ^FS.coinbase_9()),
+        set: [block_height: nil]
+      )
+
+      assert {:ok, %{status: :spent, block_height: 9}} = Utxos.outpoint(FS.coinbase_9(), 0)
+    end
+
     test "the balance is exact, through the tip, in satoshis read from the raw txs" do
       assert %{
                status: :exact,

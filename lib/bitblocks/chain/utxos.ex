@@ -283,7 +283,8 @@ defmodule Bitblocks.Chain.Utxos do
         select: %{
           txid: t.txid,
           raw: t.raw,
-          block_height: t.block_height,
+          # The stored block's height: older tx rows have no block_height.
+          block_height: coalesce(t.block_height, b.height),
           canonical?: not is_nil(b.id)
         }
       )

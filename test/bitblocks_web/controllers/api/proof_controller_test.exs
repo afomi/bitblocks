@@ -158,6 +158,28 @@ defmodule BitblocksWeb.Api.ProofControllerTest do
       assert conn |> proof(tx.txid) |> json_response(409)
     end
 
+    # Older prod rows were stored before block_height was written (see
+    # Release.backfill_tx_block_heights/0); the block_hash still names the block.
+    test "a tx row with no block_height still gets its proof from its block", %{conn: conn} do
+      real_block_170()
+      block_fixture(%{height: 171, prevblockhash: @hash_170})
+
+      Repo.update_all(
+        from(t in Bitblocks.Chain.Transaction,
+          where: t.txid == ^FirstSpendFixtures.first_spend()
+        ),
+        set: [block_height: nil]
+      )
+
+      data =
+        conn
+        |> proof(FirstSpendFixtures.first_spend())
+        |> json_response(200)
+        |> Map.fetch!("data")
+
+      assert {data["block_height"], data["index"]} == {170, 1}
+    end
+
     test "a tx we don't store is a 404, not a proof", %{conn: conn} do
       assert conn |> proof(String.duplicate("ab", 32)) |> json_response(404)
     end
