@@ -96,27 +96,54 @@ defmodule BitblocksWeb.AdminAuth do
   defp maybe_warn_dev_defaults(_env, _user, _pass), do: :ok
 
   @doc """
-  The GitHub logins allowed onto the operator surface, lowercased.
+  The email addresses whose owners are admins, trimmed and lowercased.
 
-  Set from `ADMIN_GITHUB_LOGINS` (comma-separated) in config/runtime.exs as
-  `config :bitblocks, :admin_github_logins, [...]`. Empty means no GitHub
-  user is an admin; basic auth still works.
+  Set from `ADMIN_EMAILS` (comma-separated) in config/runtime.exs as
+  `config :bitblocks, :admin_emails, [...]`. Empty means no GitHub user is an
+  admin; basic auth still works.
   """
-  @spec github_logins() :: [String.t()]
-  def github_logins do
+  @spec admin_emails() :: [String.t()]
+  def admin_emails do
     :bitblocks
-    |> Application.get_env(:admin_github_logins, [])
-    |> Enum.map(&(&1 |> String.trim() |> String.downcase()))
+    |> Application.get_env(:admin_emails, [])
+    |> List.wrap()
+    |> Enum.map(&normalize_email/1)
     |> Enum.reject(&(&1 == ""))
   end
 
-  @doc "Whether this GitHub login is on the admin allowlist (case-insensitive)."
-  @spec admin_login?(String.t() | nil) :: boolean()
-  def admin_login?(login) when is_binary(login) and login != "" do
-    String.downcase(login) in github_logins()
+  @doc """
+  The addresses in `emails` that are on `ADMIN_EMAILS` (normalized).
+
+  `emails` must be the person's VERIFIED GitHub addresses
+  (`Bitblocks.Accounts.verified_github_emails/1`), never the profile email.
+  The sign-in keeps this list in the session, so non-admins carry no address.
+  """
+  @spec matching_admin_emails([String.t()] | nil) :: [String.t()]
+  def matching_admin_emails(emails) when is_list(emails) do
+    allowed = admin_emails()
+
+    emails
+    |> Enum.filter(&is_binary/1)
+    |> Enum.map(&normalize_email/1)
+    |> Enum.filter(&(&1 != "" and &1 in allowed))
+    |> Enum.uniq()
   end
 
-  def admin_login?(_), do: false
+  def matching_admin_emails(_), do: []
+
+  @doc """
+  Whether any of these verified addresses is on `ADMIN_EMAILS`, checked
+  against the list as it is now (so dropping an address revokes admin).
+  """
+  @spec admin_email?([String.t()] | nil) :: boolean()
+  def admin_email?(emails), do: matching_admin_emails(emails) != []
+
+  @doc "An email address as compared for admin: trimmed and lowercased."
+  @spec normalize_email(term()) :: String.t()
+  def normalize_email(email) when is_binary(email),
+    do: email |> String.trim() |> String.downcase()
+
+  def normalize_email(_), do: ""
 
   @doc """
   Whether the request carries valid admin basic-auth credentials.

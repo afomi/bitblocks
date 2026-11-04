@@ -43,6 +43,36 @@ defmodule Bitblocks.Accounts do
     |> Repo.insert_or_update()
   end
 
+  @doc """
+  The person's VERIFIED GitHub email addresses, trimmed and lowercased.
+
+  ueberauth_github calls `GET /user/emails` on every callback and puts the
+  list at `auth.extra.raw_info.user["emails"]`; it holds entries only when the
+  `user:email` scope was granted. We keep an address only when its
+  `"verified"` is exactly `true`. The profile `info.email` is never read: it
+  can be unverified, and ueberauth may fill it from the primary address
+  whether or not that is verified.
+
+  Anything unexpected (no list, the call failed, a malformed entry) yields
+  fewer addresses, never more.
+  """
+  @spec verified_github_emails(Ueberauth.Auth.t()) :: [String.t()]
+  def verified_github_emails(%Ueberauth.Auth{extra: %{raw_info: %{user: %{"emails" => emails}}}})
+      when is_list(emails) do
+    emails
+    |> Enum.flat_map(fn
+      %{"email" => email, "verified" => true} when is_binary(email) ->
+        [email |> String.trim() |> String.downcase()]
+
+      _ ->
+        []
+    end)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.uniq()
+  end
+
+  def verified_github_emails(_auth), do: []
+
   defp to_integer(uid) when is_integer(uid), do: uid
 
   defp to_integer(uid) when is_binary(uid) do

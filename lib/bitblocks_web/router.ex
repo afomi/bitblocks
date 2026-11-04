@@ -167,8 +167,8 @@ defmodule BitblocksWeb.Router do
 
   # Access model (BitblocksWeb.UserAuth): the explorer front is public;
   # block and transaction detail need a signed-in GitHub user; the operator
-  # surface needs an admin, meaning an ADMIN_GITHUB_LOGINS login OR valid
-  # HTTP basic auth. Either one admits you.
+  # surface needs an admin, meaning a GitHub user with a verified email on
+  # ADMIN_EMAILS OR valid HTTP basic auth. Either one admits you.
   #
   # The gate runs in EVERY env. Enforcement is a runtime toggle
   # (`config :bitblocks, :admin_auth, enabled: true|false`, default true):

@@ -72,10 +72,11 @@ if config_env() != :test do
     client_id: System.get_env("GITHUB_CLIENT_ID"),
     client_secret: System.get_env("GITHUB_CLIENT_SECRET")
 
-  # Comma-separated GitHub logins, matched case-insensitively.
+  # Comma-separated email addresses. A GitHub user with one of them as a
+  # verified address is an admin; matched case-insensitively after trimming.
   config :bitblocks,
-         :admin_github_logins,
-         (System.get_env("ADMIN_GITHUB_LOGINS") || "")
+         :admin_emails,
+         (System.get_env("ADMIN_EMAILS") || "")
          |> String.split(",", trim: true)
          |> Enum.map(&String.trim/1)
          |> Enum.reject(&(&1 == ""))

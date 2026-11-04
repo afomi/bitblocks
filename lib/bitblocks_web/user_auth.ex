@@ -9,15 +9,20 @@ defmodule BitblocksWeb.UserAuth do
     * **Signed in** (`:require_user`) - block and transaction detail. Any
       GitHub user, or an admin.
     * **Admin** (`:require_admin`) - the operator surface. Either a GitHub
-      login on the `ADMIN_GITHUB_LOGINS` allowlist, or valid HTTP basic auth
-      (`ADMIN_USERNAME`/`ADMIN_PASSWORD`). Either one admits you. Basic auth
-      keeps the T10 fail-closed rule from `BitblocksWeb.AdminAuth`.
+      user with a VERIFIED email address on `ADMIN_EMAILS`, or valid HTTP
+      basic auth (`ADMIN_USERNAME`/`ADMIN_PASSWORD`). Either one admits you.
+      Basic auth keeps the T10 fail-closed rule from `BitblocksWeb.AdminAuth`.
 
   ## Session keys
 
-  The GitHub callback writes `"user_id"` and `"user_login"` to the signed
-  session cookie. `"user_login"` lets the chain-scrubber tile routes check the
-  allowlist without a database query (#48).
+  The GitHub callback writes `"user_id"` and `"admin_emails"` to the signed
+  session cookie. `"admin_emails"` is the person's verified GitHub addresses
+  that were on `ADMIN_EMAILS` at sign-in (empty for everyone else, so no
+  other address is kept). Every request checks it against `ADMIN_EMAILS` as
+  it is now, so dropping an address there revokes admin at once, and each
+  sign-in rewrites it from GitHub, so removing or unverifying the address on
+  GitHub revokes admin at the next sign-in. The chain-scrubber tile routes
+  read it with no database query (#48).
 
   LiveViews get one extra key, `"bitblocks_admin"`, from `live_session_data/1`.
   It is computed from the HTTP request at dead render (so it covers basic
@@ -102,8 +107,8 @@ defmodule BitblocksWeb.UserAuth do
   Plug for the `:browser` pipeline: assigns `:current_user`, `:admin?` and
   `:current_path`.
 
-  `:admin?` is true for an allowlisted GitHub login, for a request that
-  already carries valid basic-auth credentials, and whenever the gate is off.
+  `:admin?` is true for a signed-in admin email, for a request that already
+  carries valid basic-auth credentials, and whenever the gate is off.
   """
   def fetch_current_user(conn, _opts) do
     user_id = get_session(conn, "user_id")
@@ -112,12 +117,12 @@ defmodule BitblocksWeb.UserAuth do
     # A session pointing at a user that no longer exists is dropped.
     conn =
       if user_id && is_nil(user),
-        do: conn |> delete_session("user_id") |> delete_session("user_login"),
+        do: conn |> delete_session("user_id") |> delete_session("admin_emails"),
         else: conn
 
     conn
     |> assign(:current_user, user)
-    |> assign(:admin?, admin_request?(conn, user && user.login))
+    |> assign(:admin?, admin_request?(conn, user && get_session(conn, "admin_emails")))
     |> assign(:current_path, current_path(conn))
   end
 
@@ -144,7 +149,7 @@ defmodule BitblocksWeb.UserAuth do
   @doc """
   Plug for `:admin_data` (chain-scrubber tiles): no `:browser`, no database.
 
-  Admits an allowlisted login from the signed session cookie, or basic auth.
+  Admits an admin email from the signed session cookie, or basic auth.
   """
   def require_admin_data(conn, _opts) do
     conn = fetch_session(conn)
@@ -153,7 +158,7 @@ defmodule BitblocksWeb.UserAuth do
       not enforced?() ->
         conn
 
-      admin_request?(conn, get_session(conn, "user_login")) ->
+      admin_request?(conn, get_session(conn, "user_id") && get_session(conn, "admin_emails")) ->
         conn
 
       true ->
@@ -171,8 +176,8 @@ defmodule BitblocksWeb.UserAuth do
     %{@admin_session_key => conn.assigns[:admin?] == true}
   end
 
-  defp admin_request?(conn, login) do
-    not enforced?() or AdminAuth.admin_login?(login) or AdminAuth.valid_basic_auth?(conn)
+  defp admin_request?(conn, admin_emails) do
+    not enforced?() or AdminAuth.admin_email?(admin_emails) or AdminAuth.valid_basic_auth?(conn)
   end
 
   # Why the admin gate said no, and the most useful answer for each case:
@@ -259,7 +264,7 @@ defmodule BitblocksWeb.UserAuth do
         socket,
         :admin?,
         not enforced?() or session[@admin_session_key] == true or
-          AdminAuth.admin_login?(user && user.login)
+          AdminAuth.admin_email?(user && session["admin_emails"])
       )
     end)
   end

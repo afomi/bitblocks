@@ -51,4 +51,45 @@ defmodule Bitblocks.AccountsTest do
   test "a string uid from the provider is accepted" do
     assert {:ok, %User{github_id: 7}} = Accounts.upsert_github_user(github_auth(%{uid: "7"}))
   end
+
+  describe "verified_github_emails/1" do
+    defp with_emails(emails, profile_email \\ nil) do
+      auth = github_auth(%{info: %{email: profile_email}})
+      %{auth | extra: %Ueberauth.Auth.Extra{raw_info: %{user: %{"emails" => emails}}}}
+    end
+
+    test "keeps only verified addresses, trimmed and lowercased" do
+      auth =
+        with_emails([
+          %{"email" => " Wold@Afomi.com ", "verified" => true, "primary" => true},
+          %{"email" => "old@example.com", "verified" => false},
+          %{"email" => "noreply@users.noreply.github.com", "verified" => true}
+        ])
+
+      assert Accounts.verified_github_emails(auth) == [
+               "wold@afomi.com",
+               "noreply@users.noreply.github.com"
+             ]
+    end
+
+    test "never trusts the profile email field" do
+      assert Accounts.verified_github_emails(with_emails([], "wold@afomi.com")) == []
+    end
+
+    test "is empty when GitHub sent no list (scope not granted, or the call failed)" do
+      assert Accounts.verified_github_emails(github_auth()) == []
+      assert Accounts.verified_github_emails(with_emails(nil)) == []
+      assert Accounts.verified_github_emails(with_emails(%{"message" => "Not Found"})) == []
+    end
+
+    test "a verified flag that isn't exactly true doesn't count" do
+      auth =
+        with_emails([
+          %{"email" => "a@example.com", "verified" => "true"},
+          %{"email" => nil, "verified" => true}
+        ])
+
+      assert Accounts.verified_github_emails(auth) == []
+    end
+  end
 end

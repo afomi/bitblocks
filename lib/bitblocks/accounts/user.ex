@@ -4,13 +4,13 @@ defmodule Bitblocks.Accounts.User do
 
   Holds only the public GitHub profile. There is deliberately no field for an
   email or an OAuth access token: bitblocks asks GitHub who you are, then
-  forgets the token.
+  forgets the token. Verified email addresses are read at sign-in only to
+  decide admin (`ADMIN_EMAILS`); only the ones that match go in the session.
 
   Fields:
 
     * `github_id` - GitHub's numeric user id; the stable identity key (unique).
-    * `login` - the GitHub username as of the last sign-in. Admin access is an
-      allowlist of logins (`ADMIN_GITHUB_LOGINS`), matched case-insensitively.
+    * `login` - the GitHub username as of the last sign-in, for display.
     * `name`, `avatar_url` - display details for the nav.
     * `last_login_at` - when the person last completed the GitHub callback.
   """

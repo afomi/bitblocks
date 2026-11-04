@@ -138,7 +138,8 @@ mix assets.deploy           # Build and minify for production
 - Public: home, `/blocks`, the beta features, `/status`, `/reorgs`, `/protocols`, `/about`, the API, `/content`.
 - Signed in with GitHub: block and transaction detail.
 - Admin: everything in the router's `:admin` scope plus the chain-scrubber tiles.
-  An admin is a GitHub login on `ADMIN_GITHUB_LOGINS` (comma-separated, case-insensitive) or valid HTTP basic auth (`ADMIN_USERNAME`/`ADMIN_PASSWORD`, T10 fail-closed in prod).
+  An admin is a GitHub user with a verified email address on `ADMIN_EMAILS` (comma-separated, case-insensitive), or valid HTTP basic auth (`ADMIN_USERNAME`/`ADMIN_PASSWORD`, T10 fail-closed in prod).
+  Sign-in asks GitHub for the `user:email` scope; only verified addresses that match go in the session, and none are stored.
 - GitHub sign-in needs `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`; unset, the sign-in page says it isn't configured.
   In prod all three come from the AWS Secrets Manager secret `bitblocks/prod`, which `.github/scripts/deploy.sh` writes to `/opt/bitblocks.env` on every deploy.
 - config/test.exs turns the gate off for the suite; `test/bitblocks_web/user_auth_test.exs` turns it on.
