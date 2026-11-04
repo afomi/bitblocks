@@ -4,8 +4,7 @@ defmodule Bitblocks.Accounts.User do
 
   Holds only the public GitHub profile. There is deliberately no field for an
   email or an OAuth access token: bitblocks asks GitHub who you are, then
-  forgets the token. Verified email addresses are read at sign-in only to
-  decide admin (`ADMIN_EMAILS`); only the ones that match go in the session.
+  forgets the token.
 
   Fields:
 
@@ -13,6 +12,9 @@ defmodule Bitblocks.Accounts.User do
     * `login` - the GitHub username as of the last sign-in, for display.
     * `name`, `avatar_url` - display details for the nav.
     * `last_login_at` - when the person last completed the GitHub callback.
+    * `admin` - whether this person is an admin. Set only by
+      `Bitblocks.Release.set_admin/2`, never by a sign-in, and tied to
+      `github_id`, so a renamed login can't carry it to someone else.
   """
   use Ecto.Schema
   import Ecto.Changeset
@@ -25,6 +27,7 @@ defmodule Bitblocks.Accounts.User do
     field :name, :string
     field :avatar_url, :string
     field :last_login_at, :utc_datetime
+    field :admin, :boolean, default: false
 
     timestamps(type: :utc_datetime)
   end

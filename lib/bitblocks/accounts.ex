@@ -44,34 +44,20 @@ defmodule Bitblocks.Accounts do
   end
 
   @doc """
-  The person's VERIFIED GitHub email addresses, trimmed and lowercased.
-
-  ueberauth_github calls `GET /user/emails` on every callback and puts the
-  list at `auth.extra.raw_info.user["emails"]`; it holds entries only when the
-  `user:email` scope was granted. We keep an address only when its
-  `"verified"` is exactly `true`. The profile `info.email` is never read: it
-  can be unverified, and ueberauth may fill it from the primary address
-  whether or not that is verified.
-
-  Anything unexpected (no list, the call failed, a malformed entry) yields
-  fewer addresses, never more.
+  Makes the user with this GitHub login an admin (`true`) or not (`false`).
+  The login is matched case-insensitively against the last sign-in's login;
+  the flag stays on the row, keyed by `github_id`. The person must have
+  signed in once. Returns `{:ok, user}` or `{:error, :not_found}`.
   """
-  @spec verified_github_emails(Ueberauth.Auth.t()) :: [String.t()]
-  def verified_github_emails(%Ueberauth.Auth{extra: %{raw_info: %{user: %{"emails" => emails}}}})
-      when is_list(emails) do
-    emails
-    |> Enum.flat_map(fn
-      %{"email" => email, "verified" => true} when is_binary(email) ->
-        [email |> String.trim() |> String.downcase()]
+  @spec set_admin(String.t(), boolean()) :: {:ok, User.t()} | {:error, :not_found}
+  def set_admin(login, admin?) when is_binary(login) and is_boolean(admin?) do
+    wanted = login |> String.trim() |> String.downcase()
 
-      _ ->
-        []
-    end)
-    |> Enum.reject(&(&1 == ""))
-    |> Enum.uniq()
+    case Repo.one(from u in User, where: fragment("lower(?)", u.login) == ^wanted) do
+      nil -> {:error, :not_found}
+      user -> user |> Ecto.Changeset.change(admin: admin?) |> Repo.update()
+    end
   end
-
-  def verified_github_emails(_auth), do: []
 
   defp to_integer(uid) when is_integer(uid), do: uid
 

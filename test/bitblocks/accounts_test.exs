@@ -52,44 +52,41 @@ defmodule Bitblocks.AccountsTest do
     assert {:ok, %User{github_id: 7}} = Accounts.upsert_github_user(github_auth(%{uid: "7"}))
   end
 
-  describe "verified_github_emails/1" do
-    defp with_emails(emails, profile_email \\ nil) do
-      auth = github_auth(%{info: %{email: profile_email}})
-      %{auth | extra: %Ueberauth.Auth.Extra{raw_info: %{user: %{"emails" => emails}}}}
+  describe "set_admin/2" do
+    test "marks the user with that login an admin, and back, matching case and spaces" do
+      {:ok, user} = Accounts.upsert_github_user(github_auth(%{info: %{nickname: "afomi"}}))
+      refute user.admin
+
+      assert {:ok, %User{admin: true}} = Accounts.set_admin(" Afomi ", true)
+      assert Accounts.get_user(user.id).admin
+      assert {:ok, %User{admin: false}} = Accounts.set_admin("afomi", false)
     end
 
-    test "keeps only verified addresses, trimmed and lowercased" do
-      auth =
-        with_emails([
-          %{"email" => " Wold@Afomi.com ", "verified" => true, "primary" => true},
-          %{"email" => "old@example.com", "verified" => false},
-          %{"email" => "noreply@users.noreply.github.com", "verified" => true}
-        ])
-
-      assert Accounts.verified_github_emails(auth) == [
-               "wold@afomi.com",
-               "noreply@users.noreply.github.com"
-             ]
+    test "a login that never signed in is not found" do
+      assert Accounts.set_admin("nobody", true) == {:error, :not_found}
     end
 
-    test "never trusts the profile email field" do
-      assert Accounts.verified_github_emails(with_emails([], "wold@afomi.com")) == []
+    test "a sign-in never sets or clears admin" do
+      {:ok, user} = Accounts.upsert_github_user(github_auth(%{info: %{nickname: "afomi"}}))
+      {:ok, _} = Accounts.set_admin("afomi", true)
+
+      # The next sign-in rewrites the profile, and the flag stays.
+      {:ok, again} = Accounts.upsert_github_user(github_auth(%{info: %{nickname: "afomi"}}))
+      assert again.id == user.id and again.admin
     end
 
-    test "is empty when GitHub sent no list (scope not granted, or the call failed)" do
-      assert Accounts.verified_github_emails(github_auth()) == []
-      assert Accounts.verified_github_emails(with_emails(nil)) == []
-      assert Accounts.verified_github_emails(with_emails(%{"message" => "Not Found"})) == []
-    end
+    test "a renamed login doesn't carry admin to whoever takes the old name" do
+      {:ok, _} = Accounts.upsert_github_user(github_auth(%{uid: 1, info: %{nickname: "afomi"}}))
+      {:ok, _} = Accounts.set_admin("afomi", true)
 
-    test "a verified flag that isn't exactly true doesn't count" do
-      auth =
-        with_emails([
-          %{"email" => "a@example.com", "verified" => "true"},
-          %{"email" => nil, "verified" => true}
-        ])
+      # The admin renames on GitHub; someone else registers "afomi".
+      {:ok, _} = Accounts.upsert_github_user(github_auth(%{uid: 1, info: %{nickname: "renamed"}}))
 
-      assert Accounts.verified_github_emails(auth) == []
+      {:ok, newcomer} =
+        Accounts.upsert_github_user(github_auth(%{uid: 2, info: %{nickname: "afomi"}}))
+
+      refute newcomer.admin
+      assert Accounts.get_user_by_github_id(1).admin
     end
   end
 end

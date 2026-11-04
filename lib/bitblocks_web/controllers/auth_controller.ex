@@ -6,13 +6,10 @@ defmodule BitblocksWeb.AuthController do
   `Ueberauth.run_callback/3`, so the client id, secret and callback URL all
   come from runtime config (config/runtime.exs) rather than compile time.
 
-  We request one OAuth scope, `user:email` (read-only access to the person's
-  email addresses), on top of the public profile. Admins are chosen by
-  verified email (`ADMIN_EMAILS`, see `BitblocksWeb.AdminAuth`), and a
-  private GitHub address is only visible with that scope. ueberauth_github
-  fetches `GET /user/emails` itself during the callback; we keep only the
-  verified addresses that match, in the session. The access token is
-  discarded after the callback.
+  We request no OAuth scope beyond the public profile: bitblocks only needs to
+  know who you are. Admin is a flag on the user's row (`Release.set_admin/2`),
+  not anything GitHub returns. The access token is discarded after the
+  callback.
   CSRF on the OAuth round trip is Ueberauth's signed `state` cookie; sign-out
   is a DELETE through the `:browser` pipeline's `protect_from_forgery`.
   """
@@ -21,13 +18,12 @@ defmodule BitblocksWeb.AuthController do
   require Logger
 
   alias Bitblocks.Accounts
-  alias BitblocksWeb.AdminAuth
   alias BitblocksWeb.UserAuth
 
   @return_to_key "user_return_to"
 
-  # Read-only access to the person's email addresses (GET /user/emails).
-  @scope "user:email"
+  # The public profile only.
+  @scope ""
 
   plug :ensure_github_configured when action in [:request, :callback]
 
@@ -94,12 +90,6 @@ defmodule BitblocksWeb.AuthController do
         |> configure_session(renew: true)
         |> delete_session(@return_to_key)
         |> put_session("user_id", user.id)
-        # Rewritten on every sign-in, so an address removed or unverified on
-        # GitHub stops making this person an admin.
-        |> put_session(
-          "admin_emails",
-          auth |> Accounts.verified_github_emails() |> AdminAuth.matching_admin_emails()
-        )
         |> put_flash(:info, "Signed in as #{user.login}.")
         |> redirect(to: UserAuth.safe_return_to(return_to) || ~p"/")
 
@@ -139,7 +129,7 @@ defmodule BitblocksWeb.AuthController do
 
   defp provider do
     # allow_private_emails only invents a noreply address for info.email,
-    # which we never read; verified addresses come from GET /user/emails.
+    # which we never read.
     options =
       [default_scope: @scope, allow_private_emails: false]
       |> maybe_put(:callback_url, github_options()[:callback_url])

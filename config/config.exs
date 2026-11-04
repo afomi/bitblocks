@@ -201,9 +201,6 @@ config :bitblocks, :admin_auth, enabled: true
 config :ueberauth, Ueberauth, base_path: "/auth"
 config :ueberauth, Ueberauth.Strategy.Github.OAuth, client_id: nil, client_secret: nil
 
-# Admin email addresses (ADMIN_EMAILS in config/runtime.exs): a GitHub user
-# with one of these as a VERIFIED address is an admin.
-config :bitblocks, :admin_emails, []
 config :bitblocks, :github_oauth, []
 
 # Sponsorship (Bitblocks.Support). The ask lives off-site (sponsor_url);

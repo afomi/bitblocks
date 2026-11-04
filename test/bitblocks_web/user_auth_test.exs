@@ -17,16 +17,8 @@ defmodule BitblocksWeb.UserAuthTest do
 
   setup do
     previous_gate = Application.get_env(:bitblocks, :admin_auth)
-    previous_emails = Application.get_env(:bitblocks, :admin_emails)
-
     Application.put_env(:bitblocks, :admin_auth, enabled: true)
-    # As ADMIN_EMAILS arrives: untrimmed and mixed case.
-    Application.put_env(:bitblocks, :admin_emails, [" Wold@Afomi.com ", "ops@example.org"])
-
-    on_exit(fn ->
-      restore(:admin_auth, previous_gate)
-      restore(:admin_emails, previous_emails)
-    end)
+    on_exit(fn -> restore(:admin_auth, previous_gate) end)
 
     block = block_fixture(tx: Enum.map(1..120, &txid/1), num_tx: 120)
     %{block: block}
@@ -54,8 +46,6 @@ defmodule BitblocksWeb.UserAuthTest do
       }
     }
   end
-
-  defp email(address, verified?), do: %{"email" => address, "verified" => verified?}
 
   defp sign_in(conn, user) do
     init_test_session(conn, %{"user_id" => user.id})
@@ -209,10 +199,11 @@ defmodule BitblocksWeb.UserAuthTest do
     end
   end
 
-  describe "a GitHub admin, chosen by verified email" do
+  describe "a GitHub admin, marked on their row" do
     setup %{conn: conn} do
-      auth = github_auth("ryan", 2002, [email("wold@afomi.com", true)])
-      %{conn: complete_sign_in(conn, auth)}
+      conn = complete_sign_in(conn, github_auth("afomi", 2002))
+      {:ok, _} = Accounts.set_admin("afomi", true)
+      %{conn: conn}
     end
 
     test "opens the operator surface, tiles included", %{conn: conn} do
@@ -234,80 +225,45 @@ defmodule BitblocksWeb.UserAuthTest do
     end
   end
 
-  describe "the admin email rule" do
-    test "a verified email on ADMIN_EMAILS is an admin", %{conn: conn} do
-      conn = complete_sign_in(conn, github_auth("ryan", 4001, [email("wold@afomi.com", true)]))
+  describe "the admin flag" do
+    test "a GitHub user marked admin opens the operator surface", %{conn: conn} do
+      user = github_user("afomi", 4001)
+      {:ok, _} = Accounts.set_admin("afomi", true)
 
-      assert get(conn, "/sync").status == 200
+      assert admin_paths_status(sign_in(conn, user)) == %{sync: 200, scrubber: 200, tiles: 404}
     end
 
-    test "an unverified matching email is not", %{conn: conn} do
-      conn = complete_sign_in(conn, github_auth("ryan", 4002, [email("wold@afomi.com", false)]))
+    test "a signed-in user who isn't marked admin is refused", %{conn: conn} do
+      conn = sign_in(conn, github_user("someone", 4002))
 
       assert admin_paths_status(conn) == %{sync: 403, scrubber: 403, tiles: 403}
     end
 
-    test "the profile email field is never trusted", %{conn: conn} do
-      auth = github_auth("ryan", 4003, [email("other@example.com", true)], "wold@afomi.com")
-      conn = complete_sign_in(conn, auth)
+    test "granting takes effect on the next request, and revoking too, with no new sign-in",
+         %{conn: conn} do
+      user = github_user("afomi", 4003)
+      conn = sign_in(conn, user)
+      assert get(conn, "/sync").status == 403
 
-      assert admin_paths_status(conn) == %{sync: 403, scrubber: 403, tiles: 403}
-    end
-
-    test "a verified email not on the list is not", %{conn: conn} do
-      conn =
-        complete_sign_in(conn, github_auth("someone", 4004, [email("someone@example.com", true)]))
-
-      assert admin_paths_status(conn) == %{sync: 403, scrubber: 403, tiles: 403}
-    end
-
-    test "case and whitespace are ignored", %{conn: conn} do
-      auth = github_auth("ryan", 4005, [email("  WOLD@afomi.COM ", true)])
-      conn = complete_sign_in(conn, auth)
-
-      assert admin_paths_status(conn).sync == 200
-      assert BitblocksWeb.AdminAuth.admin_email?(["OPS@Example.org"])
-      refute BitblocksWeb.AdminAuth.admin_email?(["wold@afomi.co"])
-    end
-
-    test "an empty ADMIN_EMAILS means no GitHub admins", %{conn: conn} do
-      Application.put_env(:bitblocks, :admin_emails, [])
-      conn = complete_sign_in(conn, github_auth("ryan", 4006, [email("wold@afomi.com", true)]))
-
-      assert admin_paths_status(conn) == %{sync: 403, scrubber: 403, tiles: 403}
-      refute BitblocksWeb.AdminAuth.admin_email?(["wold@afomi.com"])
-      refute BitblocksWeb.AdminAuth.admin_email?([""])
-
-      Application.put_env(:bitblocks, :admin_emails, ["", "  "])
-      refute BitblocksWeb.AdminAuth.admin_email?([""])
-    end
-
-    test "a sign-in that loses the email loses admin", %{conn: conn} do
-      admin = complete_sign_in(conn, github_auth("ryan", 4007, [email("wold@afomi.com", true)]))
-      assert get(admin, "/sync").status == 200
-
-      # The address was removed from GitHub (or unverified) before the next sign-in.
-      again = complete_sign_in(admin, github_auth("ryan", 4007, [email("wold@afomi.com", false)]))
-      assert admin_paths_status(again) == %{sync: 403, scrubber: 403, tiles: 403}
-    end
-
-    test "dropping the address from ADMIN_EMAILS revokes admin", %{conn: conn} do
-      conn = complete_sign_in(conn, github_auth("ryan", 4008, [email("wold@afomi.com", true)]))
+      {:ok, _} = Accounts.set_admin("afomi", true)
       assert get(conn, "/sync").status == 200
 
-      Application.put_env(:bitblocks, :admin_emails, ["ops@example.org"])
+      {:ok, _} = Accounts.set_admin("afomi", false)
       assert admin_paths_status(conn) == %{sync: 403, scrubber: 403, tiles: 403}
     end
 
-    test "a non-admin's email addresses are not kept in the session", %{conn: conn} do
-      conn =
-        conn
-        |> bypass_through(BitblocksWeb.Router, [:browser])
-        |> get("/auth/github/callback")
-        |> assign(:ueberauth_auth, github_auth("x", 4009, [email("x@example.com", true)]))
-        |> BitblocksWeb.AuthController.callback(%{})
+    test "the GitHub callback can't make anyone an admin", %{conn: conn} do
+      conn = complete_sign_in(conn, github_auth("afomi", 4004))
 
-      assert get_session(conn, "admin_emails") == []
+      assert admin_paths_status(conn) == %{sync: 403, scrubber: 403, tiles: 403}
+      refute Accounts.get_user_by_github_id(4004).admin
+    end
+
+    test "an admin's LiveView mounts on the operator surface", %{conn: conn} do
+      user = github_user("afomi", 4005)
+      {:ok, _} = Accounts.set_admin("afomi", true)
+
+      assert {:ok, _view, _html} = live(sign_in(conn, user), "/sync")
     end
   end
 
@@ -362,7 +318,6 @@ defmodule BitblocksWeb.UserAuthTest do
       user = Accounts.get_user_by_github_id(3003)
       assert user.login == "newcomer"
       assert get_session(conn, "user_id") == user.id
-      assert get_session(conn, "admin_emails") == []
     end
 
     test "a failed callback signs no one in", %{conn: conn} do
@@ -377,20 +332,22 @@ defmodule BitblocksWeb.UserAuthTest do
       assert get_session(conn, "user_id") == nil
     end
 
-    test "the request phase asks GitHub for read-only email access, and nothing wider", %{
+    test "the request phase asks GitHub for the public profile only, whatever the URL asks", %{
       conn: conn
     } do
       with_github_configured(fn ->
         location = redirected_to(get(conn, "/auth/github?scope=repo"))
 
         assert location =~ "https://github.com/login/oauth/authorize"
-        assert URI.decode_query(URI.parse(location).query)["scope"] == "user:email"
+        assert URI.decode_query(URI.parse(location).query)["scope"] == ""
       end)
     end
 
-    test "the sign-in page says we read email addresses", %{conn: conn} do
+    test "the sign-in page says we read the public profile and nothing else", %{conn: conn} do
       with_github_configured(fn ->
-        assert html_response(get(conn, "/sign-in"), 200) =~ "email addresses"
+        html = html_response(get(conn, "/sign-in"), 200)
+        assert html =~ "We read your public GitHub profile, and nothing else."
+        refute html =~ "email"
       end)
     end
 

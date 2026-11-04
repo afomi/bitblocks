@@ -852,6 +852,36 @@ defmodule Bitblocks.Release do
   end
 
   @doc """
+  Makes the GitHub user `login` an admin (`true`) or not (`false`), then reads
+  the row back and prints what it holds. The person must have signed in once.
+  Takes effect on their next page load.
+
+      bin/bitblocks rpc 'Bitblocks.Release.set_admin("afomi", true)'
+  """
+  def set_admin(login, admin?) when is_binary(login) and is_boolean(admin?) do
+    with_running_repo(fn ->
+      case Bitblocks.Accounts.set_admin(login, admin?) do
+        {:ok, user} ->
+          stored = Bitblocks.Accounts.get_user(user.id)
+
+          IO.puts(
+            "#{stored.login} (github_id #{stored.github_id}): admin #{stored.admin}" <>
+              if(stored.admin == admin?, do: "", else: " (NOT SET: expected #{admin?})")
+          )
+
+          {:ok, stored}
+
+        {:error, :not_found} ->
+          IO.puts(
+            "No user has signed in as #{login}; sign in with GitHub once, then run this again."
+          )
+
+          {:error, :not_found}
+      end
+    end)
+  end
+
+  @doc """
   Backfill missing block HEADERS from height 0 to the chain tip.
 
   Delegates to sync_headers/2 (range mode) which fills header gaps only.

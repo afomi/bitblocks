@@ -9,20 +9,18 @@ defmodule BitblocksWeb.UserAuth do
     * **Signed in** (`:require_user`) - block and transaction detail. Any
       GitHub user, or an admin.
     * **Admin** (`:require_admin`) - the operator surface. Either a GitHub
-      user with a VERIFIED email address on `ADMIN_EMAILS`, or valid HTTP
-      basic auth (`ADMIN_USERNAME`/`ADMIN_PASSWORD`). Either one admits you.
-      Basic auth keeps the T10 fail-closed rule from `BitblocksWeb.AdminAuth`.
+      user whose row has `admin: true` (set with `Release.set_admin/2`, keyed
+      by their GitHub numeric id), or valid HTTP basic auth
+      (`ADMIN_USERNAME`/`ADMIN_PASSWORD`). Either one admits you. Basic auth
+      keeps the T10 fail-closed rule from `BitblocksWeb.AdminAuth`.
 
   ## Session keys
 
-  The GitHub callback writes `"user_id"` and `"admin_emails"` to the signed
-  session cookie. `"admin_emails"` is the person's verified GitHub addresses
-  that were on `ADMIN_EMAILS` at sign-in (empty for everyone else, so no
-  other address is kept). Every request checks it against `ADMIN_EMAILS` as
-  it is now, so dropping an address there revokes admin at once, and each
-  sign-in rewrites it from GitHub, so removing or unverifying the address on
-  GitHub revokes admin at the next sign-in. The chain-scrubber tile routes
-  read it with no database query (#48).
+  The GitHub callback writes only `"user_id"` to the signed session cookie.
+  Admin is read from the user's row on each request, so granting or revoking
+  it takes effect on the next page load, with no new sign-in. The admin data
+  routes (chain-scrubber tiles, flow, annotations) do one primary-key lookup
+  for that, and only while the gate is on.
 
   LiveViews get one extra key, `"bitblocks_admin"`, from `live_session_data/1`.
   It is computed from the HTTP request at dead render (so it covers basic
@@ -117,12 +115,12 @@ defmodule BitblocksWeb.UserAuth do
     # A session pointing at a user that no longer exists is dropped.
     conn =
       if user_id && is_nil(user),
-        do: conn |> delete_session("user_id") |> delete_session("admin_emails"),
+        do: delete_session(conn, "user_id"),
         else: conn
 
     conn
     |> assign(:current_user, user)
-    |> assign(:admin?, admin_request?(conn, user && get_session(conn, "admin_emails")))
+    |> assign(:admin?, admin_request?(conn, user))
     |> assign(:current_path, current_path(conn))
   end
 
@@ -158,7 +156,7 @@ defmodule BitblocksWeb.UserAuth do
       not enforced?() ->
         conn
 
-      admin_request?(conn, get_session(conn, "user_id") && get_session(conn, "admin_emails")) ->
+      admin_request?(conn, Accounts.get_user(get_session(conn, "user_id"))) ->
         conn
 
       true ->
@@ -176,9 +174,12 @@ defmodule BitblocksWeb.UserAuth do
     %{@admin_session_key => conn.assigns[:admin?] == true}
   end
 
-  defp admin_request?(conn, admin_emails) do
-    not enforced?() or AdminAuth.admin_email?(admin_emails) or AdminAuth.valid_basic_auth?(conn)
+  defp admin_request?(conn, user) do
+    not enforced?() or admin_user?(user) or AdminAuth.valid_basic_auth?(conn)
   end
+
+  defp admin_user?(%Accounts.User{admin: true}), do: true
+  defp admin_user?(_), do: false
 
   # Why the admin gate said no, and the most useful answer for each case:
   #
@@ -263,8 +264,7 @@ defmodule BitblocksWeb.UserAuth do
       Phoenix.Component.assign(
         socket,
         :admin?,
-        not enforced?() or session[@admin_session_key] == true or
-          AdminAuth.admin_email?(user && session["admin_emails"])
+        not enforced?() or session[@admin_session_key] == true or admin_user?(user)
       )
     end)
   end
