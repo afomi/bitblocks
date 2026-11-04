@@ -216,6 +216,20 @@ defmodule Bitblocks.TokensValidationTest do
     assert out =~ "not a token"
   end
 
+  test "amt must be a uint64 string: a decimal or a value past uint64 is invalid",
+       %{block: block, alice: alice, bob: bob} do
+    # Seen on prod: "8.989999999999998" and "999661.01" (token c838f815…_1).
+    for amt <- ["8.989999999999998", "18446744073709551616"] do
+      token_id = mint(block, alice)
+      transfer = ingest(tx([token_id], [transfer_out(token_id, amt, bob)]), block)
+      assert status(transfer, 0) == "invalid"
+    end
+
+    token_id = mint(block, alice, "18446744073709551615")
+    max = ingest(tx([token_id], [transfer_out(token_id, "18446744073709551615", bob)]), block)
+    assert status(max, 0) == "valid"
+  end
+
   test "a mint with an unspent balance reports its holders", %{block: block, alice: alice} do
     token_id = mint(block, alice)
 

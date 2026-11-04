@@ -538,9 +538,13 @@ defmodule Bitblocks.Tokens do
   defp row_status(_row, _overrides), do: "invalid"
 
   # BSV-21 amounts are positive integer strings.
+  # The 1Sat BSV-21 spec: amt is the "String representation of uint64".
+  # A decimal ("8.98"), a sign, or a value past uint64 is not an amount.
+  @max_amt 18_446_744_073_709_551_615
+
   defp amount(amt) when is_binary(amt) do
     case Integer.parse(amt) do
-      {n, ""} when n > 0 -> {:ok, n}
+      {n, ""} when n > 0 and n <= @max_amt -> {:ok, n}
       _ -> :error
     end
   end
