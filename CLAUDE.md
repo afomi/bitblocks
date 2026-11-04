@@ -91,6 +91,7 @@ mix assets.deploy           # Build and minify for production
   - Sequential within a block; bounded runs (`:tx_fetch_run_ms`, 30 s) that snooze and resume from the offset saved in the job's meta.
   - A failure marks the block `failed` and backs off 1, 2, 4 … minutes, capped at an hour; never gives up. The seventh failure in a row (over an hour) sends one `Notifications.sync_stall_alert/3`.
 - Concurrency: admin-set on /sync, persisted in `sync_settings`, clamped to `Sync.concurrency_limit/0` (CPU cores, `pool_size` minus `:sync_pool_reserve`, `:sync_rpc_limit` / `SYNC_RPC_LIMIT`). Default `:sync_workers`: 1 in dev and test, 2 in prod.
+- Pause: admin-set on /sync, the `paused` column of `sync_settings` (`Sync.set_paused/1`); the coordinator dispatches nothing new while it is set, across restarts and deploys, and blocks already dispatched finish.
 - `Bitblocks.Workers.SyncHeadersWorker` holds the header logic (`sync_tip/0`, `sync_range/2`, reorg handling) and still runs a manual range job.
 
 **After a tx comes in** (authoritative: `docs/TX_PIPELINE.md`):

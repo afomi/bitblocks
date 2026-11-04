@@ -23,7 +23,8 @@ defmodule Bitblocks.Sync.Coordinator do
     * every `@header_ms`: header sync to the node's tip, with reorgs, and a
       bounded fill of the lowest header gap, in a separate process so a slow
       node never stalls the tick;
-    * when a block changed, or every `@dispatch_ms`: dispatch, then
+    * when a block changed, or every `@dispatch_ms`: dispatch (skipped while
+      an operator has paused the loop, `Sync.paused?/0`), then
       broadcast `Sync.overview/0` on `"sync_progress"` as
       `{:sync_overview, overview}`. `SyncProgress` merges it into the one
       shared snapshot every viewer reads, so a broadcast costs the same for
@@ -107,6 +108,7 @@ defmodule Bitblocks.Sync.Coordinator do
   # A block changed state (any node, over PubSub): dispatch on the next tick.
   def handle_info({:block_updated, _block}, state), do: {:noreply, %{state | changed: true}}
   def handle_info({:concurrency, _n}, state), do: {:noreply, %{state | changed: true}}
+  def handle_info({:paused, _paused}, state), do: {:noreply, %{state | changed: true}}
   def handle_info(:changed, state), do: {:noreply, %{state | changed: true}}
 
   def handle_info({:DOWN, ref, :process, _pid, _reason}, %{header_task: ref} = state),
@@ -145,7 +147,9 @@ defmodule Bitblocks.Sync.Coordinator do
       concurrency = Sync.concurrency()
       if concurrency != state.concurrency, do: scale_queue(concurrency)
 
-      safe(fn -> Sync.dispatch(concurrency) end, 0)
+      # Paused (#44): no new block jobs; the live ones finish. Read from the
+      # row on every dispatch, so a restart or a new leader keeps the pause.
+      unless safe(&Sync.paused?/0, true), do: safe(fn -> Sync.dispatch(concurrency) end, 0)
 
       safe(
         fn ->
