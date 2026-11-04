@@ -1,47 +1,66 @@
 defmodule BitblocksWeb.Api.ProofController do
   @moduledoc """
-  Merkle proof endpoint — returns a proof that a transaction
-  is included in a block, anchored to the block header.
+  `GET /api/v1/txs/:txid/proof`: a merkle inclusion proof a caller can check
+  (#43). The JSON carries `index` and `siblings`, which climb from `txid` to
+  `merkleroot`, and the block (`block_hash`, `block_height`, `confirmations`)
+  whose proof-of-work-checked header commits to that root.
 
-  The consumer can verify locally without trusting bitblocks.
+  Built and checked by `Bitblocks.Chain.MerkleProof`, which also says what
+  "canonical" means here. Only a proof that climbed to the header's root is
+  a 200:
+
+    * 404: we don't store the tx;
+    * 409: its block was orphaned or is no longer the one we hold at that height;
+    * 500: the txid list or the node's tree doesn't rebuild the header's root,
+      or the tx isn't in the block's list;
+    * 503: the block's txid list isn't stored and the node gave no proof.
+
+  Not a BEEF body (#17).
   """
   use BitblocksWeb, :controller
 
-  alias Bitblocks.Chain
+  alias Bitblocks.Chain.MerkleProof
 
-  action_fallback BitblocksWeb.FallbackController
-
-  @doc """
-  Get a merkle proof for a transaction.
-
-  GET /api/v1/txs/:txid/proof
-  """
+  @doc "GET /api/v1/txs/:txid/proof"
   def show(conn, %{"txid" => txid}) do
-    with tx when not is_nil(tx) <- Chain.get_transaction_by_txid(txid),
-         block when not is_nil(block) <- Chain.get_block(tx.block_hash),
-         {:ok, proof_hex} <- fetch_proof(txid, tx.block_hash) do
-      json(conn, %{
-        data: %{
-          txid: txid,
-          block_hash: block.hash,
-          block_height: block.height,
-          merkleroot: block.merkleroot,
-          proof: proof_hex
-        }
-      })
-    else
-      nil -> {:error, :not_found}
-      {:error, _reason} -> {:error, :not_found}
+    case MerkleProof.build(txid) do
+      {:ok, proof} ->
+        json(conn, %{data: proof})
+
+      {:error, :not_found} ->
+        error(conn, 404, "Not found")
+
+      {:error, :not_canonical} ->
+        error(
+          conn,
+          409,
+          "This transaction's block is not canonical in this index (orphaned by a reorg, or replaced at its height); no proof is given for its old root."
+        )
+
+      {:error, :merkleroot_mismatch} ->
+        error(
+          conn,
+          500,
+          "The block's transactions did not rebuild the merkle root in its header, so no proof is given."
+        )
+
+      {:error, :tx_not_in_block} ->
+        error(
+          conn,
+          500,
+          "The block's verified txid list does not contain this transaction, so no proof is given."
+        )
+
+      {:error, :proof_unavailable} ->
+        error(
+          conn,
+          503,
+          "This block's txid list is not stored and the node gave no proof; try again later."
+        )
     end
   end
 
-  defp fetch_proof(txid, block_hash) do
-    case cli().gettxoutproof([txid], block_hash) do
-      hex when is_binary(hex) -> {:ok, hex}
-      {:error, reason} -> {:error, reason}
-      _ -> {:error, :proof_unavailable}
-    end
+  defp error(conn, status, message) do
+    conn |> put_status(status) |> json(%{error: message})
   end
-
-  defp cli, do: Application.get_env(:bitblocks, :bitcoinsv_cli, BitcoinsvCli)
 end

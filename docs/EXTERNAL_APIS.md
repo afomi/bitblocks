@@ -169,7 +169,7 @@ These are the endpoints every BSV app expects and that we can serve from data we
 ### Tier 2 — broadcast & proof (medium value, medium effort)
 
 - `POST /api/v1/woc/tx/raw` — broadcast. Wraps `BitcoinsvCli.sendrawtransaction`; accepts `{"txhex": ...}`, returns `{"txid": ...}` on success or a 400 with the node's reason. **Implemented.**
-- TSC merkle proof in WoC's `/proof/tsc` shape — **deferred.** We only have the node's `gettxoutproof` (a raw binary blob, served at `/api/v1/txs/{txid}/proof`), which is NOT TSC format. Rather than mislabel a non-TSC blob as TSC, the `/woc/tx/{txid}/proof/tsc` alias is left unimplemented until a real TSC encoder exists (build the merkle branch for the txid, encode `{index, txOrId, target, nodes}`).
+- TSC merkle proof in WoC's `/proof/tsc` shape — **deferred.** `/api/v1/txs/{txid}/proof` now returns a checked merkle branch (`index`, `siblings`, `merkleroot`; see `docs/MERKLE_PROOFS.md`), which is the content of a TSC proof but not its encoding. The `/woc/tx/{txid}/proof/tsc` alias stays unimplemented until it encodes that branch as `{index, txOrId, target, nodes}` (with `*` for a self-paired node).
 
 ### Implemented: the `/api/v1/woc/*` compatibility layer
 
