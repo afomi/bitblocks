@@ -1356,6 +1356,44 @@ defmodule Bitblocks.Release do
           "#{report.changed} change(d)"
       )
 
+      IO.puts("  by status and reason:")
+
+      for {reason, n} <- Enum.sort_by(report.by_reason, &elem(&1, 1), :desc),
+          do: IO.puts("    #{n}  #{reason}")
+
+      # Each invalid row with what it spends, so a verdict that rests on an
+      # input stored before BSV20 tagging (old analysis version, no tag) shows.
+      analysis_now = Bitblocks.TransactionParser.script_analysis_version()
+
+      for r <- report.invalid_rows do
+        IO.puts("  INVALID #{r.txid}:#{r.vout} at #{inspect(r.block_height)}: #{r.reason}")
+
+        for i <- Bitblocks.Tokens.input_report(r.txid) do
+          note =
+            cond do
+              not i.stored ->
+                "not stored"
+
+              i.token ->
+                "token #{i.token.op} #{i.token.token_id}"
+
+              (i.script_analysis_version || 0) < analysis_now ->
+                "STALE ANALYSIS, may hide a token"
+
+              i.bsv20_tagged ->
+                "tagged BSV20, no token row"
+
+              true ->
+                "not a token"
+            end
+
+          IO.puts(
+            "      in #{i.outpoint} height #{inspect(i.block_height)} " <>
+              "analysis v#{inspect(i.script_analysis_version)}: #{note}"
+          )
+        end
+      end
+
       unless report.applied, do: IO.puts("  Run again with apply: true to write these.")
       report
     end)

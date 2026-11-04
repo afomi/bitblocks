@@ -96,6 +96,21 @@ defmodule Bitblocks.TokensValidationTest do
     assert %{valid: 0, invalid: 1, pending: 0} = Tokens.transfer_counts(token_id)
   end
 
+  test "an input analysed by an older script analyser is not known yet, so the transfer waits",
+       %{block: block, alice: alice, bob: bob} do
+    token_id = mint(block, alice)
+    funding = ingest(tx([funding_outpoint()], [p2pkh(bob, 10_000)]), block)
+
+    # Stored before BSV20 tagging existed: no tag proves nothing.
+    Repo.update_all(from(t in Bitblocks.Chain.Transaction, where: t.txid == ^funding),
+      set: [script_analysis_version: 4, protocols: []]
+    )
+
+    copy = ingest(tx(["#{funding}_0"], [transfer_out(token_id, "500", bob)]), block)
+    assert status(copy, 0) == "pending"
+    assert Tokens.balance_of(token_id, bob) == 0
+  end
+
   test "a transfer whose outputs exceed its inputs is invalid and counted",
        %{block: block, alice: alice, bob: bob} do
     token_id = mint(block, alice)
@@ -183,6 +198,22 @@ defmodule Bitblocks.TokensValidationTest do
     assert status(good, 0) == "valid"
     assert status(copy, 0) == "invalid"
     assert Tokens.token_holders(token_id) == [%{address: bob, balance: 1000}]
+  end
+
+  test "the dry run says why: counts by reason, and each invalid row with what it spends",
+       %{block: block, alice: alice, bob: bob} do
+    token_id = mint(block, alice)
+    funding = ingest(tx([funding_outpoint()], [p2pkh(bob, 10_000)]), block)
+    copy = ingest(tx(["#{funding}_0"], [transfer_out(token_id, "5", bob)]), block)
+
+    {report, out} = ExUnit.CaptureIO.with_io(fn -> Release.revalidate_token_transfers() end)
+
+    assert report.by_reason == %{"invalid: no input of this token" => 1}
+    assert [%{txid: ^copy, vout: 0, reason: "no input of this token"}] = report.invalid_rows
+    assert out =~ "1  invalid: no input of this token"
+    assert out =~ "INVALID #{copy}:0"
+    assert out =~ "in #{funding}:0"
+    assert out =~ "not a token"
   end
 
   test "a mint with an unspent balance reports its holders", %{block: block, alice: alice} do

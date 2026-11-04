@@ -268,11 +268,25 @@ defmodule Bitblocks.Tokens do
   **Dry run by default**: computes each transfer's status as if the earlier
   ones were already written, and writes nothing. `apply: true` writes the
   changed rows. Returns `%{applied, txs, rows, changed, valid, invalid,
-  pending}`.
+  pending, by_reason, invalid_rows}`: `by_reason` counts rows by
+  `"status: reason"`, and `invalid_rows` lists each invalid row
+  (`txid`, `vout`, `token_id`, `block_height`, `reason`), so a dry run can be
+  checked before it is applied (see `input_report/1`).
   """
   def revalidate_transfers(opts \\ []) do
     apply? = Keyword.get(opts, :apply, false)
-    empty = %{applied: apply?, txs: 0, rows: 0, changed: 0, valid: 0, invalid: 0, pending: 0}
+
+    empty = %{
+      applied: apply?,
+      txs: 0,
+      rows: 0,
+      changed: 0,
+      valid: 0,
+      invalid: 0,
+      pending: 0,
+      by_reason: %{},
+      invalid_rows: []
+    }
 
     case get_protocol_id() do
       nil ->
@@ -303,13 +317,93 @@ defmodule Bitblocks.Tokens do
     if changed? and apply?, do: row |> Ecto.Changeset.change(state: state) |> Repo.update!()
     status = state["status"]
 
+    reason = state["reason"] && "#{status}: #{state["reason"]}"
+
     report =
       report
       |> Map.update!(:rows, &(&1 + 1))
       |> Map.update!(:changed, &(&1 + if(changed?, do: 1, else: 0)))
       |> Map.update!(String.to_existing_atom(status), &(&1 + 1))
+      |> Map.update!(:by_reason, &Map.update(&1, reason || status, 1, fn n -> n + 1 end))
+      |> then(fn r ->
+        if status == "invalid",
+          do: %{
+            r
+            | invalid_rows:
+                r.invalid_rows ++
+                  [
+                    %{
+                      txid: row.txid,
+                      vout: row.vout,
+                      token_id: row.parsed_data["token_id"],
+                      block_height: row.block_height,
+                      reason: state["reason"]
+                    }
+                  ]
+          },
+          else: r
+      end)
 
     {report, Map.put(overrides, {row.txid, row.vout}, status)}
+  end
+
+  @doc """
+  What a transfer tx spends, for checking a verdict by hand: one entry per
+  input, with the outpoint, whether its tx is stored, that tx's height,
+  `script_analysis_version` and whether it is tagged BSV20, and the token row
+  at the outpoint if one is indexed. An input stored before BSV20 tagging
+  existed (an old analysis version, no tag) reads as "not a token" to
+  validation, so it can make a real transfer look invalid.
+  """
+  def input_report(txid) do
+    inputs =
+      from(s in Bitblocks.Chain.Spend,
+        where: s.spending_txid == ^txid,
+        order_by: s.spending_vin,
+        select: {s.txid, s.vout}
+      )
+      |> Repo.all()
+
+    txids = inputs |> Enum.map(&elem(&1, 0)) |> Enum.uniq()
+
+    stored =
+      from(t in Bitblocks.Chain.Transaction,
+        where: t.txid in ^txids,
+        select:
+          {t.txid,
+           %{
+             block_height: t.block_height,
+             script_analysis_version: t.script_analysis_version,
+             protocols: t.protocols
+           }}
+      )
+      |> Repo.all()
+      |> Map.new()
+
+    token_rows =
+      case get_protocol_id() do
+        nil ->
+          %{}
+
+        protocol_id ->
+          from(i in Instance, where: i.protocol_id == ^protocol_id and i.txid in ^txids)
+          |> Repo.all()
+          |> Map.new(&{{&1.txid, &1.vout}, &1})
+      end
+
+    for {in_txid, vout} <- inputs do
+      tx = stored[in_txid]
+      row = token_rows[{in_txid, vout}]
+
+      %{
+        outpoint: "#{in_txid}:#{vout}",
+        stored: tx != nil,
+        block_height: tx && tx.block_height,
+        script_analysis_version: tx && tx.script_analysis_version,
+        bsv20_tagged: tx != nil and "BSV20" in (tx.protocols || []),
+        token: row && %{op: row.parsed_data["op"], token_id: row.parsed_data["token_id"]}
+      }
+    end
   end
 
   # [{transfer row, the state it should have}] for the transfer rows of txid.
@@ -366,22 +460,28 @@ defmodule Bitblocks.Tokens do
     stored =
       from(t in Bitblocks.Chain.Transaction,
         where: t.txid in ^txids,
-        select: {t.txid, t.protocols}
+        select: {t.txid, {t.protocols, t.script_analysis_version}}
       )
       |> Repo.all()
       |> Map.new()
 
+    analysis_now = Bitblocks.TransactionParser.script_analysis_version()
+
     Enum.reduce(inputs, {[], []}, fn outpoint, {found, unknown} ->
       {txid, _} = outpoint
+      {protocols, analysed} = Map.get(stored, txid, {nil, nil})
 
       cond do
         row = by_outpoint[outpoint] ->
           {[row | found], unknown}
 
-        # Stored, so its token rows (if any) went in with it, unless it is
-        # tagged BSV20 and has none yet (stored before token indexing ran).
-        Map.has_key?(stored, txid) and
-            not ("BSV20" in (stored[txid] || []) and not MapSet.member?(indexed_txids, txid)) ->
+        # Stored and analysed by the current analyzer, so its token rows (if
+        # any) went in with it, unless it is tagged BSV20 and has none yet
+        # (stored before token indexing ran). A row analysed by an older
+        # version may carry a token its tags don't show: not yet known, so
+        # the transfer waits rather than reading it as "no token".
+        Map.has_key?(stored, txid) and (analysed || 0) >= analysis_now and
+            not ("BSV20" in (protocols || []) and not MapSet.member?(indexed_txids, txid)) ->
           {found, unknown}
 
         true ->
