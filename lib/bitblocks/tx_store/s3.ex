@@ -37,6 +37,23 @@ defmodule Bitblocks.TxStore.S3 do
     end
   end
 
+  # An HTTP Range GET: `bytes=<first>-<last>`, inclusive. A 206 with exactly
+  # `length` bytes is the only success.
+  @impl true
+  def get_range(key, offset, length) do
+    with {:ok, bucket} <- bucket() do
+      range = "bytes=#{offset}-#{offset + length - 1}"
+
+      case bucket |> ExAws.S3.get_object(key, range: range) |> ExAws.request() do
+        {:ok, %{body: body}} when byte_size(body) == length -> {:ok, body}
+        {:ok, %{body: body}} -> {:error, {:short_read, byte_size(body), length}}
+        {:error, {:http_error, 404, _}} -> {:error, :not_found}
+        {:error, {:http_error, 416, _}} -> {:error, :range_not_satisfiable}
+        {:error, reason} -> {:error, {:s3_get, reason}}
+      end
+    end
+  end
+
   @impl true
   def size(key) do
     with {:ok, bucket} <- bucket() do

@@ -98,13 +98,13 @@ The store is checked against the chain by block range, as an operational check a
 bin/bitblocks rpc 'Bitblocks.Release.tx_store_reconcile(0, 9_999)'
 ```
 
-It prints the blocks in the range and how many are completed, the txs the headers declare, the tx rows we hold, the rows stamped as stored, and a sample of stored objects re-checked by byte size.
-Then OK, or each gap as a number: `blocks_missing`, `blocks_incomplete`, `txs_not_stored`, `txs_not_in_store`, `sample_mismatch`.
-A stamped tx whose object is missing or a different size counts as a mismatch, never a skip.
+It prints the blocks in the range and how many are completed, the block objects stored and missing, the txs the headers declare, the tx rows we hold, the rows in the store (their own object, or located in a block object), and a sample re-checked: own objects by byte size, block objects by a ranged read that must hash to the txid.
+Then OK, or each gap as a number: `blocks_missing`, `blocks_incomplete`, `block_objects_missing`, `txs_not_stored`, `txs_not_in_store`, `sample_mismatch`.
+A stamped tx whose object is missing, a different size, or the wrong bytes counts as a mismatch, never a skip.
 It only reads; give large spans in pieces of about 10,000 blocks on a busy database.
 
-What fills the store today: collection syncs, `Release.store_collection_blobs/2`, and `/content/:outpoint` on a miss.
-The sync loop does not upload, so `txs_not_in_store` is most of the chain until it does (2026-11-04: 21,329 txs in the store).
+What fills the store: the sync loop, which writes each completed block up to 32 MB as one object (`blocks/<height>-<hash>.bin`, docs/TX_STORAGE.md) once a bucket is configured; `Release.store_block_objects/3` for blocks it missed or synced before; collection syncs, `Release.store_collection_blobs/2`, and `/content/:outpoint` on a miss, which write per-tx objects.
+`GET /api/v1/txs/:txid/raw` serves any of them, verified and `immutable`: the origin for the CDN.
 
 ## Why This Matters
 

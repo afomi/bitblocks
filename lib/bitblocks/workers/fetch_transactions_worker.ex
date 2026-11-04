@@ -17,6 +17,13 @@ defmodule Bitblocks.Workers.FetchTransactionsWorker do
   node can't serve whole, use the verified txid list (`Chain.TxidSource`)
   and fetch bodies per chunk (`Chain.TxSources`).
 
+  ## The block in the tx store
+  Once a raw-path block is completed, its exact bytes are written to the tx
+  store as one object, verified, and its txs located in it
+  (`Bitblocks.TxStore.BlockObject`; docs/TX_STORAGE.md). That write never
+  decides or delays completion: a failure is logged and left for
+  `Release.store_block_objects/3`.
+
   ## Diff-and-fill
   Either way the block is walked in chunks; each chunk is diffed against
   stored transactions and only the gaps are stored. Re-running is idempotent
@@ -53,6 +60,7 @@ defmodule Bitblocks.Workers.FetchTransactionsWorker do
   alias Bitblocks.{Chain, Repo, Sync}
   alias Bitblocks.Chain.{Block, RawBlock, TxIngest, TxidSource, TxSources}
   alias Bitblocks.SyncProgress.Tracker
+  alias Bitblocks.TxStore.BlockObject
 
   # How many transactions to fetch and write per chunk.
   # Bounds memory: 100 raw transactions ≈ 10-50 MB depending on tx size.
@@ -124,11 +132,12 @@ defmodule Bitblocks.Workers.FetchTransactionsWorker do
   end
 
   defp run(block, job, offset, deadline) do
-    with {:ok, items, block} <- block_txs(block, job.meta["raw_dir"]),
+    with {:ok, items, block, raw} <- block_txs(block, job.meta["raw_dir"]),
          {:ok, block} <- mark_syncing(block) do
       case walk(block, items, offset, deadline) do
         :completed ->
           mark_completed(block)
+          store_block_object(block, raw, items)
           :ok
 
         {:paused, next_offset} ->
@@ -152,9 +161,11 @@ defmodule Bitblocks.Workers.FetchTransactionsWorker do
   # serve whole falls back to the per-tx path.
   # An import (Chain.BlockImport) names a directory of exported block files:
   # the block comes from there or not at all, never from the node.
+  # The fourth element is the raw block's bytes (for its object in the tx
+  # store), or nil on the per-tx path.
   defp block_txs(block, raw_dir) when is_binary(raw_dir) do
     case RawBlock.fetch(block, dir: raw_dir) do
-      {:ok, txs, stats} -> {:ok, txs, record_fetch(block, stats)}
+      {:ok, txs, stats} -> {:ok, txs, record_fetch(block, stats), stats.raw}
       {:error, reason} -> {:error, reason}
     end
   end
@@ -163,7 +174,7 @@ defmodule Bitblocks.Workers.FetchTransactionsWorker do
     if RawBlock.eligible?(block) and TxSources.node_has_block?(block) do
       case RawBlock.fetch(block) do
         {:ok, txs, stats} ->
-          {:ok, txs, record_fetch(block, stats)}
+          {:ok, txs, record_fetch(block, stats), stats.raw}
 
         {:error, reason}
         when elem(reason, 0) in [:merkleroot_verification_failed, :tx_count_mismatch] ->
@@ -177,11 +188,15 @@ defmodule Bitblocks.Workers.FetchTransactionsWorker do
             "FetchTxs block=#{block.height} raw fetch failed (#{inspect(reason)}); per-tx path"
           )
 
-          TxidSource.txids(block)
+          per_tx(block)
       end
     else
-      TxidSource.txids(block)
+      per_tx(block)
     end
+  end
+
+  defp per_tx(block) do
+    with {:ok, txids, block} <- TxidSource.txids(block), do: {:ok, txids, block, nil}
   end
 
   # Bytes and time per raw block, for the node-load numbers on /sync; the
@@ -190,7 +205,10 @@ defmodule Bitblocks.Workers.FetchTransactionsWorker do
     Phoenix.PubSub.broadcast(
       Bitblocks.PubSub,
       Tracker.topic(),
-      {:sync_fetch, Map.merge(stats, %{height: block.height, at: System.system_time(:second)})}
+      {:sync_fetch,
+       stats
+       |> Map.delete(:raw)
+       |> Map.merge(%{height: block.height, at: System.system_time(:second)})}
     )
 
     if block.size == stats.bytes do
@@ -425,6 +443,23 @@ defmodule Bitblocks.Workers.FetchTransactionsWorker do
   defp totals(completed) do
     Chain.TxPipeline.run_block(completed)
     Chain.broadcast_block_update(Repo.reload!(completed))
+  end
+
+  # The block's exact bytes as one object in the tx store, with each tx's
+  # offset (docs/TX_STORAGE.md, step 1). After completion and outside it: a
+  # failed or unverified write is logged by BlockObject.store/3, leaves
+  # raw_object_stored_at nil for Release.store_block_objects/3 to find, and
+  # never fails or slows the block's sync state. nil raw (the per-tx path,
+  # blocks over 32 MB) writes nothing; reconcile counts those as missing.
+  defp store_block_object(_block, nil, _txs), do: :ok
+
+  defp store_block_object(block, raw, txs) do
+    if BlockObject.enabled?(), do: BlockObject.store(block, raw, txs)
+    :ok
+  rescue
+    e ->
+      Logger.error("FetchTxs block=#{block.height} block object failed: #{Exception.message(e)}")
+      :ok
   end
 
   # Follow (#29 step 4): webhook projections hear about matches in blocks that

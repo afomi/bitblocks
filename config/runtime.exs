@@ -40,6 +40,15 @@ if rest_url = System.get_env("BITCOIN_NODE_REST_URL") do
   config :bitblocks, :rest_url, rest_url
 end
 
+# Completed blocks' bytes as one object each in the tx store
+# (Bitblocks.TxStore.BlockObject). Unset: on only while the store is ready
+# (AWS_S3_BUCKET_TXS set). "false" turns it off; "true" forces it on.
+case System.get_env("STORE_BLOCK_OBJECTS") do
+  "false" -> config :bitblocks, :store_block_objects, false
+  "true" -> config :bitblocks, :store_block_objects, true
+  _ -> :ok
+end
+
 slow_rpc_threshold_ms = parse_env_integer.(System.get_env("SLOW_RPC_LOG_THRESHOLD_MS"), 30_000)
 fetcher_concurrency = parse_env_integer.(System.get_env("SYNC_CONCURRENCY"), 8)
 

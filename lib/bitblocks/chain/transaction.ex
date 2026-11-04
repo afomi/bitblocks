@@ -47,6 +47,11 @@ defmodule Bitblocks.Chain.Transaction do
     field :aip_signers, {:array, :string}, default: []
     # When raw bytes were written to the blob store and verified (Bitblocks.TxStore).
     field :blob_stored_at, :utc_datetime
+    # Where this tx's bytes sit in its block's object in the tx store
+    # (blocks/<height>-<hash>.bin): set with blocks.raw_object_stored_at,
+    # once the object is written and verified. docs/TX_STORAGE.md.
+    field :raw_offset, :integer
+    field :raw_length, :integer
 
     timestamps()
   end

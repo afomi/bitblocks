@@ -28,6 +28,29 @@ defmodule Bitblocks.TxStore.Local do
   end
 
   @impl true
+  def get_range(key, offset, length) do
+    case File.open(path(key), [:read, :binary, :raw]) do
+      {:ok, file} ->
+        try do
+          case :file.pread(file, offset, length) do
+            {:ok, bytes} when byte_size(bytes) == length -> {:ok, bytes}
+            {:ok, bytes} -> {:error, {:short_read, byte_size(bytes), length}}
+            :eof -> {:error, {:short_read, 0, length}}
+            {:error, reason} -> {:error, reason}
+          end
+        after
+          File.close(file)
+        end
+
+      {:error, :enoent} ->
+        {:error, :not_found}
+
+      error ->
+        error
+    end
+  end
+
+  @impl true
   def size(key) do
     case File.stat(path(key)) do
       {:ok, %File.Stat{size: size}} -> {:ok, size}
