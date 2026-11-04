@@ -44,7 +44,7 @@ So sats in costs no node call.
 
 | # | Step | Reads | Writes | Cost |
 | --- | --- | --- | --- | --- |
-| 6 | `record_spends` | the tx's inputs | `spend_index`, one row per input; fills order-book listings their inputs settle | one insert per input |
+| 6 | `record_spends` | the tx's inputs | `spend_index`, one row per input; fills order-book listings their inputs settle (once per fill txid; a listing indexed later settles against the row, #40) | one insert per input |
 | 7 | `index_tokens` | BSV-20/21 inscriptions, only on txs tagged `BSV20` | `protocol_instances`, the token index | none for untagged txs |
 | 8 | `index_bitcom` | Bitcom `$` commands, only on txs tagged `Bitcom` | `bitcom_commands`, with ownership proofs | none for untagged txs |
 

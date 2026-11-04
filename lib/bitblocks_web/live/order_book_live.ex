@@ -10,7 +10,7 @@ defmodule BitblocksWeb.OrderBookLive do
       Phoenix.PubSub.subscribe(Bitblocks.PubSub, "order_book")
     end
 
-    listings = OrderBook.list_active_listings(limit: 50)
+    book = OrderBook.list_book(limit: 50)
     stats = OrderBook.listing_stats()
 
     socket =
@@ -23,8 +23,8 @@ defmodule BitblocksWeb.OrderBookLive do
           canonical_path: "/order-book"
         )
       )
+      |> assign_book(book)
       |> assign(
-        listings: listings,
         stats: stats,
         token_filter: "",
         seller_filter: "",
@@ -49,11 +49,10 @@ defmodule BitblocksWeb.OrderBookLive do
       |> maybe_put(:min_price, parse_int(min_price))
       |> maybe_put(:max_price, parse_int(max_price))
 
-    listings = OrderBook.list_active_listings(opts)
-
     {:noreply,
-     assign(socket,
-       listings: listings,
+     socket
+     |> assign_book(OrderBook.list_book(opts))
+     |> assign(
        token_filter: token_filter,
        seller_filter: seller_filter,
        min_price: min_price,
@@ -63,11 +62,10 @@ defmodule BitblocksWeb.OrderBookLive do
 
   @impl true
   def handle_event("clear_filters", _params, socket) do
-    listings = OrderBook.list_active_listings(limit: 50)
-
     {:noreply,
-     assign(socket,
-       listings: listings,
+     socket
+     |> assign_book(OrderBook.list_book(limit: 50))
+     |> assign(
        token_filter: "",
        seller_filter: "",
        min_price: "",
@@ -106,6 +104,15 @@ defmodule BitblocksWeb.OrderBookLive do
 
   @impl true
   def handle_info(_msg, socket), do: {:noreply, socket}
+
+  # The listings and the heights their statuses were judged against (#40).
+  defp assign_book(socket, book) do
+    assign(socket,
+      listings: book.listings,
+      indexed_through_height: book.indexed_through_height,
+      tip_height: book.tip_height
+    )
+  end
 
   defp maybe_put(opts, _key, nil), do: opts
   defp maybe_put(opts, key, value), do: Keyword.put(opts, key, value)
@@ -155,6 +162,7 @@ defmodule BitblocksWeb.OrderBookLive do
   end
 
   def status_class("active"), do: "bg-green-100 text-green-700"
+  def status_class("unknown"), do: "bg-amber-100 text-amber-900"
   def status_class("partially_filled"), do: "bg-yellow-100 text-yellow-700"
   def status_class("filled"), do: "bg-blue-100 text-blue-700"
   def status_class("cancelled"), do: "bg-red-100 text-red-700"

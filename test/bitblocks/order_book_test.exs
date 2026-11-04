@@ -1,6 +1,10 @@
 defmodule Bitblocks.OrderBookTest do
   use Bitblocks.DataCase
 
+  import Bitblocks.ChainFixtures, only: [completed_chain_fixture: 1, transaction_fixture: 1]
+
+  alias Bitblocks.Chain
+  alias Bitblocks.Chain.{Block, Spend, Transaction}
   alias Bitblocks.OrderBook
   alias Bitblocks.ProtocolRegistry
 
@@ -76,8 +80,20 @@ defmodule Bitblocks.OrderBookTest do
     )
   end
 
+  # Blocks 0..100 completed, with the tx holding the listed tokens in block 50:
+  # absence of a spend of its outputs is then a fact (Bitblocks.Chain.Utxos).
+  defp synced_token_tx(txid) do
+    completed_chain_fixture(100)
+    transaction_fixture(%{txid: txid, block_hash: "chain-50", block_height: 50})
+  end
+
+  defp spend!(txid, vout, spending_txid) do
+    Repo.insert!(%Spend{txid: txid, vout: vout, spending_txid: spending_txid, spending_vin: 0})
+  end
+
   describe "list_active_listings/1" do
     test "returns active, unspent listings", %{protocol: protocol} do
+      synced_token_tx("abc123")
       _listing = create_listing(protocol)
 
       listings = OrderBook.list_active_listings()
@@ -299,7 +315,8 @@ defmodule Bitblocks.OrderBookTest do
       assert listing.txid == txid
       assert listing.token_id == @test_token_id
       assert listing.quantity == "200"
-      assert listing.status == "active"
+      # The tx holding the tokens isn't stored, so whether they're still for sale isn't known.
+      assert listing.status == "unknown"
     end
   end
 
@@ -371,7 +388,7 @@ defmodule Bitblocks.OrderBookTest do
         ])
 
       assert settled == 0
-      assert OrderBook.get_listing(listing.txid).status == "active"
+      refute OrderBook.get_listing(listing.txid).spent
     end
 
     test "is idempotent — a re-processed spend does not double-fill", %{protocol: protocol} do
@@ -401,6 +418,122 @@ defmodule Bitblocks.OrderBookTest do
       updated = OrderBook.get_listing(listing.txid)
       assert updated.status == "filled"
       assert updated.spent_txid == settlement_txid
+    end
+  end
+
+  describe "live only while the token outpoint is unspent (#40)" do
+    setup do
+      synced_token_tx("tokentx")
+      :ok
+    end
+
+    test "an unspent token outpoint on a synced chain is active", %{protocol: protocol} do
+      listing =
+        create_listing(protocol, %{parsed_data: list_data(%{"token_utxo" => "tokentx:0"})})
+
+      assert [%{txid: txid, status: "active", signature_checked: false}] =
+               OrderBook.list_active_listings()
+
+      assert txid == listing.txid
+    end
+
+    test "a spend stored before the listing keeps it off the book (backfill order)", %{
+      protocol: protocol
+    } do
+      settlement = transaction_fixture(%{block_hash: "chain-60", block_height: 60})
+      spend!("tokentx", 0, settlement.txid)
+
+      # The row a backfill writes after the spend: never settled, still "active" in state.
+      listing =
+        create_listing(protocol, %{parsed_data: list_data(%{"token_utxo" => "tokentx:0"})})
+
+      assert OrderBook.list_active_listings() == []
+      assert OrderBook.listing_stats().total_active == 0
+      assert OrderBook.token_market(@test_token_id).num_active_listings == 0
+
+      assert %{status: "spent", spent: true, spent_txid: by} = OrderBook.get_listing(listing.txid)
+      assert by == settlement.txid
+    end
+
+    test "is unknown, not active, while the block that would hold the spend isn't synced", %{
+      protocol: protocol
+    } do
+      now = NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second)
+
+      Repo.insert_all(Block, [
+        %{
+          hash: "chain-101",
+          height: 101,
+          num_tx: 1,
+          tx: [],
+          sync_state: "header_only",
+          inserted_at: now,
+          updated_at: now
+        }
+      ])
+
+      listing =
+        create_listing(protocol, %{parsed_data: list_data(%{"token_utxo" => "tokentx:0"})})
+
+      assert [%{status: "unknown"}] = OrderBook.list_active_listings()
+      assert OrderBook.get_listing(listing.txid).status == "unknown"
+    end
+
+    test "is unknown when the tx holding the tokens isn't stored", %{protocol: protocol} do
+      create_listing(protocol, %{parsed_data: list_data(%{"token_utxo" => "elsewhere:0"})})
+
+      assert [%{status: "unknown"}] = OrderBook.list_active_listings()
+    end
+
+    test "settling the same spend twice counts one fill", %{protocol: protocol} do
+      listing = create_listing(protocol)
+      fill_txid = random_txid()
+
+      assert {:ok, _} = OrderBook.fill_listing(listing.txid, fill_txid, "30")
+      assert {:ok, again} = OrderBook.fill_listing(listing.txid, fill_txid, "30")
+
+      assert again.quantity_remaining == "70"
+      assert length(again.fills) == 1
+
+      settled =
+        create_listing(protocol, %{parsed_data: list_data(%{"token_utxo" => "tokentx:0"})})
+
+      settlement = %Transaction{
+        txid: random_txid(),
+        inputs: [Jason.encode!(%{"txid" => "tokentx", "vout" => 0})]
+      }
+
+      Chain.record_spends(settlement)
+      Chain.record_spends(settlement)
+
+      assert [%{"txid" => txid}] = OrderBook.get_listing(settled.txid).fills
+      assert txid == settlement.txid
+      assert OrderBook.token_trades(@test_token_id) |> Enum.count(&(&1.txid == txid)) == 1
+    end
+
+    test "a listing and its fill ingested fill-first end with the listing not active" do
+      settlement = %Transaction{
+        txid: random_txid(),
+        inputs: [Jason.encode!(%{"txid" => "tokentx", "vout" => 0})]
+      }
+
+      # The settlement is stored (and its spend recorded) before the listing is indexed.
+      Chain.record_spends(settlement)
+
+      assert {:ok, listing} =
+               OrderBook.index_listing(%{
+                 txid: random_txid(),
+                 vout: 0,
+                 block_height: 40,
+                 parsed_data: list_data(%{"token_utxo" => "tokentx:0"})
+               })
+
+      assert listing.status == "filled"
+      assert listing.spent
+      assert listing.spent_txid == settlement.txid
+      assert [%{"txid" => fill}] = listing.fills
+      assert fill == settlement.txid
+      assert OrderBook.list_active_listings() == []
     end
   end
 

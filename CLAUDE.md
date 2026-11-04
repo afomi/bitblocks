@@ -245,8 +245,8 @@ GET /api/v1/metanet/:txid/children — children of a Metanet node
 GET /api/v1/metanet/roots       — Metanet root nodes (orphans)
 GET /api/v1/protocols           — registered protocols
 GET /api/v1/protocols/:addr/feed — parsed protocol feed (e.g. Twetch posts)
-GET /api/v1/order-book/listings — active order book listings (filters: token_id, seller, min_price, max_price)
-GET /api/v1/order-book/listings/:txid — single listing detail
+GET /api/v1/order-book/listings — open listings, none whose token outpoint is in spend_index; status active only when known unspent, else unknown (Chain.Utxos rule); signature_checked: false; meta.indexed_through_height, meta.tip_height (filters: token_id, seller, min_price, max_price)
+GET /api/v1/order-book/listings/:txid — single listing detail (status spent when a stored tx spends its token outpoint)
 GET /api/v1/order-book/tokens/:token_id — listings for a token
 GET /api/v1/order-book/sellers/:address — listings by seller
 GET /api/v1/order-book/stats    — order book aggregate statistics

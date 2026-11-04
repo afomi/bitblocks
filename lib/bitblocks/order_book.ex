@@ -6,10 +6,27 @@ defmodule Bitblocks.OrderBook do
   token, price range, seller, and status.
   Listings are stored as `protocol_instances` with `parsed_data`
   containing the order book operation fields.
+
+  ## Live only while the token outpoint is unspent (#40)
+
+  A listing is for sale only while its `token_utxo` is unspent, and that is
+  read from the spend index when the book is read, not only from the
+  listing's stored state:
+
+    * A `spend_index` row for the token outpoint takes the listing off the
+      book, even when the spend was stored before the listing (a backfill
+      indexes blocks out of order, so the settlement can come first).
+    * An open listing is `"active"` only when `Bitblocks.Chain.Utxos` says
+      its outpoint is `:unspent`: no recorded spend, the token tx in a
+      stored block, and every block through the tip synced. Otherwise it is
+      `"unknown"`: a spend may sit in a block we haven't synced yet.
+    * `signature_checked` is `false` on every listing: nothing verifies
+      `seller_sig` yet, so a listing is a claim, not a checked offer.
   """
 
   import Ecto.Query, warn: false
 
+  alias Bitblocks.Chain.{Spend, Utxos}
   alias Bitblocks.Repo
   alias Bitblocks.ProtocolRegistry
   alias Bitblocks.ProtocolRegistry.Instance
@@ -17,8 +34,35 @@ defmodule Bitblocks.OrderBook do
   @pubsub Bitblocks.PubSub
   @topic "order_book"
 
+  # Stored statuses of a listing still on the book; its live status comes from the spend index.
+  @open_statuses ~w(active partially_filled)
+
   @doc """
-  Returns active, unspent listings with optional filters.
+  The open book with the coverage its statuses were judged against:
+  `%{listings: [...], indexed_through_height: h, tip_height: t}`.
+  Takes the options of `list_active_listings/1`.
+  """
+  @spec list_book(keyword()) :: %{
+          listings: [map()],
+          indexed_through_height: integer(),
+          tip_height: integer() | nil
+        }
+  def list_book(opts \\ []) do
+    rows =
+      case get_protocol_id() do
+        nil -> []
+        protocol_id -> open_listing_rows(protocol_id, opts)
+      end
+
+    {listings, coverage} = rows |> Enum.map(&instance_to_listing/1) |> with_live_status()
+    Map.put(coverage, :listings, listings)
+  end
+
+  @doc """
+  Returns the listings on the book, with optional filters: open in their
+  stored state, not expired, and no recorded spend of the token outpoint.
+  Each listing's `status` is `"active"` only when the outpoint is known
+  unspent, else `"unknown"` (see the moduledoc).
 
   ## Options
 
@@ -29,44 +73,117 @@ defmodule Bitblocks.OrderBook do
     * `:limit` - Maximum number of results (default 50)
     * `:cursor` - Cursor for pagination (instance ID)
   """
-  def list_active_listings(opts \\ []) do
-    case get_protocol_id() do
-      nil ->
-        []
+  def list_active_listings(opts \\ []), do: list_book(opts).listings
 
-      protocol_id ->
-        now = DateTime.utc_now() |> DateTime.to_iso8601()
+  defp open_listing_rows(protocol_id, opts) do
+    now = DateTime.utc_now() |> DateTime.to_iso8601()
 
-        from(i in Instance,
-          where: i.protocol_id == ^protocol_id,
-          where: i.spent == false,
-          where: fragment("?->>'op' = 'list'", i.parsed_data),
-          where:
-            fragment(
-              "(?->>'status' IS NULL OR ?->>'status' = 'active')",
-              i.state,
-              i.state
-            ),
-          where:
-            fragment(
-              "(?->>'expires_at' IS NULL OR ?->>'expires_at' = '' OR ?->>'expires_at' > ?)",
-              i.parsed_data,
-              i.parsed_data,
-              i.parsed_data,
-              ^now
-            ),
-          order_by: [desc: i.inserted_at]
+    from(i in Instance,
+      where: i.protocol_id == ^protocol_id,
+      where: i.spent == false,
+      where: fragment("?->>'op' = 'list'", i.parsed_data),
+      where:
+        fragment(
+          "(?->>'status' IS NULL OR ?->>'status' = 'active')",
+          i.state,
+          i.state
+        ),
+      where:
+        fragment(
+          "(?->>'expires_at' IS NULL OR ?->>'expires_at' = '' OR ?->>'expires_at' > ?)",
+          i.parsed_data,
+          i.parsed_data,
+          i.parsed_data,
+          ^now
+        ),
+      order_by: [desc: i.inserted_at]
+    )
+    |> without_recorded_spend()
+    |> apply_filters(opts)
+    |> apply_cursor(opts[:cursor])
+    |> limit(^Keyword.get(opts, :limit, 50))
+    |> Repo.all()
+  end
+
+  # Drops listings whose token outpoint ("<txid>:<vout>") has a spend_index
+  # row. One probe of the unique (txid, vout) index per candidate listing.
+  defp without_recorded_spend(query) do
+    from(i in query,
+      where:
+        fragment(
+          """
+          NOT EXISTS (
+            SELECT 1 FROM spend_index s
+            WHERE s.txid = split_part(?->>'token_utxo', ':', 1)
+              AND s.vout::text = split_part(?->>'token_utxo', ':', 2)
+          )
+          """,
+          i.parsed_data,
+          i.parsed_data
         )
-        |> apply_filters(opts)
-        |> apply_cursor(opts[:cursor])
-        |> limit(^Keyword.get(opts, :limit, 50))
-        |> Repo.all()
-        |> Enum.map(&instance_to_listing/1)
+    )
+  end
+
+  # Each open listing's status from its token outpoint (Chain.Utxos): kept
+  # when unspent, "spent" when a stored tx spends it, else "unknown".
+  defp with_live_status(listings) do
+    outpoints =
+      for listing <- listings,
+          open?(listing),
+          outpoint = token_outpoint(listing.token_utxo),
+          outpoint != nil,
+          uniq: true,
+          do: outpoint
+
+    %{outpoints: statuses} = judged = Utxos.outpoints(outpoints)
+
+    {
+      Enum.map(listings, &live_status(&1, statuses)),
+      Map.take(judged, [:indexed_through_height, :tip_height])
+    }
+  end
+
+  defp live_status(listing, statuses) do
+    if open?(listing) do
+      case Map.get(statuses, token_outpoint(listing.token_utxo)) do
+        %{status: :unspent} ->
+          listing
+
+        %{status: :spent, spent_by: by} ->
+          %{listing | status: "spent", spent: true, spent_txid: by}
+
+        _ ->
+          %{listing | status: "unknown"}
+      end
+    else
+      listing
     end
   end
 
+  defp open?(%{spent: false, status: status}), do: status in @open_statuses
+  defp open?(_), do: false
+
+  # "<txid>:<vout>" as {txid, vout}; nil when it isn't one.
+  defp token_outpoint(token_utxo) when is_binary(token_utxo) do
+    with [txid, vout] when txid != "" <- String.split(token_utxo, ":"),
+         {n, ""} when n >= 0 <- Integer.parse(vout) do
+      {txid, n}
+    else
+      _ -> nil
+    end
+  end
+
+  defp token_outpoint(_), do: nil
+
+  defp with_live_status_one(listing) do
+    {[listing], _} = with_live_status([listing])
+    listing
+  end
+
   @doc """
-  Gets a single listing by txid.
+  Gets a single listing by txid, closed ones included, with its live status
+  (see the moduledoc): an open listing whose token outpoint a stored tx
+  spends reads `"spent"`, and one not known unspent reads `"unknown"`.
   """
   def get_listing(txid) when is_binary(txid) do
     case get_protocol_id() do
@@ -82,7 +199,7 @@ defmodule Bitblocks.OrderBook do
           )
           |> Repo.one()
 
-        if instance, do: instance_to_listing(instance), else: nil
+        if instance, do: instance |> instance_to_listing() |> with_live_status_one(), else: nil
     end
   end
 
@@ -132,51 +249,65 @@ defmodule Bitblocks.OrderBook do
   Records a fill (purchase) against a listing.
 
   Updates `state` with fill details and marks as spent when fully filled.
+  Idempotent per fill: a `fill_txid` already in the listing's fills changes
+  nothing, so settling the same spend twice counts one fill. The listing
+  row is locked while the fill is recorded, so two settlements of one
+  listing don't both read the same remaining quantity.
   """
   def fill_listing(listing_txid, fill_txid, fill_quantity) do
-    case get_listing_instance(listing_txid) do
-      nil ->
-        {:error, :not_found}
+    Repo.transaction(fn ->
+      case get_listing_instance(listing_txid, lock: true) do
+        nil -> Repo.rollback(:not_found)
+        instance -> record_fill(instance, fill_txid, fill_quantity)
+      end
+    end)
+    |> case do
+      {:ok, {:unchanged, instance}} ->
+        {:ok, instance_to_listing(instance)}
 
-      instance ->
-        current_state = instance.state || %{}
+      {:ok, {:filled, updated}} ->
+        listing = instance_to_listing(updated)
+        broadcast({:listing_filled, listing})
+        broadcast_token(updated.parsed_data["token_id"], {:listing_filled, listing})
+        {:ok, listing}
 
-        current_remaining =
-          parse_quantity(current_state["quantity_remaining"] || instance.parsed_data["quantity"])
+      {:error, _} = error ->
+        error
+    end
+  end
 
-        fill_qty = parse_quantity(fill_quantity)
-        new_remaining = max(current_remaining - fill_qty, 0)
+  defp record_fill(instance, fill_txid, fill_quantity) do
+    current_state = instance.state || %{}
+    fills = Map.get(current_state, "fills", [])
 
-        fills = Map.get(current_state, "fills", [])
-        new_fill = %{"txid" => fill_txid, "quantity" => to_string(fill_qty)}
+    if Enum.any?(fills, &(&1["txid"] == fill_txid)) do
+      {:unchanged, instance}
+    else
+      current_remaining =
+        parse_quantity(current_state["quantity_remaining"] || instance.parsed_data["quantity"])
 
-        fully_filled? = new_remaining == 0
+      fill_qty = parse_quantity(fill_quantity)
+      new_remaining = max(current_remaining - fill_qty, 0)
+      new_fill = %{"txid" => fill_txid, "quantity" => to_string(fill_qty)}
+      fully_filled? = new_remaining == 0
 
-        new_state =
-          current_state
-          |> Map.put("quantity_remaining", to_string(new_remaining))
-          |> Map.put("fills", fills ++ [new_fill])
-          |> Map.put("status", if(fully_filled?, do: "filled", else: "partially_filled"))
+      new_state =
+        current_state
+        |> Map.put("quantity_remaining", to_string(new_remaining))
+        |> Map.put("fills", fills ++ [new_fill])
+        |> Map.put("status", if(fully_filled?, do: "filled", else: "partially_filled"))
 
-        attrs = %{state: new_state}
+      attrs = %{state: new_state}
 
-        attrs =
-          if fully_filled?,
-            do: Map.merge(attrs, %{spent: true, spent_txid: fill_txid}),
-            else: attrs
+      attrs =
+        if fully_filled?,
+          do: Map.merge(attrs, %{spent: true, spent_txid: fill_txid}),
+          else: attrs
 
-        case instance
-             |> Instance.changeset(attrs)
-             |> Repo.update() do
-          {:ok, updated} ->
-            listing = instance_to_listing(updated)
-            broadcast({:listing_filled, listing})
-            broadcast_token(updated.parsed_data["token_id"], {:listing_filled, listing})
-            {:ok, listing}
-
-          error ->
-            error
-        end
+      case instance |> Instance.changeset(attrs) |> Repo.update() do
+        {:ok, updated} -> {:filled, updated}
+        {:error, changeset} -> Repo.rollback(changeset)
+      end
     end
   end
 
@@ -184,6 +315,10 @@ defmodule Bitblocks.OrderBook do
   Indexes a new listing from parsed order book data.
 
   Creates a protocol_instance and broadcasts the new listing event.
+  When the spend index already holds a spend of the token outpoint (the
+  settlement was ingested first, as a backfill can do), the listing is
+  settled on the spot and returned filled, and no `:new_listing` goes out.
+  The returned listing carries its live status (see the moduledoc).
   """
   def index_listing(attrs) when is_map(attrs) do
     case get_protocol_id() do
@@ -208,15 +343,29 @@ defmodule Bitblocks.OrderBook do
 
         case ProtocolRegistry.create_instance(instance_attrs) do
           {:ok, instance} ->
-            listing = instance_to_listing(instance)
-            broadcast({:new_listing, listing})
-            token_id = instance.parsed_data["token_id"]
-            if token_id, do: broadcast_token(token_id, {:new_listing, listing})
+            settle_recorded_spend(instance)
+            listing = get_listing(instance.txid)
+
+            unless listing.spent do
+              broadcast({:new_listing, listing})
+              token_id = instance.parsed_data["token_id"]
+              if token_id, do: broadcast_token(token_id, {:new_listing, listing})
+            end
+
             {:ok, listing}
 
           {:error, _} = error ->
             error
         end
+    end
+  end
+
+  # Fill-first (#40): settle a new listing against a spend of its token
+  # outpoint that is already in the spend index.
+  defp settle_recorded_spend(%Instance{parsed_data: parsed_data}) do
+    with {txid, vout} <- token_outpoint(parsed_data["token_utxo"]),
+         %Spend{spending_txid: by} <- Repo.get_by(Spend, txid: txid, vout: vout) do
+      settle_spent_token_utxos([%{txid: txid, vout: vout, spending_txid: by}])
     end
   end
 
@@ -275,6 +424,9 @@ defmodule Bitblocks.OrderBook do
 
   @doc """
   Returns aggregate statistics about the order book.
+  `total_active` and `unique_tokens` count listings on the book: not closed,
+  and no recorded spend of the token outpoint (whether `"active"` or
+  `"unknown"`).
   """
   def listing_stats do
     case get_protocol_id() do
@@ -289,6 +441,7 @@ defmodule Bitblocks.OrderBook do
             where: fragment("?->>'op' = 'list'", i.parsed_data),
             select: count(i.id)
           )
+          |> without_recorded_spend()
           |> Repo.one()
 
         filled =
@@ -316,6 +469,7 @@ defmodule Bitblocks.OrderBook do
             where: fragment("?->>'op' = 'list'", i.parsed_data),
             select: fragment("COUNT(DISTINCT ?->>'token_id')", i.parsed_data)
           )
+          |> without_recorded_spend()
           |> Repo.one()
 
         %{
@@ -488,18 +642,21 @@ defmodule Bitblocks.OrderBook do
     end
   end
 
-  defp get_listing_instance(txid) do
+  defp get_listing_instance(txid, opts \\ []) do
     case get_protocol_id() do
       nil ->
         nil
 
       protocol_id ->
-        from(i in Instance,
-          where: i.protocol_id == ^protocol_id and i.txid == ^txid,
-          where: fragment("?->>'op' = 'list'", i.parsed_data),
-          limit: 1
-        )
-        |> Repo.one()
+        query =
+          from(i in Instance,
+            where: i.protocol_id == ^protocol_id and i.txid == ^txid,
+            where: fragment("?->>'op' = 'list'", i.parsed_data),
+            limit: 1
+          )
+
+        query = if opts[:lock], do: lock(query, "FOR UPDATE"), else: query
+        Repo.one(query)
     end
   end
 
@@ -561,6 +718,8 @@ defmodule Bitblocks.OrderBook do
       # The seller's pre-signed offer — lets a buyer settle from on-chain data alone.
       seller_pubkey: pd["seller_pubkey"],
       seller_sig: pd["seller_sig"],
+      # Nothing verifies seller_sig against token_utxo yet (#40): a listing is a claim.
+      signature_checked: false,
       sighash_flag: pd["sighash_flag"],
       expires_at: pd["expires_at"],
       min_quantity: pd["min_quantity"],

@@ -131,6 +131,7 @@ active --> expired      (expires_at passed)
 ```
 
 `partially_filled` is reserved for v2 (see Partial Fills) and is not reachable in v1.
+`unknown` and `spent` are read-time statuses of a stored `active` listing, computed from the spend index when the book is read and never stored (see Settlement Flow).
 
 State is tracked in the `protocol_instances.state` JSON field:
 
@@ -174,6 +175,20 @@ This marks the listing as filled without requiring a separate `fill` OP_RETURN.
 Detection is automatic: `Chain.record_spends/1` records every spent outpoint on ingest, and `OrderBook.settle_spent_token_utxos/1` checks each spend against active listings' `token_utxo` field.
 A match fully fills the listing (`status = "filled"`, `spent = true`, `spent_txid` = the settlement txid, `quantity_remaining = "0"`) and broadcasts a `listing_filled` event.
 The check is idempotent — an already-spent listing is skipped, so a worker retry re-processing the same block does not double-fill.
+`OrderBook.fill_listing/3` is idempotent too: a fill txid already in the listing's `fills` changes nothing, and the listing row is locked while a fill is recorded.
+
+### Live only while the token outpoint is unspent
+
+A listing is for sale only while its `token_utxo` is unspent, so the book reads that from the spend index whenever it is read (#40), not only from the stored state:
+
+- **Fill-first ingest.** A backfill can store the settlement before the listing.
+  `OrderBook.index_listing/1` looks up the token outpoint in `spend_index` and settles the new listing on the spot, so it ends `filled`.
+- **Off the book.** `list_active_listings/1`, `listing_stats/0` and `token_market/1` leave out any listing whose token outpoint has a `spend_index` row, whatever its stored state says.
+  The check is a `NOT EXISTS` probe of the unique `spend_index (txid, vout)` index per candidate listing.
+- **Active or unknown.** An open listing reads `active` only when `Bitblocks.Chain.Utxos` says its outpoint is `:unspent`: no recorded spend, the token tx stored in a block we hold, and every block through our tip synced (`indexed_through_height == tip_height`).
+  Otherwise it reads `unknown`, since the spend may sit in a block not synced yet.
+  `GET /api/v1/order-book/listings/:txid` reads `spent` (with `spent_txid`) for an open listing whose outpoint a stored tx spends.
+- **Unverified offers.** Nothing checks `seller_sig` against `token_utxo` yet, so every listing carries `signature_checked: false`, and `/order-book` says so above the book.
 
 ## Storage
 
@@ -208,6 +223,10 @@ GET /api/v1/order-book/tokens/:token_id/trades
 GET /api/v1/order-book/sellers/:address
 GET /api/v1/order-book/stats
 ```
+
+The listing lists (`/listings`, `/tokens/:token_id`, `/sellers/:address`) return open listings, each `active` or `unknown` (see "Live only while the token outpoint is unspent").
+Every listing carries `signature_checked` (`false` for now) and `spent_txid`.
+`/listings` adds `meta.indexed_through_height` and `meta.tip_height`, the coverage its statuses were judged against.
 
 #### Market data
 
