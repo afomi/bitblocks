@@ -1185,19 +1185,17 @@ defmodule Bitblocks.Chain do
         end
       end)
 
-    inserted =
-      Enum.count(entries, fn entry ->
-        case %Spend{}
-             |> Spend.changeset(entry)
-             |> Repo.insert(
-               on_conflict: :nothing,
-               conflict_target: [:txid, :vout]
-             ) do
-          {:ok, %{id: nil}} -> false
-          {:ok, _} -> true
-          _ -> false
-        end
-      end)
+    # One statement for every input (it was one per input). A row already
+    # there (the same outpoint) is left alone and counted as existing; the
+    # changeset's rule that vout is not negative is kept by the filter.
+    now = NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second)
+    entries = Enum.filter(entries, &(&1.vout >= 0))
+
+    {inserted, _} =
+      Repo.insert_all(Spend, Enum.map(entries, &Map.put(&1, :inserted_at, now)),
+        on_conflict: :nothing,
+        conflict_target: [:txid, :vout]
+      )
 
     # Bridge to the order book: if any spent outpoint is a listed token UTXO,
     # this transaction is its settlement — mark the listing filled.

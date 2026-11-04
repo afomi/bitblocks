@@ -326,6 +326,41 @@ defmodule Bitblocks.OrderBookTest do
       assert updated.quantity_remaining == "0"
     end
 
+    test "one tx spending two listed token UTXOs fills both, in one read", %{protocol: protocol} do
+      a = create_listing(protocol, %{parsed_data: list_data(%{"token_utxo" => "tokentx:0"})})
+      b = create_listing(protocol, %{parsed_data: list_data(%{"token_utxo" => "tokentx:1"})})
+      settlement_txid = random_txid()
+
+      {:ok, queries} = Agent.start_link(fn -> 0 end)
+      id = "count-listing-reads-#{System.unique_integer()}"
+
+      :telemetry.attach(
+        id,
+        [:bitblocks, :repo, :query],
+        fn _, _, md, _ ->
+          # The lookup across all inputs; filling a listing re-reads it on its own.
+          if md[:source] == "protocol_instances" and md[:query] =~ "token_utxo",
+            do: Agent.update(queries, &(&1 + 1))
+        end,
+        nil
+      )
+
+      settled =
+        OrderBook.settle_spent_token_utxos([
+          %{txid: "tokentx", vout: 0, spending_txid: settlement_txid},
+          %{txid: "tokentx", vout: 1, spending_txid: settlement_txid},
+          %{txid: "plain", vout: 3, spending_txid: settlement_txid}
+        ])
+
+      :telemetry.detach(id)
+      assert settled == 2
+      assert Agent.get(queries, & &1) == 1
+
+      for listing <- [a, b] do
+        assert OrderBook.get_listing(listing.txid).spent_txid == settlement_txid
+      end
+    end
+
     test "ignores spends that don't match any listed token UTXO", %{protocol: protocol} do
       listing =
         create_listing(protocol, %{parsed_data: list_data(%{"token_utxo" => "tokentx:0"})})

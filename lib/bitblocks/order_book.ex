@@ -237,24 +237,38 @@ defmodule Bitblocks.OrderBook do
   Returns the count of listings settled.
   """
   def settle_spent_token_utxos(spend_entries) when is_list(spend_entries) do
-    Enum.reduce(spend_entries, 0, fn entry, settled ->
-      prev_txid = entry[:txid] || entry["txid"]
-      prev_vout = entry[:vout] || entry["vout"]
-      settlement_txid = entry[:spending_txid] || entry["spending_txid"]
+    # The outpoints this tx spent, each with the tx that spent it. Read in one
+    # query, not two per input: this runs for every stored tx with inputs.
+    spent =
+      for entry <- spend_entries,
+          prev_txid = entry[:txid] || entry["txid"],
+          prev_vout = entry[:vout] || entry["vout"],
+          is_binary(prev_txid) and is_integer(prev_vout),
+          into: %{},
+          do: {"#{prev_txid}:#{prev_vout}", entry[:spending_txid] || entry["spending_txid"]}
 
-      with true <- is_binary(prev_txid) and is_integer(prev_vout),
-           outpoint = "#{prev_txid}:#{prev_vout}",
-           %Instance{} = listing <- get_active_listing_by_token_utxo(outpoint) do
+    with true <- map_size(spent) > 0,
+         protocol_id when is_integer(protocol_id) <- get_protocol_id() do
+      outpoints = Map.keys(spent)
+
+      from(i in Instance,
+        where: i.protocol_id == ^protocol_id,
+        where: i.spent == false,
+        where: fragment("?->>'op' = 'list'", i.parsed_data),
+        where: fragment("?->>'token_utxo'", i.parsed_data) in ^outpoints,
+        order_by: [asc: i.id]
+      )
+      |> Repo.all()
+      # One listing per outpoint, as the lookup by outpoint returned.
+      |> Enum.uniq_by(& &1.parsed_data["token_utxo"])
+      |> Enum.count(fn listing ->
         remaining = listing.state["quantity_remaining"] || listing.parsed_data["quantity"]
-
-        case fill_listing(listing.txid, settlement_txid, remaining) do
-          {:ok, _} -> settled + 1
-          _ -> settled
-        end
-      else
-        _ -> settled
-      end
-    end)
+        settlement_txid = Map.fetch!(spent, listing.parsed_data["token_utxo"])
+        match?({:ok, _}, fill_listing(listing.txid, settlement_txid, remaining))
+      end)
+    else
+      _ -> 0
+    end
   end
 
   def settle_spent_token_utxos(_), do: 0
@@ -471,23 +485,6 @@ defmodule Bitblocks.OrderBook do
     case ProtocolRegistry.get_protocol_by_name("OrderBook") do
       nil -> nil
       protocol -> protocol.id
-    end
-  end
-
-  defp get_active_listing_by_token_utxo(outpoint) when is_binary(outpoint) do
-    case get_protocol_id() do
-      nil ->
-        nil
-
-      protocol_id ->
-        from(i in Instance,
-          where: i.protocol_id == ^protocol_id,
-          where: i.spent == false,
-          where: fragment("?->>'op' = 'list'", i.parsed_data),
-          where: fragment("?->>'token_utxo' = ?", i.parsed_data, ^outpoint),
-          limit: 1
-        )
-        |> Repo.one()
     end
   end
 
