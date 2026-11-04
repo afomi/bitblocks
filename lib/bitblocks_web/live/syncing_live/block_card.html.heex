@@ -1,16 +1,16 @@
 <%!-- One block: height, time, tx count, state, and its synced and processed bars. --%>
 <li
   id={"#{@prefix}-#{@entry.hash}"}
-  class="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900"
+  class="rounded-lg border border-gray-200 bg-white p-2 dark:border-gray-700 dark:bg-gray-900"
 >
   <div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
     <a
       href={"/blocks/#{@entry.height}"}
-      class="text-lg font-semibold text-gray-900 underline decoration-gray-400 underline-offset-4 hover:decoration-gray-900 dark:text-white dark:decoration-gray-500 dark:hover:decoration-white"
+      class="text-base font-semibold text-gray-900 underline decoration-gray-400 underline-offset-4 hover:decoration-gray-900 dark:text-white dark:decoration-gray-500 dark:hover:decoration-white"
     >
       Block {number(@entry.height)}
     </a>
-    <span class="text-sm text-gray-700 dark:text-gray-300">
+    <span class="text-xs text-gray-700 dark:text-gray-300">
       <%= if dt = block_time(@entry.time) do %>
         <time datetime={DateTime.to_iso8601(dt)}>
           {time_text(dt)}
@@ -20,7 +20,7 @@
       <% end %>
     </span>
   </div>
-  <p class="mt-1 text-sm text-gray-700 dark:text-gray-300">
+  <p class="mt-1 text-xs text-gray-700 dark:text-gray-300">
     {number(@entry.expected)} transactions.
     <span class="whitespace-nowrap">
       {state_label(@entry.sync_state)}

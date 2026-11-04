@@ -4,7 +4,7 @@ defmodule BitblocksWeb.TransactionLive.Index do
   alias Bitblocks.Chain
   alias Bitblocks.Chain.Transaction
 
-  @per_page 50
+  @per_page 100
 
   @impl true
   def mount(_params, _session, socket) do

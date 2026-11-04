@@ -1,5 +1,5 @@
-<div class="mx-auto max-w-4xl px-4 py-10 text-gray-700 dark:text-gray-300">
-  <h1 class="mb-3 text-3xl font-bold text-gray-900 dark:text-white">
+<div class="mx-auto max-w-4xl px-4 py-4 text-gray-700 dark:text-gray-300">
+  <h1 class="mb-2 text-xl font-bold text-gray-900 dark:text-white">
     Syncing
   </h1>
   <p class="mb-2 leading-relaxed">
@@ -28,33 +28,33 @@
   <section
     id="sync-overview"
     aria-labelledby="sync-overview-heading"
-    class="mb-10"
+    class="mb-5"
   >
     <h2
       id="sync-overview-heading"
-      class="mb-3 text-xl font-semibold text-gray-900 dark:text-white"
+      class="mb-2 text-xl font-semibold text-gray-900 dark:text-white"
     >
       The overall picture
     </h2>
     <dl class="grid grid-cols-1 gap-3 sm:grid-cols-3">
-      <div class="rounded-lg border border-gray-200 p-4 dark:border-gray-700">
+      <div class="rounded-lg border border-gray-200 p-3 dark:border-gray-700">
         <dt class="text-sm text-gray-700 dark:text-gray-300">
           Bitblocks tip
         </dt>
         <dd
           id="our-tip"
-          class="font-mono text-2xl font-semibold tabular-nums text-gray-900 dark:text-white"
+          class="font-mono text-xl font-semibold tabular-nums text-gray-900 dark:text-white"
         >
           {number(@snapshot.overview.our_tip)}
         </dd>
       </div>
-      <div class="rounded-lg border border-gray-200 p-4 dark:border-gray-700">
+      <div class="rounded-lg border border-gray-200 p-3 dark:border-gray-700">
         <dt class="text-sm text-gray-700 dark:text-gray-300">
           Our node's tip
         </dt>
         <dd
           id="node-tip"
-          class="font-mono text-2xl font-semibold tabular-nums text-gray-900 dark:text-white"
+          class="font-mono text-xl font-semibold tabular-nums text-gray-900 dark:text-white"
         >
           {number(@snapshot.overview.node_tip)}
         </dd>
@@ -65,13 +65,13 @@
           {if n == 0, do: "Bitblocks is level with the node.", else: "Bitblocks is #{number(n)} blocks behind the node."}
         </dd>
       </div>
-      <div class="rounded-lg border border-gray-200 p-4 dark:border-gray-700">
+      <div class="rounded-lg border border-gray-200 p-3 dark:border-gray-700">
         <dt class="text-sm text-gray-700 dark:text-gray-300">
           Public tip (WhatsOnChain)
         </dt>
         <dd
           id="public-tip"
-          class="font-mono text-2xl font-semibold tabular-nums text-gray-900 dark:text-white"
+          class="font-mono text-xl font-semibold tabular-nums text-gray-900 dark:text-white"
         >
           {number(@snapshot.overview.public_tip)}
         </dd>
@@ -84,7 +84,7 @@
       </div>
     </dl>
 
-    <div class="mt-4 rounded-lg border border-gray-200 p-4 dark:border-gray-700">
+    <div class="mt-4 rounded-lg border border-gray-200 p-3 dark:border-gray-700">
       <.progress_bar
         id="header-coverage"
         label="Headers stored"
@@ -146,7 +146,7 @@
   <section
     id="syncing-now"
     aria-labelledby="syncing-now-heading"
-    class="mb-10"
+    class="mb-5"
   >
     <h2
       id="syncing-now-heading"
@@ -164,7 +164,7 @@
     <% else %>
       <ul
         role="list"
-        class="space-y-3"
+        class="space-y-2"
       >
         <.block_card
           :for={entry <- @snapshot.syncing}
@@ -185,7 +185,7 @@
   >
     <h2
       id="recently-completed-heading"
-      class="mb-3 text-xl font-semibold text-gray-900 dark:text-white"
+      class="mb-2 text-xl font-semibold text-gray-900 dark:text-white"
     >
       Recently completed
     </h2>
@@ -196,7 +196,7 @@
     <% else %>
       <ul
         role="list"
-        class="space-y-3"
+        class="space-y-2"
       >
         <.block_card
           :for={entry <- @snapshot.recent}

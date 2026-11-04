@@ -1,9 +1,9 @@
 <%!-- One labelled bar: "label · 1,234 of 4,000". The numbers carry the meaning; colour only repeats it. --%>
 <div
   id={@id}
-  class="mt-2"
+  class="mt-1"
 >
-  <div class="flex items-baseline justify-between gap-2 text-sm">
+  <div class="flex items-baseline justify-between gap-2 text-xs">
     <span
       id={"#{@id}-label"}
       class="font-medium text-gray-900 dark:text-gray-100"
@@ -29,7 +29,7 @@
     aria-valuemax={@total}
     aria-valuenow={@value}
     aria-valuetext={x_of_y(@value, @total)}
-    class="mt-1 h-2.5 w-full overflow-hidden rounded-full bg-gray-200 ring-1 ring-inset ring-gray-300 dark:bg-gray-800 dark:ring-gray-600"
+    class="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-gray-200 ring-1 ring-inset ring-gray-300 dark:bg-gray-800 dark:ring-gray-600"
   >
     <div
       class={[
