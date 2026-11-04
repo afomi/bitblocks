@@ -279,7 +279,8 @@ defmodule Bitblocks.Workers.SyncHeadersWorkerTest do
       orphan: orphan,
       decoys: decoys
     } do
-      SyncHeadersWorker.delete_orphans(900_100, 900_101)
+      # Only 900_101 exists above the fork point; 900_102 was never stored.
+      assert SyncHeadersWorker.delete_orphans(900_100, 900_102) == 1
 
       refute Bitblocks.Repo.get(Block, orphan.id)
       assert Bitblocks.Repo.get(Block, ancestor.id)

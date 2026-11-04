@@ -166,13 +166,11 @@ defmodule Bitblocks.Workers.SyncHeadersWorker do
 
     case fork_point(fork_height, node_hash) do
       {:ok, fork_point} ->
-        orphan_count = fork_height - fork_point
-
         Logger.warning(
           "SyncHeaders: reorg fork point #{fork_point}, deleting orphans #{fork_point + 1}..#{fork_height}"
         )
 
-        delete_orphans(fork_point, fork_height)
+        orphan_count = delete_orphans(fork_point, fork_height)
 
         Logger.warning("SyncHeaders: reorg resolved, re-syncing from #{fork_point + 1}")
         record_reorg(fork_height, fork_point, orphan_count)
@@ -233,17 +231,17 @@ defmodule Bitblocks.Workers.SyncHeadersWorker do
   @doc false
   def fork_point(height, node_hash), do: find_fork_point(height, node_hash, 0)
 
-  # Deletes our blocks above the fork point, by height.
+  # Deletes our blocks above the fork point, by height. Returns how many rows
+  # were deleted: the reorg's orphan count. Heights we never stored (the node's
+  # new blocks above our old tip) aren't orphans.
   @doc false
   def delete_orphans(fork_point, fork_height) do
-    for h <- (fork_point + 1)..fork_height//1 do
+    Enum.count((fork_point + 1)..fork_height//1, fn h ->
       case Chain.get_block_at_height(h) do
-        nil -> :ok
-        block -> Chain.delete_block(block)
+        nil -> false
+        block -> match?({:ok, _}, Chain.delete_block(block))
       end
-    end
-
-    :ok
+    end)
   end
 
   defp find_fork_point(_height, _node_hash, depth) when depth > @max_reorg_depth,
