@@ -596,6 +596,11 @@ defmodule BitblocksWeb.SyncLive do
                       <%= String.slice(job.args["block_hash"], 0..11) %>...
                     </span>
                   <% end %>
+                  <%= if is_list(job.args["run"]) do %>
+                    <span class="text-xs text-gray-500 dark:text-gray-400">
+                      run of <%= length(job.args["run"]) %> blocks
+                    </span>
+                  <% end %>
                 </div>
                 <div class="flex items-center gap-3 text-xs text-gray-500 dark:text-gray-400">
                   <span class={[

@@ -26,9 +26,15 @@ A header gap below it is found by an index-only count of heights, and only searc
    The coordinator gives each free worker slot the lowest incomplete block that has no live job.
    Nothing is skipped and nothing is worked out of order: a block that keeps failing keeps its slot and stays first in line.
    With more than one slot, higher blocks can finish first; `complete_through` only moves when the lowest incomplete block completes.
-3. **One block per process, sequential within it.**
-   Each block is one `FetchTransactionsWorker` job on the `:sync_blocks` queue, unique on the block hash across queued, running and backing-off states, so two processes never hold the same block.
+3. **One owner per block, sequential within it.**
+   Each block belongs to one `FetchTransactionsWorker` job on the `:sync_blocks` queue, unique on the block hash across queued, running and backing-off states, so two processes never hold the same block.
    The job walks the block's transactions in chunks of 100, in order, one request in flight.
+   **Small blocks go in runs.**
+   When the next blocks for a slot each have at most `:sync_run_small_txs` (100) txs, one job takes up to `:sync_run_max_blocks` (50) of them, at most `:sync_run_max_txs` (2,000) txs in all, and walks them in height order within one bounded run.
+   Dispatch holds every block of a run, so none goes to another slot; `/syncing` and `/blocks` show the run at the block it is on now.
+   A larger block, or one with no known tx count, is a job of its own.
+   Why: a small block's own work takes about 8 ms, but the hand-off between jobs (completion broadcast, the coordinator's next tick, dispatch, Oban pick-up) took about a second locally and about 9 s per slot on prod.
+   Over the same 200 one-tx blocks from local `.bin` files, one slot went from 201 s to 5.3 s.
 4. **One request per block.**
    A block up to 32 MB is fetched once as raw bytes (`Chain.RawBlock`): the node's REST interface first (`/rest/block/<hash>.bin`, needs `rest=1`), `getblock(hash, 0)` when REST answers anything but 200.
    The txs are split out locally; each txid is the double SHA-256 of its own bytes, and the ordered txids must rebuild the header's merkleroot.
@@ -41,7 +47,7 @@ A header gap below it is found by an index-only count of heights, and only searc
    A raw block is downloaded again on each resumed run, which only happens to blocks that take longer than a run to store.
 6. **Checked before it counts.**
    After the last chunk, a count by txid confirms every transaction is stored; only then is the block `completed`.
-   That change is broadcast, and the coordinator hands the slot to the next block.
+   That change is broadcast; a run goes on to its next block, and when the job ends the coordinator hands the slot on.
 7. **Retries replace give-ups.**
    Any failure (node unreachable, rate limit, a tx no source returns, a merkle mismatch) marks the block `failed` and snoozes the job: 1, 2, 4, 8, 16, 32 minutes, then hourly.
    `tx_sync_attempts` counts failures in a row and resets on progress.

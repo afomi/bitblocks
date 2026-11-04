@@ -75,17 +75,19 @@ defmodule Bitblocks.Sync do
 
   @doc """
   The lowest `n` stored blocks that are not completed, ascending, as
-  `%{height: h, hash: hash}`.
+  `%{height: h, hash: hash, num_tx: n}`.
   """
-  @spec lowest_incomplete(pos_integer()) :: [%{height: integer(), hash: String.t()}]
+  @spec lowest_incomplete(pos_integer()) :: [
+          %{height: integer(), hash: String.t(), num_tx: integer() | nil}
+        ]
   def lowest_incomplete(n) do
     %{rows: rows} =
       Repo.query!(
         """
-        SELECT b.height, b.hash
+        SELECT b.height, b.hash, b.num_tx
         FROM unnest($1::text[]) AS s(state)
         CROSS JOIN LATERAL (
-          SELECT height, hash FROM blocks
+          SELECT height, hash, num_tx FROM blocks
           WHERE sync_state = s.state
           ORDER BY height
           LIMIT $2
@@ -96,7 +98,7 @@ defmodule Bitblocks.Sync do
         [@incomplete_states, n]
       )
 
-    for [height, hash] <- rows, do: %{height: height, hash: hash}
+    for [height, hash, num_tx] <- rows, do: %{height: height, hash: hash, num_tx: num_tx}
   end
 
   @doc """
@@ -203,35 +205,70 @@ defmodule Bitblocks.Sync do
 
   @doc """
   The live block jobs (queued, running or backing off), lowest height first:
-  `%{hash, height, slot, state, attempt, scheduled_at, node}`.
+  `%{hash, height, slot, state, attempt, scheduled_at, node, held}`.
+
+  A run job (see `dispatch/1`) is reported at the block it is on now, its
+  first member not yet completed, and `held` lists every block it owns, so
+  dispatch never gives one of them to another slot.
   """
   @spec live_jobs() :: [map()]
   def live_jobs do
-    from(j in Oban.Job,
-      left_join: b in Block,
-      on: b.hash == fragment("?->>'block_hash'", j.args),
-      where: j.worker == ^@worker and j.state in ^@live_states,
-      order_by: [asc: b.height],
-      select: %{
-        hash: fragment("?->>'block_hash'", j.args),
-        height: b.height,
-        slot: fragment("(?->>'slot')::int", j.meta),
-        state: j.state,
-        scheduled_at: j.scheduled_at,
-        attempted_by: j.attempted_by
-      }
-    )
-    |> Repo.all()
+    jobs =
+      from(j in Oban.Job,
+        where: j.worker == ^@worker and j.state in ^@live_states,
+        select: %{
+          hash: fragment("?->>'block_hash'", j.args),
+          run: fragment("?->'run'", j.args),
+          slot: fragment("(?->>'slot')::int", j.meta),
+          state: j.state,
+          scheduled_at: j.scheduled_at,
+          attempted_by: j.attempted_by
+        }
+      )
+      |> Repo.all()
+
+    members = Enum.flat_map(jobs, &held(&1))
+
+    blocks =
+      from(b in Block, where: b.hash in ^members, select: {b.hash, {b.height, b.sync_state}})
+      |> Repo.all()
+      |> Map.new()
+
+    jobs
     |> Enum.map(fn job ->
-      job |> Map.put(:node, List.first(job.attempted_by || [])) |> Map.delete(:attempted_by)
+      held = held(job)
+
+      current =
+        Enum.find(held, List.last(held), fn hash ->
+          match?({_, state} when state != "completed", blocks[hash])
+        end)
+
+      job
+      |> Map.merge(%{
+        hash: current,
+        height: blocks |> Map.get(current, {nil, nil}) |> elem(0),
+        held: held,
+        node: List.first(job.attempted_by || [])
+      })
+      |> Map.drop([:attempted_by, :run])
     end)
+    |> Enum.sort_by(&(&1.height || -1))
   end
+
+  defp held(%{run: [_ | _] = run}), do: run
+  defp held(%{hash: hash}), do: [hash]
 
   @doc """
   Fills free worker slots with the lowest incomplete blocks that have no
   live job, ascending. A block keeps its job (and slot) until it completes,
   so it is never assigned twice; when concurrency shrinks, live jobs finish
   and their slots are not refilled. Returns the number of jobs queued.
+
+  Small blocks go in runs: when the next blocks for a slot each have at most
+  `:sync_run_small_txs` txs, one job takes up to `:sync_run_max_blocks` of
+  them (and at most `:sync_run_max_txs` txs in all), in height order, so the
+  hand-off between jobs is paid once per run instead of once per block. The
+  early chain is almost all one-tx blocks.
   """
   @spec dispatch(pos_integer()) :: non_neg_integer()
   def dispatch(n \\ concurrency()) do
@@ -241,19 +278,66 @@ defmodule Bitblocks.Sync do
     if free <= 0 do
       0
     else
-      held = MapSet.new(live, & &1.hash)
+      held = live |> Enum.flat_map(& &1.held) |> MapSet.new()
       free_slots = Enum.to_list(1..n) -- Enum.map(live, & &1.slot)
 
-      (n + length(live))
+      (free * run_limits().max_blocks + MapSet.size(held))
       |> lowest_incomplete()
       |> Enum.reject(&MapSet.member?(held, &1.hash))
+      |> plan_runs(free, run_limits())
       |> Enum.zip(free_slots)
-      |> Enum.take(free)
-      |> Enum.count(fn {%{hash: hash}, slot} ->
-        job = FetchTransactionsWorker.new(%{block_hash: hash}, meta: %{slot: slot})
-        match?({:ok, %{conflict?: false}}, Oban.insert(job))
+      |> Enum.count(fn {run, slot} ->
+        match?({:ok, %{conflict?: false}}, Oban.insert(job_for(run, slot)))
       end)
     end
+  end
+
+  defp job_for([%{hash: hash}], slot),
+    do: FetchTransactionsWorker.new(%{block_hash: hash}, meta: %{slot: slot})
+
+  defp job_for([%{hash: first} | _] = run, slot),
+    do:
+      FetchTransactionsWorker.new(%{block_hash: first, run: Enum.map(run, & &1.hash)},
+        meta: %{slot: slot}
+      )
+
+  @doc """
+  Splits ascending candidates into at most `slots` jobs: a run of small
+  blocks while they fit the limits, else one block alone. Pure, for tests.
+  """
+  @spec plan_runs([map()], non_neg_integer(), map()) :: [[map()]]
+  def plan_runs(_candidates, 0, _limits), do: []
+  def plan_runs([], _slots, _limits), do: []
+
+  def plan_runs([first | rest] = candidates, slots, limits) do
+    if small?(first, limits) do
+      {run, rest} = take_run(candidates, limits, [], 0)
+      [run | plan_runs(rest, slots - 1, limits)]
+    else
+      [[first] | plan_runs(rest, slots - 1, limits)]
+    end
+  end
+
+  defp take_run([c | rest] = candidates, limits, acc, txs) do
+    if length(acc) < limits.max_blocks and small?(c, limits) and txs + c.num_tx <= limits.max_txs do
+      take_run(rest, limits, [c | acc], txs + c.num_tx)
+    else
+      {Enum.reverse(acc), candidates}
+    end
+  end
+
+  defp take_run([], _limits, acc, _txs), do: {Enum.reverse(acc), []}
+
+  defp small?(%{num_tx: n}, limits), do: is_integer(n) and n > 0 and n <= limits.small_txs
+  defp small?(_, _limits), do: false
+
+  @doc "The run limits, from config (`:sync_run_max_blocks`, `:sync_run_max_txs`, `:sync_run_small_txs`)."
+  def run_limits do
+    %{
+      max_blocks: Application.get_env(:bitblocks, :sync_run_max_blocks, 50),
+      max_txs: Application.get_env(:bitblocks, :sync_run_max_txs, 2_000),
+      small_txs: Application.get_env(:bitblocks, :sync_run_small_txs, 100)
+    }
   end
 
   # -- The table ---------------------------------------------------------------
@@ -269,7 +353,7 @@ defmodule Bitblocks.Sync do
     %{tip: tip, complete_through: through, target: target} = status()
     live = live_jobs()
     {max, reason} = concurrency_limit()
-    held = MapSet.new(live, & &1.hash)
+    held = live |> Enum.flat_map(& &1.held) |> MapSet.new()
 
     waiting =
       (next + length(live))

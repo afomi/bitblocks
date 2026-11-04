@@ -1,5 +1,7 @@
 defmodule Bitblocks.SyncTest do
-  # Changes :sync_workers and :tx_fetch_run_ms, and installs global RPC stubs.
+  # Changes :sync_workers, :tx_fetch_run_ms and the run limits, and installs
+  # global RPC stubs. One block per job here (:sync_run_max_blocks 1), so these
+  # tests pin the per-block guarantees; "small-block runs" below turns runs on.
   use Bitblocks.DataCase, async: false
   use Oban.Testing, repo: Bitblocks.Repo
 
@@ -14,10 +16,12 @@ defmodule Bitblocks.SyncTest do
   setup do
     RpcStub.setup()
     RpcStub.clear()
+    Application.put_env(:bitblocks, :sync_run_max_blocks, 1)
 
     on_exit(fn ->
       Application.delete_env(:bitblocks, :sync_workers)
       Application.delete_env(:bitblocks, :tx_fetch_run_ms)
+      Application.delete_env(:bitblocks, :sync_run_max_blocks)
     end)
 
     :ok
@@ -119,6 +123,99 @@ defmodule Bitblocks.SyncTest do
 
       block_at(2, "header_only")
       assert Sync.complete_through() == 1
+    end
+  end
+
+  describe "small-block runs" do
+    setup do
+      Application.put_env(:bitblocks, :sync_run_max_blocks, 4)
+      Application.put_env(:bitblocks, :sync_workers, 2)
+      :ok
+    end
+
+    defp runs do
+      all_enqueued(worker: FetchTransactionsWorker)
+      |> Enum.map(&(&1.args["run"] || [&1.args["block_hash"]]))
+      |> Enum.sort()
+    end
+
+    test "plan_runs groups small blocks up to the block and tx limits; a large block goes alone" do
+      limits = %{max_blocks: 3, max_txs: 10, small_txs: 5}
+      c = fn h, n -> %{height: h, hash: "h#{h}", num_tx: n} end
+
+      assert Sync.plan_runs(for(h <- 1..7, do: c.(h, 1)), 2, limits) ==
+               [[c.(1, 1), c.(2, 1), c.(3, 1)], [c.(4, 1), c.(5, 1), c.(6, 1)]]
+
+      # The tx budget ends a run; a large block stops it and goes alone.
+      assert Sync.plan_runs([c.(1, 5), c.(2, 5), c.(3, 5), c.(4, 1)], 3, limits) ==
+               [[c.(1, 5), c.(2, 5)], [c.(3, 5), c.(4, 1)]]
+
+      assert Sync.plan_runs([c.(1, 1), c.(2, 50), c.(3, 1)], 3, limits) ==
+               [[c.(1, 1)], [c.(2, 50)], [c.(3, 1)]]
+
+      # Unknown tx count: alone, never in a run.
+      assert Sync.plan_runs([%{height: 1, hash: "h1", num_tx: nil}], 1, limits) ==
+               [[%{height: 1, hash: "h1", num_tx: nil}]]
+    end
+
+    test "dispatch gives each slot a run of the lowest blocks, in order, and never one block twice" do
+      for h <- 0..9, do: block_at(h, "header_only")
+
+      assert Sync.dispatch() == 2
+
+      assert runs() == [
+               ["block_0", "block_1", "block_2", "block_3"],
+               ["block_4", "block_5", "block_6", "block_7"]
+             ]
+
+      # Every member is held: nothing more is queued while the runs live.
+      assert Sync.dispatch() == 0
+      assert Enum.flat_map(Sync.live_jobs(), & &1.held) |> length() == 8
+    end
+
+    test "a run is reported at the block it is on now" do
+      for h <- 0..3, do: block_at(h, "header_only")
+      Sync.dispatch()
+
+      Chain.get_block!("block_0")
+      |> Ecto.Changeset.change(sync_state: "completed")
+      |> Repo.update!()
+
+      [job] = Sync.live_jobs()
+      assert {job.hash, job.height} == {"block_1", 1}
+    end
+
+    test "the worker walks its run in height order and completes every block" do
+      labels = for h <- 0..3, do: "tx-#{h}"
+      stub_bodies(labels)
+      for h <- 0..3, do: block_at(h, "header_only")
+
+      run = Enum.map(0..3, &"block_#{&1}")
+
+      assert FetchTransactionsWorker.perform(%Oban.Job{
+               args: %{"block_hash" => "block_0", "run" => run},
+               meta: %{}
+             }) == :ok
+
+      assert Sync.complete_through() == 3
+    end
+
+    test "past its time budget a run snoozes after the block it is on, and resumes there" do
+      Application.put_env(:bitblocks, :tx_fetch_run_ms, 0)
+      stub_bodies(for h <- 0..2, do: "tx-#{h}")
+      for h <- 0..2, do: block_at(h, "header_only")
+
+      job = %Oban.Job{
+        args: %{"block_hash" => "block_0", "run" => ["block_0", "block_1", "block_2"]},
+        meta: %{}
+      }
+
+      # Each pass makes progress: one block, then a snooze.
+      assert FetchTransactionsWorker.perform(job) == {:snooze, 1}
+      assert Sync.complete_through() == 0
+      assert FetchTransactionsWorker.perform(job) == {:snooze, 1}
+      assert FetchTransactionsWorker.perform(job) == :ok
+      assert Sync.complete_through() == 2
     end
   end
 

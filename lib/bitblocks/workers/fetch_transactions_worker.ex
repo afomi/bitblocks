@@ -66,6 +66,14 @@ defmodule Bitblocks.Workers.FetchTransactionsWorker do
   @stall_alert_failures 7
 
   @impl Oban.Worker
+  # A run of small blocks (Sync.dispatch/1): walked in height order within
+  # one bounded run. A completed member is skipped, so a resumed run picks
+  # up at the block it reached, from the offset it saved.
+  def perform(%Oban.Job{args: %{"run" => [_ | _] = run}} = job) do
+    deadline = System.monotonic_time(:millisecond) + (job.meta["run_ms"] || run_ms())
+    walk_run(run, job, job.meta["offset"] || 0, deadline)
+  end
+
   def perform(%Oban.Job{args: %{"block_hash" => block_hash}} = job) do
     case Repo.get_by(Block, hash: block_hash) do
       # Deleted by a reorg while queued.
@@ -80,10 +88,42 @@ defmodule Bitblocks.Workers.FetchTransactionsWorker do
     end
   end
 
+  # The first block a pass works always runs (it bounds itself by the
+  # deadline, as a lone block does); the deadline is checked before each
+  # block after that, so every pass makes progress.
+  defp walk_run(run, job, offset, deadline, worked? \\ false)
+
+  defp walk_run([], _job, _offset, _deadline, _worked?), do: :ok
+
+  defp walk_run([hash | rest], job, offset, deadline, worked?) do
+    case Repo.get_by(Block, hash: hash) do
+      # Set aside by a reorg while queued: the next dispatch finds what replaced it.
+      nil ->
+        walk_run(rest, job, 0, deadline, worked?)
+
+      %Block{sync_state: "completed"} ->
+        walk_run(rest, job, 0, deadline, worked?)
+
+      block ->
+        if worked? and System.monotonic_time(:millisecond) >= deadline do
+          save_offset(job, 0)
+          {:snooze, 1}
+        else
+          case run(block, job, offset, deadline) do
+            :ok -> walk_run(rest, job, 0, deadline, true)
+            other -> other
+          end
+        end
+    end
+  end
+
   defp run(block, job) do
     offset = job.meta["offset"] || 0
     deadline = System.monotonic_time(:millisecond) + (job.meta["run_ms"] || run_ms())
+    run(block, job, offset, deadline)
+  end
 
+  defp run(block, job, offset, deadline) do
     with {:ok, items, block} <- block_txs(block, job.meta["raw_dir"]),
          {:ok, block} <- mark_syncing(block) do
       case walk(block, items, offset, deadline) do

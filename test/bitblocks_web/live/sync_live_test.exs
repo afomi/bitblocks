@@ -79,7 +79,13 @@ defmodule BitblocksWeb.SyncLiveTest do
   describe "worker slots" do
     test "an admin's choice is clamped to the limit, named, and applied", %{conn: conn} do
       Application.put_env(:bitblocks, :sync_rpc_limit, 2)
-      on_exit(fn -> Application.put_env(:bitblocks, :sync_rpc_limit, 4) end)
+      # One block per job, so each slot holds its own block (no small-block runs).
+      Application.put_env(:bitblocks, :sync_run_max_blocks, 1)
+
+      on_exit(fn ->
+        Application.put_env(:bitblocks, :sync_rpc_limit, 4)
+        Application.delete_env(:bitblocks, :sync_run_max_blocks)
+      end)
 
       {:ok, view, _html} = live(conn, ~p"/sync")
       assert has_element?(view, "#sync-concurrency-limit", "Max 2 — node RPC threads")
