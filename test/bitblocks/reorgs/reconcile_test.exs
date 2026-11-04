@@ -126,6 +126,40 @@ defmodule Bitblocks.Reorgs.ReconcileTest do
     assert tx("tx_orphan_only").block_hash == @orphan
   end
 
+  # 2026-11-04, the 957,301 orphan: the node and WhatsOnChain both still name
+  # the orphaned block, with 0 / null confirmations. That block is off the
+  # chain, and the tx isn't in the replacement's verified list, so no block
+  # on the chain holds it.
+  test "a source naming the orphan with no confirmations means no block holds it" do
+    Process.put(:woc_txs, %{
+      "tx_orphan_only" => %{
+        "txid" => "tx_orphan_only",
+        "blockhash" => @orphan,
+        "confirmations" => 0
+      },
+      "tx_mempool" => %{"txid" => "tx_mempool", "blockhash" => @orphan, "confirmations" => nil}
+    })
+
+    {:ok, plan} = Reconcile.plan(@orphan)
+
+    assert "tx_orphan_only" in plan.remove
+    assert "tx_mempool" in plan.remove
+    refute "tx_orphan_only" in plan.unknown
+  end
+
+  test "a source still confirming the orphan is a contradiction to ask about later" do
+    Process.put(:woc_txs, %{
+      "tx_orphan_only" => %{
+        "txid" => "tx_orphan_only",
+        "blockhash" => @orphan,
+        "confirmations" => 3
+      }
+    })
+
+    {:ok, plan} = Reconcile.plan(@orphan)
+    assert "tx_orphan_only" in plan.unknown
+  end
+
   test "refuses a hash that is still a stored block" do
     assert {:error, :block_still_stored} = Reconcile.plan(@replacement)
   end

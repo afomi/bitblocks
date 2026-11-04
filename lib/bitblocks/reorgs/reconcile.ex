@@ -319,8 +319,18 @@ defmodule Bitblocks.Reorgs.Reconcile do
   defp classify(%{"blockhash" => hash}, orphan) when is_binary(hash) and hash not in ["", orphan],
     do: {:found, hash}
 
-  # A source still placing it in the orphan describes a chain we left: ask again later.
-  defp classify(%{"blockhash" => orphan}, orphan), do: :unknown
+  # A source still naming the orphan with 0 or no confirmations is telling us
+  # that block is off the chain, and the tx isn't in the replacement's verified
+  # txid list (those were matched before any lookup): no block on the chain
+  # holds it. The node and WhatsOnChain both answer this way (957,301,
+  # 2026-11-04).
+  defp classify(%{"blockhash" => orphan} = tx, orphan) do
+    case tx["confirmations"] do
+      n when is_integer(n) and n > 0 -> :unknown
+      _zero_or_missing -> :remove
+    end
+  end
+
   # A body with no block: in the mempool, not in any block.
   defp classify(%{} = _tx, _orphan), do: :remove
   # Neither source knows the transaction.
