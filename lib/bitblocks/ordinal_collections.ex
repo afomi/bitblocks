@@ -19,7 +19,9 @@ defmodule Bitblocks.OrdinalCollections do
   **Ownership** follows each item from its origin through spends (`trace/1`);
   the protocol says where a spent item lands (a 1Sat sat by input offset, a
   Run jig by the payload's output order). What it can't decide from the bytes
-  is `unknown`, never guessed.
+  is `unknown`, never guessed; where the trail truly ends (a Run jig spent
+  outside Run) is `ended`. A lookup that fails never erases what an earlier
+  trace found.
 
   Transactions come from our own index first and WhatsOnChain second
   (`Bitblocks.Woc`); every imported body is checked against its txid.
@@ -107,10 +109,18 @@ defmodule Bitblocks.OrdinalCollections do
   @doc "Where BSV collections are minted and traded."
   def sources, do: @sources
 
+  # Trace states that are final answers: the item sits at a known outpoint
+  # now, or its trail ends. Every other state may still move.
+  @settled_states ["current", "ended"]
+
+  @doc "Whether a trace state is a final answer (`current` or `ended`)."
+  def settled_state?(state), do: state in @settled_states
+
   @doc """
   Every collection we know or hold items for, by name: known collections even
   before their first sync, then any other indexed collection origin. Counts
-  come from the index; `traced` is items whose location is `current`.
+  come from the index: `traced` is items whose trace is settled (`current`,
+  or `ended`: traced to where the trail ends), and `ended` the latter alone.
   """
   def list_collections do
     counts =
@@ -139,7 +149,8 @@ defmodule Bitblocks.OrdinalCollections do
 
       Map.merge(collection, %{
         items: states |> Map.values() |> Enum.sum(),
-        traced: states["current"] || 0
+        traced: @settled_states |> Enum.map(&(states[&1] || 0)) |> Enum.sum(),
+        ended: states["ended"] || 0
       })
     end)
     |> Enum.sort_by(&String.downcase(&1.name))
@@ -393,34 +404,95 @@ defmodule Bitblocks.OrdinalCollections do
   @doc """
   Follows `item`'s sat from where we last saw it (its origin, if never traced)
   to where it sits now, and records the owner. Returns the updated item.
+
+  The trace states:
+
+    * `current`: the item sits at `current_outpoint`, held by `owner`.
+    * `ended`: the trail truly ends at `current_outpoint`, e.g. a Run jig
+      spent outside Run. Final, and settled like `current`; `owner` is nil.
+    * `partial`: stopped at `current_outpoint` (a long trail, or a lookup
+      failed after the item moved); the next trace resumes there.
+    * `unknown`: the protocol can't say where the item went (`trace_reason`).
+    * `untraced`: never traced.
+
+  A lookup that fails (WhatsOnChain errors, a spending tx we can't fetch)
+  never erases what an earlier trace found (#46): an item with a known
+  location keeps it, its owner and its state, and the failure is recorded in
+  `trace_error` and `trace_checked_at` so a later run retries. `traced_at`
+  dates the last trace that answered.
   """
   @spec trace(Item.t(), keyword()) :: {:ok, Item.t()}
   def trace(%Item{} = item, opts \\ []) do
-    # current: re-check from where it sat; partial: resume where the last trace
-    # stopped; otherwise (or with from: :origin) start from the origin, which
-    # rebuilds the trail.
+    # current, ended: re-check from where it sat; partial: resume where the last
+    # trace stopped; otherwise (or with from: :origin) start from the origin,
+    # which rebuilds the trail.
     resume? =
-      Keyword.get(opts, :from) != :origin and item.trace_state in ["current", "partial"] and
+      Keyword.get(opts, :from) != :origin and item.trace_state in ["current", "ended", "partial"] and
         item.current_outpoint != nil
 
     start = if resume?, do: item.current_outpoint, else: item.origin
     protocol = config_for(item.collection_id).protocol
-    {{state, outpoint, owner, reason}, steps} = follow(start, 0, protocol)
-    trail = if resume?, do: Enum.uniq((item.trail || []) ++ steps), else: steps
-    # Unknown with no step means WhatsOnChain gave no spend answer at all.
-    source = if state == "unknown" and steps == [], do: nil, else: "whatsonchain"
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+    changes =
+      case follow(start, 0, protocol) do
+        {{:failed, at, error}, steps} ->
+          failed_changes(item, resume?, start, at, steps, error)
+
+        {{state, outpoint, owner, reason}, steps} ->
+          %{
+            trace_state: state,
+            current_outpoint: outpoint,
+            owner: owner,
+            trail: trail(item, resume?, steps),
+            trace_reason: reason,
+            trace_source: "whatsonchain",
+            traced_at: now,
+            trace_error: nil
+          }
+      end
 
     item
-    |> Ecto.Changeset.change(%{
-      trace_state: state,
-      current_outpoint: outpoint,
-      owner: owner,
-      trail: trail,
-      trace_reason: reason,
-      trace_source: source,
-      traced_at: DateTime.utc_now() |> DateTime.truncate(:second)
-    })
+    |> Ecto.Changeset.change(Map.put(changes, :trace_checked_at, now))
     |> Repo.update()
+  end
+
+  defp trail(item, true, steps), do: Enum.uniq((item.trail || []) ++ steps)
+  defp trail(_item, false, steps), do: steps
+
+  # A failed lookup at `at`, after walking `steps` from `start`.
+  defp failed_changes(item, resume?, start, at, steps, error) do
+    cond do
+      # Nothing new learned: keep the last answer, whatever it was. An ended
+      # item's spend is already on its trail.
+      at == start and item.trace_state != "untraced" and
+          (steps == [] or item.trace_state == "ended") ->
+        %{trace_error: error}
+
+      # Never traced, and stuck at the origin: nothing to keep.
+      at == item.origin and not resume? and steps == [] ->
+        %{
+          trace_state: "unknown",
+          current_outpoint: at,
+          owner: nil,
+          trail: [],
+          trace_reason: error,
+          trace_source: nil,
+          trace_error: error
+        }
+
+      # The item got to `at` (or is known spent from it); resume there.
+      true ->
+        %{
+          trace_state: "partial",
+          current_outpoint: at,
+          owner: nil,
+          trail: trail(item, resume?, steps),
+          trace_reason: "#{error}; the next trace continues from here",
+          trace_source: "whatsonchain",
+          trace_error: error
+        }
+    end
   end
 
   @doc "Traces every item of a collection. Returns counts by trace_state."
@@ -434,9 +506,10 @@ defmodule Bitblocks.OrdinalCollections do
     |> Enum.frequencies()
   end
 
-  # Returns {{state, outpoint, owner, reason}, trail}: trail is the txids the
-  # item moved through on this walk, oldest first (a spend that destroys the
-  # item is included, as the last step of its history).
+  # Returns {result, trail}: trail is the txids the item moved through on this
+  # walk, oldest first (a spend that ends the item's trail is included, as the
+  # last step of its history). result is {state, outpoint, owner, reason}, or
+  # {:failed, outpoint, error} when a lookup failed at outpoint.
   defp follow(outpoint, hops, protocol, trail \\ [])
 
   defp follow(outpoint, hops, _protocol, trail) when hops >= @max_hops,
@@ -469,16 +542,21 @@ defmodule Bitblocks.OrdinalCollections do
              {:ok, next} <- protocol.landing(tx, spender, vin, &output_value/1) do
           follow(next, hops + 1, protocol, trail)
         else
+          {:ended, reason} ->
+            {{"ended", outpoint, nil, reason}, Enum.reverse(trail)}
+
           {:unknown, reason} ->
             {{"unknown", outpoint, nil, reason}, Enum.reverse(trail)}
 
-          _ ->
-            {{"unknown", outpoint, nil, "spending tx #{spender} unavailable"},
-             Enum.reverse(trail)}
+          {:error, reason} ->
+            {{:failed, outpoint, reason}, Enum.reverse(trail)}
+
+          :error ->
+            {{:failed, outpoint, "spending tx #{spender} unavailable"}, Enum.reverse(trail)}
         end
 
       {:error, reason} ->
-        {{"unknown", outpoint, nil, "whatsonchain: #{inspect(reason)}"}, Enum.reverse(trail)}
+        {{:failed, outpoint, "whatsonchain: #{inspect(reason)}"}, Enum.reverse(trail)}
     end
   end
 
@@ -727,8 +805,9 @@ defmodule Bitblocks.OrdinalCollections do
   What can be said about outpoints that `lookup/2` didn't find, keyed by
   outpoint: `{false, reason}` or `{"unknown", reason}`.
 
-  `false` needs a finished chain walk and every item's trace settled: an item
-  with an unfinished trace could sit anywhere past its last known location.
+  `false` needs a finished chain walk and every item's trace settled
+  (`current` or `ended`): an item with an unfinished trace could sit anywhere
+  past its last known location.
   An outpoint of a tx on an item's trail stays unknown, because the trail
   records txids and not which output the item left in.
   """
@@ -771,7 +850,8 @@ defmodule Bitblocks.OrdinalCollections do
 
   defp unsettled_items?(collection_id) do
     Repo.exists?(
-      from i in Item, where: i.collection_id == ^collection_id and i.trace_state != "current"
+      from i in Item,
+        where: i.collection_id == ^collection_id and i.trace_state not in @settled_states
     )
   end
 
@@ -784,6 +864,9 @@ defmodule Bitblocks.OrdinalCollections do
     do: "Held by #{owner}."
 
   def ownership_sentence(%Item{trace_state: "untraced"}), do: "Not traced yet."
+
+  def ownership_sentence(%Item{trace_state: "ended", trace_reason: reason}),
+    do: "No holder: #{reason}."
 
   def ownership_sentence(%Item{trace_reason: "whatsonchain: " <> _}),
     do: "Owner unknown: WhatsOnChain did not answer."

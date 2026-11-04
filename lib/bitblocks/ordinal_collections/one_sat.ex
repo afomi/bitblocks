@@ -68,7 +68,7 @@ defmodule Bitblocks.OrdinalCollections.OneSat do
         _ -> {:unknown, "sat went to fees"}
       end
     else
-      :error -> {:unknown, "input values of #{txid} unavailable"}
+      :error -> {:error, "input values of #{txid} unavailable"}
     end
   end
 

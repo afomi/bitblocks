@@ -114,7 +114,36 @@ defmodule Bitblocks.OrdinalCollections.RunJigTest do
       assert {:unknown, "spent as a non-jig input" <> _} = RunJig.landing(decode(b2), t2, 1, noop)
 
       {t3, _} = b3 = tx([funding_outpoint()], [p2pkh(address(), 500)])
-      assert {:unknown, "spent outside Run" <> _} = RunJig.landing(decode(b3), t3, 0, noop)
+      assert {:error, _} = RunJig.landing(decode(b3), t3, 0, noop)
+    end
+
+    # #46: a non-Run spend of a jig's standard 273-sat output destroys it; the
+    # trail ends. A 1-sat output is a doubt (the trace may have followed the
+    # wrong output), so it stays unknown.
+    test "a non-Run spend ends the trail only from a 273-sat jig output" do
+      {txid, _} = built = tx([funding_outpoint()], [p2pkh(address(), 500)])
+
+      assert {:ended, "spent outside Run in " <> _} =
+               RunJig.landing(decode(built), txid, 0, fn _ -> {:ok, 273} end)
+
+      assert {:unknown, "spent outside Run in " <> _} =
+               RunJig.landing(decode(built), txid, 0, fn _ -> {:ok, 1} end)
+
+      assert {:error, "input values of " <> _} =
+               RunJig.landing(decode(built), txid, 0, fn _ -> :error end)
+    end
+
+    test "the ended rule matches #46's classification: 30 strong end, 5 open doubts don't" do
+      data =
+        "docs/field-notes/data/rexxies-spent-outside-run-2026-11-02.json"
+        |> File.read!()
+        |> Jason.decode!()
+
+      ended = for e <- data, RunJig.ends_trail?(e["jig_sats"]), do: e["item"]
+      strong = for e <- data, e["confidence"] == "strong", do: e["item"]
+
+      assert length(strong) == 30
+      assert Enum.sort(ended) == Enum.sort(strong)
     end
   end
 
@@ -163,6 +192,47 @@ defmodule Bitblocks.OrdinalCollections.RunJigTest do
       assert traced.trace_state == "current"
       assert traced.current_outpoint == "#{batch}_2"
       assert traced.owner == buyer
+    end
+
+    test "a Rexxie consolidated out of Run reads ended, settled, and stays ended" do
+      mint1 = mint(@rexxies, address()) |> publish(771_246)
+      OrdinalCollections.sync(@rexxies, [mint1], follow: false)
+      item = Repo.get_by!(Item, origin: "#{mint1}_3")
+
+      consolidation =
+        tx([funding_outpoint(), item.origin], [p2pkh(address(), 9_273)]) |> publish()
+
+      spend(item.origin, consolidation, 1)
+
+      assert {:ok, ended} = OrdinalCollections.trace(item)
+      assert ended.trace_state == "ended"
+      assert ended.current_outpoint == item.origin
+      assert ended.owner == nil
+      assert ended.trail == [consolidation]
+      assert ended.trace_reason =~ "spent outside Run in #{consolidation}"
+      assert OrdinalCollections.settled_state?("ended")
+      assert %{traced: 1, ended: 1} = OrdinalCollections.get_collection("rexxies")
+      assert OrdinalCollections.ownership_sentence(ended) =~ "No holder"
+
+      # A re-check ends the same way; a failed one keeps it ended.
+      assert {:ok, %{trace_state: "ended", trail: [^consolidation]}} =
+               OrdinalCollections.trace(ended)
+
+      Process.put(:woc_spent, %{item.origin => {:error, :timeout}})
+      assert {:ok, %{trace_state: "ended"}} = OrdinalCollections.trace(ended)
+    end
+
+    test "a stranger is false once every Rexxie is current or ended" do
+      mint1 = mint(@rexxies, address()) |> publish(771_246)
+      OrdinalCollections.sync(@rexxies, [mint1])
+      item = Repo.get_by!(Item, origin: "#{mint1}_3")
+      stranger = "#{String.duplicate("c", 64)}_0"
+
+      consolidation = tx([item.origin], [p2pkh(address(), 273)]) |> publish()
+      spend(item.origin, consolidation, 0)
+      assert %{"ended" => 1} = OrdinalCollections.trace_all(@rexxies)
+
+      assert %{^stranger => {false, _}} = OrdinalCollections.absence(@rexxies, [stranger])
     end
   end
 end

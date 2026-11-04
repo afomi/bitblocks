@@ -15,9 +15,18 @@ defmodule Bitblocks.OrdinalCollections.RunJig do
   updates the class without minting carries the chain on with no items.
 
   **Landing:** a jig spent as input `vin` lands at `p + 1 + vin` when nothing
-  is deleted. A spend with no Run payload destroys the jig; a tx that deletes
-  jigs needs jig state to map outputs. Both are `unknown`, not guessed
-  (rexxie-indexer guessed "the first dust output", which batch sends break).
+  is deleted. A tx that deletes jigs needs jig state to map outputs, so it is
+  `unknown`, not guessed (rexxie-indexer guessed "the first dust output",
+  which batch sends break).
+
+  **Ended (#46):** a spend with no Run payload destroys a jig, since a jig can
+  only move through a Run tx. The trail ends there (`{:ended, reason}`, final
+  and settled) when the spent output holds Run's standard jig amount, 273
+  sats (`ends_trail?/1`). That is the evidence #46's classification rests
+  on: all 30 Rexxies it calls destroyed sat in 273-sat outputs. A non-Run
+  spend of any other amount stays `unknown`: the 5 open doubts sat in 1-sat
+  outputs, where our trace may have followed the wrong output, so their
+  spend says nothing certain about the jig.
 
   Names and traits aren't on chain for RelayX NFTs (the mint's metadata is
   empty and the image is encrypted), so they come from the collection's
@@ -76,8 +85,18 @@ defmodule Bitblocks.OrdinalCollections.RunJig do
 
   defp catalog_entry(_config, _txid), do: %{}
 
+  # Run's standard satoshis for a jig output (the dust it locks a jig with).
+  @jig_sats 273
+
+  @doc """
+  Whether a non-Run spend of an output holding `sats` ends a jig's trail: only
+  Run's standard 273-sat jig output does (see the moduledoc).
+  """
+  @spec ends_trail?(integer()) :: boolean()
+  def ends_trail?(sats), do: sats == @jig_sats
+
   @impl true
-  def landing(tx, txid, vin, _value_of) do
+  def landing(tx, txid, vin, value_of) do
     case payload(tx) do
       {:ok, p, %{"in" => jigs_in} = payload} when is_integer(jigs_in) ->
         cond do
@@ -95,7 +114,21 @@ defmodule Bitblocks.OrdinalCollections.RunJig do
         end
 
       _ ->
-        {:unknown, "spent outside Run in #{txid}: the jig is destroyed"}
+        outside_run(tx, txid, vin, value_of)
+    end
+  end
+
+  defp outside_run(tx, txid, vin, value_of) do
+    with %BSV.TxIn{outpoint: spent} <- Enum.at(tx.inputs, vin),
+         {:ok, sats} <- value_of.(spent) do
+      if ends_trail?(sats),
+        do: {:ended, "spent outside Run in #{txid}: the jig is destroyed"},
+        else:
+          {:unknown,
+           "spent outside Run in #{txid} from a #{sats}-sat output, not a #{@jig_sats}-sat jig " <>
+             "output; the trace may have followed the wrong output"}
+    else
+      _ -> {:error, "input values of #{txid} unavailable"}
     end
   end
 

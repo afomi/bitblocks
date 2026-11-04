@@ -17,13 +17,17 @@ defmodule BitblocksWeb.Api.CollectionController do
   collection's `verification` say so explicitly (who, on what basis, and a
   pinnable `list_hash`); the MAP `collectionId` is only the chain's claim.
 
-  `spent` and `owner` come from tracing spends: `spent` is null unless
-  `trace_state` is `current`, so an untraced or unknown trail never reads as
-  "unspent". `ownership` carries that claim on its own, apart from
-  `membership`: its `owner` is null unless the trace reached the item.
+  `spent` and `owner` come from tracing spends: `spent` is null unless the
+  trace is settled (`trace_state` `current`, or `ended`, where it is always
+  true), so an untraced, partial or unknown trail never reads as "unspent".
+  `ownership` carries that claim on its own, apart from `membership`: its
+  `owner` is null unless the trace reached the item where it sits now.
+  `trace_error` and `trace_checked_at` report a failed last attempt; the
+  state and location stay those of the last trace that answered.
 
   `member` is `true`, `false`, or `"unknown"`. `false` needs a finished chain
-  walk and every trace settled (see `OrdinalCollections.absence/2`).
+  walk and every trace settled, `current` or `ended` (see
+  `OrdinalCollections.absence/2`).
   """
   use BitblocksWeb, :controller
 
@@ -140,7 +144,12 @@ defmodule BitblocksWeb.Api.CollectionController do
     %{
       outpoint: outpoint,
       member: true,
-      spent: if(item.trace_state == "current", do: outpoint != item.current_outpoint)
+      spent:
+        case item.trace_state do
+          "current" -> outpoint != item.current_outpoint
+          "ended" -> true
+          _ -> nil
+        end
     }
   end
 
@@ -159,6 +168,8 @@ defmodule BitblocksWeb.Api.CollectionController do
       :trace_reason,
       :trace_source,
       :traced_at,
+      :trace_error,
+      :trace_checked_at,
       :trail
     ])
     |> Map.put(:membership, %{

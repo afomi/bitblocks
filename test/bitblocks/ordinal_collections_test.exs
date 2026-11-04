@@ -178,11 +178,77 @@ defmodule Bitblocks.OrdinalCollectionsTest do
       assert rewalked.trail == [hop1, hop2]
     end
 
-    test "a WhatsOnChain failure is unknown with its reason", ctx do
+    test "a WhatsOnChain failure on a never-traced item is unknown with its reason", ctx do
       Process.put(:woc_spent, %{ctx.item.origin => {:error, :timeout}})
 
-      assert {:ok, %{trace_state: "unknown", trace_reason: "whatsonchain: :timeout"}} =
+      assert {:ok, %{trace_state: "unknown", trace_reason: "whatsonchain: :timeout"} = failed} =
                OrdinalCollections.trace(ctx.item)
+
+      assert failed.trace_error == "whatsonchain: :timeout"
+      assert %DateTime{} = failed.trace_checked_at
+    end
+
+    # #46: a finished run lowered Grand Tardinians from 997 to 995 current,
+    # because a failed re-check overwrote the known location with unknown.
+    test "a failed re-check keeps the known location and owner, and records the failure",
+         ctx do
+      assert {:ok, current} = OrdinalCollections.trace(ctx.item)
+      assert %{trace_states: %{"current" => 1}} = OrdinalCollections.summary(ctx.cid)
+
+      Process.put(:woc_spent, %{current.current_outpoint => {:error, {:http, 500}}})
+      assert {:ok, rechecked} = OrdinalCollections.trace(current)
+
+      assert rechecked.trace_state == "current"
+      assert rechecked.current_outpoint == current.current_outpoint
+      assert rechecked.owner == ctx.minter
+      assert rechecked.trace_source == "whatsonchain"
+      assert rechecked.traced_at == current.traced_at
+      assert rechecked.trace_error == "whatsonchain: {:http, 500}"
+      assert %DateTime{} = rechecked.trace_checked_at
+      assert %{trace_states: %{"current" => 1} = states} = OrdinalCollections.summary(ctx.cid)
+      refute Map.has_key?(states, "unknown")
+
+      # The next run retries, and a good answer clears the error.
+      Process.delete(:woc_spent)
+
+      assert {:ok, %{trace_state: "current", trace_error: nil}} =
+               OrdinalCollections.trace(rechecked)
+    end
+
+    test "a re-check that fails after the item moved stops as partial where it got to", ctx do
+      assert {:ok, current} = OrdinalCollections.trace(ctx.item)
+      hop = tx([current.current_outpoint], [p2pkh(address(), 1)]) |> publish()
+      spend(current.current_outpoint, hop, 0)
+      Process.put(:woc_spent, Map.put(Process.get(:woc_spent), "#{hop}_0", {:error, :timeout}))
+
+      assert {:ok, moved} = OrdinalCollections.trace(current)
+      assert moved.trace_state == "partial"
+      assert moved.current_outpoint == "#{hop}_0"
+      assert moved.trail == [hop]
+      assert moved.trace_error == "whatsonchain: :timeout"
+    end
+
+    test "a spend whose tx can't be fetched leaves the item partial at its last outpoint", ctx do
+      assert {:ok, current} = OrdinalCollections.trace(ctx.item)
+      missing = String.duplicate("e", 64)
+      spend(current.current_outpoint, missing, 0)
+
+      assert {:ok, moved} = OrdinalCollections.trace(current)
+      assert moved.trace_state == "partial"
+      assert moved.current_outpoint == current.current_outpoint
+      assert moved.trace_error == "spending tx #{missing} unavailable"
+    end
+
+    test "a failed re-check of an unknown item keeps its reason", ctx do
+      merged = tx([ctx.item.origin], [p2pkh(address(), 2)]) |> publish()
+      spend(ctx.item.origin, merged, 0)
+      assert {:ok, unknown} = OrdinalCollections.trace(ctx.item)
+
+      Process.put(:woc_spent, %{ctx.item.origin => {:error, :timeout}})
+      assert {:ok, again} = OrdinalCollections.trace(unknown)
+      assert again.trace_state == "unknown"
+      assert again.trace_reason == "sat moved into a 2-sat output"
+      assert again.trace_error == "whatsonchain: :timeout"
     end
   end
 

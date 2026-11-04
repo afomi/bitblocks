@@ -18,11 +18,16 @@ defmodule Bitblocks.OrdinalCollections.Item do
     field :traits, {:array, :map}, default: []
     field :current_outpoint, :string
     field :owner, :string
-    # current | partial (a long trail, resumed by the next trace) | unknown | untraced
+    # current | ended | partial | unknown | untraced (see OrdinalCollections.trace/2).
+    # current and ended are settled; partial resumes on the next trace.
     field :trace_state, :string, default: "untraced"
     field :trace_reason, :string
     field :trace_source, :string
+    # When the last answered trace ran.
     field :traced_at, :utc_datetime
+    # The last trace attempt's failure (nil once one answers), and when it ran.
+    field :trace_error, :string
+    field :trace_checked_at, :utc_datetime
     # Txids the item moved through, oldest first (provenance; kept in the blob store).
     field :trail, {:array, :string}, default: []
 
