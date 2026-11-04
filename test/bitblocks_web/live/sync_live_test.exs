@@ -55,7 +55,7 @@ defmodule BitblocksWeb.SyncLiveTest do
       assert html =~ "No deficits"
     end
 
-    test "repair resets flagged blocks and enqueues the sequential backfill", %{conn: conn} do
+    test "repair reopens flagged completed blocks for the sync loop", %{conn: conn} do
       block =
         block_fixture(%{
           height: 810_003,
@@ -73,12 +73,41 @@ defmodule BitblocksWeb.SyncLiveTest do
       render_async(view)
 
       assert Repo.reload!(block).sync_state == "header_synced"
+    end
+  end
 
-      assert Repo.exists?(
-               from(j in Oban.Job,
-                 where: j.worker == "Bitblocks.Workers.BackfillTransactionsWorker"
-               )
-             )
+  describe "worker slots" do
+    test "an admin's choice is clamped to the limit, named, and applied", %{conn: conn} do
+      Application.put_env(:bitblocks, :sync_rpc_limit, 2)
+      on_exit(fn -> Application.put_env(:bitblocks, :sync_rpc_limit, 4) end)
+
+      {:ok, view, _html} = live(conn, ~p"/sync")
+      assert has_element?(view, "#sync-concurrency-limit", "Max 2 — node RPC threads")
+      assert has_element?(view, "#sync-concurrency[value='1']")
+
+      html =
+        view
+        |> form("#sync-concurrency-form", %{"concurrency" => "8"})
+        |> render_submit()
+
+      assert html =~ ~s(value="2")
+      assert Bitblocks.Sync.concurrency() == 2
+
+      # The coordinator applies it: two slots, the lowest two blocks.
+      for h <- 0..2, do: block_fixture(%{height: h, num_tx: 1, sync_state: "header_only"})
+
+      {:ok, coordinator} =
+        Bitblocks.Sync.Coordinator.start_link(
+          name: :slots_test,
+          leader?: fn -> true end,
+          auto: false,
+          headers: false
+        )
+
+      Ecto.Adapters.SQL.Sandbox.allow(Repo, self(), coordinator)
+      assert %{leading: true, concurrency: 2} = Bitblocks.Sync.Coordinator.tick(coordinator)
+
+      assert Repo.all(from(j in Oban.Job, select: j.meta["slot"], order_by: j.id)) == [1, 2]
     end
   end
 end

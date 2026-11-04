@@ -65,7 +65,7 @@ defmodule BitblocksWeb.ChainStatusComponent do
               <span class="ml-1 text-sm font-bold text-blue-600 dark:text-blue-400">
                 <%= format_number(@blocks_count) %>
               </span>
-              <span class="text-gray-600 dark:text-gray-400">
+              <span class="text-gray-600 dark:text-gray-200">
                 blocks
               </span>
             </div>
@@ -74,7 +74,7 @@ defmodule BitblocksWeb.ChainStatusComponent do
                 <span class="ml-1 text-sm font-bold text-blue-600 dark:text-blue-400">
                   <%= format_number(@transactions_count) %>
                 </span>
-                <span class="text-gray-600 dark:text-gray-400">
+                <span class="text-gray-600 dark:text-gray-200">
                   txs
                 </span>
               </div>

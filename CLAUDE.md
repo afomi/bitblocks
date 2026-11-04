@@ -80,22 +80,18 @@ mix assets.deploy           # Build and minify for production
    - Fetched on-demand for transactions being viewed
    - Sets `sync_state = "completed"`
 
-**Two-Job Sync Model** (Oban workers):
+**The sync loop** (authoritative: `docs/SYNCING.md`):
 
-- `Bitblocks.Workers.SyncHeadersWorker` — ensures block headers exist
-  - **Range mode**: `%{"mode" => "range", "from" => 0, "to" => 50_000}` — fills gaps in a height range
-  - **Tip mode**: `%{"mode" => "tip"}` — checks chain tip once a minute, syncs new blocks. Oban cron is the sole scheduler; the worker only re-enqueues itself as a 60s backoff when the node is unreachable.
-  - Uses `getblockhash` + `getblockheader` (~400 bytes per block)
-  - Inserts with `on_conflict: :nothing` — idempotent, safe to overlap
-  - **Tip mode** enqueues a `FetchTransactionsWorker` for each newly inserted block (the after-create job, so the tip stays fully synced). **Range/backfill mode** does not — backfill meters tx fetches in waves. See `docs/SYNCING.md`.
-
-- `Bitblocks.Workers.FetchTransactionsWorker` — fetches raw transactions for a block
-  - Two Oban lanes, each concurrency 1: `:transactions_tip` (newly confirmed blocks) and `:transactions_backfill` (historical fill-in). They never share slots, so one current + one past block fetch run in parallel and the tip is never starved. Lane chosen at enqueue via `Chain.queue_transaction_fetch(block, lane: :tip | :backfill)` (default `:backfill`).
-  - Fetches in batches of 100 via `getrawtransaction`
-  - Resumable — counts existing txs on restart, picks up where it left off
-  - Retry budget: a block that fails 3 times (`:backfill_max_attempts`) stops being re-selected and the backfill goes idle. Clear with `Release.retry_failed_blocks()` once the cause (e.g. a down node) is fixed.
-  - Runs `TransactionParser.analyze` and `Chain.record_spends` on each tx
-  - Transitions block: `txs_queued → txs_syncing → completed|failed`
+- Bitblocks is accurate as of the last-known block, and says which one: `Bitblocks.Sync.complete_through/0` is the highest H such that every block 0..H is `completed` (merkleroot rebuilt, every tx stored).
+- Work goes strictly upward from `complete_through + 1`, one block per worker, never skipped.
+- `Bitblocks.Sync.Coordinator` leads, on the Oban leader node only: header sync to the node's tip with reorgs (every minute), dispatch of the lowest incomplete blocks to worker slots, the concurrency setting, and the `{:sync_overview, _}` broadcast that `SyncProgress` shares with /syncing and /sync.
+- `Bitblocks.Workers.SyncWorker` (cron, every minute) only keeps the coordinator alive.
+- `Bitblocks.Workers.FetchTransactionsWorker` is the block job: queue `:sync_blocks`, unique on the block hash, one worker slot.
+  - Blocks up to 32 MB are fetched once as raw bytes (`Chain.RawBlock`: node REST `/rest/block/<hash>.bin`, else `getblock(hash, 0)`) and parsed locally; txids derived from the bytes must rebuild the header's merkleroot. Larger blocks use the txid list (`Chain.TxidSource`) and per-chunk bodies (`Chain.TxSources`).
+  - Sequential within a block; bounded runs (`:tx_fetch_run_ms`, 30 s) that snooze and resume from the offset saved in the job's meta.
+  - A failure marks the block `failed` and backs off 1, 2, 4 … minutes, capped at an hour; never gives up. The seventh failure in a row (over an hour) sends one `Notifications.sync_stall_alert/3`.
+- Concurrency: admin-set on /sync, persisted in `sync_settings`, clamped to `Sync.concurrency_limit/0` (CPU cores, `pool_size` minus `:sync_pool_reserve`, `:sync_rpc_limit` / `SYNC_RPC_LIMIT`). Default `:sync_workers`: 1 in dev and test, 2 in prod.
+- `Bitblocks.Workers.SyncHeadersWorker` holds the header logic (`sync_tip/0`, `sync_range/2`, reorg handling) and still runs a manual range job.
 
 - `Bitblocks.Workers.ChainTilesWorker` — builds chain-scrubber tiles (`Bitblocks.ChainTiles`) on the `:chain_tiles` lane (concurrency 1), reading `blocks` only. Cron every 5 minutes in incremental mode: a no-op until `Release.build_chain_tiles()` has run once, and when no block changed. See `docs/CHAIN_SCRUBBER.md`.
 
@@ -166,19 +162,17 @@ Dev server runs on http://127.0.0.1:4000
 
 ## Sync Workflow
 
-Tip sync runs automatically via Oban cron (every minute).
-To manually sync a range or backfill:
+The sync loop runs by itself (docs/SYNCING.md); there is nothing to start, retry or repair by hand after an outage.
 
 ```bash
-# Sync headers + queue tx downloads for a range
+# Where it stands: complete through block X of N known, the target block
+bin/bitblocks rpc 'Bitblocks.Release.sync_status()'
+
+# Store headers for a range by hand (the loop also fills header gaps)
 bin/bitblocks rpc 'Bitblocks.Release.sync_headers(0, 100_000)'
 
-# Backfill everything from genesis to tip
-bin/bitblocks rpc 'Bitblocks.Release.backfill()'
-
-# Start/stop continuous tip sync
-bin/bitblocks rpc 'Bitblocks.Release.start_tip_sync()'
-bin/bitblocks rpc 'Bitblocks.Release.stop_tip_sync()'
+# Reopen completed blocks the audit finds short of transactions
+bin/bitblocks rpc 'Bitblocks.Release.repair_incomplete_blocks()'
 
 # Check gaps and status
 bin/bitblocks rpc 'Bitblocks.Release.gaps()'
@@ -193,7 +187,7 @@ bin/bitblocks rpc 'Bitblocks.Release.build_chain_tiles()'
 bin/bitblocks rpc 'Bitblocks.Release.chain_tiles_status()'
 ```
 
-The `/sync` page provides a web UI for these operations with live job monitoring.
+`/syncing` shows the loop live; `/sync` adds the worker-slot control and the load on our node.
 
 ### API
 

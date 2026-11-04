@@ -59,4 +59,31 @@ defmodule Bitblocks.Notifications do
 
     Mailer.deliver(email)
   end
+
+  @doc """
+  Sends one email when the sync loop has been stuck on a block for more than
+  an hour: the block keeps failing and `complete_through` can't pass it.
+  The loop keeps retrying hourly; this says a person may need to look.
+  """
+  def sync_stall_alert(height, hash, reason) do
+    from_address = System.get_env("MAILER_FROM", "alerts@bitblocks.app")
+
+    body = """
+    The sync loop has failed on block #{height} for more than an hour.
+    It keeps retrying every hour and will carry on by itself once the block can be fetched.
+
+    Block:      #{height}
+    Hash:       #{hash}
+    Last error: #{inspect(reason)}
+
+    Check the node, then: bin/bitblocks rpc 'Bitblocks.Release.sync_status()'
+    """
+
+    new()
+    |> to(@to)
+    |> from({"Bitblocks", from_address})
+    |> subject("Bitblocks: sync stalled at block #{height}")
+    |> text_body(body)
+    |> Mailer.deliver()
+  end
 end

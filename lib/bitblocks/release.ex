@@ -69,13 +69,12 @@ defmodule Bitblocks.Release do
   end
 
   # ---------------------------------------------------------------------------
-  # Two-Job Sync Model
+  # Sync (the loop runs itself: Workers.SyncWorker, docs/SYNCING.md)
   # ---------------------------------------------------------------------------
 
   @doc """
-  Sync block headers (and queue tx downloads) for a height range.
-
-  Fills gaps automatically — safe to re-run.
+  Store block headers for a height range, filling gaps. Safe to re-run.
+  The sync loop fills headers by itself; this is for a manual range.
 
   ## Usage
 
@@ -97,146 +96,6 @@ defmodule Bitblocks.Release do
   end
 
   @doc """
-  Start continuous tip sync.
-
-  Watches for new blocks every 30 seconds.
-
-  ## Usage
-
-      bin/bitblocks rpc 'Bitblocks.Release.start_tip_sync()'
-  """
-  def start_tip_sync do
-    case %{"mode" => "tip"}
-         |> Bitblocks.Workers.SyncHeadersWorker.new()
-         |> Oban.insert() do
-      {:ok, job} ->
-        IO.puts("Tip sync started (Oban ##{job.id})")
-        {:ok, job}
-
-      {:error, reason} ->
-        IO.puts("Tip sync already running or failed: #{inspect(reason)}")
-        {:error, reason}
-    end
-  end
-
-  @doc """
-  Stop continuous tip sync.
-
-  ## Usage
-
-      bin/bitblocks rpc 'Bitblocks.Release.stop_tip_sync()'
-  """
-  def stop_tip_sync do
-    import Ecto.Query
-
-    {cancelled, _} =
-      from(j in Oban.Job,
-        where: j.worker == "Bitblocks.Workers.SyncHeadersWorker",
-        where: j.state in ["available", "scheduled"],
-        where: fragment("args->>'mode' = 'tip'")
-      )
-      |> Bitblocks.Repo.update_all(set: [state: "cancelled", cancelled_at: DateTime.utc_now()])
-
-    IO.puts("Cancelled #{cancelled} tip sync job(s)")
-    {:ok, cancelled}
-  end
-
-  @doc """
-  One-time migration: move any jobs left on the retired `transactions` queue
-  onto `transactions_backfill`.
-
-  The tx-fetch work was split into `transactions_tip` + `transactions_backfill`
-  lanes. Oban only runs queues named in config, so jobs still sitting in the old
-  `transactions` queue after that change are orphaned (never picked up). This
-  re-homes the pending ones. Idempotent and safe to run anytime — returns the
-  number of jobs moved (0 if none). Run once after deploying the lane split.
-
-  ## Usage
-
-      bin/bitblocks rpc 'Bitblocks.Release.migrate_legacy_tx_queue()'
-  """
-  def migrate_legacy_tx_queue do
-    %Postgrex.Result{num_rows: count} =
-      Bitblocks.Repo.query!("""
-        UPDATE oban_jobs
-        SET queue = 'transactions_backfill'
-        WHERE queue = 'transactions'
-          AND state IN ('available', 'scheduled', 'retryable')
-      """)
-
-    IO.puts(
-      "migrate_legacy_tx_queue: re-homed #{count} job(s) from transactions -> transactions_backfill"
-    )
-
-    count
-  end
-
-  @doc """
-  Start sequential transaction backfill from the lowest incomplete block.
-
-  Processes one block at a time using batch RPC, then moves to the next.
-
-  Pass `min_height:` to work only on blocks at or above a height, e.g. to
-  close the gap since the node went down before going back to old history.
-  The floor carries through each self-reschedule. Only one backfill job runs
-  at a time, so cancel a running one first (`stop_backfill_transactions/0`).
-
-  ## Usage
-
-      bin/bitblocks rpc 'Bitblocks.Release.start_backfill_transactions()'
-      bin/bitblocks rpc 'Bitblocks.Release.start_backfill_transactions(min_height: 957_302)'
-  """
-  def start_backfill_transactions(opts \\ []) do
-    now = DateTime.utc_now() |> DateTime.truncate(:second)
-
-    args =
-      case Keyword.get(opts, :min_height) do
-        h when is_integer(h) and h > 0 -> %{"min_height" => h}
-        _ -> %{}
-      end
-
-    Bitblocks.Repo.insert_all(
-      "oban_jobs",
-      [
-        %{
-          queue: "transactions_backfill",
-          worker: "Bitblocks.Workers.BackfillTransactionsWorker",
-          args: args,
-          state: "available",
-          max_attempts: 3,
-          inserted_at: now,
-          scheduled_at: now
-        }
-      ],
-      on_conflict: :nothing
-    )
-
-    IO.puts("Backfill job inserted #{inspect(args)}")
-    :ok
-  end
-
-  @doc """
-  Stop transaction backfill.
-
-  ## Usage
-
-      bin/bitblocks rpc 'Bitblocks.Release.stop_backfill_transactions()'
-  """
-  def stop_backfill_transactions do
-    import Ecto.Query
-
-    {cancelled, _} =
-      from(j in Oban.Job,
-        where: j.worker == "Bitblocks.Workers.BackfillTransactionsWorker",
-        where: j.state in ["available", "scheduled", "executing"]
-      )
-      |> Bitblocks.Repo.update_all(set: [state: "cancelled", cancelled_at: DateTime.utc_now()])
-
-    IO.puts("Cancelled #{cancelled} backfill job(s)")
-    {:ok, cancelled}
-  end
-
-  @doc """
   Clear all pending/scheduled/retryable Oban jobs.
 
   ## Usage
@@ -254,51 +113,6 @@ defmodule Bitblocks.Release do
 
     IO.puts("Deleted #{count} pending job(s)")
     {:ok, count}
-  end
-
-  @doc deprecated:
-         "Use repair_incomplete_blocks/1 — it covers stuck states AND completed-with-deficit blocks"
-  def recover_stuck_blocks do
-    IO.puts("recover_stuck_blocks is deprecated — running repair_incomplete_blocks() instead.")
-    repair_incomplete_blocks()
-  end
-
-  @doc """
-  Clear `tx_sync_attempts` on blocks that exhausted the backfill retry budget,
-  making them eligible again, and kick off a backfill pass.
-
-  The backfill stops re-selecting a block after
-  `:backfill_max_attempts` failures (default 3). That bound is what stops a
-  permanently-failing block from spinning the worker — but it also means blocks
-  that failed for a TRANSIENT reason (the BSV node was down) stay parked once
-  the cause is fixed. Run this after the node is healthy again.
-
-  Only resets blocks that are actually incomplete; `completed` blocks are left
-  alone.
-
-  ## Usage
-
-      bin/bitblocks rpc 'Bitblocks.Release.retry_failed_blocks()'
-  """
-  def retry_failed_blocks do
-    import Ecto.Query
-
-    {count, _} =
-      Bitblocks.Repo.update_all(
-        from(b in Bitblocks.Chain.Block,
-          where: b.sync_state != "completed" and coalesce(b.tx_sync_attempts, 0) > 0
-        ),
-        set: [tx_sync_attempts: 0, tx_sync_error: nil]
-      )
-
-    IO.puts("Reset retry counter on #{count} block(s).")
-
-    if count > 0 do
-      start_backfill_transactions()
-    else
-      IO.puts("Nothing to retry.")
-      :ok
-    end
   end
 
   @doc """
@@ -375,19 +189,12 @@ defmodule Bitblocks.Release do
   end
 
   @doc """
-  Repair every block the completeness audit flags, in ANY sync_state —
-  including `completed`-with-deficit and `txs_queued`/`txs_syncing` orphans.
+  Reopen `completed` blocks the completeness audit flags, so the sync loop
+  fetches their missing transactions.
 
-  Blocks with a live FetchTransactionsWorker Oban job are skipped (their job
-  will fill them); everything else is reset to `header_synced` and the
-  sequential backfill worker is started, which walks the deficits lowest-height
-  first, fetching only the missing transactions (slow and steady — one block at
-  a time on the concurrency-1 backfill lane, no per-block job flood).
-
-  Idempotent: already-stored transactions are never re-fetched or re-upserted.
-
-  ## Options
-    - limit: max blocks to repair in this run (default 10_000)
+  Only `completed` blocks need this: every other state is already
+  incomplete, and the loop reaches it in order. Reopening pulls
+  `complete_through` back below the lowest one. Idempotent.
 
   ## Usage
 
@@ -396,54 +203,30 @@ defmodule Bitblocks.Release do
   def repair_incomplete_blocks(opts \\ []) do
     import Ecto.Query
 
-    limit = Keyword.get(opts, :limit, 10_000)
-    %{deficits: deficits} = audit_completeness(limit: limit)
+    %{deficits: deficits} = audit_completeness(limit: Keyword.get(opts, :limit, 10_000))
+    hashes = for %{sync_state: "completed", hash: hash} <- deficits, do: hash
 
-    active_hashes =
-      from(j in Oban.Job,
-        where: j.worker == "Bitblocks.Workers.FetchTransactionsWorker",
-        where: j.state in ["available", "scheduled", "executing", "retryable"],
-        select: fragment("args->>'block_hash'")
+    {reset, _} =
+      from(b in Bitblocks.Chain.Block, where: b.hash in ^hashes)
+      |> Bitblocks.Repo.update_all(
+        set: [
+          sync_state: "header_synced",
+          # chain tiles (#48) find changed blocks by updated_at
+          updated_at: NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second)
+        ]
       )
-      |> Bitblocks.Repo.all()
-      |> MapSet.new()
-
-    {active, repairable} = Enum.split_with(deficits, &MapSet.member?(active_hashes, &1.hash))
-
-    reset =
-      case repairable do
-        [] ->
-          0
-
-        _ ->
-          hashes = Enum.map(repairable, & &1.hash)
-
-          {count, _} =
-            from(b in Bitblocks.Chain.Block, where: b.hash in ^hashes)
-            |> Bitblocks.Repo.update_all(
-              set: [
-                sync_state: "header_synced",
-                # chain tiles (#48) find changed blocks by updated_at
-                updated_at: NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second)
-              ]
-            )
-
-          count
-      end
-
-    if reset > 0, do: start_backfill_transactions()
 
     IO.puts(
-      "repair_incomplete_blocks: reset #{reset} block(s) to header_synced, " <>
-        "skipped #{length(active)} with live fetch jobs" <>
-        if(reset > 0, do: "; sequential backfill started", else: "")
+      "repair_incomplete_blocks: reopened #{reset} completed block(s); " <>
+        "the sync loop fetches what they're missing, in order"
     )
 
-    {:ok, %{reset: reset, skipped_active: length(active)}}
+    {:ok, %{reset: reset}}
   end
 
   @doc """
-  Show a detailed sync status: block states + Oban job counts.
+  Show the sync loop's position (`complete_through`, our last known block,
+  the target block holding it back), block states and Oban job counts.
 
   ## Usage
 
@@ -452,6 +235,28 @@ defmodule Bitblocks.Release do
   def sync_status do
     import Ecto.Query
     alias Bitblocks.{Repo, Chain.Block}
+
+    %{tip: tip, complete_through: through, target: target} = sync = Bitblocks.Sync.status()
+
+    IO.puts("\n=== Sync loop ===")
+    IO.puts("  Complete through block #{through} (of #{tip || "none"} known)")
+
+    if target do
+      block = Repo.get_by(Block, height: target)
+
+      IO.puts(
+        "  Target: block #{target}" <>
+          if(block,
+            do:
+              " (#{block.sync_state}, #{block.tx_sync_attempts || 0} failure(s) in a row" <>
+                if(block.tx_sync_error, do: ", last error: #{block.tx_sync_error}", else: "") <>
+                ")",
+            else: " (header missing; the loop fills it)"
+          )
+      )
+    else
+      IO.puts("  Target: none, complete to the last known block")
+    end
 
     # Block state breakdown
     state_counts =
@@ -475,6 +280,7 @@ defmodule Bitblocks.Release do
       from(j in Oban.Job,
         where:
           j.worker in [
+            "Bitblocks.Workers.SyncWorker",
             "Bitblocks.Workers.SyncHeadersWorker",
             "Bitblocks.Workers.FetchTransactionsWorker"
           ],
@@ -517,7 +323,7 @@ defmodule Bitblocks.Release do
     end
 
     IO.puts("")
-    :ok
+    sync
   end
 
   # ---------------------------------------------------------------------------
@@ -636,15 +442,7 @@ defmodule Bitblocks.Release do
     gaps = Chain.missing_block_ranges(0, tip)
     missing_blocks = Enum.reduce(gaps, 0, fn {s, e}, acc -> acc + (e - s + 1) end)
 
-    # Find the lowest incomplete block (the "ratchet position")
-    lowest_incomplete =
-      from(b in Block,
-        where: b.sync_state != "completed",
-        order_by: [asc: b.height],
-        limit: 1,
-        select: b.height
-      )
-      |> Repo.one()
+    complete_through = Bitblocks.Sync.complete_through(latest && tip)
 
     IO.puts("\n=== Bitblocks Status ===")
     IO.puts("  Chain tip:          #{tip}")
@@ -652,7 +450,7 @@ defmodule Bitblocks.Release do
     IO.puts("  Missing blocks:     #{missing_blocks} (#{length(gaps)} gaps)")
     IO.puts("  Blocks completed:   #{completed}/#{total_blocks} (txs fully synced)")
     IO.puts("  Blocks remaining:   #{total_blocks - completed}")
-    IO.puts("  Lowest incomplete:  #{lowest_incomplete || "none — all done!"}")
+    IO.puts("  Complete through:   block #{complete_through} (of #{tip} known)")
     IO.puts("  Transactions in DB: ~#{total_txs} (estimate)")
 
     audit =
@@ -671,7 +469,7 @@ defmodule Bitblocks.Release do
       gaps: length(gaps),
       completed: completed,
       remaining: total_blocks - completed,
-      lowest_incomplete: lowest_incomplete,
+      complete_through: complete_through,
       transactions: total_txs,
       audit: audit
     }
@@ -800,9 +598,8 @@ defmodule Bitblocks.Release do
   Backfill missing block HEADERS from height 0 to the chain tip.
 
   Delegates to sync_headers/2 (range mode) which fills header gaps only.
-  This does NOT fetch transactions — run `backfill_transactions/1` afterward
-  for that. (Range mode deliberately doesn't auto-queue tx fetches so a bulk
-  backfill can't flood the job table; see docs/SYNCING.md.)
+  Headers only: the sync loop fetches transactions for every stored header,
+  in ascending order (docs/SYNCING.md).
 
   ## Usage
 
@@ -816,30 +613,6 @@ defmodule Bitblocks.Release do
     to = Keyword.get(opts, :to, chain_tip)
 
     sync_headers(from, to)
-  end
-
-  @doc deprecated:
-         "Use start_backfill_transactions/0 (sequential) or repair_incomplete_blocks/1 (audit-driven)"
-  # The wave-based enqueuer flooded per-block FetchTransactionsWorker jobs and
-  # skipped txs_queued/txs_syncing blocks entirely (stranding orphans). The
-  # sequential BackfillTransactionsWorker replaces it: one block at a time on
-  # the concurrency-1 backfill lane, diff-and-fill, self-rescheduling — slow
-  # and steady, nothing competes and nothing floods.
-  def backfill_transactions(opts \\ []) do
-    _ = opts
-
-    IO.puts(
-      "backfill_transactions/1 (wave enqueuer) is deprecated — " <>
-        "starting the sequential backfill worker instead."
-    )
-
-    start_backfill_transactions()
-  end
-
-  @doc deprecated: "Use backfill_transactions/1 (headers via backfill/1)"
-  def backfill_txs(opts \\ []) do
-    IO.puts("backfill_txs only syncs headers — for transactions use backfill_transactions/1.")
-    backfill(opts)
   end
 
   @doc """
@@ -1224,6 +997,28 @@ defmodule Bitblocks.Release do
     end)
 
     %{tiles: counts, builds: builds}
+  end
+
+  @doc """
+  Imports raw blocks exported from our node (`<height>-<hash>.bin` files in
+  `dir`), with no node calls. Each goes through the sync loop's checks; see
+  `Bitblocks.Chain.BlockImport`. Safe to repeat.
+
+      bin/bitblocks rpc 'Bitblocks.Release.import_raw_blocks("/data/blocks/900000-900099")'
+
+  Pushing blocks over HTTP (`scripts/push_blocks`) is usually simpler than
+  copying files onto a node.
+  """
+  def import_raw_blocks(dir) do
+    {:ok, report} = Bitblocks.Chain.BlockImport.import_dir(dir)
+
+    IO.puts(
+      "completed #{length(report.completed)}, already complete " <>
+        "#{length(report.already_complete)}, failed #{length(report.failed)}"
+    )
+
+    for {height, reason} <- report.failed, do: IO.puts("  #{height}: #{inspect(reason)}")
+    report
   end
 
   @doc """

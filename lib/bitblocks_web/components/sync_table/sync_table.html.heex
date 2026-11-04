@@ -1,0 +1,152 @@
+<%!-- The sync's coverage and its block table, lowest height first. --%>
+<section
+  id={@id}
+  aria-labelledby={"#{@id}-heading"}
+  class="mb-10 text-gray-700 dark:text-gray-300"
+>
+  <h2
+    id={"#{@id}-heading"}
+    class="mb-2 text-xl font-semibold text-gray-900 dark:text-white"
+  >
+    <%= if complete?(@sync) do %>
+      Complete through block {number(@sync.complete_through)} of {number(@sync.tip)} known
+    <% else %>
+      Not complete from genesis yet
+    <% end %>
+  </h2>
+  <%= if @sync do %>
+    <p
+      id={"#{@id}-concurrency"}
+      class="mb-3 text-sm text-gray-700 dark:text-gray-300"
+    >
+      Working {@sync.in_use} of {@sync.concurrency} worker slots.
+      Max {@sync.max_concurrency}, set by {@sync.limit_reason}.
+    </p>
+    <div class="overflow-x-auto">
+      <table class="w-full text-left text-sm">
+        <caption class="sr-only">
+          Blocks around the sync cursor, lowest height first, with each stage of their sync.
+        </caption>
+        <thead>
+          <tr class="border-b border-gray-300 dark:border-gray-600">
+            <th
+              scope="col"
+              class="py-2 pr-3 font-semibold text-gray-900 dark:text-white"
+            >
+              Block
+            </th>
+            <th
+              scope="col"
+              class="py-2 pr-3 font-semibold text-gray-900 dark:text-white"
+            >
+              Header
+            </th>
+            <th
+              scope="col"
+              class="py-2 pr-3 font-semibold text-gray-900 dark:text-white"
+            >
+              Tx count
+            </th>
+            <th
+              scope="col"
+              class="py-2 pr-3 font-semibold text-gray-900 dark:text-white"
+            >
+              Txs fetched
+            </th>
+            <th
+              scope="col"
+              class="py-2 pr-3 font-semibold text-gray-900 dark:text-white"
+            >
+              Verified
+            </th>
+            <th
+              scope="col"
+              class="py-2 pr-3 font-semibold text-gray-900 dark:text-white"
+            >
+              Worker
+            </th>
+            <th
+              scope="col"
+              class="py-2 font-semibold text-gray-900 dark:text-white"
+            >
+              Retries
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr
+            :for={row <- @sync.rows}
+            id={"#{@id}-row-#{row.height}"}
+            class="border-b border-gray-200 align-top dark:border-gray-800"
+          >
+            <th
+              scope="row"
+              class="py-2 pr-3 font-mono font-semibold tabular-nums"
+            >
+              <a
+                href={"/blocks/#{row.height}"}
+                class="text-gray-900 underline decoration-gray-400 underline-offset-4 dark:text-white"
+              >
+                {number(row.height)}
+              </a>
+              <span
+                :if={row.height == @sync.complete_through}
+                class="block text-xs font-normal text-gray-700 dark:text-gray-300"
+              >
+                Complete through here
+              </span>
+              <span
+                :if={row.height == @sync.target}
+                class="block text-xs font-normal text-gray-700 dark:text-gray-300"
+              >
+                The target
+              </span>
+            </th>
+            <td class="py-2 pr-3">
+              <span aria-hidden="true">✓</span>
+              Stored, checked
+            </td>
+            <td class="py-2 pr-3 font-mono tabular-nums">
+              <%= if is_integer(row.num_tx) and row.num_tx > 0 do %>
+                <span aria-hidden="true">✓</span>
+                {number(row.num_tx)}
+              <% else %>
+                <span aria-hidden="true">…</span>
+                Not known yet
+              <% end %>
+            </td>
+            <td
+              id={"#{@id}-row-#{row.height}-fetched"}
+              class="py-2 pr-3 font-mono tabular-nums"
+            >
+              <%= if is_integer(row[:fetched]) do %>
+                {number(row.fetched)} of {number(row.num_tx)}
+              <% else %>
+                Not started
+              <% end %>
+            </td>
+            <td class="py-2 pr-3">
+              <%= if row.sync_state == "completed" do %>
+                <span aria-hidden="true">✓</span>
+                Verified
+              <% else %>
+                <span aria-hidden="true">○</span>
+                Not yet
+              <% end %>
+            </td>
+            <td class="py-2 pr-3">
+              {worker_text(row)}
+            </td>
+            <td class="py-2">
+              {retry_text(row)}
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  <% else %>
+    <p id={"#{@id}-empty"}>
+      The first count arrives within a minute.
+    </p>
+  <% end %>
+</section>

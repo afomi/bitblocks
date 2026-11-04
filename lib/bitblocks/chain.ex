@@ -449,24 +449,11 @@ defmodule Bitblocks.Chain do
   end
 
   @doc """
-  Queues an Oban job to fetch transactions for a block.
-
-  Accepts a Block struct and updates its sync_state to "txs_queued" before
-  enqueueing the job. Works regardless of the block's current sync_state
-  (useful for retries).
-
-  ## Examples
-
-      iex> queue_transaction_fetch("00000000...")
-      {:ok, %Oban.Job{}}
-
-      iex> queue_transaction_fetch(block)
-      {:ok, %Oban.Job{}}
+  Queues a fetch of `block`'s transactions now, in the sync loop's block
+  queue, and marks it `txs_queued`. A no-op for a block that already has a
+  live job. Accepts a Block or a block hash.
   """
-  def queue_transaction_fetch(block, opts \\ [])
-
-  def queue_transaction_fetch(%Block{hash: hash} = block, opts) do
-    # Update block to txs_queued state (works for any current state)
+  def queue_transaction_fetch(%Block{hash: hash} = block) do
     {:ok, updated_block} =
       block
       |> Ecto.Changeset.change(%{sync_state: "txs_queued"})
@@ -474,115 +461,15 @@ defmodule Bitblocks.Chain do
 
     broadcast_block_update(updated_block)
 
-    # Route to a dedicated queue so tip and backfill never share slots:
-    #   :transactions_tip      — keeping up with newly confirmed blocks (priority 0)
-    #   :transactions_backfill — historical fill-in (default, priority 1)
-    # Each queue runs concurrency 1, so exactly one tip + one backfill fetch run
-    # in parallel. The Oban priority is a tiebreaker only relevant if they ever
-    # share a queue again. See docs/SYNCING.md.
-    {queue, priority} =
-      case Keyword.get(opts, :lane, :backfill) do
-        :tip -> {:transactions_tip, 0}
-        :backfill -> {:transactions_backfill, 1}
-      end
-
     %{block_hash: hash}
-    |> Bitblocks.Workers.FetchTransactionsWorker.new(queue: queue, priority: priority)
+    |> Bitblocks.Workers.FetchTransactionsWorker.new()
     |> Oban.insert()
   end
 
-  def queue_transaction_fetch(block_hash, opts) when is_binary(block_hash) do
+  def queue_transaction_fetch(block_hash) when is_binary(block_hash) do
     case Repo.get_by(Block, hash: block_hash) do
       nil -> {:error, :block_not_found}
-      block -> queue_transaction_fetch(block, opts)
-    end
-  end
-
-  @doc """
-  Queues transaction fetch jobs for all blocks in a given state.
-
-  ## Examples
-
-      iex> queue_transaction_fetch_for_state("header_synced")
-      {:ok, 150}  # 150 jobs queued
-  """
-  def queue_transaction_fetch_for_state(state \\ "header_synced") do
-    query =
-      from b in Block,
-        where: b.sync_state == ^state,
-        select: b
-
-    blocks = Repo.all(query)
-
-    results = Enum.map(blocks, &queue_transaction_fetch/1)
-
-    {successful_results, failed_results} =
-      Enum.split_with(results, fn
-        {:ok, _} -> true
-        _ -> false
-      end)
-
-    successful = length(successful_results)
-
-    case failed_results do
-      [] ->
-        {:ok, successful}
-
-      [{:error, reason} | _] ->
-        {:error, reason}
-
-      [other | _] ->
-        {:error, other}
-    end
-  end
-
-  @doc """
-  Queues transaction fetch jobs for a range of block heights.
-
-  Finds blocks that need transactions (by sync_state) and queues Oban jobs
-  in batches of 200 to avoid loading the full range into memory.
-
-  ## Examples
-
-      iex> queue_transaction_fetch_for_range(0, 1000)
-      {:ok, 150}
-  """
-  def queue_transaction_fetch_for_range(start_height, end_height) do
-    batch_size = 200
-
-    do_queue_tx_range(start_height, end_height, batch_size, 0)
-  end
-
-  defp do_queue_tx_range(start_height, end_height, batch_size, acc) do
-    # Only fetch blocks that actually need transactions.
-    # "completed" and "txs_syncing" blocks are excluded.
-    # "txs_queued" blocks are also excluded — they already have a pending job.
-    # "failed" blocks ARE included so they can be retried.
-    needs_tx_states = ["header_only", "header_synced", "pending", "failed"]
-
-    blocks =
-      from(b in Block,
-        where: b.height >= ^start_height and b.height <= ^end_height,
-        where: b.sync_state in ^needs_tx_states,
-        order_by: [asc: b.height],
-        limit: ^batch_size
-      )
-      |> Repo.all()
-
-    if blocks == [] do
-      {:ok, acc}
-    else
-      results = Enum.map(blocks, &queue_transaction_fetch/1)
-
-      successful =
-        Enum.count(results, fn
-          {:ok, _} -> true
-          _ -> false
-        end)
-
-      # Next batch starts after the last block we just processed
-      next_start = List.last(blocks).height + 1
-      do_queue_tx_range(next_start, end_height, batch_size, acc + successful)
+      block -> queue_transaction_fetch(block)
     end
   end
 

@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+# Export raw blocks from our SV node as files, on the node host.
+#
+#   scripts/export_blocks FROM TO OUTDIR      e.g. 900000 900099 ~/blocks/900000-900099
+#
+# Writes OUTDIR/<height>-<hash>.bin (the serialized block, from
+# `bitcoin-cli getblock <hash> 0`). Each block is one sequential read for the
+# node, and blocks are fetched one at a time, so this is gentle on it.
+# Already-written files are skipped, so a re-run resumes.
+#
+# Settings (environment, or ~/.bsvnode.env):
+#   BSV_CONTAINER   the node container (default bsvd-node-server)
+#   BSV_CLI_ARGS    bitcoin-cli flags (default -datadir=/bitcoinsv)
+#   EXPORT_PAUSE    seconds to wait between blocks (default 0)
+#
+# Explicit success: every file's first 80 bytes must hash to its block hash;
+# the script checks each one and exits non-zero on any mismatch or failure.
+
+set -euo pipefail
+
+[ -f "$HOME/.bsvnode.env" ] && source "$HOME/.bsvnode.env"
+
+FROM=${1:?usage: export_blocks FROM TO OUTDIR}
+TO=${2:?usage: export_blocks FROM TO OUTDIR}
+OUT=${3:?usage: export_blocks FROM TO OUTDIR}
+C=${BSV_CONTAINER:-bsvd-node-server}
+ARGS=${BSV_CLI_ARGS:--datadir=/bitcoinsv}
+PAUSE=${EXPORT_PAUSE:-0}
+
+mkdir -p "$OUT"
+cli() { docker exec "$C" bitcoin-cli $ARGS "$@"; }
+
+# Writes hex from stdin to $1 as bytes, and checks the header hashes to $2.
+write_and_check() {
+  python3 - "$1" "$2" <<'PY'
+import sys, hashlib, binascii
+path, want = sys.argv[1], sys.argv[2]
+data = binascii.unhexlify(sys.stdin.read().strip())
+got = hashlib.sha256(hashlib.sha256(data[:80]).digest()).digest()[::-1].hex()
+if got != want:
+    sys.exit(f"header hash {got} != {want}")
+open(path + ".part", "wb").write(data)
+PY
+  mv "$1.part" "$1"
+}
+
+ok=0; skipped=0; bytes=0
+start=$(date +%s)
+for ((h = FROM; h <= TO; h++)); do
+  hash=$(cli getblockhash "$h")
+  file="$OUT/$h-$hash.bin"
+  if [ -s "$file" ]; then skipped=$((skipped + 1)); continue; fi
+
+  cli getblock "$hash" 0 | write_and_check "$file" "$hash"
+  size=$(wc -c < "$file" | tr -d ' ')
+  bytes=$((bytes + size)); ok=$((ok + 1))
+  printf '%s %s %s bytes\n' "$h" "$hash" "$size"
+  [ "$PAUSE" != "0" ] && sleep "$PAUSE"
+done
+
+secs=$(( $(date +%s) - start )); [ "$secs" -eq 0 ] && secs=1
+total=$(ls "$OUT"/*.bin 2>/dev/null | wc -l | tr -d ' ')
+echo "exported $ok, skipped $skipped (already there); $total file(s) in $OUT"
+echo "$((bytes / 1000000)) MB in ${secs}s"
+
+expected=$((TO - FROM + 1))
+if [ "$((ok + skipped))" -ne "$expected" ]; then
+  echo "export_blocks: expected $expected blocks, got $((ok + skipped))" >&2
+  exit 1
+fi

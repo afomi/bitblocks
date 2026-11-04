@@ -136,14 +136,9 @@ config :bitblocks, Oban,
     {Oban.Plugins.Lifeline, rescue_after: :timer.minutes(30)},
     {Oban.Plugins.Cron,
      crontab: [
-       {"* * * * *", Bitblocks.Workers.SyncHeadersWorker, args: %{"mode" => "tip"}},
-       # Hourly self-healing backfill: exits immediately when nothing is
-       # incomplete; otherwise resumes the sequential diff-and-fill from the
-       # lowest incomplete block. This is what guarantees range-synced headers
-       # (which don't auto-enqueue tx fetches) eventually get their
-       # transactions even if a manual backfill run is interrupted.
-       # Active-states uniqueness on the worker prevents pileup.
-       {"0 * * * *", Bitblocks.Workers.BackfillTransactionsWorker},
+       # Keeps Sync.Coordinator, which leads the sync (docs/SYNCING.md),
+       # alive. Unique, so a tick while one is queued or running is a no-op.
+       {"* * * * *", Bitblocks.Workers.SyncWorker},
        # Chain-scrubber tiles (#48): the incremental build is one index probe
        # when nothing changed, rebuilds only the tiles whose blocks moved
        # otherwise, and does nothing until a person has run a full build
@@ -153,10 +148,11 @@ config :bitblocks, Oban,
   ],
   queues: [
     default: 10,
-    # Tip and backfill tx fetching run as separate concurrency-1 lanes so they
-    # never share slots — one current + one past block fetch in parallel.
-    transactions_tip: 1,
-    transactions_backfill: 1,
+    # The sync loop: the coordinator's keep-alive cron, and block jobs (one
+    # block each, never two jobs on one block). Sync.Coordinator scales
+    # sync_blocks to the chosen concurrency at runtime.
+    sync: 1,
+    sync_blocks: 1,
     # Projection webhook deliveries (#29 step 4); off the tx lanes so a slow
     # tenant endpoint never delays sync.
     webhooks: 5,
@@ -164,9 +160,18 @@ config :bitblocks, Oban,
     collections: 1,
     blocks: 3,
     # Chain-scrubber tile builds (#48): own lane so a full build never
-    # contends with :transactions_tip.
+    # contends with sync.
     chain_tiles: 1
   ]
+
+# Blocks the sync loop works at once, cluster-wide, until an admin picks a
+# number on /sync (persisted in sync_settings). Always clamped to
+# Sync.concurrency_limit/0: CPU cores, pool_size minus :sync_pool_reserve
+# (web requests, header sync, other queues) and :sync_rpc_limit (the node's
+# RPC threads; bitcoind's default rpcthreads is 4).
+config :bitblocks, :sync_workers, 1
+config :bitblocks, :sync_pool_reserve, 5
+config :bitblocks, :sync_rpc_limit, 4
 
 # Mining proxy — COMPILE-TIME settings only (read via Application.compile_env in
 # Bitblocks.MiningProxy). Runtime-toggled keys (enabled, coinbase_address,

@@ -2,7 +2,7 @@ defmodule Bitblocks.Workers.ChainTilesWorker do
   @moduledoc """
   Builds chain-scrubber tiles (`Bitblocks.ChainTiles.build/1`) on its own
   queue (`:chain_tiles`, concurrency 1), so it never shares a slot with
-  `:transactions_tip`.
+  the sync loop.
 
   The cron enqueues `mode: incremental` every five minutes; that run is a
   no-op (one index probe) when no block changed, and does nothing at all

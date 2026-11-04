@@ -28,6 +28,18 @@ rpc_recv_timeout_ms =
 rpc_batch_timeout_ms =
   parse_env_integer.(System.get_env("BITCOIN_RPC_BATCH_TIMEOUT_MS"), rpc_recv_timeout_ms)
 
+# The node's RPC worker threads (bitcoind rpcthreads): a ceiling on how many
+# blocks the sync works at once (Bitblocks.Sync.concurrency_limit/0).
+if limit = System.get_env("SYNC_RPC_LIMIT") do
+  config :bitblocks, :sync_rpc_limit, String.to_integer(limit)
+end
+
+# The node's REST interface for raw blocks (Bitblocks.Chain.RawBlock); by
+# default the host and port of BITCOIN_NODE_URL / BITCOIN_NODE_RPC_URL.
+if rest_url = System.get_env("BITCOIN_NODE_REST_URL") do
+  config :bitblocks, :rest_url, rest_url
+end
+
 slow_rpc_threshold_ms = parse_env_integer.(System.get_env("SLOW_RPC_LOG_THRESHOLD_MS"), 30_000)
 fetcher_concurrency = parse_env_integer.(System.get_env("SYNC_CONCURRENCY"), 8)
 

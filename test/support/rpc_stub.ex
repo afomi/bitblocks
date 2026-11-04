@@ -54,6 +54,9 @@ defmodule BitblocksWeb.RpcStub do
 
   def stub_getblockchaininfo(response), do: put({:getblockchaininfo}, response)
 
+  @doc "Stubs the REST raw block: `{:ok, bytes}` or `{:error, reason}`."
+  def stub_rest_block(hash, response), do: put({:rest_block, hash}, response)
+
   def stub_getblockhash(height, hash \\ nil) do
     put({:getblockhash, height}, hash || generated_hash(height))
   end

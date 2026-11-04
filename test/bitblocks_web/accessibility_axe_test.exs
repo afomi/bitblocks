@@ -151,6 +151,24 @@ defmodule BitblocksWeb.AccessibilityAxeTest do
       end
     end
 
+    # The sync's block table (stages as text and icon), on the public and
+    # operator pages, with a completed, a failing and a waiting block.
+    for dark? <- [false, true],
+        {path, table} <- [{"/syncing", "sync-table"}, {"/sync", "sync-loop"}] do
+      test "#{path} block table is accessible in #{if dark?, do: "dark", else: "light"} mode", %{
+        session: session
+      } do
+        seed_sync_table()
+
+        session = visit(session, unquote(path))
+        session = if unquote(dark?), do: execute_script(session, @dark_mode_script), else: session
+
+        session
+        |> assert_has(css("##{unquote(table)}-row-2"))
+        |> assert_no_violations()
+      end
+    end
+
     test "reorgs page is accessible with no reorgs recorded", %{session: session} do
       session
       |> visit("/reorgs")
@@ -185,6 +203,21 @@ defmodule BitblocksWeb.AccessibilityAxeTest do
     previous = Application.get_env(:wallaby, :js_errors, true)
     Application.put_env(:wallaby, :js_errors, false)
     on_exit(fn -> Application.put_env(:wallaby, :js_errors, previous) end)
+  end
+
+  defp seed_sync_table do
+    for h <- 0..1, do: block_fixture(%{height: h, num_tx: 1, sync_state: "completed"})
+    block_fixture(%{height: 2, hash: "axe_failing", num_tx: 3, sync_state: "failed"})
+    block_fixture(%{height: 3, num_tx: 2, sync_state: "header_only"})
+
+    {:ok, _} =
+      Oban.insert(
+        Bitblocks.Workers.FetchTransactionsWorker.new(%{block_hash: "axe_failing"},
+          meta: %{slot: 1}
+        )
+      )
+
+    Bitblocks.SyncProgress.refresh()
   end
 
   # One fresh reorg per outcome, so the banner and both timeline labels render.

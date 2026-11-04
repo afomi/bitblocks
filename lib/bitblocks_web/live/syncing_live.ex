@@ -1,8 +1,9 @@
 defmodule BitblocksWeb.SyncingLive do
   @moduledoc """
-  Public, read-only, live view of the sync: the blocks being fetched on each
-  lane with synced and processed counts, the recently completed blocks, and
-  the overall picture (tips, header coverage, blocks by sync_state).
+  Public, read-only, live view of the sync: how far it is complete ("Complete
+  through block X, of N known"), the blocks being fetched with synced and
+  processed counts, the recently completed blocks, and the overall picture
+  (tips, header coverage, blocks by sync_state).
 
   Every number comes from `Bitblocks.SyncProgress`, one snapshot shared by
   every viewer and pushed at most once a second. This view never queries.
@@ -25,7 +26,7 @@ defmodule BitblocksWeb.SyncingLive do
        Seo.public_page(
          page_title: "Syncing",
          meta_description:
-           "Watch Bitblocks sync Bitcoin SV live: each block's transactions stored and processed, on the tip and backfill lanes.",
+           "Watch Bitblocks sync Bitcoin SV live: each block's transactions stored and processed, from genesis up.",
          canonical_path: "/syncing"
        )
      )
@@ -59,11 +60,6 @@ defmodule BitblocksWeb.SyncingLive do
   def percent(_x, y) when y in [nil, 0], do: 0
   def percent(nil, _y), do: 0
   def percent(x, y), do: min(100, Float.round(x / y * 100, 1))
-
-  @doc false
-  def lane_label("transactions_tip"), do: "Tip lane"
-  def lane_label("transactions_backfill"), do: "Backfill lane"
-  def lane_label(_), do: "Lane not assigned yet"
 
   @doc false
   def state_label("txs_syncing"), do: "Fetching transactions"

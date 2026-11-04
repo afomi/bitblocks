@@ -65,6 +65,7 @@ Compare it against yours, and change one thing at a time.
 # --- what bitblocks needs ---
 txindex=1
 prune=0
+rest=1                      # raw blocks at /rest/block/<hash>.bin: one request per block (docs/SYNCING.md)
 
 # --- BSV consensus settings; recent node versions refuse to start without them ---
 # Use the values in the release notes for your node version.
@@ -241,15 +242,14 @@ Once the node is at the tip:
 1. Run the txindex check from section 1 again, and confirm it prints hex.
 2. Lower `dbcache` if you raised it for the initial sync, and restart cleanly (section 3).
 3. Let bitblocks catch up.
-   Tip sync runs every minute, and blocks that failed while the node was down need their retry counters cleared:
+   The sync loop retries every block until it completes, so there is nothing to clear:
 
    ```bash
    bin/bitblocks rpc 'Bitblocks.Release.sync_status()'
-   bin/bitblocks rpc 'Bitblocks.Release.retry_failed_blocks()'
    bin/bitblocks rpc 'Bitblocks.Release.gaps()'
    ```
 
-4. Confirm the end-state, not just the commands: `sync_status()` shows bitblocks' tip at the node's height, and `gaps()` shows nothing new.
+4. Confirm the end-state, not just the commands: `sync_status()` shows the last known block at the node's height and "Complete through block" climbing, and `gaps()` shows nothing new.
 5. Put the daily health check (section 7) on a timer.
 
 ## 7. Daily health check

@@ -13,9 +13,9 @@ defmodule Bitblocks.SyncProgress.Tracker do
   a final one from `finish/1`, so a block with a million txs sends about one
   message a second however fast its chunks go by.
 
-  The totals cover the part of the list walked so far. On a resumed block
-  the stored chunks are walked in milliseconds, so the bar catches up to the
-  true count quickly.
+  A block job's run resumes at the chunk its last run reached; the chunks
+  before it were all stored, and analyzed on ingest, by that same job, so
+  they start the totals as both stored and processed.
   """
 
   import Ecto.Query
@@ -31,7 +31,6 @@ defmodule Bitblocks.SyncProgress.Tracker do
     :height,
     :time,
     :num_tx,
-    :lane,
     total: 0,
     stored: 0,
     processed: 0,
@@ -42,17 +41,18 @@ defmodule Bitblocks.SyncProgress.Tracker do
   def topic, do: @topic
 
   @doc """
-  Starts tracking `block` on `lane` ("transactions_tip" or
-  "transactions_backfill"), expecting `total` txs. Reports zero progress.
+  Starts tracking `block`, expecting `total` txs, of which the first `done`
+  are already stored. Reports at once.
   """
-  def new(%Block{} = block, lane, total) do
+  def new(%Block{} = block, total, done \\ 0) do
     %__MODULE__{
       hash: block.hash,
       height: block.height,
       time: block.time,
       num_tx: block.num_tx,
-      lane: to_string(lane),
-      total: total
+      total: total,
+      stored: done,
+      processed: done
     }
     |> report(:force)
   end
@@ -100,6 +100,6 @@ defmodule Bitblocks.SyncProgress.Tracker do
   end
 
   defp payload(tracker) do
-    Map.take(tracker, [:hash, :height, :time, :num_tx, :lane, :total, :stored, :processed])
+    Map.take(tracker, [:hash, :height, :time, :num_tx, :total, :stored, :processed])
   end
 end

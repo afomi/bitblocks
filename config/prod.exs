@@ -19,14 +19,16 @@ config :swoosh, local: false
 # Do not print debug messages in production
 config :logger, level: :info
 
-# Transaction fetching runs on two dedicated concurrency-1 lanes so the chain
-# tip is never starved by historical backfill: one current + one past block
-# fetch at a time, in parallel. Tuned conservatively for t3.medium (4GB RAM).
+# The sync loop works two blocks at a time by default. Each instance is a
+# t3.medium (2 vCPU), so CPU cores bind first: POOL_SIZE 10 minus a reserve
+# of 5 leaves 5, and the node's RPC limit is 4. An admin can lower it on /sync.
+config :bitblocks, :sync_workers, 2
+
 config :bitblocks, Oban,
   queues: [
     default: 10,
-    transactions_tip: 1,
-    transactions_backfill: 1,
+    sync: 1,
+    sync_blocks: 1,
     blocks: 1,
     webhooks: 5,
     collections: 1

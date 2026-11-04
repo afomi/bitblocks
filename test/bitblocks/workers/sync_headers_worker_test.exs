@@ -175,37 +175,11 @@ defmodule Bitblocks.Workers.SyncHeadersWorkerTest do
       assert updated.sync_state == "txs_queued"
     end
 
-    test "defaults to the backfill lane" do
-      block = block_fixture(%{height: 201, hash: "lane_default_hash", sync_state: "header_only"})
+    test "queues the block on the sync loop's block queue" do
+      block = block_fixture(%{height: 201, hash: "queue_hash", sync_state: "header_only"})
 
       assert {:ok, job} = Chain.queue_transaction_fetch(block)
-      assert job.queue == "transactions_backfill"
-    end
-
-    test "lane: :tip routes to the tip lane with higher priority" do
-      block = block_fixture(%{height: 202, hash: "lane_tip_hash", sync_state: "header_only"})
-
-      assert {:ok, job} = Chain.queue_transaction_fetch(block, lane: :tip)
-      assert job.queue == "transactions_tip"
-      assert job.priority == 0
-    end
-  end
-
-  describe "tip catch-up window" do
-    test "after a long outage, only blocks near the chain tip get a tip-lane tx fetch" do
-      # Tip mode catching up 16k blocks would otherwise enqueue 16k tip-lane
-      # jobs; older blocks are left header_only for the backfill lane.
-      blocks = for h <- 957_302..973_960, do: %Bitblocks.Chain.Block{height: h}
-
-      queued = SyncHeadersWorker.tip_tx_blocks(blocks, 973_960)
-
-      assert length(queued) == SyncHeadersWorker.tip_tx_window()
-      assert Enum.all?(queued, &(&1.height > 973_960 - SyncHeadersWorker.tip_tx_window()))
-    end
-
-    test "in steady state every new block is queued" do
-      blocks = for h <- 100..102, do: %Bitblocks.Chain.Block{height: h}
-      assert SyncHeadersWorker.tip_tx_blocks(blocks, 102) == blocks
+      assert job.queue == "sync_blocks"
     end
   end
 

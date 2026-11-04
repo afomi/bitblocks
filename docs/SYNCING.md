@@ -1,61 +1,101 @@
 # Syncing
 
-The single source of truth for how Bitblocks syncs the chain.
-Consolidated from the code (authoritative) and the older scattered docs.
-Where the prose docs disagreed with the code, **the code wins** — corrections are called out inline.
+How Bitblocks syncs the chain.
+This is the authoritative description; where it and the code disagree, the code wins and this file gets fixed.
 
-Related: `docs/SYSTEM_ARCHITECTURE.md` (Oban queues, background services, RPC sizing), `docs/LARGE_BLOCKS.md` (mega-block handling), `docs/PERFORMANCE.md` (RPC batching).
+Related: `docs/LARGE_BLOCKS.md` (mega-block handling), `docs/NODE_OPERATIONS.md` (the node, including `rest=1`).
 
----
+## The promise
 
-## The two phases of data
+Bitblocks is accurate as of the last-known block, and it says which block that is.
+`Bitblocks.Sync.complete_through/0` is the highest height H such that every block from genesis through H is `completed`.
+`completed` means the block's txid list rebuilt the header's merkleroot and every one of its transactions is stored.
+A missing header counts as incomplete.
+/syncing, /sync, /status and `Release.sync_status()` all say "Complete through block X of N known", where N is our highest stored header.
 
-A block is acquired in two stages, tracked by `block.sync_state`:
+`complete_through` is computed, never stored.
+The lowest incomplete block comes from one lateral probe per state on `blocks_sync_state_height_index`.
+A header gap below it is found by an index-only count of heights, and only searched for when the count is short.
 
-1. **Headers** — cheap (~400 bytes via `getblockheader`). Establishes that the block exists and where it sits in the chain.
-2. **Transactions** — expensive (per-tx `getrawtransaction`, batched). Fills in the block's bodies.
+## The loop
 
-`sync_state` string values (`lib/bitblocks/chain/block.ex`):
+1. **Headers stay current.**
+   The coordinator runs header sync every minute: new headers up to the node's tip, a reorg resolved when one is found (fork point, orphans deleted, `ReconcileOrphanWorker` queued), and the lowest header gap below our tip filled, 10,000 headers a run.
+   The node's new blocks arrive as `header_only` rows, which are incomplete.
+2. **Work goes upward from `complete_through + 1`.**
+   The coordinator gives each free worker slot the lowest incomplete block that has no live job.
+   Nothing is skipped and nothing is worked out of order: a block that keeps failing keeps its slot and stays first in line.
+   With more than one slot, higher blocks can finish first; `complete_through` only moves when the lowest incomplete block completes.
+3. **One block per process, sequential within it.**
+   Each block is one `FetchTransactionsWorker` job on the `:sync_blocks` queue, unique on the block hash across queued, running and backing-off states, so two processes never hold the same block.
+   The job walks the block's transactions in chunks of 100, in order, one request in flight.
+4. **One request per block.**
+   A block up to 32 MB is fetched once as raw bytes (`Chain.RawBlock`): the node's REST interface first (`/rest/block/<hash>.bin`, needs `rest=1`), `getblock(hash, 0)` when REST answers anything but 200.
+   The txs are split out locally; each txid is the double SHA-256 of its own bytes, and the ordered txids must rebuild the header's merkleroot.
+   No `getrawtransaction` is sent for these blocks.
+   SV's `getblockheader` reports no size, so until a raw fetch records `size` the gate is `num_tx` at most 20,000; REST refuses a body over the cap either way.
+   Larger blocks, and blocks the node can't serve whole (pruned, unreachable), use the txid list (`TxidSource`, merkleroot-checked) and fetch bodies per chunk (`TxSources`).
+   Streaming a GB block through a bounded parser is the follow-up.
+5. **Bounded runs.**
+   A run stops after `:tx_fetch_run_ms` (30 s, inside Oban's 60 s shutdown grace), saves the chunk it reached in the job's meta, and snoozes; the same job resumes there.
+   A raw block is downloaded again on each resumed run, which only happens to blocks that take longer than a run to store.
+6. **Checked before it counts.**
+   After the last chunk, a count by txid confirms every transaction is stored; only then is the block `completed`.
+   That change is broadcast, and the coordinator hands the slot to the next block.
+7. **Retries replace give-ups.**
+   Any failure (node unreachable, rate limit, a tx no source returns, a merkle mismatch) marks the block `failed` and snoozes the job: 1, 2, 4, 8, 16, 32 minutes, then hourly.
+   `tx_sync_attempts` counts failures in a row and resets on progress.
+   The seventh in a row comes more than an hour into the stall and sends one email (`Notifications.sync_stall_alert/3`); later failures don't repeat it.
+   `failed` is a display state: nothing excludes a block from the loop because of it.
 
-| State | Meaning |
-|---|---|
-| `pending` | initial, pre-header |
-| `header_only` | header stored; no txid array yet |
-| `header_synced` | header + txid array present; ready for tx fetch |
-| `txs_queued` | a tx-fetch job has been enqueued |
-| `txs_syncing` | tx fetch in progress |
-| `completed` | all txs stored (or block has 0 txs) |
-| `failed` | tx fetch failed (retryable) |
+## Who leads
 
----
+`Bitblocks.Sync.Coordinator` runs on every node and acts only while its node is Oban's leader (`Oban.Peer.leader?/0`, checked every second).
+It owns the cursor, dispatch, the concurrency setting, and the state broadcast.
+When leadership moves, the old leader stands down at its next tick and the new one takes over at its own; dispatch only inserts jobs that are unique per block, so a moment of overlap can't assign a block twice.
+`Bitblocks.Workers.SyncWorker`, on the per-minute cron, only makes sure the coordinator is running.
 
-## The three movers (and why they collide)
+Workers are Oban jobs rather than tasks under the coordinator: a deploy or crash leaves them in the database, and they resume from their saved offset on whichever node picks them up.
 
-There are **three** independent things that can advance a block. They do **not** coordinate.
+## Concurrency
 
-| Mover | Kind | Trigger | Does |
-|---|---|---|---|
-| `SyncHeadersWorker` (tip mode) | Oban cron, every 1 min | automatic | inserts new headers **and** enqueues a tx fetch for each → keeps the tip fully synced hands-off |
-| `SyncHeadersWorker` (range mode) | Oban job | manual / backfill | inserts **headers only** for a height range; does **not** enqueue tx fetches (the hourly backfill cron picks them up) |
-| `FetchTransactionsWorker` | Oban `transactions_tip` queue (concurrency 1) | enqueued by tip mode per new block | fetches that block's txs → `completed`; diff-and-fill, resumable + idempotent |
-| `BackfillTransactionsWorker` | Oban `transactions_backfill` queue (concurrency 1) | hourly cron + `Release.start_backfill_transactions()` + `/sync` Repair | walks the lowest incomplete block, fills only its missing txs, self-reschedules — slow and steady, one block at a time |
+Worker slots are set by an admin on /sync, persisted in the one-row `sync_settings` table, and applied by the coordinator within seconds.
+Growing adds slots; shrinking lets blocks in progress finish and doesn't refill their slots.
+The setting is clamped to `Sync.concurrency_limit/0`, the smallest of:
 
-> **The after-create model.** Storing a header is the `create`; the enqueued `FetchTransactionsWorker` is the `after_create` job that batch-fetches that block's transactions. Tip mode wires this automatically (`sync_headers_worker.ex` — `sync_range/3` with `enqueue_txs? = true`). Range/backfill mode passes `false` so a bulk backfill doesn't flood `oban_jobs`; the **hourly `BackfillTransactionsWorker` cron** is the safety net that guarantees range-synced headers eventually get their transactions with zero manual steps.
+- CPU cores (`System.schedulers_online/0`);
+- the Repo `pool_size` minus `:sync_pool_reserve` (5, kept for web requests, header sync and the other queues);
+- the node's RPC threads, `:sync_rpc_limit` (env `SYNC_RPC_LIMIT`, default 4, bitcoind's default `rpcthreads`).
 
-> **Lane roles.** The tip lane (`transactions_tip`) carries per-block jobs for newly confirmed blocks — low latency, bounded volume. The historical lane (`transactions_backfill`) is owned by the **sequential** `BackfillTransactionsWorker` exclusively. The lanes never share slots, so the tip is never starved and historical fill can't compete with it.
+/sync names the binding limit, e.g. "Max 2 — CPU cores".
+Without a saved choice the default is `:sync_workers`: 1 in dev and test, 2 in prod (a t3.medium has 2 vCPUs; POOL_SIZE 10 leaves 5; the RPC limit is 4).
+The coordinator scales the `:sync_blocks` queue on every node to the setting; dispatch is what bounds the cluster to it.
 
-> **`SyncServer` was removed**, and the wave-based `Release.backfill_transactions/1` enqueuer is **deprecated** (it flooded per-block jobs and skipped `txs_queued`/`txs_syncing` orphans). The sequential worker replaced both.
+## Watching it
 
-### The shared integrity core
+/syncing is public and /sync is for admins.
+Both show "Complete through block X of N known", the slots in use and the limit, and a table of blocks in height order: the `complete_through` block, the blocks with live jobs, and the next five waiting.
+Each row shows its stages as text and icon: header stored and checked, tx count known, txs fetched x of y, verified; plus its worker slot and retry state.
+/sync also shows the load on our node: raw blocks fetched over the last ten minutes, blocks a minute and MB a second, and the latest fetch's size, time and source.
 
-Both tx movers now derive "what should this block contain" from `Chain.TxidSource` and store through `Chain.TxIngest`:
+It costs the same for one viewer or a thousand.
+The coordinator broadcasts `Sync.overview/0` at most once a second; block jobs report progress per chunk (`SyncProgress.Tracker`) and each raw fetch's bytes and time.
+`Bitblocks.SyncProgress`, one per node, merges these into one snapshot in ETS that every viewer reads; the LiveViews never query.
+It also reloads the overview itself every 30 s, so a node that doesn't hear the coordinator still shows current numbers.
 
-- **`TxidSource.expected_tx_count/1`** — the completeness denominator is the header's `num_tx` (PoW-verified), never `length(block.tx)`. Previously a block with a truncated/empty stored array (the >10k memory optimization) had `total = 0`, passed the gate trivially, and was marked `completed` with **zero transactions stored**.
-- **`TxidSource.txids/1`** — uses the stored array only when complete; otherwise re-fetches the txid list via `getblock(hash, 1)` into process memory (never persisted above 10k). Every list — stored or fetched — is **merkleroot-verified** (this also closed the skipped-merkle hole for large blocks). A verified list self-heals the row (`num_tx` corrected, small arrays persisted).
-- **`TxIngest.store/2`** — single ingest path: body-hash check (T4), `analyze`, insert (`on_conflict: :nothing`), `record_spends`, `index_tokens`. The backfill lane previously skipped the body check and token indexing.
-- **No completion without proof** — both workers re-count stored rows against the verified list and refuse to mark `completed` on a shortfall.
+## Operating it
 
----
+There is nothing to start, retry or repair by hand after an outage: the loop reaches every incomplete block in order.
+
+```bash
+bin/bitblocks rpc 'Bitblocks.Release.sync_status()'              # complete through, last known block, target, jobs
+bin/bitblocks rpc 'Bitblocks.Release.audit_completeness()'       # stored rows vs num_tx, any state
+bin/bitblocks rpc 'Bitblocks.Release.repair_incomplete_blocks()' # reopen completed blocks the audit flags
+bin/bitblocks rpc 'Bitblocks.Release.sync_headers(0, 100_000)'   # headers for a range, by hand
+```
+
+The audit counts by `block_hash`, so it is a lower bound: a txid stored under another block (reorg, BIP30 duplicate coinbase) can flag a block the worker completes without fetching anything.
+Repair is idempotent.
 
 ## Sources: where headers, txid lists and bodies come from
 
@@ -65,7 +105,8 @@ It was down from 2026-07 to 2026-11, so public sources can stand in for it, and 
 | Data | First source | Fallback | Check |
 |---|---|---|---|
 | Headers and chain tip | the RPC endpoint: `BITCOIN_NODE_RPC_URL`, else `BITCOIN_NODE_URL` | none | `HeaderVerifier` (hash, PoW) and prevhash continuity |
-| Txid list | `getblock(hash, 1)` on the RPC endpoint | WhatsOnChain `/block/hash/:hash` plus its 50,000-txid pages | rebuilt merkleroot must equal the stored header's; a fallback list with no merkleroot to check is refused |
+| Whole block (up to 32 MB) | REST `/rest/block/<hash>.bin`, else `getblock(hash, 0)` | the txid-list path below | header bytes hash to the block hash; txids derived from the bytes rebuild the merkleroot; tx count equals `num_tx` |
+| Txid list (larger blocks) | `getblock(hash, 1)` on the RPC endpoint | WhatsOnChain `/block/hash/:hash` plus its 50,000-txid pages | rebuilt merkleroot must equal the stored header's; a fallback list with no merkleroot to check is refused |
 | Tx bodies | `getrawtransaction` batches on the RPC endpoint | WhatsOnChain bulk `/txs` and `/txs/hex`, 20 per call | each body must hash to its txid (`TxIngest`) |
 
 - **PublicNode** (`https://bsv-rpc.publicnode.com`) is free, needs no auth, and is pruned to about the last 300 blocks.
@@ -76,148 +117,18 @@ It was down from 2026-07 to 2026-11, so public sources can stand in for it, and 
   They are routed to the fallback, never counted as block failures.
 - **Rate limits** (HTTP 429, PublicNode's JSON-RPC -32005, WoC 429) are backoff signals.
   `BitcoinsvCli` retries a 429 with exponential backoff (5 tries from 2 s).
-  If a source is still limited, the backfill worker reschedules the same block after 60 s and the fetch worker snoozes; neither touches `tx_sync_attempts`.
+  If a source is still limited, the block job fails the run and backs off like any other failure.
 - **WhatsOnChain** free tier is about 3 requests a second with no key.
   Set `WOC_API_KEY` (sent as the `Authorization` header) and `WOC_RPS` (default 10 with a key) for a paid plan of 10, 20 or 40 requests a second.
   `config :bitblocks, :woc_fallback, false` turns the fallback off.
 - **Header pacing**: `HEADER_BATCH_SIZE` (default 500) and `HEADER_BATCH_PAUSE_MS` (default 0).
   Each batch is one `batch_getblockhash` and one `batch_getblockheader`.
   For PublicNode, start at a batch of 100 and a 500 ms pause, close to the pace the dev header load settled at.
-- **Catching up after an outage**: tip mode walks the gap in header batches and queues a tip-lane tx fetch only for the newest 100 blocks (`:tip_tx_window`).
-  Older blocks stay `header_only` for the backfill lane.
-  `Release.start_backfill_transactions(min_height: h)` makes the backfill close a recent gap before going back to old history.
+- **Catching up after an outage**: header sync walks the gap in header batches, and the loop reaches each new block in height order.
 
 ---
 
-## What actually happens today (the real flow)
-
-```mermaid
-flowchart TD
-    cron([Oban Cron: every 1 min]) -->|mode: tip| SHW[SyncHeadersWorker.sync_tip]
-
-    SHW --> tipcheck{chain_tip &gt; our_tip?}
-    tipcheck -->|node unreachable| resched[reschedule tip in 60s]
-    tipcheck -->|no, caught up| resched30[done — next cron tick in 1 min]
-    tipcheck -->|yes| range["sync_range(our_tip+1 .. chain_tip)"]
-
-    range --> fetchhash["batch_getblockhash"]
-    fetchhash --> hdr["getblockheader(hash, true)"]
-    hdr --> verify{HeaderVerifier.verify<br/>+ continuity?}
-    verify -->|reject| dropped[(logged, NOT stored)]
-    verify -->|ok| store[(insert block:<br/>sync_state = header_only)]
-    store --> resched30
-
-    store -->|"tip mode only:<br/>after-create enqueue"| qtf["Chain.queue_transaction_fetch"]
-
-    subgraph backfill [Backfill — metered waves, CLI]
-        rel["Release.backfill /<br/>queue_transaction_fetch_for_range"] --> qtf
-    end
-
-    qtf --> queued[(sync_state = txs_queued)]
-    queued --> FTW[FetchTransactionsWorker<br/>Oban :transactions_tip / :transactions_backfill<br/>each concurrency 1, resumable + idempotent]
-
-    FTW --> ensure["upgrade to header_synced<br/>getblock(hash,1) for txids"]
-    ensure --> merkle{merkleroot matches?}
-    merkle -->|no| failed[(sync_state = failed)]
-    merkle -->|yes| syncing[(sync_state = txs_syncing)]
-    syncing --> batch["batch_getrawtransaction (100 at a time)<br/>verify txid, parse, store, record_spends"]
-    batch --> done[(sync_state = completed)]
-    batch -->|error| failed
-    failed -.manual retry.-> queued
-```
-
-### State machine
-
-```mermaid
-stateDiagram-v2
-    [*] --> pending
-    pending --> header_only: SyncHeadersWorker stores header
-    header_only --> txs_queued: queue_transaction_fetch (tip after-create / backfill)
-    header_only --> header_synced: getblock(hash,1) fetches txid array
-    header_synced --> txs_queued: queue_transaction_fetch
-    txs_queued --> txs_syncing: FetchTransactionsWorker starts
-    txs_syncing --> completed: all txs stored
-    txs_syncing --> failed: fetch error
-    failed --> txs_queued: manual retry
-    header_only --> completed: 0-tx block
-```
-
----
-
-## Watching it: `/syncing`
-
-`/syncing` is the public, live view of the sync; `/sync` stays the operator page.
-It shows each block fetching on the tip and backfill lanes, the blocks queued next, the last 10 completed, and the overall picture (our tip, the node's tip, the public tip, header coverage, blocks by `sync_state`).
-Each block carries two bars: **synced** (stored txs of `TxidSource.expected_tx_count/1`) and **processed** (stored txs with `script_analysis_version` at `TransactionParser.script_analysis_version/0` or later).
-
-It is built to cost the same for one viewer or a thousand:
-
-- **The workers count, the page doesn't.** `SyncProgress.Tracker` runs inside both tx workers: after each chunk of up to 100 txids, one query over `transactions_txid_index` counts stored and processed for that chunk, and the running totals go out on PubSub topic `"sync_progress"` at most once a second per block, plus a final report.
-- **One snapshot, shared.** `Bitblocks.SyncProgress` (one GenServer per node) merges those reports and `{:block_updated, block}` events, reloads from bounded `blocks` queries every 30 s, and publishes on `"sync_progress:snapshot"` at most once a second when something changed. Viewers read the snapshot from ETS and subscribe; the LiveView never queries.
-- **Bounded reads.** Syncing (≤20) and queued (≤10) blocks use `blocks_sync_state_height_index`; recent completions (10) use `blocks_tx_sync_completed_at_index`; state counts are an index-only scan of `blocks_sync_state_index`; the `tx` array is measured, never loaded. The node tip comes from `RpcCache`, the public tip from WhatsOnChain `/chain/info` at most every 5 minutes, header coverage from `StatsCache`.
-- A block completed before the current boot is counted once by `block_hash` (5 s statement timeout) and remembered; one finished on this boot carries the worker's final counts.
-
-## Key parameters (from code, authoritative)
-
-| Thing | Value | Source |
-|---|---|---|
-| Tip cron | every 1 min (`* * * * *`) | `config.exs` Oban crontab |
-| Backfill cron | hourly (`0 * * * *`), no-op when nothing incomplete | `config.exs` Oban crontab |
-| Tip self-reschedule | **none in steady state** — cron is the only scheduler; 60 s backoff only when the node is unreachable | `sync_headers_worker.ex` `reschedule_tip/1` |
-| Backfill gap between blocks | 15 s (`:backfill_reschedule_seconds`) | `backfill_transactions_worker.ex` |
-| Backfill / fetch wait on a rate limit | 60 s (`:backfill_rate_limit_seconds`), attempts untouched | `backfill_transactions_worker.ex`, `fetch_transactions_worker.ex` |
-| Tip-lane tx fetch window | newest 100 blocks of a catch-up (`:tip_tx_window`) | `sync_headers_worker.ex` |
-| Backfill retry budget per block | 3 (`:backfill_max_attempts`), then skipped until `Release.retry_failed_blocks/0` | `backfill_transactions_worker.ex` |
-| Header batch | 500 (`HEADER_BATCH_SIZE`), pause `HEADER_BATCH_PAUSE_MS` | `sync_headers_worker.ex` |
-| Tx fetch batch | 100 (`:tx_fetch_batch_size`) | `fetch_transactions_worker.ex` |
-| `transactions_tip` / `transactions_backfill` concurrency | **1 each** (separate lanes) | `config.exs` / `prod.exs` |
-| `blocks` queue concurrency | prod **1**, dev 3 | `prod.exs` / `config.exs` |
-| FetchTx retries | 5; unique per `block_hash` / 300 s | `fetch_transactions_worker.ex` |
-| SyncHeaders retries | 3 | `sync_headers_worker.ex` |
-| Tip source | `RpcCache.get_blockchain_info()["blocks"]` (**10-min TTL**) | `sync_headers_worker.ex:106` |
-| Our tip | `Chain.get_latest_block().height` | `sync_headers_worker.ex:112` |
-| Large blocks | tx arrays > 10k not stored on the row; txid list re-fetched transiently at sync time | `chain.ex` / `chain/txid_source.ex` / see `LARGE_BLOCKS.md` |
-
-> **Note on the tip source TTL.** `chain_tip` is read from `RpcCache`, which caches `getblockchaininfo` for 10 minutes. So tip detection can lag the node by up to ~10 min even when everything is healthy. This is fine for steady-state but means "caught up" is measured against a slightly stale tip.
-
----
-
-## Failure modes (how syncing silently stops)
-
-These are the realistic ways the chain stops advancing — useful when diagnosing a stall (e.g. "indexed tip is 21h behind the node"):
-
-1. **A wedged Oban job suppresses the cron.** Tip jobs are `unique` on args within a window; a job stuck `executing` (e.g. blocked on a hung RPC) can cause new cron inserts to be no-ops until it clears.
-2. **Header verification rejects at a boundary.** `HeaderVerifier.verify` / continuity rejects a header (PoW, hash mismatch, or `prevhash` not matching the predecessor we hold). It's logged and **not stored**, so `our_tip` never advances past that height — and since tx-fetch is enqueued per *stored* header, tx fetching stops there too.
-3. **The backfill chain dropped its own reschedule (fixed 2026-11-03).** Its uniqueness counted `executing` jobs, and the reschedule is inserted while the job itself is still executing, so every reschedule conflicted with itself. The backfill advanced one block per hourly cron. Uniqueness now covers `available`, `scheduled` and `retryable` only.
-4. **Persisted Oban backlog re-fires on boot.** `available`/`scheduled`/`retryable` jobs are durable. A big backlog queued via `/sync` re-runs on every app restart — this is the likely cause of "some jobs start on boot." (Mitigated now that `SyncServer` is gone and tip enqueues are bounded, but a previously-queued backfill backlog still persists.)
-
-> *Historical:* before tip mode enqueued tx fetches, headers advanced but transactions never auto-fetched — blocks sat at `header_only` unless `/sync` or the old `SyncServer` was driven manually. This was the original cause of the indexed tip lagging the node. Fixed by the tip after-create enqueue.
-
-### Completeness audit & repair ✅ implemented
-
-`sync_state = "completed"` is no longer the only word — the audit compares actual transaction rows to the header's `num_tx` for every block, in any state:
-
-```
-Release.audit_completeness()              # list deficit blocks (limit: 1_000 default)
-Release.repair_incomplete_blocks()        # reset deficits → sequential backfill fills the gaps
-Release.status(audit: true)               # status one-liner + deficit count
-```
-
-Both are also on `/sync` ("Completeness Audit" card: Run Audit / Repair buttons).
-
-- The audit is one GROUP-BY join over `transactions` — heavy enough to be on-demand, cheap enough to run daily.
-- The count is by `block_hash`, so a txid stored under another block's hash (reorg, BIP30 dup coinbase) makes it a **lower bound**: the audit may flag a block that the worker's txid-intersection check completes without fetching. Repair is idempotent, so false positives cost one no-op pass.
-- Repair covers **all** states — `completed`-with-deficit, `failed`, `header_*`, and `txs_queued`/`txs_syncing` orphans whose Oban job was lost (blocks with a live fetch job are skipped). `recover_stuck_blocks/0` is deprecated and delegates here.
-- The sequential worker also picks up orphaned `txs_queued` blocks by itself (`next_incomplete_block` checks for a live job), so orphans self-heal even without running repair.
-
-### Runbook: finding and fixing missing transactions
-
-1. `bin/bitblocks rpc 'Bitblocks.Release.audit_completeness()'` — inventory. Expect deficits on: early blocks synced via range mode before the hourly cron existed, >10k-tx blocks "completed" under the old empty-array denominator, orphaned `txs_queued` blocks.
-2. `bin/bitblocks rpc 'Bitblocks.Release.repair_incomplete_blocks()'` — resets them and starts the sequential backfill. Node load is inherently metered: one block at a time, batches of 100, concurrency-1 lane.
-3. Monitor with `Release.status()` / the `/sync` page. The hourly cron resumes automatically after any interruption — no babysitting.
-4. Re-run the audit until it reports zero.
-
-### After a reorg: the orphan's transaction rows (#34)
+## After a reorg: the orphan's transaction rows (#34)
 
 Tip sync deletes an orphaned block's row, but its transactions keep the orphan's `block_hash`.
 Two things move them:
@@ -239,47 +150,3 @@ bin/bitblocks rpc 'Bitblocks.Release.reconcile_orphaned_block("<orphan hash>", a
 Add `orphan_count: n` to correct the reorg row's count of blocks set aside.
 
 ---
-
-## Operating model — recommendation
-
-The current design conflates "keep up with the tip" (continuous, small) with "backfill history" (one-time, enormous), and exposes both through `/sync` — which is why it's overwhelming. Treat them as two separate concerns:
-
-### (a) Keep current syncing working — continuous, hands-off ✅ implemented
-
-- **Headers:** automatic via the tip cron.
-- **Transactions at the tip:** tip mode now enqueues a `FetchTransactionsWorker` (the after-create job) for each new header, so the chain stays fully synced with no manual intervention. Volume is bounded (a few blocks per cycle).
-- Nothing to run by hand in steady state.
-
-### (b) One-time historical backfill — long-running, batched, off the UI
-
-Drive it from the CLI (`bin/bitblocks rpc '...'`), **not** `/sync`, so it survives disconnects and doesn't swamp the page.
-
-**Step 1 — headers first** (cheap, fast). This already works:
-
-```
-Release.sync_headers(0, <tip>)    # also: Release.backfill() — same thing, headers only
-```
-
-Fills header gaps to the tip. Does **not** enqueue tx fetches (by design).
-
-**Step 2 — transactions, sequentially** (the long part):
-
-```
-Release.start_backfill_transactions()    # or just wait for the hourly cron
-```
-
-The sequential `BackfillTransactionsWorker` walks the lowest incomplete block, verifies its txid list (`TxidSource`), fills **only the missing transactions** (diff per 100-txid chunk, bounded queries at any block size), refuses to complete on a shortfall, then self-reschedules for the next block 15 s later. Safe to stop and re-run at any point; nothing floods `oban_jobs` (one job, one block at a time) and nothing competes with tip sync (separate lane).
-
-Each failure increments the block's `tx_sync_attempts`. After 3, the block stops being selected and the backfill goes **idle** rather than re-picking it. This bound is what keeps an unfetchable block (or an unreachable node) from spinning the worker against `blocks`/`oban_jobs` forever — the failure mode that pinned the shared RDS instance. A failure is recorded on the block and `perform/1` still returns `:ok`, so Oban does not stack its own job retry on top of the block-level budget.
-
-When the underlying cause is fixed (e.g. the node comes back), clear the counters and resume:
-
-```
-Release.retry_failed_blocks()
-```
-
-`Release.backfill_transactions/1` (the old wave enqueuer) is deprecated and now just delegates to the sequential worker.
-
-Monitor with `Release.status()` (chain tip, blocks completed, lowest incomplete = the ratchet position) or `Release.status(audit: true)` for true row-count completeness.
-
-> The previous historical tx-fetch drivers — `SyncServer` (removed) and the wave enqueuer (deprecated) — both competed or flooded. The sequential worker is the "slow and steady" replacement: exactly one historical mover, provably complete blocks, hourly cron so it never needs babysitting.

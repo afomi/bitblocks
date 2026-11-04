@@ -575,6 +575,44 @@ defmodule BitcoinsvCli do
     Bitblocks.Config.rpc_password()
   end
 
+  @doc """
+  A whole block as raw bytes from the node's REST interface,
+  `GET /rest/block/<hash>.bin` (bitcoin.conf `rest=1`). REST shares the RPC
+  host and port and takes no auth; set `BITCOIN_NODE_REST_URL` to point it
+  elsewhere. A body over `max_bytes` is refused. Returns `{:ok, bytes}` or
+  `{:error, reason}` (`{:http_error, 404}` when REST is off or the block unknown).
+  """
+  def rest_block(hash, max_bytes) do
+    {timeout, recv_timeout} = rpc_timeouts()
+
+    with {:ok, base} <- rest_base(),
+         {:ok, %HTTPoison.Response{status_code: 200, body: body}} <-
+           HTTPoison.get("#{base}/rest/block/#{hash}.bin", [],
+             timeout: timeout,
+             recv_timeout: recv_timeout,
+             max_body_length: max_bytes
+           ) do
+      {:ok, body}
+    else
+      {:ok, %HTTPoison.Response{status_code: status}} -> {:error, {:http_error, status}}
+      {:error, %HTTPoison.Error{reason: reason}} -> {:error, {:connection_error, reason}}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  # Scheme, host and port of the node URL; credentials and path dropped.
+  defp rest_base do
+    url = Application.get_env(:bitblocks, :rest_url) || Bitblocks.Config.bitcoin_url()
+
+    case url && URI.parse(url) do
+      %URI{scheme: scheme, host: host, port: port} when is_binary(host) ->
+        {:ok, "#{scheme}://#{host}:#{port}"}
+
+      _ ->
+        {:error, :missing_bitcoin_url}
+    end
+  end
+
   defp rpc_timeouts do
     timeout = Application.get_env(:bitblocks, :bitcoin_rpc_timeout_ms, 60_000)
     recv_timeout = Application.get_env(:bitblocks, :bitcoin_rpc_recv_timeout_ms, timeout)

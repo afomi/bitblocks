@@ -432,7 +432,7 @@ Expose this on the plan/status resource so a consumer can refuse to go live on a
 
 **Timeliness.**
 - Tip: a matching tx is tagged in the same ingest pass that stores it, then published on the follow channel.
-- New filter: enqueue a backfill (do not starve the tip lane — reuse `transactions_tip` vs `transactions_backfill`).
+- New filter: enqueue a backfill (the sync loop fills blocks in height order; see docs/SYNCING.md).
 - Lag is a first-class field: `tip_height - last_tagged_height` per definition.
 
 **Rate and load.**

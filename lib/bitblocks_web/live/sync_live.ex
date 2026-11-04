@@ -17,14 +17,18 @@ defmodule BitblocksWeb.SyncLive do
         transactions_count: 0,
         block_states: %{},
         syncing_blocks: [],
-        oban_summary: %{jobs: [], headers: 0, tx_fetch: 0, tip: false},
+        oban_summary: %{jobs: [], headers: 0, tx_fetch: 0},
         services: [],
         refresh_pending: false,
         audit: nil,
-        audit_running: false
+        audit_running: false,
+        sync: Bitblocks.SyncProgress.snapshot().sync,
+        node_load: Bitblocks.SyncProgress.snapshot().node_load
       )
+      |> assign_concurrency()
 
     if connected?(socket) do
+      Bitblocks.SyncProgress.subscribe()
       Phoenix.PubSub.subscribe(Bitblocks.PubSub, "blocks")
       send(self(), :load_data)
     end
@@ -47,6 +51,16 @@ defmodule BitblocksWeb.SyncLive do
       _ ->
         nil
     end
+  end
+
+  defp assign_concurrency(socket) do
+    {max, reason} = Bitblocks.Sync.concurrency_limit()
+
+    assign(socket,
+      concurrency: Bitblocks.Sync.concurrency(),
+      limit_max: max,
+      limit_reason: reason
+    )
   end
 
   defp get_db_counts do
@@ -103,34 +117,25 @@ defmodule BitblocksWeb.SyncLive do
      |> refresh_status()}
   end
 
+  # Admins only (the :admin live_session). Clamped server-side to the
+  # computed limit; the coordinator applies it on its next tick.
   @impl true
-  def handle_event("start_tip_sync", _params, socket) do
-    %{"mode" => "tip"}
-    |> Bitblocks.Workers.SyncHeadersWorker.new()
-    |> Oban.insert()
+  def handle_event("set_concurrency", %{"concurrency" => value}, socket) do
+    case Integer.parse(to_string(value)) do
+      {n, ""} ->
+        {:ok, applied} = Bitblocks.Sync.set_concurrency(n)
 
-    {:noreply,
-     socket
-     |> put_flash(:info, "Tip sync started")
-     |> refresh_status()}
-  end
+        message =
+          if applied == n,
+            do: "Concurrency set to #{applied}.",
+            else:
+              "Concurrency set to #{applied}: the most this node allows is #{socket.assigns.limit_max}."
 
-  @impl true
-  def handle_event("stop_tip_sync", _params, socket) do
-    import Ecto.Query
+        {:noreply, socket |> assign_concurrency() |> put_flash(:info, message)}
 
-    {cancelled, _} =
-      from(j in Oban.Job,
-        where: j.worker == "Bitblocks.Workers.SyncHeadersWorker",
-        where: j.state in ["available", "scheduled"],
-        where: fragment("args->>'mode' = 'tip'")
-      )
-      |> Bitblocks.Repo.update_all(set: [state: "cancelled", cancelled_at: DateTime.utc_now()])
-
-    {:noreply,
-     socket
-     |> put_flash(:info, "Cancelled #{cancelled} tip sync job(s)")
-     |> refresh_status()}
+      _ ->
+        {:noreply, put_flash(socket, :error, "Concurrency must be a whole number.")}
+    end
   end
 
   @impl true
@@ -204,12 +209,12 @@ defmodule BitblocksWeb.SyncLive do
   end
 
   @impl true
-  def handle_async(:repair, {:ok, {:ok, %{reset: reset, skipped_active: skipped}}}, socket) do
+  def handle_async(:repair, {:ok, {:ok, %{reset: reset}}}, socket) do
     {:noreply,
      socket
      |> put_flash(
        :info,
-       "Repair: reset #{reset} block(s) for sequential backfill, skipped #{skipped} with live jobs"
+       "Repair: reopened #{reset} block(s); the sync loop refills them in order"
      )
      |> start_async(:audit, fn -> Bitblocks.Release.audit_completeness(limit: 50) end)
      |> refresh_status()}
@@ -245,6 +250,11 @@ defmodule BitblocksWeb.SyncLive do
      socket
      |> assign(refresh_pending: false)
      |> refresh_status()}
+  end
+
+  @impl true
+  def handle_info({:sync_snapshot, snapshot}, socket) do
+    {:noreply, assign(socket, sync: snapshot.sync, node_load: snapshot.node_load)}
   end
 
   @impl true
@@ -313,6 +323,74 @@ defmodule BitblocksWeb.SyncLive do
         Blockchain Sync
       </h1>
 
+      <BitblocksWeb.SyncTable.sync_table
+        sync={@sync}
+        id="sync-loop"
+      />
+
+      <form
+        id="sync-concurrency-form"
+        phx-submit="set_concurrency"
+        class="bg-white dark:bg-gray-800 shadow-md rounded-lg p-6 mb-6"
+      >
+        <label
+          for="sync-concurrency"
+          class="block text-lg font-semibold mb-2 text-gray-900 dark:text-white"
+        >
+          Worker slots
+        </label>
+        <p
+          id="sync-concurrency-limit"
+          class="text-sm text-gray-700 dark:text-gray-300 mb-3"
+        >
+          Max {@limit_max} — {@limit_reason}.
+          Growing takes effect within seconds; shrinking lets blocks in progress finish.
+        </p>
+        <div class="flex items-center gap-3">
+          <input
+            id="sync-concurrency"
+            name="concurrency"
+            type="number"
+            min="1"
+            max={@limit_max}
+            step="1"
+            value={@concurrency}
+            aria-describedby="sync-concurrency-limit"
+            class="w-24 rounded border border-gray-400 px-2 py-1 text-gray-900 dark:border-gray-500 dark:bg-gray-900 dark:text-white"
+          />
+          <button
+            type="submit"
+            class="px-3 py-1 text-sm bg-blue-700 text-white rounded hover:bg-blue-800"
+          >
+            Apply
+          </button>
+        </div>
+      </form>
+
+      <section
+        id="sync-node-load"
+        aria-labelledby="sync-node-load-heading"
+        class="bg-white dark:bg-gray-800 shadow-md rounded-lg p-6 mb-6"
+      >
+        <h2
+          id="sync-node-load-heading"
+          class="text-lg font-semibold mb-2 text-gray-900 dark:text-white"
+        >
+          Load on our node
+        </h2>
+        <p class="text-sm text-gray-700 dark:text-gray-300">
+          Each block is one request for its raw bytes, at most one per worker slot at a time.
+          Over the last {@node_load.window_minutes} minutes this node's workers fetched {@node_load.blocks} blocks: {@node_load.blocks_per_minute} blocks a minute, {@node_load.mb_per_second} MB a second on average.
+        </p>
+        <p
+          :if={@node_load.last}
+          id="sync-node-load-last"
+          class="text-sm text-gray-700 dark:text-gray-300 mt-1"
+        >
+          Latest: block {@node_load.last.height}, {Float.round(@node_load.last.bytes / 1_000_000, 2)} MB in {Float.round(@node_load.last.ms / 1000, 2)} s over {@node_load.last.source}.
+        </p>
+      </section>
+
       <%!-- Chain Status --%>
       <BitblocksWeb.ChainStatusComponent.chain_status
         chain_tip={@chain_tip}
@@ -374,7 +452,7 @@ defmodule BitblocksWeb.SyncLive do
               :if={@audit && @audit.count > 0}
               phx-click="repair_incomplete"
               disabled={@audit_running}
-              data-confirm="Reset flagged blocks and start the sequential backfill?"
+              data-confirm="Reopen flagged completed blocks for the sync loop to refill?"
               class="px-3 py-1 text-xs bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300 rounded hover:bg-amber-200 disabled:opacity-50"
             >
               Repair
@@ -383,7 +461,7 @@ defmodule BitblocksWeb.SyncLive do
         </div>
         <p class="text-sm text-gray-500 dark:text-gray-400 mb-3">
           Compares stored transaction rows to each block's num_tx — catches blocks marked completed with missing transactions.
-          Repair resets flagged blocks and fills only the gaps (idempotent).
+          Repair reopens flagged completed blocks; the sync loop refills only what they're missing, in order.
         </p>
         <%= cond do %>
           <% @audit == nil -> %>
@@ -453,26 +531,12 @@ defmodule BitblocksWeb.SyncLive do
             Jobs
           </h2>
           <div class="flex items-center gap-3">
-            <%!-- Tip Sync toggle --%>
-            <%= if @oban_summary.tip do %>
-              <span class="flex items-center gap-1.5 text-xs text-green-600">
-                <span class="inline-block w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
-                Tip sync active
-              </span>
-              <button
-                phx-click="stop_tip_sync"
-                class="px-3 py-1 text-xs bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300 rounded hover:bg-red-200"
-              >
-                Stop
-              </button>
-            <% else %>
-              <button
-                phx-click="start_tip_sync"
-                class="px-3 py-1 text-xs bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300 rounded hover:bg-green-200"
-              >
-                Start Tip Sync
-              </button>
-            <% end %>
+            <a
+              href="/syncing"
+              class="text-xs text-blue-700 underline dark:text-blue-300"
+            >
+              The sync loop runs every minute: /syncing
+            </a>
           </div>
         </div>
 
@@ -621,7 +685,7 @@ defmodule BitblocksWeb.SyncLive do
           <div class="flex gap-4 items-end">
             <div class="flex-1 space-y-2">
               <div class="flex gap-2">
-                <label class="flex items-center text-sm">
+                <label class="flex items-center text-sm text-gray-900 dark:text-gray-100">
                   <input
                     type="radio"
                     name="scope_type"
@@ -632,7 +696,7 @@ defmodule BitblocksWeb.SyncLive do
                   />
                   All
                 </label>
-                <label class="flex items-center text-sm">
+                <label class="flex items-center text-sm text-gray-900 dark:text-gray-100">
                   <input
                     type="radio"
                     name="scope_type"
@@ -643,7 +707,7 @@ defmodule BitblocksWeb.SyncLive do
                   />
                   Range
                 </label>
-                <label class="flex items-center text-sm">
+                <label class="flex items-center text-sm text-gray-900 dark:text-gray-100">
                   <input
                     type="radio"
                     name="scope_type"
@@ -663,7 +727,7 @@ defmodule BitblocksWeb.SyncLive do
                     name="start_block"
                     placeholder="start"
                     min="0"
-                    class="w-32 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-sm"
+                    class="w-32 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-sm text-gray-900 dark:text-white"
                     required
                   />
                   <input
@@ -671,7 +735,7 @@ defmodule BitblocksWeb.SyncLive do
                     name="end_block"
                     placeholder="end"
                     min="0"
-                    class="w-32 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-sm"
+                    class="w-32 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-sm text-gray-900 dark:text-white"
                     required
                   />
                 </div>
@@ -682,7 +746,7 @@ defmodule BitblocksWeb.SyncLive do
                   name="start_block"
                   placeholder="start height"
                   min="0"
-                  class="w-32 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-sm"
+                  class="w-32 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-sm text-gray-900 dark:text-white"
                   required
                 />
               <% end %>
@@ -788,20 +852,11 @@ defmodule BitblocksWeb.SyncLive do
         Map.put(job, :short_worker, short_worker)
       end)
 
-    # Tip sync specifically (only count active, not completed)
-    tip =
-      Enum.any?(jobs, fn j ->
-        j.worker == "Bitblocks.Workers.SyncHeadersWorker" and
-          j.args["mode"] == "tip" and
-          j.state in ["available", "executing", "scheduled"]
-      end)
-
     active =
       Enum.filter(jobs, &(&1.state in ["available", "executing", "scheduled", "retryable"]))
 
     %{
       jobs: jobs,
-      tip: tip,
       headers: Enum.count(active, &(&1.worker == "Bitblocks.Workers.SyncHeadersWorker")),
       tx_fetch: Enum.count(active, &(&1.worker == "Bitblocks.Workers.FetchTransactionsWorker"))
     }

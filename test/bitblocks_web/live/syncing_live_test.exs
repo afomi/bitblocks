@@ -40,7 +40,7 @@ defmodule BitblocksWeb.SyncingLiveTest do
 
     # What the worker does as it walks the block: count the chunk it just stored.
     block
-    |> Tracker.new("transactions_tip", 5)
+    |> Tracker.new(5)
     |> Tracker.chunk([a.txid, b.txid, c.txid])
     |> Tracker.finish()
 
@@ -50,7 +50,6 @@ defmodule BitblocksWeb.SyncingLiveTest do
 
     assert html =~ "Syncing now"
     assert has_element?(view, "#syncing-#{block.hash} a[href='/blocks/970001']", "Block 970,001")
-    assert has_element?(view, "#syncing-#{block.hash}", "Tip lane")
     assert has_element?(view, "#syncing-#{block.hash}", "txs_syncing")
     assert has_element?(view, "#syncing-#{block.hash}-synced-count", "3 of 5")
     assert has_element?(view, "#syncing-#{block.hash}-processed-count", "2 of 5")
@@ -79,7 +78,6 @@ defmodule BitblocksWeb.SyncingLiveTest do
       height: block.height,
       time: block.time,
       num_tx: 4_000,
-      lane: "transactions_backfill",
       total: 4_000,
       stored: 1_234,
       processed: 1_200
@@ -90,7 +88,6 @@ defmodule BitblocksWeb.SyncingLiveTest do
 
     assert has_element?(view, "#syncing-#{block.hash}-synced-count", "1,234 of 4,000")
     assert has_element?(view, "#syncing-#{block.hash}-processed-count", "1,200 of 4,000")
-    assert has_element?(view, "#syncing-#{block.hash}", "Backfill lane")
 
     # The worker's final report, then completion: the block moves to recent
     # with the worker's counts, and nothing is counted again.
@@ -125,5 +122,32 @@ defmodule BitblocksWeb.SyncingLiveTest do
     assert has_element?(view, "#our-tip", "970,100")
     assert has_element?(view, "#sync-states")
     assert has_element?(view, "#syncing-empty", "No block is fetching transactions right now.")
+  end
+
+  test "the block table shows each block's stages in height order", %{conn: conn} do
+    for h <- 0..1, do: block_fixture(%{height: h, num_tx: 1, sync_state: "completed"})
+    block_fixture(%{height: 2, hash: "table_two", num_tx: 3, sync_state: "failed"})
+    block_fixture(%{height: 3, hash: "table_three", num_tx: 2, sync_state: "header_only"})
+
+    {:ok, _job} =
+      Oban.insert(
+        Bitblocks.Workers.FetchTransactionsWorker.new(%{block_hash: "table_two"},
+          meta: %{slot: 1}
+        )
+      )
+
+    SyncProgress.refresh()
+    {:ok, view, html} = live(conn, ~p"/syncing")
+
+    assert has_element?(view, "#sync-table-heading", "Complete through block 1 of 3 known")
+    assert has_element?(view, "#sync-table-row-1", "Verified")
+    assert has_element?(view, "#sync-table-row-1", "Complete through here")
+    assert has_element?(view, "#sync-table-row-2", "Slot 1, queued")
+    assert has_element?(view, "#sync-table-row-2", "The target")
+    assert has_element?(view, "#sync-table-row-2-fetched", "Not started")
+    assert has_element?(view, "#sync-table-row-3", "Waiting for a slot")
+
+    rows = Regex.scan(~r/id="sync-table-row-(\d+)"/, html) |> Enum.map(fn [_, h] -> h end)
+    assert rows == ["1", "2", "3"]
   end
 end

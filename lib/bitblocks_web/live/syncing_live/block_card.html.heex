@@ -27,10 +27,10 @@
       <code class="ml-1 rounded bg-gray-100 px-1 text-xs text-gray-800 dark:bg-gray-800 dark:text-gray-200">{@entry.sync_state}</code>
     </span>
     <span
-      :if={@show_lane}
+      :if={@target == @entry.height}
       class="whitespace-nowrap"
     >
-      · {lane_label(@entry.lane)}
+      · The target block
     </span>
   </p>
   <.progress_bar

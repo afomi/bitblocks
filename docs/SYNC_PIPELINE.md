@@ -1,5 +1,7 @@
 # Sync Pipeline & Running Processes
 
+> Superseded on 2026-11-04 by [SYNCING.md](SYNCING.md): one coordinator-led loop replaced the tip and backfill lanes described here.
+
 ## Process Map
 
 ```

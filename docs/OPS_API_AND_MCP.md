@@ -42,7 +42,7 @@ Bitblocks.Ops (structured data, tested)
 └── alerts (SES email)           push, so nobody has to ask
 ```
 
-`Bitblocks.Release` already holds the operations: `status`, `sync_status`, `gaps`, `audit_completeness`, `tx_store_check`, `chain_tiles_status`, `collection_sync_status`, `retry_failed_blocks`, `create_api_key` and more.
+`Bitblocks.Release` already holds the operations: `status`, `sync_status`, `gaps`, `audit_completeness`, `tx_store_check`, `chain_tiles_status`, `collection_sync_status`, `create_api_key` and more.
 Most of them print text.
 The first step is to move what they compute into `Bitblocks.Ops` and return maps; `Release` keeps printing, by formatting those maps.
 Then every surface tells the same story, and tests cover the facts once.
@@ -74,9 +74,8 @@ Tomorrow, any Claude session that touches Bitblocks.
 
 | Tool | Wraps |
 |---|---|
-| `retry_failed_blocks` | `Release.retry_failed_blocks/0` |
+| `set_concurrency(n)` | `Sync.set_concurrency/1` (clamped to `Sync.concurrency_limit/0`) |
 | `sync_headers(from, to)` | `Release.sync_headers/2` |
-| `backfill(min_height)` | backfill with a floor |
 | `build_chain_tiles(mode)` | `Release.build_chain_tiles/0` |
 | `sync_collection(id)` | `Release.sync_ordinal_collection/1` |
 

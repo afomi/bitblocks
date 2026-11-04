@@ -70,7 +70,7 @@ defmodule Bitblocks.ReleaseAuditTest do
   end
 
   describe "repair_incomplete_blocks/1" do
-    test "resets deficit blocks across all states and starts the sequential backfill" do
+    test "reopens completed blocks with missing txs; other states are left for the loop" do
       completed_deficit =
         block_fixture(%{
           height: 700_020,
@@ -79,67 +79,49 @@ defmodule Bitblocks.ReleaseAuditTest do
           sync_state: "completed"
         })
 
-      orphaned_queued =
+      failed =
         block_fixture(%{
           height: 700_021,
-          hash: "repair_queued_orphan",
+          hash: "repair_failed",
           num_tx: 1,
-          sync_state: "txs_queued"
+          sync_state: "failed"
         })
 
       {result, _io} = with_io(fn -> Release.repair_incomplete_blocks() end)
 
-      assert {:ok, %{reset: 2, skipped_active: 0}} = result
+      assert {:ok, %{reset: 1}} = result
       assert Repo.reload!(completed_deficit).sync_state == "header_synced"
-      assert Repo.reload!(orphaned_queued).sync_state == "header_synced"
-
-      # Exactly one sequential backfill job was enqueued — no per-block flood.
-      backfill_jobs =
-        Repo.all(
-          from(j in Oban.Job,
-            where: j.worker == "Bitblocks.Workers.BackfillTransactionsWorker",
-            where: j.state == "available"
-          )
-        )
-
-      assert length(backfill_jobs) == 1
-    end
-
-    test "skips a deficit block that has a live fetch job" do
-      block =
-        block_fixture(%{
-          height: 700_022,
-          hash: "repair_active_job",
-          num_tx: 1,
-          sync_state: "txs_queued"
-        })
-
-      Repo.insert!(%Oban.Job{
-        worker: "Bitblocks.Workers.FetchTransactionsWorker",
-        queue: "transactions_backfill",
-        state: "available",
-        args: %{"block_hash" => block.hash}
-      })
-
-      {result, _io} = with_io(fn -> Release.repair_incomplete_blocks() end)
-
-      assert {:ok, %{reset: 0, skipped_active: 1}} = result
-      assert Repo.reload!(block).sync_state == "txs_queued"
+      assert Repo.reload!(failed).sync_state == "failed"
+      assert Repo.all(Oban.Job) == []
     end
 
     test "is a no-op when the audit is clean" do
-      block = block_fixture(%{height: 700_023, hash: "repair_clean", num_tx: 1})
+      block =
+        block_fixture(%{
+          height: 700_023,
+          hash: "repair_clean",
+          num_tx: 1,
+          sync_state: "completed"
+        })
+
       transaction_fixture(%{block_hash: block.hash})
 
       {result, _io} = with_io(fn -> Release.repair_incomplete_blocks() end)
 
-      assert {:ok, %{reset: 0, skipped_active: 0}} = result
+      assert {:ok, %{reset: 0}} = result
+    end
+  end
 
-      assert Repo.all(
-               from(j in Oban.Job,
-                 where: j.worker == "Bitblocks.Workers.BackfillTransactionsWorker"
-               )
-             ) == []
+  describe "sync_status/0" do
+    test "prints complete_through, the known tip and the target" do
+      block_fixture(%{height: 0, num_tx: 1, sync_state: "completed"})
+      block_fixture(%{height: 1, num_tx: 1, sync_state: "failed"})
+
+      {result, io} = with_io(fn -> Release.sync_status() end)
+
+      assert %{complete_through: 0, tip: 1, target: 1} = result
+      assert io =~ "Complete through block 0 (of 1 known)"
+      assert io =~ "Target: block 1 (failed"
     end
   end
 end

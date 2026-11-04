@@ -16,6 +16,11 @@ defmodule Bitblocks.SyncProgress do
       from small bounded queries on `blocks` every `@refresh_ms`, plus the
       `{:block_updated, block}` events `Chain.broadcast_block_update/1`
       already sends on each transition.
+    * **Coverage and the block table** (`Sync.overview/0`: complete
+      through, concurrency and its limit, blocks in height order with their
+      stages, worker slot and retry state) come from `Sync.Coordinator`'s
+      broadcast, at most once a second, and from this server's own reload as
+      a fallback when the coordinator runs on another node.
     * **The overall picture**: blocks by `sync_state`, our tip, the node's
       tip (`RpcCache`, cached for 10 minutes), the public tip (WhatsOnChain
       `/chain/info`, asked at most every `@public_tip_ms`) and header
@@ -59,6 +64,7 @@ defmodule Bitblocks.SyncProgress do
   @remembered_counts 100
 
   @syncing_states ["txs_queued", "txs_syncing"]
+  @load_window_s 600
 
   # -- Client ------------------------------------------------------------------
 
@@ -89,11 +95,15 @@ defmodule Bitblocks.SyncProgress do
   @doc false
   def empty_snapshot do
     %{
+      sync: nil,
+      node_load: node_load([]),
       syncing: [],
       queued: [],
       recent: [],
       overview: %{
         our_tip: nil,
+        complete_through: nil,
+        target: nil,
         node_tip: nil,
         node_headers: nil,
         public_tip: nil,
@@ -117,6 +127,8 @@ defmodule Bitblocks.SyncProgress do
     Phoenix.PubSub.subscribe(Bitblocks.PubSub, "blocks")
 
     state = %{
+      sync: nil,
+      fetches: [],
       active: %{},
       recent: [],
       counts: %{},
@@ -195,13 +207,24 @@ defmodule Bitblocks.SyncProgress do
       |> Map.get(progress.hash, entry_from_progress(progress))
       |> Map.merge(%{
         sync_state: "txs_syncing",
-        lane: progress.lane,
         expected: progress.total,
         stored: progress.stored,
         processed: progress.processed
       })
 
     {:noreply, %{state | active: Map.put(state.active, progress.hash, entry), dirty: true}}
+  end
+
+  # A raw block fetched by a block job on this node: bytes and time, for the
+  # node-load numbers.
+  def handle_info({:sync_fetch, fetch}, state) do
+    cutoff = System.system_time(:second) - @load_window_s
+    fetches = [fetch | Enum.filter(state.fetches, &(&1.at >= cutoff))]
+    {:noreply, %{state | fetches: fetches, dirty: true}}
+  end
+
+  def handle_info({:sync_overview, overview}, state) do
+    {:noreply, %{state | sync: overview, dirty: true}}
   end
 
   def handle_info({:block_updated, %Block{} = block}, state) do
@@ -218,7 +241,7 @@ defmodule Bitblocks.SyncProgress do
     entry =
       block
       |> entry_from_block()
-      |> Map.merge(Map.take(previous || %{}, [:lane, :stored, :processed, :expected]))
+      |> Map.merge(Map.take(previous || %{}, [:stored, :processed, :expected]))
       |> Map.put(:sync_state, s)
 
     %{state | active: Map.put(state.active, block.hash, entry)}
@@ -240,7 +263,7 @@ defmodule Bitblocks.SyncProgress do
     entry =
       block
       |> entry_from_block()
-      |> Map.merge(%{sync_state: "completed", lane: previous && previous.lane})
+      |> Map.put(:sync_state, "completed")
       |> Map.put(:expected, expected)
       |> with_counts(counts)
 
@@ -267,9 +290,11 @@ defmodule Bitblocks.SyncProgress do
 
     node = node_tip()
     states = state_counts()
-    our_tip = our_tip()
+    sync = Bitblocks.Sync.overview()
+    %{tip: our_tip, complete_through: complete_through, target: target} = sync
 
     %{
+      sync: sync,
       active: syncing,
       recent: recent,
       counts: counts,
@@ -278,6 +303,8 @@ defmodule Bitblocks.SyncProgress do
       public_tip_at: public_tip_at,
       overview: %{
         our_tip: our_tip,
+        complete_through: complete_through,
+        target: target,
         node_tip: node[:blocks],
         node_headers: node[:headers],
         public_tip: public_tip,
@@ -294,15 +321,15 @@ defmodule Bitblocks.SyncProgress do
       Map.new(loaded.active, fn entry ->
         previous = Map.get(state.active, entry.hash, %{})
         kept = Map.take(previous, [:stored, :processed, :expected])
-        lane = entry.lane || previous[:lane]
-        {entry.hash, entry |> Map.merge(kept) |> Map.put(:lane, lane)}
+        {entry.hash, Map.merge(entry, kept)}
       end)
 
     counts = Map.merge(loaded.counts, state.counts)
 
     %{
       state
-      | active: active,
+      | sync: loaded.sync,
+        active: active,
         recent: Enum.map(loaded.recent, &with_counts(&1, counts)),
         counts: counts,
         counted: MapSet.union(state.counted, loaded.counted),
@@ -320,7 +347,7 @@ defmodule Bitblocks.SyncProgress do
     syncing =
       from(b in Block,
         where: b.sync_state == "txs_syncing",
-        order_by: [desc: b.height],
+        order_by: [asc: b.height],
         limit: @syncing_limit,
         select: map(b, ^@block_fields),
         select_merge: %{tx_len: fragment("coalesce(array_length(?, 1), 0)", b.tx)}
@@ -330,21 +357,14 @@ defmodule Bitblocks.SyncProgress do
     queued =
       from(b in Block,
         where: b.sync_state == "txs_queued",
-        order_by: [desc: b.height],
+        order_by: [asc: b.height],
         limit: @queued_limit,
         select: map(b, ^@block_fields),
         select_merge: %{tx_len: fragment("coalesce(array_length(?, 1), 0)", b.tx)}
       )
       |> Repo.all()
 
-    rows = syncing ++ queued
-    lanes = lanes(Enum.map(rows, & &1.hash))
-
-    Enum.map(rows, fn row ->
-      row
-      |> entry_from_row()
-      |> Map.put(:lane, lane_for(row, lanes))
-    end)
+    Enum.map(syncing ++ queued, &entry_from_row/1)
   end
 
   # Served by blocks_tx_sync_completed_at_index (partial, non-null).
@@ -360,38 +380,11 @@ defmodule Bitblocks.SyncProgress do
     |> Enum.map(&entry_from_row/1)
   end
 
-  # The live fetch job's queue names the lane. A syncing block with no job is
-  # the sequential backfill's (it runs without a per-block job).
-  defp lanes([]), do: %{}
-
-  defp lanes(hashes) do
-    from(j in Oban.Job,
-      where: j.worker == "Bitblocks.Workers.FetchTransactionsWorker",
-      where: j.state in ["available", "scheduled", "executing", "retryable"],
-      where: fragment("?->>'block_hash'", j.args) in ^hashes,
-      select: {fragment("?->>'block_hash'", j.args), j.queue}
-    )
-    |> Repo.all()
-    |> Map.new()
-  end
-
-  defp lane_for(%{hash: hash, sync_state: s}, lanes) do
-    case Map.get(lanes, hash) do
-      nil when s == "txs_syncing" -> "transactions_backfill"
-      queue -> queue
-    end
-  end
-
   # Index-only scan of blocks_sync_state_index: one row per state.
   defp state_counts do
     from(b in Block, group_by: b.sync_state, select: {b.sync_state, count()})
     |> Repo.all()
     |> Enum.sort_by(fn {_s, n} -> -n end)
-  end
-
-  defp our_tip do
-    from(b in Block, order_by: [desc: b.height], limit: 1, select: b.height)
-    |> Repo.one()
   end
 
   # RpcCache holds getblockchaininfo for 10 minutes; this asks the cache, and
@@ -487,7 +480,6 @@ defmodule Bitblocks.SyncProgress do
       num_tx: row.num_tx,
       expected: expected(row.num_tx, row.tx_len),
       sync_state: row.sync_state,
-      lane: nil,
       stored: nil,
       processed: nil
     }
@@ -501,7 +493,6 @@ defmodule Bitblocks.SyncProgress do
       num_tx: block.num_tx,
       expected: expected(block.num_tx, length(block.tx || [])),
       sync_state: block.sync_state,
-      lane: nil,
       stored: nil,
       processed: nil
     }
@@ -515,7 +506,6 @@ defmodule Bitblocks.SyncProgress do
       num_tx: progress.num_tx,
       expected: progress.total,
       sync_state: "txs_syncing",
-      lane: progress.lane,
       stored: 0,
       processed: 0
     }
@@ -552,23 +542,61 @@ defmodule Bitblocks.SyncProgress do
   defp build(state) do
     entries = Map.values(state.active)
 
-    lane_order = fn entry -> if entry.lane == "transactions_tip", do: 0, else: 1 end
-
     %{
+      sync: with_progress(state.sync, state.active),
+      node_load: node_load(state.fetches),
       syncing:
         entries
         |> Enum.filter(&(&1.sync_state == "txs_syncing"))
-        |> Enum.sort_by(&{lane_order.(&1), -&1.height})
+        |> Enum.sort_by(& &1.height)
         |> Enum.take(@syncing_limit),
       queued:
         entries
         |> Enum.filter(&(&1.sync_state == "txs_queued"))
-        |> Enum.sort_by(&(-&1.height))
+        |> Enum.sort_by(& &1.height)
         |> Enum.take(@queued_limit),
       recent: state.recent,
       overview: state.overview,
       analyzer_version: TransactionParser.script_analysis_version(),
       updated_at: DateTime.utc_now() |> DateTime.truncate(:second)
+    }
+  end
+
+  # Txs fetched for each table row: all of them once verified, otherwise the
+  # worker's latest count (nil until it reports).
+  defp with_progress(nil, _active), do: nil
+
+  defp with_progress(sync, active) do
+    rows =
+      Enum.map(sync.rows, fn row ->
+        fetched =
+          cond do
+            row.sync_state == "completed" -> row.num_tx
+            entry = Map.get(active, row.hash) -> entry.stored
+            true -> nil
+          end
+
+        Map.put(row, :fetched, fetched)
+      end)
+
+    %{sync | rows: rows}
+  end
+
+  # What raw block fetches asked of the node over the last ten minutes, as
+  # seen by this node's workers: blocks a minute, MB a second averaged over
+  # the window, and the latest fetch.
+  @doc false
+  def node_load(fetches) do
+    cutoff = System.system_time(:second) - @load_window_s
+    recent = Enum.filter(fetches, &(&1.at >= cutoff))
+    bytes = recent |> Enum.map(& &1.bytes) |> Enum.sum()
+
+    %{
+      window_minutes: div(@load_window_s, 60),
+      blocks: length(recent),
+      blocks_per_minute: Float.round(length(recent) / (@load_window_s / 60), 1),
+      mb_per_second: Float.round(bytes / 1_000_000 / @load_window_s, 3),
+      last: List.first(recent)
     }
   end
 

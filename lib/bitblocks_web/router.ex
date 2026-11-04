@@ -296,6 +296,13 @@ defmodule BitblocksWeb.Router do
     end
   end
 
+  # Raw blocks exported from our node, pushed by scripts/push_blocks.
+  scope "/admin", BitblocksWeb do
+    pipe_through :admin_data
+
+    post "/blocks/:height", BlockImportController, :create
+  end
+
   scope "/chain-scrubber", BitblocksWeb do
     pipe_through :admin_data
 

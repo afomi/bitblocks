@@ -12,8 +12,12 @@
     href="/syncing"
     class="mb-6 flex items-center justify-between gap-4 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 hover:border-blue-400 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-100 dark:hover:border-blue-600"
   >
-    <span>
-      Watch the sync live: each block as it fills, with transactions synced and processed.
+    <span id="status-complete-through">
+      <%= if is_integer(@coverage.complete_through) and @coverage.complete_through >= 0 do %>
+        Complete through block {format_number(@coverage.complete_through)} (of {format_number(@coverage.our_tip)} known).
+      <% else %>
+        Watch the sync live: each block as it fills, with transactions synced and processed.
+      <% end %>
     </span>
     <span
       class="shrink-0 font-semibold"

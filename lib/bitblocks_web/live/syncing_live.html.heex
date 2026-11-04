@@ -17,6 +17,13 @@
     This page updates live, at most once a second.
   </p>
 
+  <p class="mb-6 leading-relaxed">
+    Every block from genesis through the one named below has all of its transactions stored and checked against its header.
+    One coordinator hands each worker the lowest block not yet complete, and each worker owns one block at a time.
+    A block that fails is retried with backoff and keeps its place.
+  </p>
+  <BitblocksWeb.SyncTable.sync_table sync={@snapshot.sync} />
+
   <%!-- The overall picture --%>
   <section
     id="sync-overview"
@@ -135,7 +142,7 @@
     <% end %>
   </section>
 
-  <%!-- Blocks being synced right now, both lanes --%>
+  <%!-- Blocks being synced right now, lowest first --%>
   <section
     id="syncing-now"
     aria-labelledby="syncing-now-heading"
@@ -147,11 +154,6 @@
     >
       Syncing now
     </h2>
-    <p class="mb-3 text-sm">
-      The tip lane keeps up with new blocks.
-      The backfill lane fills in history, one block at a time.
-      Each runs one block at a time, side by side.
-    </p>
     <%= if @snapshot.syncing == [] do %>
       <p
         id="syncing-empty"
@@ -168,37 +170,12 @@
           :for={entry <- @snapshot.syncing}
           entry={entry}
           prefix="syncing"
-          show_lane={true}
+          target={@snapshot.overview.target}
           pending_text="Starting"
         />
       </ul>
     <% end %>
 
-    <div
-      :if={@snapshot.queued != []}
-      id="queued"
-      class="mt-6"
-    >
-      <h3 class="mb-1 text-base font-semibold text-gray-900 dark:text-white">
-        Up next
-      </h3>
-      <p class="mb-3 text-sm">
-        {number(@snapshot.overview.queued_count)} blocks are queued.
-        The newest are shown here.
-      </p>
-      <ul
-        role="list"
-        class="space-y-3"
-      >
-        <.block_card
-          :for={entry <- @snapshot.queued}
-          entry={entry}
-          prefix="queued"
-          show_lane={true}
-          pending_text="Waiting to start"
-        />
-      </ul>
-    </div>
   </section>
 
   <%!-- Recently completed --%>
@@ -225,7 +202,7 @@
           :for={entry <- @snapshot.recent}
           entry={entry}
           prefix="recent"
-          show_lane={false}
+          target={nil}
           pending_text="Not counted"
         />
       </ul>

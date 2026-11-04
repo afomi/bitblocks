@@ -1,195 +1,312 @@
 defmodule Bitblocks.Workers.FetchTransactionsWorker do
   @moduledoc """
-  Oban worker for fetching transaction details for a block.
+  The sync loop's block job: fetches one block's transactions, and owns that
+  block while it does. `Bitblocks.Sync.dispatch/0` queues one for each of the
+  lowest incomplete blocks; see docs/SYNCING.md.
 
-  Designed for blocks of any size — from 1-tx coinbase blocks to 4GB blocks
-  with millions of transactions. Key properties:
+  ## One owner, one process
+  Unique on the block hash across queued, scheduled and running states, so
+  two processes never work the same block. Within the block the walk is
+  sequential: one chunk of `@batch_size` txids at a time, in list order, one
+  batched RPC call in flight.
+
+  ## One request per block
+  A block up to 32 MB is fetched once as raw bytes (`Chain.RawBlock`: node
+  REST, else `getblock(hash, 0)`), its txids derived from the bytes and
+  checked against the header's merkleroot. Larger blocks, and blocks the
+  node can't serve whole, use the verified txid list (`Chain.TxidSource`)
+  and fetch bodies per chunk (`Chain.TxSources`).
 
   ## Diff-and-fill
-  Walks the block's verified txid list (`Chain.TxidSource`) in batches; each
-  batch is diffed against stored transactions and only the gaps are fetched.
-  Re-running is idempotent — already-stored txs are never re-fetched or
-  re-upserted (`on_conflict: :nothing` via `Chain.TxIngest`).
+  Either way the block is walked in chunks; each chunk is diffed against
+  stored transactions and only the gaps are stored. Re-running is idempotent
+  (`on_conflict: :nothing` via `Chain.TxIngest`).
+
+  ## Bounded runs
+  A run stops after `:tx_fetch_run_ms` (default 30 s, inside Oban's 60 s
+  shutdown grace), records the chunk it reached in the job's meta, and
+  snoozes. The same job resumes from there, so a 4M-tx block spans many
+  short runs and never more than one owner.
 
   ## Verified completeness
   The txid list is merkleroot-verified and the expected count comes from the
-  header's `num_tx` — never from a possibly-truncated stored array — so a
-  block can only transition to `completed` when every one of its transactions
-  is actually stored.
+  header's `num_tx`. A block becomes `completed` only after a final count
+  shows every txid stored. The broadcast of that change tells
+  `Sync.Coordinator` to give the slot to the next block.
 
-  ## Batching
-  Fetches in configurable batches (default 100) to bound memory. A 2.8M-tx
-  block processes as ~28,000 batches; the txid list itself is held in process
-  memory only (both tx lanes are concurrency-1).
-
-  ## Observability
-  Logs progress at regular intervals with fetched/total, percentage, elapsed
-  and estimated remaining time.
-
-  ## Confirmation gating
-  When `min_confirmations` is set (via application config), the worker checks
-  that the block has sufficient confirmations before fetching, to avoid wasted
-  work on blocks that might be reorganized.
+  ## Retries replace give-ups
+  A failure (node unreachable, rate limit, a tx no source returns, a merkle
+  mismatch) marks the block `failed` and snoozes with exponential backoff:
+  1, 2, 4 … minutes, capped at an hour. The job never gives up and the block
+  keeps its place. `tx_sync_attempts` counts consecutive failures; the
+  seventh, more than an hour after the first, sends one stall alert.
   """
 
-  # Default queue is the backfill lane; the tip flow overrides it to
-  # :transactions_tip at enqueue time (see Chain.queue_transaction_fetch/2).
-  # Tip and backfill are separate concurrency-1 queues so they never share slots
-  # — one tip + one backfill fetch run in parallel, tip is never starved.
-  # Uniqueness is keyed on block_hash, so the same block can't be queued twice.
   use Oban.Worker,
-    queue: :transactions_backfill,
+    queue: :sync_blocks,
     max_attempts: 5,
-    unique: [period: 300, fields: [:args], keys: [:block_hash]]
+    unique: [period: :infinity, keys: [:block_hash], states: :incomplete]
 
   require Logger
-  alias Bitblocks.Repo
-  alias Bitblocks.Chain
-  alias Bitblocks.Chain.{Block, TxIngest, TxidSource, TxSources}
+  import Ecto.Query
+
+  alias Bitblocks.{Chain, Repo, Sync}
+  alias Bitblocks.Chain.{Block, RawBlock, TxIngest, TxidSource, TxSources}
   alias Bitblocks.SyncProgress.Tracker
 
-  # How many transactions to fetch and write per batch.
+  # How many transactions to fetch and write per chunk.
   # Bounds memory: 100 raw transactions ≈ 10-50 MB depending on tx size.
   @batch_size Application.compile_env(:bitblocks, :tx_fetch_batch_size, 100)
 
-  # Log progress every N transactions
-  @log_interval 1_000
+  @backoff_base_seconds 60
+  @backoff_cap_seconds 3_600
 
-  # Minimum confirmations before fetching transactions (0 = fetch immediately).
-  # For tip-following, set to 1-6 in production config.
-  @min_confirmations Application.compile_env(:bitblocks, :min_confirmations_for_tx_fetch, 0)
-
-  @rate_limit_seconds Application.compile_env(:bitblocks, :backfill_rate_limit_seconds, 60)
+  # Failures 1..6 back off 1+2+4+8+16+32 = 63 minutes, so the seventh
+  # consecutive failure is the first more than an hour into the stall.
+  @stall_alert_failures 7
 
   @impl Oban.Worker
   def perform(%Oban.Job{args: %{"block_hash" => block_hash}} = job) do
-    started_at = System.monotonic_time(:millisecond)
+    case Repo.get_by(Block, hash: block_hash) do
+      # Deleted by a reorg while queued.
+      nil ->
+        {:cancel, :block_not_found}
 
-    with {:ok, block} <- get_block(block_hash),
-         {:ok, block} <- check_confirmations(block),
-         {:ok, txids, block} <- TxidSource.txids(block),
-         {:ok, block} <- transition_to_syncing(block) do
-      total = length(txids)
-      already_fetched = count_existing_transactions(txids)
-
-      Logger.info(
-        "FetchTxs block=#{block.height} total=#{total} " <>
-          "already_fetched=#{already_fetched} batch_size=#{@batch_size}"
-      )
-
-      tracker = Tracker.new(block, job.queue, total)
-
-      case fetch_in_batches(block, txids, total, started_at, tracker) do
-        :ok ->
-          with {:ok, completed} <- transition_to_completed(block),
-               do: notify_projections(completed, job.queue)
-
-          elapsed = System.monotonic_time(:millisecond) - started_at
-
-          Logger.info(
-            "FetchTxs block=#{block.height} completed " <>
-              "total=#{total} elapsed=#{format_duration(elapsed)}"
-          )
-
-          :ok
-
-        {:error, :rate_limited} ->
-          Logger.warning("FetchTxs block=#{block.height} rate limited; snoozing")
-          {:snooze, @rate_limit_seconds}
-
-        {:error, reason} ->
-          transition_to_failed(block, reason)
-          {:error, reason}
-      end
-    else
-      # A rate limit (PublicNode -32005, WoC 429) is a backoff, not a block
-      # failure: snooze the job, leave the block's attempts alone.
-      {:error, :rate_limited} ->
-        Logger.warning("FetchTxs block=#{block_hash} rate limited; snoozing")
-        {:snooze, @rate_limit_seconds}
-
-      {:skip, reason} ->
-        Logger.info("FetchTxs block=#{block_hash} skipped: #{inspect(reason)}")
+      %Block{sync_state: "completed"} ->
         :ok
 
-      {:error, reason} ->
-        Logger.error("FetchTxs block=#{block_hash} failed: #{inspect(reason)}")
+      block ->
+        run(block, job)
+    end
+  end
 
-        with {:ok, block} <- get_block(block_hash) do
-          transition_to_failed(block, reason)
-        end
+  defp run(block, job) do
+    offset = job.meta["offset"] || 0
+    deadline = System.monotonic_time(:millisecond) + (job.meta["run_ms"] || run_ms())
+
+    with {:ok, items, block} <- block_txs(block, job.meta["raw_dir"]),
+         {:ok, block} <- mark_syncing(block) do
+      case walk(block, items, offset, deadline) do
+        :completed ->
+          mark_completed(block)
+          :ok
+
+        {:paused, next_offset} ->
+          save_offset(job, next_offset)
+          if (block.tx_sync_attempts || 0) > 0, do: reset_failures(block)
+          {:snooze, 1}
+
+        {:error, reason, reached} ->
+          save_offset(job, reached)
+          fail(block, reason)
+      end
+    else
+      {:error, reason} -> fail(block, reason)
+    end
+  end
+
+  # The block's transactions in order: `{txid, bytes}` from one raw-block
+  # fetch when the block is small enough (Chain.RawBlock), else bare txids
+  # from the verified txid list, fetched per chunk (TxidSource + TxSources).
+  # A raw block that fails its own checks fails the run; one the node can't
+  # serve whole falls back to the per-tx path.
+  # An import (Chain.BlockImport) names a directory of exported block files:
+  # the block comes from there or not at all, never from the node.
+  defp block_txs(block, raw_dir) when is_binary(raw_dir) do
+    case RawBlock.fetch(block, dir: raw_dir) do
+      {:ok, txs, stats} -> {:ok, txs, record_fetch(block, stats)}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp block_txs(block, nil) do
+    if RawBlock.eligible?(block) and TxSources.node_has_block?(block) do
+      case RawBlock.fetch(block) do
+        {:ok, txs, stats} ->
+          {:ok, txs, record_fetch(block, stats)}
 
         {:error, reason}
+        when elem(reason, 0) in [:merkleroot_verification_failed, :tx_count_mismatch] ->
+          {:error, reason}
+
+        {:error, :block_hash_mismatch} ->
+          {:error, :block_hash_mismatch}
+
+        {:error, reason} ->
+          Logger.info(
+            "FetchTxs block=#{block.height} raw fetch failed (#{inspect(reason)}); per-tx path"
+          )
+
+          TxidSource.txids(block)
+      end
+    else
+      TxidSource.txids(block)
     end
   end
 
-  # -- Batch fetching ----------------------------------------------------------
+  # Bytes and time per raw block, for the node-load numbers on /sync; the
+  # size is kept on the row so the size cap can use it next time.
+  defp record_fetch(block, stats) do
+    Phoenix.PubSub.broadcast(
+      Bitblocks.PubSub,
+      Tracker.topic(),
+      {:sync_fetch, Map.merge(stats, %{height: block.height, at: System.system_time(:second)})}
+    )
 
-  # Walks the verified txid list in batches, diffing each batch against stored
-  # transactions and fetching only the gaps. Batch failures don't halt the walk
-  # — the pass completes as much as it can and the authoritative row-count gate
-  # below decides. Returns :ok only when every transaction is actually stored;
-  # otherwise {:error, {:incomplete, stored, total}} so the block transitions to
-  # `failed` and Oban retries (idempotent — the retry fetches only what's still
-  # missing). This is what prevents a block whose tail txs persistently fail
-  # from being silently marked `completed` with stored < num_tx.
-  defp fetch_in_batches(block, txids, total, started_at, tracker) do
-    txids
-    |> Stream.chunk_every(@batch_size)
-    |> Stream.with_index()
-    |> Enum.reduce_while({:ok, tracker}, fn {chunk, index}, {:ok, tracker} ->
-      # Diff: fetch only the txids of this chunk not already in the database.
-      needed_txids = filter_already_fetched(chunk, block)
-
-      {failed, rate_limited?} =
-        if needed_txids == [] do
-          {[], false}
-        else
-          fetch_batch(needed_txids, block)
-        end
-
-      # Counts for /syncing: stored and analyzed, reported at most once a second.
-      tracker = Tracker.chunk(tracker, chunk)
-
-      batch_end = min((index + 1) * @batch_size, total)
-
-      if rem(batch_end, @log_interval) < @batch_size or batch_end == total do
-        elapsed = System.monotonic_time(:millisecond) - started_at
-        pct = Float.round(batch_end / total * 100, 1)
-        eta = if batch_end > 0, do: div(elapsed * (total - batch_end), batch_end), else: 0
-
-        Logger.info(
-          "FetchTxs block=#{block.height} progress=#{batch_end}/#{total} " <>
-            "(#{pct}%) elapsed=#{format_duration(elapsed)} eta=#{format_duration(eta)} " <>
-            "failed_in_batch=#{length(failed)}"
-        )
+    if block.size == stats.bytes do
+      block
+    else
+      case change_block(block, %{size: stats.bytes}) do
+        {:ok, block} -> block
+        _ -> block
       end
+    end
+  end
 
-      # Stop the pass on a rate limit: the rest would only hit it too.
-      if rate_limited?, do: {:halt, {:error, :rate_limited}}, else: {:cont, {:ok, tracker}}
+  # Walks chunks from `offset` until the list ends or the deadline passes,
+  # always doing at least one chunk. Stops at the first chunk that can't be
+  # fully stored; the next run starts there.
+  defp walk(block, items, offset, deadline) do
+    total = length(items)
+    tracker = Tracker.new(block, total, min(offset * @batch_size, total))
+
+    items
+    |> Enum.drop(offset * @batch_size)
+    |> Stream.chunk_every(@batch_size)
+    |> Stream.with_index(offset)
+    |> Enum.reduce_while({:ok, tracker, offset}, fn {chunk, index}, {:ok, tracker, _} ->
+      if index > offset and System.monotonic_time(:millisecond) >= deadline do
+        {:halt, {:paused, tracker, index}}
+      else
+        case store_chunk(chunk, block) do
+          :ok -> {:cont, {:ok, Tracker.chunk(tracker, Enum.map(chunk, &txid_of/1)), index + 1}}
+          {:error, reason} -> {:halt, {:error, reason, tracker, index}}
+        end
+      end
     end)
     |> case do
-      {:ok, tracker} ->
+      {:ok, tracker, _} ->
         Tracker.finish(tracker)
-        verify_complete(block, txids, total)
 
-      error ->
-        error
+        case verify_complete(block, Enum.map(items, &txid_of/1)) do
+          :ok -> :completed
+          # Something walked as stored has gone: walk the whole list again.
+          {:error, reason} -> {:error, reason, 0}
+        end
+
+      {:paused, tracker, index} ->
+        Tracker.finish(tracker)
+        {:paused, index}
+
+      {:error, reason, tracker, index} ->
+        Tracker.finish(tracker)
+        {:error, reason, index}
     end
   end
 
-  defp verify_complete(block, txids, total) do
-    stored = count_existing_transactions(txids)
+  defp run_ms, do: Application.get_env(:bitblocks, :tx_fetch_run_ms, 30_000)
 
-    if stored >= total do
-      :ok
-    else
-      Logger.error(
-        "FetchTxs block=#{block.height} incomplete after full pass: " <>
-          "stored=#{stored}/#{total} (#{total - stored} tx missing) — will retry"
-      )
+  # The offset survives the snooze: Oban's snooze only adds `snoozed` to meta.
+  defp save_offset(%Oban.Job{id: nil}, _offset), do: :ok
 
-      {:error, {:incomplete, stored, total}}
+  defp save_offset(%Oban.Job{id: id}, offset) do
+    Repo.update_all(
+      from(j in Oban.Job,
+        where: j.id == ^id,
+        update: [
+          set: [meta: fragment("jsonb_set(?, '{offset}', to_jsonb(?::int))", j.meta, ^offset)]
+        ]
+      ),
+      []
+    )
+  end
+
+  defp fail(block, reason) do
+    failures = (block.tx_sync_attempts || 0) + 1
+    backoff = backoff_seconds(failures)
+
+    Logger.error(
+      "FetchTxs block=#{block.height} failed (#{failures} in a row), retrying in #{backoff}s: " <>
+        inspect(reason)
+    )
+
+    mark_failed(block, reason, failures)
+
+    if failures == @stall_alert_failures,
+      do: Bitblocks.Notifications.sync_stall_alert(block.height, block.hash, reason)
+
+    {:snooze, backoff}
+  end
+
+  @doc "Seconds to wait after the `failures`-th consecutive failure: 1 min doubling, capped at 1 h."
+  @spec backoff_seconds(pos_integer()) :: pos_integer()
+  def backoff_seconds(failures) when failures > 7, do: @backoff_cap_seconds
+
+  def backoff_seconds(failures),
+    do: min(@backoff_base_seconds * Integer.pow(2, failures - 1), @backoff_cap_seconds)
+
+  # -- One chunk ---------------------------------------------------------------
+
+  # Fetches and stores the chunk's missing txs (node first, WhatsOnChain for
+  # what it can't serve; see Chain.TxSources). :ok only when every one is
+  # stored. A tx stored under an orphaned block's hash is moved to this block
+  # by TxIngest.existing_txids/2, since it is skipped as present (#34).
+  defp store_chunk(chunk, block) do
+    existing = TxIngest.existing_txids(Enum.map(chunk, &txid_of/1), block)
+
+    case Enum.reject(chunk, &MapSet.member?(existing, txid_of(&1))) do
+      [] -> :ok
+      [{_txid, _bytes} | _] = missing -> store_parsed(missing, block)
+      missing -> fetch_batch(missing, block)
+    end
+  end
+
+  defp txid_of({txid, _bytes}), do: txid
+  defp txid_of(txid), do: txid
+
+  # Bodies already in hand from the raw block: no node calls.
+  defp store_parsed(txs, block) do
+    failed =
+      Enum.reject(txs, fn {txid, bytes} ->
+        case TxIngest.store(RawBlock.tx_json(txid, bytes), block) do
+          :ok ->
+            true
+
+          {:error, reason} ->
+            Logger.warning("FetchTxs tx #{txid} rejected: #{inspect(reason)}")
+            false
+        end
+      end)
+
+    if failed == [], do: :ok, else: {:error, {:unstored_txs, length(failed)}}
+  end
+
+  defp fetch_batch(txids, block) do
+    results = TxSources.fetch_raw(txids, block)
+
+    failed =
+      Enum.reject(txids, fn txid ->
+        case Map.get(results, txid) do
+          tx when is_map(tx) ->
+            case TxIngest.store(tx, block) do
+              :ok ->
+                true
+
+              {:error, reason} ->
+                Logger.warning("FetchTxs tx #{txid} rejected: #{inspect(reason)}")
+                false
+            end
+
+          other ->
+            Logger.warning("FetchTxs tx #{txid} not fetched: #{inspect(other)}")
+            false
+        end
+      end)
+
+    cond do
+      failed == [] -> :ok
+      TxSources.any_rate_limited?(Map.take(results, failed)) -> {:error, :rate_limited}
+      true -> {:error, {:unfetched_txs, length(failed)}}
     end
   end
 
@@ -198,186 +315,83 @@ defmodule Bitblocks.Workers.FetchTransactionsWorker do
   # shared ingest path now. See Chain.TxIngest.
   defdelegate body_matches_txid?(raw, expected), to: TxIngest
 
-  # Fetches and stores one batch (node first, WhatsOnChain for what it can't
-  # serve; see Chain.TxSources), returning the txids that failed (fetch error,
-  # missing result, body-hash rejection, or insert failure) and whether any
-  # failure was a rate limit.
-  defp fetch_batch(txids, block) do
-    results = TxSources.fetch_raw(txids, block)
+  # -- Completeness gate ---------------------------------------------------------
 
-    failed =
-      Enum.reduce(txids, [], fn txid, failed ->
-        case Map.get(results, txid) do
-          tx when is_map(tx) ->
-            case TxIngest.store(tx, block) do
-              :ok ->
-                failed
+  # Every txid of the verified list must be in the table. Counted by txid, not
+  # block_hash: a tx can legitimately live under another block (reorg, BIP30
+  # duplicate coinbase), and a block_hash count would wedge such a block.
+  # Chunked so the IN list is bounded at any block size.
+  defp verify_complete(block, txids) do
+    total = length(txids)
 
-              {:error, reason} ->
-                Logger.warning("FetchTxs tx #{txid} rejected: #{inspect(reason)}")
-                [txid | failed]
-            end
-
-          {:error, reason} ->
-            Logger.warning("Failed to fetch tx #{txid}: #{inspect(reason)}")
-            [txid | failed]
-
-          nil ->
-            Logger.warning("No result for tx #{txid}")
-            [txid | failed]
-        end
+    stored =
+      txids
+      |> Stream.chunk_every(1_000)
+      |> Enum.reduce(0, fn chunk, acc ->
+        acc + Repo.one(from(t in Chain.Transaction, where: t.txid in ^chunk, select: count()))
       end)
 
-    {failed, TxSources.any_rate_limited?(Map.take(results, failed))}
-  end
-
-  # -- Diff against stored transactions -----------------------------------------
-
-  # Filter out txids that already exist in the database.
-  # Returns only the txids that still need to be fetched.
-  # A tx stored under an orphaned block's hash is moved to this block here
-  # (TxIngest.existing_txids/2), since it is skipped as present (#34).
-  defp filter_already_fetched(txids, block) do
-    existing = TxIngest.existing_txids(txids, block)
-    Enum.reject(txids, &MapSet.member?(existing, &1))
-  end
-
-  # Count how many of THIS block's txids are present in the table, by
-  # intersecting the txid list with stored txids — the same identity
-  # `filter_already_fetched/1` uses to decide what to skip, so the "skip if
-  # present" and "complete when count matches" halves agree. Chunked so the IN
-  # list is bounded regardless of block size (the list can be millions now that
-  # TxidSource re-fetches truncated arrays).
-  #
-  # Deliberately NOT `block_hash == hash`: txid is globally unique, and a tx can
-  # legitimately live under another block (reorg, BIP30 duplicate coinbase). A
-  # block_hash count could then sit below num_tx forever and wedge the block in
-  # `failed`. Counting the intersection reflects true completeness: every txid
-  # this block claims is somewhere in our table.
-  defp count_existing_transactions(txids) when is_list(txids) and txids != [] do
-    import Ecto.Query
-
-    txids
-    |> Stream.chunk_every(@batch_size)
-    |> Enum.reduce(0, fn chunk, acc ->
-      acc +
-        Repo.one(
-          from(t in Chain.Transaction,
-            where: t.txid in ^chunk,
-            select: count()
-          )
-        )
-    end)
-  end
-
-  defp count_existing_transactions(_), do: 0
-
-  # -- Confirmation gating -----------------------------------------------------
-
-  defp check_confirmations(block) do
-    if @min_confirmations == 0 do
-      {:ok, block}
+    if stored >= total do
+      :ok
     else
-      case rpc().getblockheader(block.hash, true) do
-        %{"confirmations" => confirmations} when confirmations >= @min_confirmations ->
-          {:ok, block}
-
-        %{"confirmations" => confirmations} ->
-          Logger.info(
-            "FetchTxs block=#{block.height} has #{confirmations} confirmations, " <>
-              "need #{@min_confirmations} — will retry"
-          )
-
-          {:error, :insufficient_confirmations}
-
-        {:error, reason} ->
-          {:error, reason}
-      end
+      Logger.error("FetchTxs block=#{block.height} incomplete: stored=#{stored}/#{total}")
+      {:error, {:incomplete, stored, total}}
     end
   end
 
-  # -- State transitions -------------------------------------------------------
+  # -- State -------------------------------------------------------------------
 
-  defp get_block(block_hash) do
-    case Repo.get_by(Block, hash: block_hash) do
-      nil -> {:error, :block_not_found}
-      block -> {:ok, block}
+  defp mark_syncing(%Block{sync_state: "txs_syncing"} = block), do: {:ok, block}
+
+  defp mark_syncing(block) do
+    change_block(block, %{
+      sync_state: "txs_syncing",
+      tx_sync_started_at: DateTime.utc_now() |> DateTime.truncate(:second)
+    })
+  end
+
+  defp mark_completed(block) do
+    with {:ok, completed} <-
+           change_block(block, %{
+             sync_state: "completed",
+             tx_sync_completed_at: DateTime.utc_now() |> DateTime.truncate(:second),
+             tx_sync_error: nil,
+             tx_sync_attempts: 0
+           }) do
+      Logger.info("FetchTxs block=#{block.height} completed")
+      notify_projections(completed)
     end
   end
 
-  defp transition_to_syncing(block) do
-    case block
-         |> Ecto.Changeset.change(%{
-           sync_state: "txs_syncing",
-           tx_sync_started_at: DateTime.utc_now() |> DateTime.truncate(:second)
-         })
-         |> Repo.update() do
-      {:ok, updated} = result ->
-        Chain.broadcast_block_update(updated)
-        result
+  defp mark_failed(block, reason, failures) do
+    change_block(block, %{
+      sync_state: "failed",
+      tx_sync_error: inspect(reason),
+      tx_sync_attempts: failures
+    })
+  end
 
-      error ->
-        error
+  defp reset_failures(block), do: change_block(block, %{tx_sync_attempts: 0, tx_sync_error: nil})
+
+  defp change_block(block, changes) do
+    with {:ok, updated} <- block |> Ecto.Changeset.change(changes) |> Repo.update() do
+      Chain.broadcast_block_update(updated)
+      {:ok, updated}
     end
   end
 
   # Follow (#29 step 4): webhook projections hear about matches in blocks that
-  # complete at the tip. Backfilled history is served by hydrate instead, so a
-  # backfill run doesn't flood tenants. Never fails the fetch.
-  defp notify_projections(block, "transactions_tip") do
-    Bitblocks.Projections.notify_block(block)
+  # complete near our tip. History is served by hydrate instead, so filling
+  # it in doesn't flood tenants. Never fails the fetch.
+  @follow_window 100
+
+  defp notify_projections(block) do
+    tip = Sync.tip()
+    if tip && block.height > tip - @follow_window, do: Bitblocks.Projections.notify_block(block)
   rescue
     e ->
       Logger.error(
         "FetchTxs block=#{block.height} projection notify failed: #{Exception.message(e)}"
       )
   end
-
-  defp notify_projections(_block, _queue), do: :ok
-
-  defp transition_to_completed(block) do
-    case block
-         |> Ecto.Changeset.change(%{
-           sync_state: "completed",
-           tx_sync_completed_at: DateTime.utc_now() |> DateTime.truncate(:second)
-         })
-         |> Repo.update() do
-      {:ok, updated} = result ->
-        Chain.broadcast_block_update(updated)
-        result
-
-      error ->
-        error
-    end
-  end
-
-  defp transition_to_failed(block, error) do
-    case block
-         |> Ecto.Changeset.change(%{
-           sync_state: "failed",
-           tx_sync_error: inspect(error),
-           tx_sync_attempts: (block.tx_sync_attempts || 0) + 1
-         })
-         |> Repo.update() do
-      {:ok, updated} = result ->
-        Chain.broadcast_block_update(updated)
-        result
-
-      error_result ->
-        error_result
-    end
-  end
-
-  # Swappable RPC client — tests point this at BitcoinsvCliMock (config/test.exs).
-  defp rpc, do: Application.get_env(:bitblocks, :bitcoinsv_cli, BitcoinsvCli)
-
-  # -- Formatting --------------------------------------------------------------
-
-  defp format_duration(ms) when ms < 1_000, do: "#{ms}ms"
-  defp format_duration(ms) when ms < 60_000, do: "#{Float.round(ms / 1_000, 1)}s"
-
-  defp format_duration(ms) when ms < 3_600_000,
-    do: "#{div(ms, 60_000)}m #{div(rem(ms, 60_000), 1_000)}s"
-
-  defp format_duration(ms), do: "#{div(ms, 3_600_000)}h #{div(rem(ms, 3_600_000), 60_000)}m"
 end

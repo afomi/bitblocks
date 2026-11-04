@@ -22,6 +22,10 @@ defmodule BitcoinsvCliMock do
     call(:getblockchaininfo, [], {:getblockchaininfo})
   end
 
+  def rest_block(hash, _max_bytes) do
+    call(:rest_block, [hash], {:rest_block, hash})
+  end
+
   def getblockhash(height) do
     call(:getblockhash, [height], {:getblockhash, height})
   end

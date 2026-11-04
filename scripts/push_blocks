@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# Push exported raw blocks (<height>-<hash>.bin) to a Bitblocks instance.
+#
+#   scripts/push_blocks DIR [BASE_URL]        BASE_URL defaults to https://bitblocks.app
+#
+# Each file is POSTed to BASE_URL/admin/blocks/<height> as raw bytes. The
+# server takes the hash from the bytes, runs the sync loop's checks (header
+# hash and proof of work, merkleroot, every tx stored) and answers 201
+# (stored), 200 (already complete) or 422 (not that block).
+#
+# Admin credentials, for HTTP basic auth (never put them on the command line):
+#   BITBLOCKS_ADMIN_USER / BITBLOCKS_ADMIN_PASSWORD   environment, or
+#   ~/.bitblocks-admin.env                            with those two lines
+#
+# Explicit success: prints every block's outcome and a summary, and exits
+# non-zero if any block wasn't stored or already complete.
+
+set -euo pipefail
+
+[ -f "$HOME/.bitblocks-admin.env" ] && source "$HOME/.bitblocks-admin.env"
+
+DIR=${1:?usage: push_blocks DIR [BASE_URL]}
+BASE=${2:-https://bitblocks.app}
+: "${BITBLOCKS_ADMIN_USER:?set BITBLOCKS_ADMIN_USER (or ~/.bitblocks-admin.env)}"
+: "${BITBLOCKS_ADMIN_PASSWORD:?set BITBLOCKS_ADMIN_PASSWORD (or ~/.bitblocks-admin.env)}"
+
+# Credentials go to curl through a file, not argv, so `ps` can't show them.
+netrc=$(mktemp); trap 'rm -f "$netrc"' EXIT; chmod 600 "$netrc"
+host=$(printf '%s' "$BASE" | sed -E 's#^https?://([^/:]+).*#\1#')
+printf 'machine %s login %s password %s\n' "$host" "$BITBLOCKS_ADMIN_USER" "$BITBLOCKS_ADMIN_PASSWORD" > "$netrc"
+
+stored=0; already=0; failed=0
+for f in $(ls "$DIR"/*.bin | sort -t/ -k2 -n); do
+  name=$(basename "$f"); height=${name%%-*}
+  out=$(curl -sS --netrc-file "$netrc" -o /dev/stdout -w '\n%{http_code}' \
+          -H 'content-type: application/octet-stream' \
+          --data-binary @"$f" "$BASE/admin/blocks/$height" || true)
+  code=${out##*$'\n'}; body=${out%$'\n'*}
+  case "$code" in
+    201) stored=$((stored + 1)); echo "$height stored" ;;
+    200) already=$((already + 1)); echo "$height already complete" ;;
+    *)   failed=$((failed + 1)); echo "$height FAILED ($code): $body" >&2 ;;
+  esac
+done
+
+echo "stored $stored, already complete $already, failed $failed"
+[ "$failed" -eq 0 ]

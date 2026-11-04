@@ -16,9 +16,9 @@ Run one `Release.analyze_transactions/1` pass on prod to reach v6; it also index
 It runs for hours, so start it detached (see #1).
 Then run the completeness audit and repair, and confirm zero deficit blocks.
 
-Sync catch-up (2026-11-03): our node is back after being down since July, and prod sits at 957,301 while the node catches up.
-Infra confirms the node reaches the tip, lets tip sync close the gap, and clears the failed-block counters.
-If the node can't serve a block, PublicNode and WhatsOnChain are verified fallbacks ([docs/SYNCING.md](docs/SYNCING.md#sources-where-headers-txid-lists-and-bodies-come-from)).
+Sync (2026-11-04): one loop, led by `Sync.Coordinator`, works upward from genesis and reports "Complete through block X of N known" ([docs/SYNCING.md](docs/SYNCING.md)).
+Blocks up to 32 MB are one raw-block request each (node REST, `rest=1`); the 768 failed blocks and the gap above 957,301 are reached in order with no manual steps.
+Follow-up: stream blocks over 32 MB through a bounded parser instead of the per-tx path.
 
 ## Shipped 2026-10-21 (closed)
 

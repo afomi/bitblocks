@@ -1,0 +1,320 @@
+defmodule Bitblocks.Sync do
+  @moduledoc """
+  The sync loop's one coverage number and its work order.
+
+  `complete_through/0` is the highest height H such that every block from
+  genesis through H is `completed`: its txid list rebuilt the header's
+  merkleroot and every one of its transactions is stored. It is computed,
+  never stored, so it can only be as true as the rows it reads.
+
+  Work goes strictly upward from `complete_through + 1`. `dispatch/0`, run
+  by the one `Sync.Coordinator`, keeps a `FetchTransactionsWorker` job for
+  each of `concurrency/0` worker slots, given to the lowest incomplete
+  blocks. Each job owns one block (unique on the block hash), so two
+  processes never work the same block, and a block that keeps failing holds
+  its slot and its place instead of being skipped.
+
+  See docs/SYNCING.md.
+  """
+
+  import Ecto.Query
+
+  alias Bitblocks.Repo
+  alias Bitblocks.Chain.Block
+  alias Bitblocks.Sync.Settings
+  alias Bitblocks.Workers.FetchTransactionsWorker
+
+  @worker "Bitblocks.Workers.FetchTransactionsWorker"
+  @live_states ~w(available scheduled executing retryable)
+  @control_topic "sync:control"
+
+  # Every state but "completed". A lateral probe per state on
+  # blocks_sync_state_height_index finds the lowest incomplete blocks in
+  # microseconds; `sync_state <> 'completed'` would walk the height index
+  # through every completed block first.
+  @incomplete_states ~w(pending header_only header_synced txs_queued txs_syncing failed)
+
+  @doc """
+  The sync's position: our highest stored header (`tip`), `complete_through`,
+  and the `target` block that holds it back (nil when complete to the tip).
+  """
+  @spec status() :: %{
+          tip: integer() | nil,
+          complete_through: integer(),
+          target: integer() | nil
+        }
+  def status do
+    tip = tip()
+    through = complete_through(tip)
+    %{tip: tip, complete_through: through, target: if(tip && through < tip, do: through + 1)}
+  end
+
+  @doc "Our highest stored header, or nil with no blocks."
+  @spec tip() :: integer() | nil
+  def tip do
+    Repo.one(from(b in Block, order_by: [desc: b.height], limit: 1, select: b.height))
+  end
+
+  @doc """
+  The highest height H such that blocks 0..H are all stored and `completed`;
+  -1 when block 0 isn't. A missing header counts as incomplete.
+  """
+  @spec complete_through(integer() | nil) :: integer()
+  def complete_through(tip \\ tip())
+  def complete_through(nil), do: -1
+
+  def complete_through(tip) do
+    bound =
+      case lowest_incomplete(1) do
+        [%{height: h}] -> h
+        [] -> tip + 1
+      end
+
+    first_missing_below(bound) - 1
+  end
+
+  @doc """
+  The lowest `n` stored blocks that are not completed, ascending, as
+  `%{height: h, hash: hash}`.
+  """
+  @spec lowest_incomplete(pos_integer()) :: [%{height: integer(), hash: String.t()}]
+  def lowest_incomplete(n) do
+    %{rows: rows} =
+      Repo.query!(
+        """
+        SELECT b.height, b.hash
+        FROM unnest($1::text[]) AS s(state)
+        CROSS JOIN LATERAL (
+          SELECT height, hash FROM blocks
+          WHERE sync_state = s.state
+          ORDER BY height
+          LIMIT $2
+        ) b
+        ORDER BY b.height
+        LIMIT $2
+        """,
+        [@incomplete_states, n]
+      )
+
+    for [height, hash] <- rows, do: %{height: height, hash: hash}
+  end
+
+  @doc """
+  The lowest height below `bound` with no stored block, or `bound` when
+  0..bound-1 are all stored. Heights are unique, so a full count means no
+  gap; only then is the gap looked for, stopping at the first.
+  """
+  @spec first_missing_below(non_neg_integer()) :: non_neg_integer()
+  def first_missing_below(bound) when bound <= 0, do: 0
+
+  def first_missing_below(bound) do
+    stored = Repo.one(from(b in Block, where: b.height < ^bound, select: count()))
+
+    if stored == bound do
+      bound
+    else
+      %{rows: [[missing]]} =
+        Repo.query!(
+          """
+          SELECT CASE
+            WHEN NOT EXISTS (SELECT 1 FROM blocks WHERE height = 0) THEN 0
+            ELSE (
+              SELECT b.height + 1 FROM blocks b
+              WHERE b.height < $1
+                AND NOT EXISTS (SELECT 1 FROM blocks n WHERE n.height = b.height + 1)
+              ORDER BY b.height
+              LIMIT 1
+            )
+          END
+          """,
+          [bound]
+        )
+
+      min(missing || bound, bound)
+    end
+  end
+
+  # -- Concurrency -------------------------------------------------------------
+
+  @doc """
+  The most blocks this node can work at once, and what binds it:
+  `{max, reason}`, the smallest of CPU cores, database connections left
+  after a reserve for web requests and header sync, and the node's RPC
+  threads (`config :bitblocks, :sync_rpc_limit`, env `SYNC_RPC_LIMIT`,
+  default 4 like bitcoind's `rpcthreads`).
+  """
+  @spec concurrency_limit() :: {pos_integer(), String.t()}
+  def concurrency_limit do
+    pool = Repo.config()[:pool_size] || 10
+    reserve = Application.get_env(:bitblocks, :sync_pool_reserve, 5)
+
+    [
+      {System.schedulers_online(), "CPU cores"},
+      {pool - reserve, "database connections"},
+      {Application.get_env(:bitblocks, :sync_rpc_limit, 4), "node RPC threads"}
+    ]
+    |> Enum.min_by(&elem(&1, 0))
+    |> then(fn {n, reason} -> {max(n, 1), reason} end)
+  end
+
+  @doc """
+  Blocks worked at once: the persisted choice, else `config :bitblocks,
+  :sync_workers`, clamped to `concurrency_limit/0`.
+  """
+  @spec concurrency() :: pos_integer()
+  def concurrency do
+    chosen =
+      case Repo.get(Settings, 1) do
+        %Settings{concurrency: n} -> n
+        nil -> Application.get_env(:bitblocks, :sync_workers, 1)
+      end
+
+    clamp(chosen)
+  end
+
+  @doc """
+  Persists a new concurrency, clamped to 1..`concurrency_limit/0`, and tells
+  the coordinator. Returns `{:ok, applied}`.
+  """
+  @spec set_concurrency(integer()) :: {:ok, pos_integer()}
+  def set_concurrency(n) when is_integer(n) do
+    applied = clamp(n)
+    now = NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second)
+
+    Repo.insert!(
+      %Settings{id: 1, concurrency: applied, inserted_at: now, updated_at: now},
+      on_conflict: [set: [concurrency: applied, updated_at: now]],
+      conflict_target: :id
+    )
+
+    Phoenix.PubSub.broadcast(Bitblocks.PubSub, @control_topic, {:concurrency, applied})
+    {:ok, applied}
+  end
+
+  @doc "The PubSub topic the coordinator listens on for control changes."
+  def control_topic, do: @control_topic
+
+  defp clamp(n) do
+    {max, _} = concurrency_limit()
+    n |> max(1) |> min(max)
+  end
+
+  # -- Dispatch ----------------------------------------------------------------
+
+  @doc """
+  The live block jobs (queued, running or backing off), lowest height first:
+  `%{hash, height, slot, state, attempt, scheduled_at, node}`.
+  """
+  @spec live_jobs() :: [map()]
+  def live_jobs do
+    from(j in Oban.Job,
+      left_join: b in Block,
+      on: b.hash == fragment("?->>'block_hash'", j.args),
+      where: j.worker == ^@worker and j.state in ^@live_states,
+      order_by: [asc: b.height],
+      select: %{
+        hash: fragment("?->>'block_hash'", j.args),
+        height: b.height,
+        slot: fragment("(?->>'slot')::int", j.meta),
+        state: j.state,
+        scheduled_at: j.scheduled_at,
+        attempted_by: j.attempted_by
+      }
+    )
+    |> Repo.all()
+    |> Enum.map(fn job ->
+      job |> Map.put(:node, List.first(job.attempted_by || [])) |> Map.delete(:attempted_by)
+    end)
+  end
+
+  @doc """
+  Fills free worker slots with the lowest incomplete blocks that have no
+  live job, ascending. A block keeps its job (and slot) until it completes,
+  so it is never assigned twice; when concurrency shrinks, live jobs finish
+  and their slots are not refilled. Returns the number of jobs queued.
+  """
+  @spec dispatch(pos_integer()) :: non_neg_integer()
+  def dispatch(n \\ concurrency()) do
+    live = live_jobs()
+    free = n - length(live)
+
+    if free <= 0 do
+      0
+    else
+      held = MapSet.new(live, & &1.hash)
+      free_slots = Enum.to_list(1..n) -- Enum.map(live, & &1.slot)
+
+      (n + length(live))
+      |> lowest_incomplete()
+      |> Enum.reject(&MapSet.member?(held, &1.hash))
+      |> Enum.zip(free_slots)
+      |> Enum.take(free)
+      |> Enum.count(fn {%{hash: hash}, slot} ->
+        job = FetchTransactionsWorker.new(%{block_hash: hash}, meta: %{slot: slot})
+        match?({:ok, %{conflict?: false}}, Oban.insert(job))
+      end)
+    end
+  end
+
+  # -- The table ---------------------------------------------------------------
+
+  @doc """
+  The sync's state for /syncing and /sync: coverage, concurrency and its
+  limit, and a table of blocks in ascending height. The rows are the
+  `complete_through` block, the blocks with live jobs, and the next
+  `next` incomplete blocks waiting for a slot.
+  """
+  @spec overview(non_neg_integer()) :: map()
+  def overview(next \\ 5) do
+    %{tip: tip, complete_through: through, target: target} = status()
+    live = live_jobs()
+    {max, reason} = concurrency_limit()
+    held = MapSet.new(live, & &1.hash)
+
+    waiting =
+      (next + length(live))
+      |> lowest_incomplete()
+      |> Enum.reject(&MapSet.member?(held, &1.hash))
+      |> Enum.take(next)
+
+    jobs = Map.new(live, &{&1.hash, &1})
+    hashes = Enum.map(live, & &1.hash) ++ Enum.map(waiting, & &1.hash)
+
+    rows =
+      from(b in Block,
+        where: b.hash in ^hashes or b.height == ^through,
+        order_by: [asc: b.height],
+        select: %{
+          hash: b.hash,
+          height: b.height,
+          num_tx: b.num_tx,
+          sync_state: b.sync_state,
+          failures: b.tx_sync_attempts,
+          error: b.tx_sync_error
+        }
+      )
+      |> Repo.all()
+      |> Enum.map(fn row ->
+        job = Map.get(jobs, row.hash)
+
+        Map.merge(row, %{
+          slot: job && job.slot,
+          node: job && job.node,
+          job_state: job && job.state,
+          next_retry_at:
+            job && job.state == "scheduled" && (row.failures || 0) > 0 && job.scheduled_at
+        })
+      end)
+
+    %{
+      tip: tip,
+      complete_through: through,
+      target: target,
+      concurrency: concurrency(),
+      max_concurrency: max,
+      limit_reason: reason,
+      in_use: length(live),
+      rows: rows
+    }
+  end
+end

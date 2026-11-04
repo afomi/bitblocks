@@ -79,7 +79,7 @@ defmodule Bitblocks.Workers.FetchTransactionsWorkerTest do
           sync_state: "header_synced"
         })
 
-      assert {:error, {:merkleroot_verification_failed, _}} =
+      assert {:snooze, 60} =
                FetchTransactionsWorker.perform(%Oban.Job{args: %{"block_hash" => block.hash}})
 
       # Block was failed, not advanced toward completion — and no tx was fetched.
@@ -104,10 +104,12 @@ defmodule Bitblocks.Workers.FetchTransactionsWorkerTest do
           sync_state: "header_synced"
         })
 
-      result = FetchTransactionsWorker.perform(%Oban.Job{args: %{"block_hash" => block.hash}})
+      assert {:snooze, 60} =
+               FetchTransactionsWorker.perform(%Oban.Job{args: %{"block_hash" => block.hash}})
 
-      refute match?({:error, {:merkleroot_verification_failed, _}}, result)
-      assert {:error, {:no_stub, :getblock, _}} = result
+      error = Chain.get_block!(block.height).tx_sync_error
+      refute error =~ "merkleroot_verification_failed"
+      assert error =~ ":no_stub, :getblock"
     end
   end
 
@@ -116,7 +118,7 @@ defmodule Bitblocks.Workers.FetchTransactionsWorkerTest do
       # Complete, merkleroot-matching txid list so it passes the gate, then the
       # fetch yields nothing (no node in test). Previously the worker walked to
       # the end of the list and marked the block `completed` with 0 txs stored.
-      # Now it must end up `failed` with an :incomplete error so Oban retries.
+      # Now it must end up `failed`, backing off to retry.
       block =
         block_fixture(%{
           height: 999_003,
@@ -127,12 +129,12 @@ defmodule Bitblocks.Workers.FetchTransactionsWorkerTest do
           sync_state: "header_synced"
         })
 
-      assert {:error, {:incomplete, 0, 1}} =
+      assert {:snooze, 60} =
                FetchTransactionsWorker.perform(%Oban.Job{args: %{"block_hash" => block.hash}})
 
       reloaded = Chain.get_block!(block.height)
       assert reloaded.sync_state == "failed"
-      assert reloaded.tx_sync_error =~ "incomplete"
+      assert reloaded.tx_sync_error =~ "unfetched_txs"
     end
 
     test "completeness counts the block's txids anywhere in the table, not by block_hash" do
@@ -221,17 +223,13 @@ defmodule Bitblocks.Workers.FetchTransactionsWorkerTest do
       Phoenix.PubSub.subscribe(Bitblocks.PubSub, Bitblocks.SyncProgress.Tracker.topic())
 
       assert :ok =
-               FetchTransactionsWorker.perform(%Oban.Job{
-                 args: %{"block_hash" => block.hash},
-                 queue: "transactions_tip"
-               })
+               FetchTransactionsWorker.perform(%Oban.Job{args: %{"block_hash" => block.hash}})
 
       assert_receive {:sync_progress, %{hash: "progress_hash", stored: 0, processed: 0, total: 1}}
 
       assert_receive {:sync_progress,
                       %{
                         hash: "progress_hash",
-                        lane: "transactions_tip",
                         stored: 1,
                         processed: 1,
                         total: 1
@@ -240,10 +238,13 @@ defmodule Bitblocks.Workers.FetchTransactionsWorkerTest do
   end
 
   describe "projection webhooks (#29 step 4)" do
-    # A tip-lane completion notifies webhook projections of matches in the
-    # block; a backfill completion doesn't (history is served by hydrate).
-    for {queue, expected} <- [{"transactions_tip", 1}, {"transactions_backfill", 0}] do
-      test "#{queue} completion enqueues #{expected} delivery" do
+    # A completion near our tip notifies webhook projections of matches in
+    # the block; one deep in history doesn't (history is served by hydrate).
+    for {tip_above, expected} <- [{0, 1}, {500, 0}] do
+      test "a completion #{tip_above} blocks below our tip enqueues #{expected} delivery" do
+        if unquote(tip_above) > 0,
+          do: block_fixture(%{height: 999_006 + unquote(tip_above), hash: "webhook_tip"})
+
         block =
           block_fixture(%{
             height: 999_006,
@@ -282,10 +283,7 @@ defmodule Bitblocks.Workers.FetchTransactionsWorkerTest do
         })
 
         assert :ok =
-                 FetchTransactionsWorker.perform(%Oban.Job{
-                   args: %{"block_hash" => block.hash},
-                   queue: unquote(queue)
-                 })
+                 FetchTransactionsWorker.perform(%Oban.Job{args: %{"block_hash" => block.hash}})
 
         assert length(all_enqueued(worker: Bitblocks.Workers.ProjectionWebhookWorker)) ==
                  unquote(expected)
@@ -328,7 +326,7 @@ defmodule Bitblocks.Workers.FetchTransactionsWorkerTest do
       assert Chain.get_block!(block.height).sync_state == "completed"
     end
 
-    test "a rate limit snoozes the job instead of failing the block" do
+    test "a rate limit backs off and keeps the block's place" do
       block =
         block_fixture(%{
           height: 999_051,
@@ -341,12 +339,12 @@ defmodule Bitblocks.Workers.FetchTransactionsWorkerTest do
 
       Process.put(:woc_txs_error, {:http_status, 429, "slow down"})
 
-      assert {:snooze, _} =
+      assert {:snooze, 60} =
                FetchTransactionsWorker.perform(%Oban.Job{args: %{"block_hash" => block.hash}})
 
       reloaded = Chain.get_block!(block.height)
-      refute reloaded.sync_state == "failed"
-      assert reloaded.tx_sync_attempts == 0
+      assert reloaded.tx_sync_error =~ "rate_limited"
+      assert reloaded.tx_sync_attempts == 1
     end
   end
 
