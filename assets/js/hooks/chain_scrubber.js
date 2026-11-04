@@ -161,6 +161,7 @@ export default {
     this.els = {
       canvas: this.el.querySelector("#chain-scrubber-canvas") || this.el.querySelector("canvas"),
       detail: this.el.querySelector("#chain-scrubber-detail"),
+      markerTip: this.el.querySelector("#chain-scrubber-marker-tip"),
       range: this.el.querySelector("#chain-scrubber-range"),
       readout: {}
     }
@@ -780,8 +781,35 @@ export default {
     this.boundListeners.push([el, type, fn])
   },
 
+  // A hovered diamond says what it is; a click opens its evidence.
+  showMarkerTip(e) {
+    const tip = this.els.markerTip
+    if (!tip || this.drag) return
+    const marker = this.pickMarker(e.clientX, e.clientY)
+    if (!marker) {
+      if (tip.innerHTML) tip.innerHTML = ""
+      this.els.canvas.style.cursor = ""
+      return
+    }
+    const kind = marker.kind === "event" ? marker.event_kind || "event" : marker.kind
+    const detail = marker.detail ? String(marker.detail) : ""
+    tip.innerHTML =
+      `<div class="font-medium text-gray-900 dark:text-white">${escapeHtml(marker.label)}</div>` +
+      `<div>${escapeHtml(kind)} · block ${fmtInt(marker.height)}</div>` +
+      (detail ? `<div>${escapeHtml(detail.length > 180 ? detail.slice(0, 177) + "…" : detail)}</div>` : "") +
+      (marker.evidence_url ? `<div class="text-gray-600 dark:text-gray-400">Click to open the evidence</div>` : "")
+    const rect = this.els.canvas.getBoundingClientRect()
+    tip.style.left = `${Math.min(e.clientX - rect.left + 14, rect.width - 280)}px`
+    tip.style.top = `${e.clientY - rect.top + 14}px`
+    this.els.canvas.style.cursor = "pointer"
+  },
+
   bindControls() {
     const canvas = this.els.canvas
+    this.on(canvas, "pointermove", (e) => this.showMarkerTip(e))
+    this.on(canvas, "pointerleave", () => {
+      if (this.els.markerTip) this.els.markerTip.innerHTML = ""
+    })
 
     this.onWheel = (e) => {
       if (!this.manifest) return

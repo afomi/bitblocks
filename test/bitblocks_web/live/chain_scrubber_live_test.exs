@@ -153,4 +153,13 @@ defmodule BitblocksWeb.ChainScrubberLiveTest do
     assert Enum.any?(items, &(&1.kind == "loss" and &1.height == 875_850))
     assert html =~ "1 reorgs, 30 classified losses"
   end
+
+  test "the scene names what its diamonds are, and has a place to say it on hover", %{conn: conn} do
+    {:ok, view, _html} = live(conn, "/chain-scrubber")
+
+    for kind <- ~w(reorg loss fork upgrade halving milestone mint world note),
+        do: assert(has_element?(view, "#chain-scrubber-legend li", kind))
+
+    assert has_element?(view, ~s(#chain-scrubber-marker-tip[role="tooltip"]))
+  end
 end

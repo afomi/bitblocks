@@ -122,6 +122,92 @@
       </span>
     </div>
 
+    <%!-- What the diamonds are: colours match COLORS and EVENT_COLORS in the hook. --%>
+    <ul
+      id="chain-scrubber-legend"
+      aria-label="Marker colours"
+      class="absolute top-2 right-4 flex flex-wrap justify-end gap-x-3 gap-y-1 max-w-sm px-2 py-1 rounded border border-gray-200 dark:border-gray-700 bg-white/95 dark:bg-gray-800/95 text-xs text-gray-800 dark:text-gray-200 shadow-sm pointer-events-none"
+    >
+      <li class="flex items-center gap-1">
+        <span
+          class="inline-block h-2 w-2 rotate-45 bg-violet-500"
+          aria-hidden="true"
+        >
+        </span>
+        reorg
+      </li>
+      <li class="flex items-center gap-1">
+        <span
+          class="inline-block h-2 w-2 rotate-45 bg-red-500"
+          aria-hidden="true"
+        >
+        </span>
+        loss
+      </li>
+      <li class="flex items-center gap-1">
+        <span
+          class="inline-block h-2 w-2 rotate-45 bg-violet-400"
+          aria-hidden="true"
+        >
+        </span>
+        fork
+      </li>
+      <li class="flex items-center gap-1">
+        <span
+          class="inline-block h-2 w-2 rotate-45 bg-sky-400"
+          aria-hidden="true"
+        >
+        </span>
+        upgrade
+      </li>
+      <li class="flex items-center gap-1">
+        <span
+          class="inline-block h-2 w-2 rotate-45 bg-amber-400"
+          aria-hidden="true"
+        >
+        </span>
+        halving
+      </li>
+      <li class="flex items-center gap-1">
+        <span
+          class="inline-block h-2 w-2 rotate-45 bg-emerald-400"
+          aria-hidden="true"
+        >
+        </span>
+        milestone
+      </li>
+      <li class="flex items-center gap-1">
+        <span
+          class="inline-block h-2 w-2 rotate-45 bg-pink-400"
+          aria-hidden="true"
+        >
+        </span>
+        mint
+      </li>
+      <li class="flex items-center gap-1">
+        <span
+          class="inline-block h-2 w-2 rotate-45 bg-gray-200"
+          aria-hidden="true"
+        >
+        </span>
+        world
+      </li>
+      <li class="flex items-center gap-1">
+        <span
+          class="inline-block h-2 w-2 rotate-45 bg-blue-400"
+          aria-hidden="true"
+        >
+        </span>
+        note
+      </li>
+    </ul>
+
+    <div
+      id="chain-scrubber-marker-tip"
+      role="tooltip"
+      class="pointer-events-none absolute z-10 max-w-xs space-y-0.5 rounded-lg border border-gray-200 bg-white/95 px-3 py-2 text-xs text-gray-700 shadow empty:hidden dark:border-gray-700 dark:bg-gray-800/95 dark:text-gray-300"
+    ></div>
+
     <div
       id="chain-scrubber-detail"
       class="absolute bottom-16 left-4 right-4 max-h-64 overflow-auto p-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white/95 dark:bg-gray-800/95 text-xs text-gray-800 dark:text-gray-200 shadow-sm empty:hidden"
