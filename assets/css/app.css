@@ -25,3 +25,24 @@
   --neutral-700: #CCCCCC;
   --neutral-800: #E0E0E0;
 }
+
+/* /blocks: a block row whose txs are loading. A soft highlight sweeps the
+   filled part of the row (BitblocksWeb.SyncRow.block_progress_fill), over
+   the fill's own gradient; off under reduced motion, where the fill alone
+   shows progress. */
+@media (prefers-reduced-motion: no-preference) {
+  .block-progress-fill::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background-image: linear-gradient(100deg, transparent 0%, rgb(253 79 0 / 0.14) 45%, transparent 60%);
+    background-size: 200% 100%;
+    background-repeat: no-repeat;
+    animation: block-progress-shimmer 2.4s linear infinite;
+  }
+}
+
+@keyframes block-progress-shimmer {
+  from { background-position: 150% 0; }
+  to { background-position: -50% 0; }
+}

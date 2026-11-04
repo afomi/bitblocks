@@ -64,6 +64,60 @@ defmodule BitblocksWeb.BlockLiveSyncRowTest do
     assert html =~ ~s(href="/syncing")
   end
 
+  test "a block in the list whose txs are loading carries its own bar", %{conn: conn} do
+    loading = Bitblocks.ChainFixtures.block_fixture(height: 155_001, num_tx: 400)
+    idle = Bitblocks.ChainFixtures.block_fixture(height: 155_000, num_tx: 2)
+
+    working = [
+      %{
+        height: 155_001,
+        hash: loading.hash,
+        num_tx: 400,
+        sync_state: "txs_syncing",
+        slot: 1,
+        job_state: "executing"
+      }
+    ]
+
+    publish(working)
+    report(loading.hash, 100)
+
+    {:ok, view, _html} = live(conn, "/blocks")
+
+    assert has_element?(view, "#block-155001 #block-progress-155001", "100 of 400 loaded · 25%")
+    assert has_element?(view, ~s(#block-155001 [role="progressbar"][aria-valuenow="25"]))
+    refute has_element?(view, "#block-#{idle.height} [role=progressbar]")
+
+    # The worker reports more; the bar follows the shared snapshot.
+    report(loading.hash, 300)
+    publish(working)
+    assert render(view) =~ "300 of 400 loaded"
+
+    # Done: the job lets go of the block and the bar goes.
+    publish([])
+    refute has_element?(view, "#block-155001 [role=progressbar]")
+  end
+
+  # The worker's own count, as FetchTransactionsWorker reports it.
+  defp report(hash, stored) do
+    Phoenix.PubSub.broadcast(
+      Bitblocks.PubSub,
+      Bitblocks.SyncProgress.Tracker.topic(),
+      {:sync_progress,
+       %{
+         hash: hash,
+         height: 155_001,
+         time: 0,
+         num_tx: 400,
+         total: 400,
+         stored: stored,
+         processed: stored
+       }}
+    )
+
+    SyncProgress.flush()
+  end
+
   test "with nothing being worked, no sync rows", %{conn: conn} do
     publish([])
     {:ok, _view, html} = live(conn, "/blocks")

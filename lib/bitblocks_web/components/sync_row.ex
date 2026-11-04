@@ -17,6 +17,55 @@ defmodule BitblocksWeb.SyncRow do
 
   def working(_), do: []
 
+  @doc "The working rows by height, for marking those blocks in the list below."
+  def working_by_height(sync), do: sync |> working() |> Map.new(&{&1.height, &1})
+
+  @doc """
+  The loading fill behind a block's own row in the /blocks list: the row's
+  background sweeps from 0 to 100% as its txs are downloaded, with a bright
+  leading edge and, where motion is allowed, a shimmer. It is the first child
+  of a `relative` row whose content blocks are `relative` too, so the content
+  paints above it.
+  """
+  attr :row, :map, required: true
+
+  def block_progress_fill(assigns) do
+    assigns = assign(assigns, :pct, pct(assigns.row))
+
+    ~H"""
+    <span
+      class="absolute inset-0 overflow-hidden"
+      role="progressbar"
+      aria-label={"Block #{@row.height} transactions loaded"}
+      aria-valuemin="0"
+      aria-valuemax="100"
+      aria-valuenow={@pct}
+    >
+      <span
+        class="block-progress-fill absolute inset-y-0 left-0 border-r-2 border-brand bg-gradient-to-r from-brand/5 to-brand/15 dark:from-brand/10 dark:to-brand/25 motion-safe:transition-[width] motion-safe:duration-700 motion-safe:ease-out"
+        style={"width: #{@pct}%"}
+      >
+      </span>
+    </span>
+    """
+  end
+
+  @doc "The x of y label beside a loading block's tx count, with its percent."
+  attr :row, :map, required: true
+
+  def block_progress_label(assigns) do
+    assigns = assign(assigns, :pct, pct(assigns.row))
+
+    ~H"""
+    <span
+      id={"block-progress-#{@row.height}"}
+      class="font-mono text-xs text-brand-strong dark:text-brand tabular-nums"
+    >
+      {number(@row[:fetched] || 0)} of {number(@row.num_tx)} loaded · {@pct}%
+    </span>
+    """
+  end
+
   attr :row, :map, required: true
 
   def sync_row(assigns) do
