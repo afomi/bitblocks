@@ -9,10 +9,12 @@ defmodule Bitblocks.Tokens do
 
   - `deploy+mint` (BSV-21) — a token genesis. `token_id` = `"<txid>_<vout>"` of the
     mint output. The whole supply is minted in this one output. `state` tracks
-    `supply` and a running `holders` count. **This id is exactly the `token_id`
-    the Open Order Book carries**, so `get_token/1` resolves a listing's token.
+    `supply`. **This id is exactly the `token_id` the Open Order Book
+    carries**, so `get_token/1` resolves a listing's token.
   - `transfer` (BSV-21) — moves an `id`-referenced balance to a recipient address.
-    Holder balances are derived by summing transfer `amt` per recipient.
+    A transfer counts toward holders only once validated against the token
+    outputs its tx spends (`validate_tx/1`); `state.status` is `"pending"`,
+    `"valid"` or `"invalid"`.
   - classic BSV-20 (`deploy` / `mint` / `transfer`, ticker-based) — stored raw for
     visibility. First-is-first supply aggregation is deferred (detect-only in v1);
     these are surfaced by ticker but not reconciled against `max`.
@@ -77,11 +79,13 @@ defmodule Bitblocks.Tokens do
         block_height: attrs[:block_height] || attrs["block_height"],
         block_hash: attrs[:block_hash] || attrs["block_hash"],
         parsed_data: parsed_data,
-        state: %{"supply" => token.amt, "minted" => token.amt, "holders" => 0}
+        state: %{"supply" => token.amt, "minted" => token.amt}
       }
 
       case ProtocolRegistry.create_instance(instance_attrs) do
         {:ok, instance} ->
+          # A transfer of this mint indexed earlier (out of order) can settle now.
+          settle(spenders([{txid, vout}]))
           view = instance_to_token(instance)
           broadcast({:new_token, view})
           broadcast_token(token_id, {:new_token, view})
@@ -104,6 +108,10 @@ defmodule Bitblocks.Tokens do
   inscription); `:recipient` (from the output's address) is recorded so holder
   balances can be summed. Classic ticker transfers are stored raw (detect-only).
 
+  The row goes in as `pending` and is then validated with the rest of its tx
+  (`validate_tx/1`), unless `validate: false` is passed: a caller indexing
+  several outputs of one tx validates once, after the last.
+
   Broadcasts `{:token_transfer, transfer}`.
   """
   def index_transfer(%{token: %{op: "transfer"} = token} = attrs) do
@@ -124,11 +132,19 @@ defmodule Bitblocks.Tokens do
         block_height: attrs[:block_height] || attrs["block_height"],
         block_hash: attrs[:block_hash] || attrs["block_hash"],
         parsed_data: parsed_data,
-        state: %{}
+        state: %{"status" => "pending"}
       }
 
       case ProtocolRegistry.create_instance(instance_attrs) do
         {:ok, instance} ->
+          instance =
+            if Map.get(attrs, :validate, true) do
+              validate_tx(txid)
+              Repo.get!(Instance, instance.id)
+            else
+              instance
+            end
+
           view = instance_to_token(instance)
           broadcast({:token_transfer, view})
           if token.token_id, do: broadcast_token(token.token_id, {:token_transfer, view})
@@ -186,6 +202,267 @@ defmodule Bitblocks.Tokens do
     do: index_classic(attrs)
 
   def index(_), do: {:ok, :ignored}
+
+  # -- Validation (#41) -------------------------------------------------------
+  #
+  # The rule is the 1Sat BSV-21 spec
+  # (https://docs.1satordinals.com/fungible-tokens/bsv-21): a tx's token
+  # inputs of an id are the outputs of that id it spends (the mint output,
+  # or a valid transfer output). Per id, if the tx's transfer outputs sum to
+  # more than those inputs, every transfer output of that id in the tx is
+  # invalid (the inputs are burned); if they sum to less, they are valid and
+  # the rest is burned. A transfer with no input of its id is invalid, so a
+  # copied inscription never credits anyone.
+  #
+  # Inputs come from `spend_index` (`spending_txid` = this tx), recorded by
+  # the pipeline step before tokens are indexed. When an input's token row
+  # may still be missing (its tx isn't stored, or is stored and tagged BSV20
+  # with no token rows yet), or an input transfer is itself pending, the
+  # transfer stays pending: never valid by default. When a row's status
+  # changes, the txs spending it are validated again, so the order rows are
+  # indexed in does not change the result.
+
+  @settle_budget 1_000
+
+  @doc """
+  Validates the BSV-21 transfer outputs of `txid` against the token outputs
+  it spends, then revalidates any tx spending an output whose status changed.
+
+  Returns the number of rows whose status changed. Stops after
+  #{@settle_budget} txs and logs the rest, which
+  `Bitblocks.Release.revalidate_token_transfers/1` settles.
+  """
+  @spec validate_tx(String.t()) :: non_neg_integer()
+  def validate_tx(txid) when is_binary(txid), do: settle([txid])
+
+  defp settle(txids), do: settle(Enum.uniq(txids), 0, 0)
+
+  defp settle([], _visits, changed), do: changed
+
+  defp settle(queue, visits, changed) when visits >= @settle_budget do
+    require Logger
+
+    Logger.warning(
+      "Tokens: validation stopped after #{visits} txs; #{length(queue)} left for " <>
+        "Release.revalidate_token_transfers/1"
+    )
+
+    changed
+  end
+
+  defp settle([txid | rest], visits, changed) do
+    updates = txid |> plan_tx(%{}) |> Enum.reject(fn {row, state} -> row.state == state end)
+
+    Enum.each(updates, fn {row, state} ->
+      row |> Ecto.Changeset.change(state: state) |> Repo.update!()
+    end)
+
+    next = updates |> Enum.map(fn {row, _} -> {row.txid, row.vout} end) |> spenders()
+    queue = Enum.uniq(rest ++ next)
+    settle(queue, visits + 1, changed + length(updates))
+  end
+
+  @doc """
+  Revalidates every indexed transfer, oldest block first.
+
+  **Dry run by default**: computes each transfer's status as if the earlier
+  ones were already written, and writes nothing. `apply: true` writes the
+  changed rows. Returns `%{applied, txs, rows, changed, valid, invalid,
+  pending}`.
+  """
+  def revalidate_transfers(opts \\ []) do
+    apply? = Keyword.get(opts, :apply, false)
+    empty = %{applied: apply?, txs: 0, rows: 0, changed: 0, valid: 0, invalid: 0, pending: 0}
+
+    case get_protocol_id() do
+      nil ->
+        empty
+
+      protocol_id ->
+        from(i in Instance,
+          where: i.protocol_id == ^protocol_id,
+          where: fragment("?->>'op' = 'transfer'", i.parsed_data),
+          group_by: i.txid,
+          order_by: [asc_nulls_last: min(i.block_height), asc: min(i.id)],
+          select: i.txid
+        )
+        |> Repo.all()
+        |> Enum.reduce({empty, %{}}, fn txid, {report, overrides} ->
+          txid
+          |> plan_tx(overrides)
+          |> Enum.reduce({%{report | txs: report.txs + 1}, overrides}, &tally(&1, &2, apply?))
+        end)
+        |> elem(0)
+    end
+  end
+
+  # Counts one planned row in the report, writes it when applying, and
+  # remembers its status for the txs that spend it later in the pass.
+  defp tally({row, state}, {report, overrides}, apply?) do
+    changed? = row.state != state
+    if changed? and apply?, do: row |> Ecto.Changeset.change(state: state) |> Repo.update!()
+    status = state["status"]
+
+    report =
+      report
+      |> Map.update!(:rows, &(&1 + 1))
+      |> Map.update!(:changed, &(&1 + if(changed?, do: 1, else: 0)))
+      |> Map.update!(String.to_existing_atom(status), &(&1 + 1))
+
+    {report, Map.put(overrides, {row.txid, row.vout}, status)}
+  end
+
+  # [{transfer row, the state it should have}] for the transfer rows of txid.
+  # `overrides` ({txid, vout} => status) stands in for statuses not written yet.
+  defp plan_tx(txid, overrides) do
+    case transfer_rows(txid) do
+      [] ->
+        []
+
+      rows ->
+        inputs = from(s in Bitblocks.Chain.Spend, where: s.spending_txid == ^txid) |> Repo.all()
+        inputs = Enum.map(inputs, &{&1.txid, &1.vout})
+        {input_rows, unknown} = classify_inputs(inputs)
+
+        rows
+        |> Enum.group_by(& &1.parsed_data["token_id"])
+        |> Enum.flat_map(fn {token_id, group} ->
+          state = judge(token_id, group, inputs, input_rows, unknown, overrides)
+          Enum.map(group, &{&1, state})
+        end)
+    end
+  end
+
+  defp transfer_rows(txid) do
+    case get_protocol_id() do
+      nil ->
+        []
+
+      protocol_id ->
+        from(i in Instance,
+          where: i.protocol_id == ^protocol_id and i.txid == ^txid,
+          where: fragment("?->>'op' = 'transfer'", i.parsed_data),
+          order_by: i.vout
+        )
+        |> Repo.all()
+    end
+  end
+
+  # Splits the spent outpoints into the token rows found at them and the
+  # outpoints that may hold a token not indexed yet.
+  defp classify_inputs([]), do: {[], []}
+
+  defp classify_inputs(inputs) do
+    txids = inputs |> Enum.map(&elem(&1, 0)) |> Enum.uniq()
+    protocol_id = get_protocol_id()
+
+    rows_at_txids =
+      from(i in Instance, where: i.protocol_id == ^protocol_id and i.txid in ^txids)
+      |> Repo.all()
+
+    by_outpoint = Map.new(rows_at_txids, &{{&1.txid, &1.vout}, &1})
+    indexed_txids = MapSet.new(rows_at_txids, & &1.txid)
+
+    stored =
+      from(t in Bitblocks.Chain.Transaction,
+        where: t.txid in ^txids,
+        select: {t.txid, t.protocols}
+      )
+      |> Repo.all()
+      |> Map.new()
+
+    Enum.reduce(inputs, {[], []}, fn outpoint, {found, unknown} ->
+      {txid, _} = outpoint
+
+      cond do
+        row = by_outpoint[outpoint] ->
+          {[row | found], unknown}
+
+        # Stored, so its token rows (if any) went in with it, unless it is
+        # tagged BSV20 and has none yet (stored before token indexing ran).
+        Map.has_key?(stored, txid) and
+            not ("BSV20" in (stored[txid] || []) and not MapSet.member?(indexed_txids, txid)) ->
+          {found, unknown}
+
+        true ->
+          {found, [outpoint | unknown]}
+      end
+    end)
+  end
+
+  defp judge(token_id, group, inputs, input_rows, unknown, overrides) do
+    standard = hd(group).parsed_data["standard"]
+    out_amts = Enum.map(group, &amount(&1.parsed_data["amt"]))
+    same_id = Enum.filter(input_rows, &(&1.parsed_data["token_id"] == token_id))
+    statuses = Enum.map(same_id, &{&1, row_status(&1, overrides)})
+
+    cond do
+      standard != "bsv-21" or is_nil(token_id) ->
+        verdict("pending", "classic BSV-20 transfers are not validated")
+
+      inputs == [] ->
+        verdict("pending", "inputs not recorded")
+
+      :error in out_amts ->
+        verdict("invalid", "amt is not a positive integer")
+
+      Enum.any?(statuses, fn {_, s} -> s == "pending" end) ->
+        verdict("pending", "an input transfer is pending")
+
+      unknown != [] ->
+        verdict("pending", "an input is not indexed yet")
+
+      true ->
+        input_sum =
+          for({row, "valid"} <- statuses, {:ok, n} <- [amount(row.parsed_data["amt"])], do: n)
+          |> Enum.sum()
+
+        output_sum = out_amts |> Enum.map(fn {:ok, n} -> n end) |> Enum.sum()
+
+        cond do
+          input_sum == 0 -> verdict("invalid", "no input of this token")
+          output_sum > input_sum -> verdict("invalid", "outputs exceed inputs")
+          output_sum == input_sum -> %{"status" => "valid"}
+          true -> %{"status" => "valid", "burned" => Integer.to_string(input_sum - output_sum)}
+        end
+    end
+  end
+
+  defp verdict(status, reason), do: %{"status" => status, "reason" => reason}
+
+  defp row_status(%Instance{parsed_data: %{"op" => "deploy+mint"}}, _overrides), do: "valid"
+
+  defp row_status(%Instance{parsed_data: %{"op" => "transfer"}} = row, overrides),
+    do: Map.get(overrides, {row.txid, row.vout}) || (row.state || %{})["status"] || "pending"
+
+  defp row_status(_row, _overrides), do: "invalid"
+
+  # BSV-21 amounts are positive integer strings.
+  defp amount(amt) when is_binary(amt) do
+    case Integer.parse(amt) do
+      {n, ""} when n > 0 -> {:ok, n}
+      _ -> :error
+    end
+  end
+
+  defp amount(_), do: :error
+
+  # Txids spending any of `outpoints`, per spend_index.
+  defp spenders([]), do: []
+
+  defp spenders(outpoints) do
+    wanted = MapSet.new(outpoints)
+    txids = outpoints |> Enum.map(&elem(&1, 0)) |> Enum.uniq()
+
+    from(s in Bitblocks.Chain.Spend,
+      where: s.txid in ^txids,
+      select: {s.txid, s.vout, s.spending_txid}
+    )
+    |> Repo.all()
+    |> Enum.filter(fn {txid, vout, _} -> MapSet.member?(wanted, {txid, vout}) end)
+    |> Enum.map(&elem(&1, 2))
+    |> Enum.uniq()
+  end
 
   # -- Queries ----------------------------------------------------------------
 
@@ -249,13 +526,15 @@ defmodule Bitblocks.Tokens do
     end
   end
 
-  # BSV20 mint/transfer instances whose outpoint has no spend_index row.
+  # BSV20 mint and validated transfer instances whose outpoint has no
+  # spend_index row. Pending and invalid transfers hold nothing.
   defp unspent_query(protocol_id) do
     from(i in Instance,
       where: i.protocol_id == ^protocol_id,
       where:
         fragment("?->>'op' = 'deploy+mint'", i.parsed_data) or
-          fragment("?->>'op' = 'transfer'", i.parsed_data),
+          (fragment("?->>'op' = 'transfer'", i.parsed_data) and
+             fragment("?->>'status' = 'valid'", i.state)),
       where:
         not exists(
           from(s in Bitblocks.Chain.Spend,
@@ -332,11 +611,47 @@ defmodule Bitblocks.Tokens do
 
       case instance do
         nil -> nil
-        instance -> instance_to_token(instance)
+        instance -> instance |> instance_to_token() |> with_holder_counts() |> hd()
       end
     else
       _ -> nil
     end
+  end
+
+  # Fills `holders` on BSV-21 mints: addresses with an unspent, valid balance
+  # (one query for the whole list). Classic deploys keep nil: not tallied.
+  defp with_holder_counts(token) when is_map(token), do: with_holder_counts([token])
+
+  defp with_holder_counts(tokens) do
+    ids = for %{op: "deploy+mint", token_id: id} <- tokens, do: id
+
+    counts =
+      case {ids, get_protocol_id()} do
+        {[], _} ->
+          %{}
+
+        {_, nil} ->
+          %{}
+
+        {ids, protocol_id} ->
+          protocol_id
+          |> unspent_query()
+          |> where([i], fragment("?->>'token_id'", i.parsed_data) in ^ids)
+          |> where([i], fragment("?->>'recipient' IS NOT NULL", i.parsed_data))
+          |> group_by([i], fragment("?->>'token_id'", i.parsed_data))
+          |> select(
+            [i],
+            {fragment("?->>'token_id'", i.parsed_data),
+             count(fragment("DISTINCT ?->>'recipient'", i.parsed_data))}
+          )
+          |> Repo.all()
+          |> Map.new()
+      end
+
+    Enum.map(tokens, fn
+      %{op: "deploy+mint", token_id: id} = t -> %{t | holders: Map.get(counts, id, 0)}
+      t -> t
+    end)
   end
 
   @doc """
@@ -364,17 +679,18 @@ defmodule Bitblocks.Tokens do
       |> limit(^Keyword.get(opts, :limit, 50))
       |> Repo.all()
       |> Enum.map(&instance_to_token/1)
+      |> with_holder_counts()
     else
       _ -> []
     end
   end
 
   @doc """
-  Returns holder balances for a token, derived by summing `transfer` amounts per
-  recipient address. Most-held first.
+  Returns holder balances for a token. Most-held first.
 
   Net balances: the sum of each address's *unspent* token outputs (the mint
-  output and transfer outputs with no `spend_index` row). Returns
+  output and validated transfer outputs with no `spend_index` row). Pending
+  and invalid transfers count for no one (`transfer_counts/1`). Returns
   `[%{address: addr, balance: integer}, ...]`, largest first.
   """
   def token_holders(token_id) when is_binary(token_id) do
@@ -409,7 +725,34 @@ defmodule Bitblocks.Tokens do
   end
 
   @doc """
-  Returns recent transfers for a token, most recent first.
+  Counts a token's transfer outputs by validation status:
+  `%{valid: n, invalid: n, pending: n}`.
+  """
+  def transfer_counts(token_id) when is_binary(token_id) do
+    zero = %{valid: 0, invalid: 0, pending: 0}
+
+    case get_protocol_id() do
+      nil ->
+        zero
+
+      protocol_id ->
+        from(i in Instance,
+          where: i.protocol_id == ^protocol_id,
+          where: fragment("?->>'op' = 'transfer'", i.parsed_data),
+          where: fragment("?->>'token_id' = ?", i.parsed_data, ^token_id),
+          group_by: fragment("coalesce(?->>'status', 'pending')", i.state),
+          select: {fragment("coalesce(?->>'status', 'pending')", i.state), count(i.id)}
+        )
+        |> Repo.all()
+        |> Enum.reduce(zero, fn {s, n}, acc ->
+          Map.update!(acc, String.to_existing_atom(s), &(&1 + n))
+        end)
+    end
+  end
+
+  @doc """
+  Returns recent transfers for a token, most recent first. Each carries
+  `validated` and `status` (`"valid"`, `"invalid"` or `"pending"`).
   """
   def token_transfers(token_id, opts \\ []) when is_binary(token_id) do
     with protocol_id when not is_nil(protocol_id) <- get_protocol_id() do
@@ -444,10 +787,33 @@ defmodule Bitblocks.Tokens do
       %{
         total_tokens: count.(dynamic([i], fragment("?->>'op' = 'deploy+mint'", i.parsed_data))),
         total_transfers: count.(dynamic([i], fragment("?->>'op' = 'transfer'", i.parsed_data))),
+        invalid_transfers:
+          count.(
+            dynamic(
+              [i],
+              fragment("?->>'op' = 'transfer'", i.parsed_data) and
+                fragment("?->>'status' = 'invalid'", i.state)
+            )
+          ),
+        pending_transfers:
+          count.(
+            dynamic(
+              [i],
+              fragment("?->>'op' = 'transfer'", i.parsed_data) and
+                fragment("coalesce(?->>'status', 'pending') = 'pending'", i.state)
+            )
+          ),
         classic_ops: count.(dynamic([i], fragment("?->>'standard' = 'bsv-20'", i.parsed_data)))
       }
     else
-      _ -> %{total_tokens: 0, total_transfers: 0, classic_ops: 0}
+      _ ->
+        %{
+          total_tokens: 0,
+          total_transfers: 0,
+          invalid_transfers: 0,
+          pending_transfers: 0,
+          classic_ops: 0
+        }
     end
   end
 
@@ -481,6 +847,15 @@ defmodule Bitblocks.Tokens do
     pd = i.parsed_data || %{}
     state = i.state || %{}
 
+    # Mints are valid by definition; transfers carry their own status;
+    # classic deploys and mints are not validated (nil).
+    status =
+      case pd["op"] do
+        "deploy+mint" -> "valid"
+        "transfer" -> state["status"] || "pending"
+        _ -> nil
+      end
+
     %{
       id: i.id,
       txid: i.txid,
@@ -499,7 +874,11 @@ defmodule Bitblocks.Tokens do
       recipient: pd["recipient"],
       supply: state["supply"],
       minted: state["minted"],
-      holders: state["holders"],
+      holders: nil,
+      validated: status == "valid",
+      status: status,
+      reason: state["reason"],
+      burned: state["burned"],
       inserted_at: i.inserted_at
     }
   end

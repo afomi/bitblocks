@@ -1269,6 +1269,41 @@ defmodule Bitblocks.Release do
     end
   end
 
+  @doc """
+  Revalidates every indexed BSV-21 transfer against the token outputs its tx
+  spends (#41), oldest block first, so holder balances count only transfers
+  that really move the token. See `Bitblocks.Tokens.revalidate_transfers/1`
+  and docs/BSV20_TOKENS.md.
+
+  Transfers indexed before validation existed have no status and count for
+  no one until this runs. **Dry run by default**: prints how many would be
+  valid, invalid and pending and how many change, and writes nothing.
+  Pass `apply: true` to write.
+
+  ## Usage
+
+      bin/bitblocks rpc 'Bitblocks.Release.revalidate_token_transfers()'
+      bin/bitblocks rpc 'Bitblocks.Release.revalidate_token_transfers(apply: true)'
+  """
+  def revalidate_token_transfers(opts \\ []) do
+    with_running_repo(fn ->
+      report = Bitblocks.Tokens.revalidate_transfers(opts)
+
+      IO.puts(
+        if(report.applied, do: "APPLIED", else: "DRY RUN (nothing written)") <>
+          ": #{report.rows} transfer output(s) in #{report.txs} tx(s)"
+      )
+
+      IO.puts(
+        "  valid #{report.valid}, invalid #{report.invalid}, pending #{report.pending}; " <>
+          "#{report.changed} change(d)"
+      )
+
+      unless report.applied, do: IO.puts("  Run again with apply: true to write these.")
+      report
+    end)
+  end
+
   defp print_reconcile(%{applied: applied, plan: plan} = report) do
     IO.puts(
       if(applied, do: "APPLIED", else: "DRY RUN (nothing written)") <>

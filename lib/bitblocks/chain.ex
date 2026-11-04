@@ -1216,21 +1216,31 @@ defmodule Bitblocks.Chain do
       {:ok, token_outputs} ->
         addresses = output_addresses_by_vout(tx.outputs)
 
-        Enum.count(token_outputs, fn %{vout: vout, token: token} ->
-          attrs = %{
-            txid: tx.txid,
-            vout: vout,
-            block_height: tx.block_height,
-            block_hash: tx.block_hash,
-            recipient: Map.get(addresses, vout),
-            token: token
-          }
+        indexed =
+          Enum.count(token_outputs, fn %{vout: vout, token: token} = output ->
+            attrs = %{
+              txid: tx.txid,
+              vout: vout,
+              block_height: tx.block_height,
+              block_hash: tx.block_hash,
+              # The output JSON names no address for an inscribed script
+              # (not a bare P2PKH), so fall back to the lock after the envelope.
+              recipient: Map.get(addresses, vout) || output[:owner],
+              token: token,
+              # Transfers are validated together, once every output is in.
+              validate: false
+            }
 
-          case Bitblocks.Tokens.index(attrs) do
-            {:ok, view} when is_map(view) -> true
-            _ -> false
-          end
-        end)
+            case Bitblocks.Tokens.index(attrs) do
+              {:ok, view} when is_map(view) -> true
+              _ -> false
+            end
+          end)
+
+        if Enum.any?(token_outputs, &(&1.token.op == "transfer")),
+          do: Bitblocks.Tokens.validate_tx(tx.txid)
+
+        indexed
 
       _ ->
         0

@@ -34,6 +34,7 @@ defmodule BitblocksWeb.TokenLive do
           token: token,
           holders: Tokens.token_holders(id),
           transfers: Tokens.token_transfers(id, limit: 25),
+          transfer_counts: Tokens.transfer_counts(id),
           open_listings: OrderBook.list_active_listings(token_id: token.token_id, limit: 1)
         )
       else

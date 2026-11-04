@@ -37,10 +37,21 @@ defmodule Bitblocks.TokensTest do
     )
   end
 
-  defp transfer(token_id, recipient, amt, txid) do
+  # Records that `spender` spends `txid:vout` (the RecordSpends step does this
+  # before tokens are indexed), so the transfer has a token input.
+  defp spend!(txid, vout, spender, vin \\ 0) do
+    Repo.insert!(%Bitblocks.Chain.Spend{
+      txid: txid,
+      vout: vout,
+      spending_txid: spender,
+      spending_vin: vin
+    })
+  end
+
+  defp transfer(token_id, recipient, amt, txid, vout \\ 1) do
     %{
       txid: txid,
-      vout: 1,
+      vout: vout,
       block_height: 101,
       recipient: recipient,
       token: %{
@@ -86,20 +97,42 @@ defmodule Bitblocks.TokensTest do
       tid = token.token_id
       alice = "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa"
       bob = "1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2"
+      minter = "1CounterpartyXXXXXXXXXXXXXXXUWLpVr"
+      b1 = "b1" <> String.duplicate("0", 62)
 
-      {:ok, _} =
-        Tokens.index_transfer(transfer(tid, alice, "100", "b1" <> String.duplicate("0", 62)))
-
-      {:ok, _} =
-        Tokens.index_transfer(transfer(tid, alice, "50", "b2" <> String.duplicate("0", 62)))
-
-      {:ok, _} =
-        Tokens.index_transfer(transfer(tid, bob, "30", "b3" <> String.duplicate("0", 62)))
+      # One tx spends the mint output: 150 to alice over two outputs, 30 to
+      # bob, the rest back to the minter.
+      spend!(token.txid, 0, b1)
+      {:ok, _} = Tokens.index_transfer(transfer(tid, alice, "100", b1, 1))
+      {:ok, _} = Tokens.index_transfer(transfer(tid, alice, "50", b1, 2))
+      {:ok, _} = Tokens.index_transfer(transfer(tid, bob, "30", b1, 3))
+      {:ok, view} = Tokens.index_transfer(transfer(tid, minter, "20999820", b1, 4))
+      assert %{validated: true, status: "valid"} = view
 
       holders = Tokens.token_holders(tid)
-      assert [%{address: ^alice, balance: 150}, %{address: ^bob, balance: 30}] = holders
+
+      assert [
+               %{address: ^minter, balance: 20_999_820},
+               %{address: ^alice, balance: 150},
+               %{address: ^bob, balance: 30}
+             ] = holders
+
       assert Tokens.balance_of(tid, alice) == 150
       assert Tokens.balance_of(tid, bob) == 30
+    end
+
+    test "a transfer with no token input credits no one" do
+      {:ok, token} = Tokens.index_token(mint())
+      alice = "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa"
+
+      {:ok, view} =
+        Tokens.index_transfer(
+          transfer(token.token_id, alice, "100", "b9" <> String.duplicate("0", 62))
+        )
+
+      # No input recorded at all: pending, never valid by default.
+      assert %{validated: false, status: "pending"} = view
+      assert Tokens.token_holders(token.token_id) == []
     end
 
     test "holders are net: a spent output no longer counts" do
@@ -110,6 +143,7 @@ defmodule Bitblocks.TokensTest do
       t1 = "c1" <> String.duplicate("0", 62)
       t2 = "c2" <> String.duplicate("0", 62)
 
+      spend!(token.txid, 0, t1)
       {:ok, _} = Tokens.index_transfer(transfer(tid, alice, "100", t1))
       # Alice sends her 100 on to Bob: t2 spends t1:1.
       Repo.insert!(%Bitblocks.Chain.Spend{txid: t1, vout: 1, spending_txid: t2, spending_vin: 0})
@@ -129,15 +163,16 @@ defmodule Bitblocks.TokensTest do
       spent = "d1" <> String.duplicate("0", 62)
       kept = "d2" <> String.duplicate("0", 62)
 
-      {:ok, _} = Tokens.index_transfer(transfer(tid, alice, "40", spent))
-      {:ok, _} = Tokens.index_transfer(transfer(tid, alice, "60", kept))
+      bob = "1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2"
 
-      Repo.insert!(%Bitblocks.Chain.Spend{
-        txid: spent,
-        vout: 1,
-        spending_txid: "ee" <> String.duplicate("0", 62),
-        spending_vin: 0
-      })
+      # `spent` splits the mint: 40 to alice, 60 to bob; bob sends his 60 on
+      # to alice in `kept`; alice's 40 is then spent elsewhere.
+      spend!(token.txid, 0, spent)
+      {:ok, _} = Tokens.index_transfer(transfer(tid, alice, "40", spent, 1))
+      {:ok, _} = Tokens.index_transfer(transfer(tid, bob, "60", spent, 2))
+      spend!(spent, 2, kept)
+      {:ok, _} = Tokens.index_transfer(transfer(tid, alice, "60", kept))
+      spend!(spent, 1, "ee" <> String.duplicate("0", 62))
 
       assert [utxo] = Tokens.unspent_outputs(alice, standard: "bsv-21")
 
