@@ -170,13 +170,15 @@ defmodule Bitblocks.Workers.SyncHeadersWorker do
           "SyncHeaders: reorg fork point #{fork_point}, deleting orphans #{fork_point + 1}..#{fork_height}"
         )
 
-        orphan_count = delete_orphans(fork_point, fork_height)
+        orphans = delete_orphans(fork_point, fork_height)
+        orphan_count = length(orphans)
 
         Logger.warning("SyncHeaders: reorg resolved, re-syncing from #{fork_point + 1}")
         record_reorg(fork_height, fork_point, orphan_count)
         Bitblocks.Notifications.reorg_alert(fork_height, fork_point, orphan_count)
         notify_projections_of_reorg(fork_point)
         fetch_and_store_headers(fork_point + 1, fork_height, true)
+        enqueue_reconcile(orphans)
 
       {:error, {:rpc, reason}} ->
         # The node didn't answer the walk (busy verifying, timeout, 403). That
@@ -196,7 +198,8 @@ defmodule Bitblocks.Workers.SyncHeadersWorker do
     end
   end
 
-  # Phase 1 of #34: an annotation and a site notice. Derived rows stay put.
+  # Phase 1 of #34: an annotation and a site notice. Transaction rows are
+  # reconciled afterwards by ReconcileOrphanWorker.
   defp record_reorg(fork_height, fork_point, orphan_count) do
     outcome = if is_integer(fork_point), do: "resolved", else: "needs_attention"
 
@@ -231,17 +234,33 @@ defmodule Bitblocks.Workers.SyncHeadersWorker do
   @doc false
   def fork_point(height, node_hash), do: find_fork_point(height, node_hash, 0)
 
-  # Deletes our blocks above the fork point, by height. Returns how many rows
-  # were deleted: the reorg's orphan count. Heights we never stored (the node's
-  # new blocks above our old tip) aren't orphans.
+  # Deletes our blocks above the fork point, by height. Returns the deleted
+  # blocks: their count is the reorg's orphan count. Heights we never stored
+  # (the node's new blocks above our old tip) aren't orphans.
   @doc false
   def delete_orphans(fork_point, fork_height) do
-    Enum.count((fork_point + 1)..fork_height//1, fn h ->
-      case Chain.get_block_at_height(h) do
-        nil -> false
-        block -> match?({:ok, _}, Chain.delete_block(block))
+    Enum.flat_map((fork_point + 1)..fork_height//1, fn h ->
+      with %Block{} = block <- Chain.get_block_at_height(h),
+           {:ok, _} <- Chain.delete_block(block) do
+        [block]
+      else
+        _ -> []
       end
     end)
+  end
+
+  # Each orphan's transaction rows still carry its hash. A job per orphan
+  # moves them to the blocks that hold them now, or removes them (#34).
+  # Never interrupts reorg resolution.
+  @doc false
+  def enqueue_reconcile(orphans) do
+    for %Block{hash: hash} <- orphans do
+      hash |> Bitblocks.Workers.ReconcileOrphanWorker.job() |> Oban.insert()
+    end
+
+    :ok
+  rescue
+    e -> Logger.error("SyncHeaders: reconcile enqueue failed: #{Exception.message(e)}")
   end
 
   defp find_fork_point(_height, _node_hash, depth) when depth > @max_reorg_depth,

@@ -217,6 +217,27 @@ Both are also on `/sync` ("Completeness Audit" card: Run Audit / Repair buttons)
 3. Monitor with `Release.status()` / the `/sync` page. The hourly cron resumes automatically after any interruption — no babysitting.
 4. Re-run the audit until it reports zero.
 
+### After a reorg: the orphan's transaction rows (#34)
+
+Tip sync deletes an orphaned block's row, but its transactions keep the orphan's `block_hash`.
+Two things move them:
+
+- The tx-fetch diff (`Chain.TxIngest.existing_txids/2`) moves a stored transaction to the block being fetched when its row sits under a hash that is no longer a stored block. So a transaction mined in both blocks reports the new block's hash and height once that block's transactions are fetched.
+- `ReconcileOrphanWorker`, enqueued for each deleted orphan ten minutes after the reorg, settles every remaining row: moved to the block a source names (if we store it), or removed with its spend edges when no block holds it. It marks the reorg row reconciled once no row points at the orphan, and the reorg's summary sentence follows.
+
+Removal is a delete: no row is marked unconfirmed, because every read path treats a stored row as confirmed.
+A removed transaction that is mined later is fetched again with its block.
+Token, listing and other protocol rows from orphan-only transactions are not rewound yet.
+
+For a reorg from before this shipped, run the same reconcile by hand, dry run first:
+
+```bash
+bin/bitblocks rpc 'Bitblocks.Release.reconcile_orphaned_block("<orphan hash>")'
+bin/bitblocks rpc 'Bitblocks.Release.reconcile_orphaned_block("<orphan hash>", apply: true)'
+```
+
+Add `orphan_count: n` to correct the reorg row's count of blocks set aside.
+
 ---
 
 ## Operating model — recommendation

@@ -144,4 +144,58 @@ defmodule Bitblocks.ReorgsTest do
 
     assert Reorgs.active_notice(DateTime.add(later, 60, :second)).id == resolved.id
   end
+
+  describe "the summary follows the row" do
+    # 2026-11-04: the stored sentence for the 957,301 reorg was frozen at
+    # insert. It said 2 blocks were set aside (1 was), and that transaction
+    # rows remain, which stops being true once they are reconciled.
+    setup do
+      {:ok, reorg} =
+        Reorgs.record_observed(
+          %{fork_height: 957_302, fork_point: 957_300, orphan_count: 2, outcome: "resolved"},
+          ~U[2026-11-04 00:56:00Z]
+        )
+
+      %{reorg: reorg}
+    end
+
+    test "a new resolved reorg says its transaction rows are still being reconciled", %{
+      reorg: reorg
+    } do
+      assert reorg.summary =~ "Transaction rows from the replaced blocks are still in this index."
+      assert is_nil(reorg.txs_reconciled_at)
+    end
+
+    test "correcting the orphan count rewrites the sentence", %{reorg: reorg} do
+      assert {:ok, updated} = Reorgs.update_after_reconcile(reorg, orphan_count: 1)
+
+      assert updated.orphan_count == 1
+      assert updated.summary =~ "1 block between those heights was set aside."
+      refute updated.summary =~ "2 blocks"
+      assert updated.summary =~ "On 2026-11-04 00:56 UTC"
+    end
+
+    test "once reconciled, it no longer claims transaction rows remain", %{reorg: reorg} do
+      at = ~U[2026-11-04 09:00:00Z]
+
+      assert {:ok, updated} =
+               Reorgs.update_after_reconcile(reorg, orphan_count: 1, txs_reconciled_at: at)
+
+      assert updated.txs_reconciled_at == at
+      refute updated.summary =~ "still in this index"
+
+      assert updated.summary =~
+               "Transactions from the replaced block now point to the blocks that hold them. " <>
+                 "Any that no block holds were removed."
+
+      assert Reorgs.summary(updated) == updated.summary
+    end
+
+    test "finds the resolved reorg that set aside a given height", %{reorg: reorg} do
+      assert Reorgs.resolved_covering(957_301).id == reorg.id
+      assert Reorgs.resolved_covering(957_302).id == reorg.id
+      assert is_nil(Reorgs.resolved_covering(957_300))
+      assert is_nil(Reorgs.resolved_covering(957_303))
+    end
+  end
 end

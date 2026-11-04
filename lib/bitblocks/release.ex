@@ -1226,6 +1226,105 @@ defmodule Bitblocks.Release do
     %{tiles: counts, builds: builds}
   end
 
+  @doc """
+  Reconciles the transaction rows of an orphaned block after a reorg (#34),
+  and corrects the reorg row that set it aside.
+
+  Rows still carrying `orphan_hash` are moved to the block that holds their
+  transaction now, or removed (with their spend edges) when no block does.
+  A row whose lookup fails is left alone; run it again later. See
+  `Bitblocks.Reorgs.Reconcile`.
+
+  **Dry run by default**: prints what it would change and writes nothing to
+  `transactions`, `spend_index` or `reorgs` (reading the replacement block's
+  verified txid list may cache it on that block row, as a tx fetch would).
+  Pass `apply: true` to make the changes.
+
+  ## Options
+    - apply: true to write (default false)
+    - orphan_count: the number of blocks the reorg actually set aside, to
+      correct the stored count
+    - height: the orphan's height, if no row carries it
+
+  ## Usage
+
+      bin/bitblocks rpc 'Bitblocks.Release.reconcile_orphaned_block("<hash>", orphan_count: 1)'
+      bin/bitblocks rpc 'Bitblocks.Release.reconcile_orphaned_block("<hash>", orphan_count: 1, apply: true)'
+  """
+  def reconcile_orphaned_block(orphan_hash, opts \\ []) do
+    case Bitblocks.Reorgs.Reconcile.run(orphan_hash, opts) do
+      {:ok, report} ->
+        print_reconcile(report)
+        {:ok, report}
+
+      {:error, :block_still_stored} ->
+        IO.puts(
+          "reconcile_orphaned_block: #{orphan_hash} is still a stored block, not an orphan. Nothing done."
+        )
+
+        {:error, :block_still_stored}
+
+      {:error, reason} ->
+        IO.puts("reconcile_orphaned_block: failed: #{inspect(reason)}")
+        {:error, reason}
+    end
+  end
+
+  defp print_reconcile(%{applied: applied, plan: plan} = report) do
+    IO.puts(
+      if(applied, do: "APPLIED", else: "DRY RUN (nothing written)") <>
+        ": orphan #{plan.orphan_hash} at height #{inspect(plan.height)}"
+    )
+
+    IO.puts("  #{plan.rows} transaction row(s) point at the orphan")
+
+    for {hash, height, txids} <- plan.repoint do
+      IO.puts("  move #{length(txids)} to #{hash} (height #{height})")
+    end
+
+    IO.puts("  remove #{length(plan.remove)} (no block holds them)")
+    Enum.each(Enum.take(plan.remove, 20), &IO.puts("    #{&1}"))
+    if length(plan.remove) > 20, do: IO.puts("    ... #{length(plan.remove) - 20} more")
+    IO.puts("  remove #{plan.spends_to_remove} spend edge(s) recorded by those")
+
+    IO.puts(
+      "  leave #{length(plan.pending)} whose block isn't stored yet, " <>
+        "#{length(plan.unknown)} whose lookup failed"
+    )
+
+    case report.reorg do
+      nil ->
+        IO.puts("  no resolved reorg row covers this height")
+
+      reorg ->
+        IO.puts("  reorg row #{reorg.id} (fork height #{reorg.fork_height}):")
+
+        if report.reorg_changes == %{} do
+          IO.puts("    unchanged")
+        end
+
+        for {field, {old, new}} <- report.reorg_changes, field != :summary do
+          IO.puts("    #{field} #{inspect(old)} -> #{inspect(new)}")
+        end
+
+        case report.reorg_changes do
+          %{summary: {_old, new}} -> IO.puts("    summary -> #{new}")
+          _ -> :ok
+        end
+    end
+
+    if applied do
+      r = report.result
+
+      IO.puts(
+        "  moved #{r.repointed}, removed #{r.removed}, removed #{r.spends_removed} spend edge(s); " <>
+          "#{r.remaining} row(s) still point at the orphan"
+      )
+    else
+      IO.puts("  Run again with apply: true to make these changes.")
+    end
+  end
+
   # Private helpers
 
   defp get_db_size do

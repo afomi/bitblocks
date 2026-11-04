@@ -139,7 +139,7 @@ defmodule Bitblocks.Workers.FetchTransactionsWorker do
     |> Stream.with_index()
     |> Enum.reduce_while({:ok, tracker}, fn {chunk, index}, {:ok, tracker} ->
       # Diff: fetch only the txids of this chunk not already in the database.
-      needed_txids = filter_already_fetched(chunk)
+      needed_txids = filter_already_fetched(chunk, block)
 
       {failed, rate_limited?} =
         if needed_txids == [] do
@@ -235,19 +235,10 @@ defmodule Bitblocks.Workers.FetchTransactionsWorker do
 
   # Filter out txids that already exist in the database.
   # Returns only the txids that still need to be fetched.
-  defp filter_already_fetched(txids) when txids == [], do: []
-
-  defp filter_already_fetched(txids) do
-    import Ecto.Query
-
-    existing =
-      from(t in Chain.Transaction,
-        where: t.txid in ^txids,
-        select: t.txid
-      )
-      |> Repo.all()
-      |> MapSet.new()
-
+  # A tx stored under an orphaned block's hash is moved to this block here
+  # (TxIngest.existing_txids/2), since it is skipped as present (#34).
+  defp filter_already_fetched(txids, block) do
+    existing = TxIngest.existing_txids(txids, block)
     Enum.reject(txids, &MapSet.member?(existing, &1))
   end
 

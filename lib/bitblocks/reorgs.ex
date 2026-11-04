@@ -3,8 +3,13 @@ defmodule Bitblocks.Reorgs do
   Records of chain reorganizations.
 
   Phase 1 of #34: write an annotation when tip sync sees a fork, and surface
-  the recent one as a site notice. Rewinding transactions, spends, and
-  protocol rows is a later phase.
+  the recent one as a site notice. Transaction rows and their spend edges are
+  reconciled after the fact (`Bitblocks.Reorgs.Reconcile`); token, listing and
+  other protocol rows are a later phase.
+
+  `summary` is stored for the views, but always computed from the row's
+  fields by `summary/1`, and rewritten whenever those fields change, so the
+  sentence never outlives the facts it describes.
   """
 
   import Ecto.Query
@@ -41,18 +46,54 @@ defmodule Bitblocks.Reorgs do
         |> Repo.update()
 
       nil ->
-        %Reorg{}
-        |> Reorg.changeset(%{
+        fields = %{
           detected_at: now,
           last_seen_at: now,
           fork_height: fork_height,
           fork_point: fork_point,
           orphan_count: orphan_count,
-          outcome: outcome,
-          summary: summary(outcome, fork_height, fork_point, orphan_count, now)
-        })
+          outcome: outcome
+        }
+
+        %Reorg{}
+        |> Reorg.changeset(Map.put(fields, :summary, summary(struct(Reorg, fields))))
         |> Repo.insert()
     end
+  end
+
+  @doc """
+  Corrects a reorg row after its transaction rows were reconciled, and
+  rewrites its summary to match.
+
+  Options: `:orphan_count` (the blocks actually set aside) and
+  `:txs_reconciled_at` (set once no row points at an orphaned hash).
+  Options left out keep their stored values.
+  """
+  @spec update_after_reconcile(Reorg.t(), keyword()) ::
+          {:ok, Reorg.t()} | {:error, Ecto.Changeset.t()}
+  def update_after_reconcile(%Reorg{} = reorg, opts) do
+    changes = Map.new(Keyword.take(opts, [:orphan_count, :txs_reconciled_at]))
+    updated = struct(reorg, changes)
+
+    reorg
+    |> Reorg.changeset(Map.put(changes, :summary, summary(updated)))
+    |> Repo.update()
+  end
+
+  @doc """
+  The most recent resolved reorg whose replaced heights include `height`
+  (above its fork point, up to its fork height), or nil.
+  """
+  @spec resolved_covering(integer()) :: Reorg.t() | nil
+  def resolved_covering(height) when is_integer(height) do
+    Repo.one(
+      from(r in Reorg,
+        where: r.outcome == "resolved",
+        where: r.fork_point < ^height and r.fork_height >= ^height,
+        order_by: [desc: r.detected_at, desc: r.id],
+        limit: 1
+      )
+    )
   end
 
   @doc "Annotations, highest height first."
@@ -133,24 +174,39 @@ defmodule Bitblocks.Reorgs do
     Repo.one(query)
   end
 
-  defp summary("resolved", fork_height, fork_point, orphan_count, now) do
-    when_seen = Calendar.strftime(now, "%Y-%m-%d %H:%M UTC")
-
-    "On #{when_seen}, the node and this index disagreed at height #{fork_height}. " <>
-      "They meet again at height #{fork_point}. " <>
-      "#{blocks_phrase(orphan_count)} " <>
-      "Headers from height #{fork_point + 1} were fetched again. " <>
-      "Transaction rows from the replaced blocks are still in this index."
+  @doc """
+  The sentence for a reorg row, computed from its fields.
+  """
+  @spec summary(Reorg.t()) :: String.t()
+  def summary(%Reorg{outcome: "resolved"} = reorg) do
+    "On #{when_seen(reorg)}, the node and this index disagreed at height #{reorg.fork_height}. " <>
+      "They meet again at height #{reorg.fork_point}. " <>
+      "#{blocks_phrase(reorg.orphan_count)} " <>
+      "Headers from height #{reorg.fork_point + 1} were fetched again. " <>
+      transactions_phrase(reorg)
   end
 
-  defp summary("needs_attention", fork_height, _fork_point, _orphan_count, now) do
-    when_seen = Calendar.strftime(now, "%Y-%m-%d %H:%M UTC")
-
-    "On #{when_seen}, the node and this index disagreed at height #{fork_height}. " <>
+  def summary(%Reorg{outcome: "needs_attention"} = reorg) do
+    "On #{when_seen(reorg)}, the node and this index disagreed at height #{reorg.fork_height}. " <>
       "The fork is deeper than 10 blocks. " <>
       "Headers were left as they were. " <>
       "An operator has to compare the node with this index."
   end
+
+  defp when_seen(%Reorg{detected_at: at}), do: Calendar.strftime(at, "%Y-%m-%d %H:%M UTC")
+
+  defp transactions_phrase(%Reorg{txs_reconciled_at: nil}),
+    do: "Transaction rows from the replaced blocks are still in this index."
+
+  defp transactions_phrase(%Reorg{orphan_count: 1}),
+    do:
+      "Transactions from the replaced block now point to the blocks that hold them. " <>
+        "Any that no block holds were removed."
+
+  defp transactions_phrase(%Reorg{}),
+    do:
+      "Transactions from the replaced blocks now point to the blocks that hold them. " <>
+        "Any that no block holds were removed."
 
   defp blocks_phrase(1), do: "1 block between those heights was set aside."
 

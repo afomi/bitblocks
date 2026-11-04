@@ -22,6 +22,8 @@ defmodule Bitblocks.Reorgs.Reorg do
     field(:orphan_count, :integer)
     field(:outcome, :string)
     field(:summary, :string)
+    # When the replaced blocks' transaction rows were moved or removed (#34).
+    field(:txs_reconciled_at, :utc_datetime)
 
     timestamps(type: :utc_datetime)
   end
@@ -36,7 +38,8 @@ defmodule Bitblocks.Reorgs.Reorg do
       :fork_point,
       :orphan_count,
       :outcome,
-      :summary
+      :summary,
+      :txs_reconciled_at
     ])
     |> validate_required([:detected_at, :last_seen_at, :fork_height, :outcome, :summary])
     |> validate_inclusion(:outcome, @outcomes)

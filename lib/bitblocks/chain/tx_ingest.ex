@@ -8,14 +8,79 @@ defmodule Bitblocks.Chain.TxIngest do
   lane skipped the body-hash check and token indexing that the tip lane applied.
 
   Idempotent: inserts use `on_conflict: :nothing` on the unique txid, so
-  re-processing an already-stored transaction is a no-op.
+  re-processing an already-stored transaction is a no-op. The diff before
+  the insert (`existing_txids/2`) is where a transaction re-mined after a
+  reorg is moved off the orphaned block (#34).
   """
+
+  import Ecto.Query
 
   require Logger
 
   alias Bitblocks.{Chain, Repo}
   alias Bitblocks.Chain.Block
   alias Bitblocks.TransactionParser
+
+  @doc """
+  Which of `txids` (a chunk of `block`'s verified txid list) are already
+  stored, as a MapSet. The workers skip these.
+
+  A stored row whose `block_hash` is no longer a stored block was left behind
+  by a reorg: the orphan was deleted and this block holds the transaction now.
+  Those rows are moved to `block` (hash and height) here, since the skip means
+  the insert never runs for them. A row under another block that is still
+  stored (a duplicate coinbase txid) is left alone.
+
+  Costs one query on the unique txid index per chunk; a second, on `blocks`,
+  only when some row sits under another hash.
+  """
+  @spec existing_txids([String.t()], Block.t()) :: MapSet.t()
+  def existing_txids([], _block), do: MapSet.new()
+
+  def existing_txids(txids, %Block{hash: hash, height: height}) when is_list(txids) do
+    rows =
+      Repo.all(
+        from(t in Chain.Transaction,
+          where: t.txid in ^txids,
+          select: {t.txid, t.block_hash}
+        )
+      )
+
+    elsewhere = for {txid, other} <- rows, other != hash, do: {txid, other}
+
+    if elsewhere != [] do
+      other_hashes = elsewhere |> Enum.map(&elem(&1, 1)) |> Enum.uniq()
+
+      stored =
+        Repo.all(from(b in Block, where: b.hash in ^other_hashes, select: b.hash))
+        |> MapSet.new()
+
+      orphaned = Enum.reject(other_hashes, &MapSet.member?(stored, &1))
+
+      moving =
+        for {txid, other} <- elsewhere, other in orphaned, do: txid
+
+      if moving != [] do
+        {count, _} =
+          Repo.update_all(
+            from(t in Chain.Transaction,
+              where: t.txid in ^moving and t.block_hash in ^orphaned
+            ),
+            set: [
+              block_hash: hash,
+              block_height: height,
+              updated_at: NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second)
+            ]
+          )
+
+        Logger.info(
+          "TxIngest block=#{height} moved #{count} tx(s) off orphaned block(s) #{inspect(orphaned)}"
+        )
+      end
+    end
+
+    rows |> Enum.map(&elem(&1, 0)) |> MapSet.new()
+  end
 
   @doc """
   Stores one transaction (a `getrawtransaction` verbosity-1 map) for `block`.

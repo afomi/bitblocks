@@ -1,5 +1,6 @@
 defmodule Bitblocks.Workers.SyncHeadersWorkerTest do
   use Bitblocks.DataCase
+  use Oban.Testing, repo: Bitblocks.Repo
 
   alias Bitblocks.Chain
   alias Bitblocks.Chain.Block
@@ -280,11 +281,26 @@ defmodule Bitblocks.Workers.SyncHeadersWorkerTest do
       decoys: decoys
     } do
       # Only 900_101 exists above the fork point; 900_102 was never stored.
-      assert SyncHeadersWorker.delete_orphans(900_100, 900_102) == 1
+      assert [%Block{hash: "our_orphan"}] = SyncHeadersWorker.delete_orphans(900_100, 900_102)
 
       refute Bitblocks.Repo.get(Block, orphan.id)
       assert Bitblocks.Repo.get(Block, ancestor.id)
       for d <- decoys, do: assert(Bitblocks.Repo.get(Block, d.id))
+    end
+  end
+
+  describe "an orphan's transactions after the reorg (#34)" do
+    test "each deleted orphan gets a reconcile job" do
+      block_fixture(%{height: 900_200, hash: "ancestor_900200"})
+      block_fixture(%{height: 900_201, hash: "orphan_900201"})
+
+      deleted = SyncHeadersWorker.delete_orphans(900_200, 900_202)
+      SyncHeadersWorker.enqueue_reconcile(deleted)
+
+      assert_enqueued(
+        worker: Bitblocks.Workers.ReconcileOrphanWorker,
+        args: %{"orphan_hash" => "orphan_900201"}
+      )
     end
   end
 end

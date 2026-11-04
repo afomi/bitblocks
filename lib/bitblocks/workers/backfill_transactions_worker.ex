@@ -243,7 +243,7 @@ defmodule Bitblocks.Workers.BackfillTransactionsWorker do
     txids
     |> Stream.chunk_every(@batch_size)
     |> Enum.reduce_while({:ok, tracker}, fn chunk, {:ok, tracker} ->
-      existing = existing_txids(chunk)
+      existing = TxIngest.existing_txids(chunk, block)
       missing = Enum.reject(chunk, &MapSet.member?(existing, &1))
 
       result = if missing == [], do: :ok, else: fetch_and_store_batch(missing, block)

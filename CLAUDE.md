@@ -185,6 +185,9 @@ bin/bitblocks rpc 'Bitblocks.Release.gaps()'
 bin/bitblocks rpc 'Bitblocks.Release.sync_status()'
 bin/bitblocks rpc 'Bitblocks.Release.status()'
 
+# A reorg's orphaned tx rows (#34): dry run first, then add apply: true
+bin/bitblocks rpc 'Bitblocks.Release.reconcile_orphaned_block("<orphan hash>")'
+
 # Chain-scrubber tiles (#48): full build once, then the cron keeps them current
 bin/bitblocks rpc 'Bitblocks.Release.build_chain_tiles()'
 bin/bitblocks rpc 'Bitblocks.Release.chain_tiles_status()'

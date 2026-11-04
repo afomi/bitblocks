@@ -349,4 +349,61 @@ defmodule Bitblocks.Workers.FetchTransactionsWorkerTest do
       assert reloaded.tx_sync_attempts == 0
     end
   end
+
+  describe "a transaction re-mined after a reorg (#34)" do
+    # The tx is already stored under the orphaned block's hash. Diff-and-fill
+    # used to skip it as present, so it kept the old block_hash forever.
+    test "is moved to the block being fetched" do
+      block =
+        block_fixture(%{
+          height: 999_060,
+          hash: "fetch_replacement_hash",
+          merkleroot: @genesis_merkleroot,
+          num_tx: 1,
+          tx: [@genesis_txid],
+          sync_state: "txs_queued"
+        })
+
+      transaction_fixture(%{
+        txid: @genesis_txid,
+        block_hash: "orphaned_hash_not_stored",
+        block_height: 999_060
+      })
+
+      assert :ok =
+               FetchTransactionsWorker.perform(%Oban.Job{args: %{"block_hash" => block.hash}})
+
+      tx = Chain.get_transaction!(@genesis_txid)
+      assert tx.block_hash == block.hash
+      assert tx.block_height == block.height
+      assert Chain.get_block!(block.height).sync_state == "completed"
+      # Already stored: never fetched again.
+      assert RpcStub.calls(:batch_getrawtransaction) == []
+    end
+
+    test "is left alone when its block is still stored (a duplicate txid)" do
+      other = block_fixture(%{height: 999_061, hash: "fetch_other_stored_block"})
+
+      block =
+        block_fixture(%{
+          height: 999_062,
+          hash: "fetch_dup_hash",
+          merkleroot: @genesis_merkleroot,
+          num_tx: 1,
+          tx: [@genesis_txid],
+          sync_state: "txs_queued"
+        })
+
+      transaction_fixture(%{
+        txid: @genesis_txid,
+        block_hash: other.hash,
+        block_height: other.height
+      })
+
+      assert :ok =
+               FetchTransactionsWorker.perform(%Oban.Job{args: %{"block_hash" => block.hash}})
+
+      assert Chain.get_transaction!(@genesis_txid).block_hash == other.hash
+    end
+  end
 end
