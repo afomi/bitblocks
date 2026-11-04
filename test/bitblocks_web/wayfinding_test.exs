@@ -41,8 +41,7 @@ defmodule BitblocksWeb.WayfindingTest do
           {"beta-order-book", "/order-book"},
           {"beta-metanet", "/metanet"},
           {"beta-bitcom", "/bitcom"},
-          {"beta-collections", "/collections"},
-          {"beta-syncing", "/syncing"}
+          {"beta-collections", "/collections"}
         ] do
       assert Regex.match?(
                ~r/id="#{id}"[^>]*href="#{Regex.escape(href)}"/,
@@ -135,5 +134,6 @@ defmodule BitblocksWeb.WayfindingTest do
 
     status = html_response(get(conn, "/status"), 200)
     assert Regex.match?(~r/id="status-live-sync"[^>]*href="\/syncing"/, status)
+    refute home =~ ~s(id="beta-syncing")
   end
 end
