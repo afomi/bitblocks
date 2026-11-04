@@ -12,6 +12,12 @@ defmodule Bitblocks.Chain.TxPipeline.Step do
 
   A step that raises is logged and reported by the pipeline; it never loses
   the stored tx or decides whether the block completes.
+
+  Every step has a `version/0`, a positive integer bumped whenever its
+  output for the same input would change. The pipeline sums them into the
+  versions stamped on each row (`TxPipeline.version/1`), so a bump marks
+  every row computed before it as below the version, which is what a
+  backfill picks up (`docs/DERIVED_DATA.md`).
   """
 
   alias Bitblocks.Chain.{Block, Transaction}
@@ -25,6 +31,9 @@ defmodule Bitblocks.Chain.TxPipeline.Step do
   @callback description() :: String.t()
 
   @callback stage() :: stage()
+
+  @doc "The step's version: bump it whenever its output would change."
+  @callback version() :: pos_integer()
 
   @callback run_chunk([map()], Block.t()) :: [map()]
   @callback run(Transaction.t(), Block.t()) :: term()

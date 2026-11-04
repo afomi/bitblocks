@@ -15,6 +15,10 @@ defmodule Bitblocks.Chain.TxPipeline.Steps.Fee do
   @impl true
   def name, do: "fee"
 
+  # Bump when this step\'s output would change; docs/DERIVED_DATA.md.
+  @impl true
+  def version, do: 1
+
   @impl true
   def description, do: "Stores fee_satoshis: sats in minus sats out; 0 for a coinbase."
 

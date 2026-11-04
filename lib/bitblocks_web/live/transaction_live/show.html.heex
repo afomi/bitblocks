@@ -182,6 +182,24 @@
       Sats in and the fee show once every input's previous transaction is indexed.
       We never guess them.
     </p>
+    <%!-- Provenance: which pipeline version computed these (docs/DERIVED_DATA.md) --%>
+    <p
+      id="tx-provenance"
+      class="text-xs text-gray-600 dark:text-gray-400 mb-4"
+      title="The versions of the tx pipeline that computed this transaction's derived data. The date is when the tallies were last stamped."
+    >
+      <%= if @transaction.tallies_version do %>
+        Tallies v<%= @transaction.tallies_version %> · computed <%= Calendar.strftime(@transaction.updated_at, "%Y-%m-%d") %>
+      <% else %>
+        Tallies: no version yet
+      <% end %>
+      ·
+      <%= if @transaction.script_analysis_version do %>
+        Script analysis v<%= @transaction.script_analysis_version %>
+      <% else %>
+        Script analysis: no version yet
+      <% end %>
+    </p>
 
     <div
       :if={@output_status}

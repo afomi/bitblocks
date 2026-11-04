@@ -48,6 +48,7 @@ Write tools come after, behind `ops_write`, dry-run by default and recorded as c
 
 1. **Stable template hashes first.** `Script.template_hash/1` names some opcodes (bytes 81, 177, 178) by map order, so one shape can get two hashes (#49).
    Canonical names, then re-stamp the affected rows; otherwise "first seen" splits in two.
+   Re-stamping is a version bump and a backfill, recorded in `derivation_runs` (`docs/DERIVED_DATA.md`).
 2. **Classify at completion.** When a block becomes `completed`, every output gets a type and every transaction a composite type (for example inscription + OrdLock = listing).
    Anything unmatched is `custom`, keyed by its normalized template hash.
    It will be a block step in `Chain.TxPipeline`, after `block_totals`; `docs/TX_PIPELINE.md` holds its placeholder.
@@ -75,6 +76,7 @@ That structure lets the taxonomy grow without renaming what came before.
 *Bitcoin transaction types: a verified taxonomy, with first-seen heights and adoption curves from genesis.*
 
 A reproducible dataset (types by height bucket), exported with the data-pack exporter, every count traceable to merkle-verified blocks.
+Every count also names the version that computed it, and the backfill runs that brought the rows to it (`docs/DERIVED_DATA.md`).
 
 ---
 

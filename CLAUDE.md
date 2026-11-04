@@ -103,6 +103,10 @@ mix assets.deploy           # Build and minify for production
 - Read-time facts, never stored: `Chain.output_status/1` (spent, unspent or unspendable per output) and `Chain.nft_facts/1` (inscription or Run jig, and collection membership).
 - `Release.backfill_tx_tallies(from, to, apply: true)` fills the tally columns for blocks completed before the steps; dry run by default.
 
+- **Derived data** (authoritative: `docs/DERIVED_DATA.md`): everything `Chain.TxPipeline` adds after ingestion carries its provenance.
+  Each step has a `version/0`; rows stamp the version that computed them (`transactions.script_analysis_version`, `transactions.tallies_version`, `blocks.tallies_version`).
+  Backfills pick rows below the current version, stamp them, and record each run (dry runs too) in `derivation_runs`; `GET /api/v1/status/derivations` shows the versions and latest runs.
+
 - `Bitblocks.Workers.ChainTilesWorker` — builds chain-scrubber tiles (`Bitblocks.ChainTiles`) on the `:chain_tiles` lane (concurrency 1), reading `blocks` only. Cron every 5 minutes in incremental mode: a no-op until `Release.build_chain_tiles()` has run once, and when no block changed. See `docs/CHAIN_SCRUBBER.md`.
 
 ### Data Layer
@@ -190,6 +194,13 @@ bin/bitblocks rpc 'Bitblocks.Release.gaps()'
 bin/bitblocks rpc 'Bitblocks.Release.sync_status()'
 bin/bitblocks rpc 'Bitblocks.Release.status()'
 
+# Derived data (docs/DERIVED_DATA.md): bring rows below the current version up to it.
+# Dry run first; apply in ascending ranges; a dry run then reports 0 below version.
+bin/bitblocks rpc 'Bitblocks.Release.backfill_tx_tallies(0, 10_000)'
+bin/bitblocks rpc 'Bitblocks.Release.backfill_tx_tallies(0, 10_000, apply: true)'
+bin/bitblocks rpc 'Bitblocks.Release.backfill_script_analysis(0, 10_000)'
+bin/bitblocks rpc 'Bitblocks.Release.derivation_runs()'
+
 # A reorg's orphaned tx rows (#34): dry run first, then add apply: true
 bin/bitblocks rpc 'Bitblocks.Release.reconcile_orphaned_block("<orphan hash>")'
 
@@ -213,6 +224,7 @@ GET /api/v1/txs                 — paginated transactions (?protocol=Twetch to 
 GET /api/v1/txs/:txid           — single transaction by txid
 GET /api/v1/txs/:txid/proof     — merkle proof for a transaction
 GET /content/:outpoint          — inscription body parsed from the raw tx on the fly (1Sat convention; immutable, nosniff, sandbox CSP)
+GET /api/v1/status/derivations  — each pipeline step's version, stage and derivation versions, latest backfill runs
 GET /api/v1/price/bsv           — cached BSV spot price (USD) from CoinGecko
 GET /api/v1/support             — sponsorship numbers for the off-site page: monthly costs, target, BSV received (CORS *)
 GET /api/v1/stream/blocks       — SSE stream of new blocks

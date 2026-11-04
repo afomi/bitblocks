@@ -107,6 +107,9 @@ config :bitblocks, :admin_auth, enabled: false
 # turn assertions into flaky 429s depending on test order.
 config :bitblocks, BitblocksWeb.Plugs.RateLimiter, max_requests: 100_000
 
+# Derived-data backfills (docs/DERIVED_DATA.md): no pause between pages.
+config :bitblocks, :derivation_pause_ms, 0
+
 # Wallaby configuration
 config :wallaby,
   otp_app: :bitblocks,

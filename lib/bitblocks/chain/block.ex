@@ -56,6 +56,10 @@ defmodule Bitblocks.Chain.Block do
     field :subsidy, :integer
     field :burned, :integer
     field :fees_verified, :boolean
+    # Provenance: the version of block_totals that wrote the totals above
+    # (TxPipeline.version(:block_totals)); nil before versions existed, which
+    # Release.backfill_tx_tallies/3 picks up. docs/DERIVED_DATA.md.
+    field :tallies_version, :integer
 
     timestamps()
   end

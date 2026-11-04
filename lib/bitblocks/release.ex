@@ -493,111 +493,31 @@ defmodule Bitblocks.Release do
     }
   end
 
-  @doc """
-  Backfill script analysis for transactions missing it or analyzed by an older version.
-
-  Processes in batches of `batch_size` (default 500), updating output_types,
-  protocols, coinbase, and script_analysis_version directly in the DB.
-  Idempotent — safe to re-run. Skips transactions without raw hex.
-
-  ## Usage
-
-      bin/bitblocks rpc 'Bitblocks.Release.analyze_transactions()'
-      bin/bitblocks rpc 'Bitblocks.Release.analyze_transactions(batch_size: 1000)'
-  """
-  def analyze_transactions(opts \\ []) do
-    alias Bitblocks.{Repo, Chain.Transaction, TransactionParser}
-    import Ecto.Query
-
-    batch_size = Keyword.get(opts, :batch_size, 500)
-    current_version = TransactionParser.script_analysis_version()
-
-    total_needing_analysis =
-      from(t in Transaction,
-        where: not is_nil(t.raw),
-        where: is_nil(t.script_analysis_version) or t.script_analysis_version < ^current_version,
-        select: count()
-      )
-      |> Repo.one()
-
-    Logger.info(
-      "analyze_transactions: #{total_needing_analysis} transactions to analyze (version #{current_version})"
-    )
-
-    if total_needing_analysis == 0 do
-      Logger.info("analyze_transactions: nothing to do")
-      :ok
-    else
-      do_analyze_batch(0, 0, total_needing_analysis, batch_size, current_version)
-    end
-  end
-
-  # Keyset-paginated by id: every batch starts after the last one, so a tx that
-  # fails to analyze (and so keeps its old version) is never re-selected, and
-  # batches don't re-scan the rows already done.
-  defp do_analyze_batch(last_id, processed, total, batch_size, current_version) do
-    alias Bitblocks.{Repo, Chain.Transaction, TransactionParser}
-    import Ecto.Query
-
-    txs =
-      from(t in Transaction,
-        where: t.id > ^last_id,
-        where: not is_nil(t.raw),
-        where: is_nil(t.script_analysis_version) or t.script_analysis_version < ^current_version,
-        order_by: [asc: t.id],
-        limit: ^batch_size,
-        select: [:id, :txid, :raw, :block_height]
-      )
-      |> Repo.all()
-
-    if txs == [] do
-      Logger.info("analyze_transactions: complete (#{processed}/#{total})")
-      :ok
-    else
-      Enum.each(txs, fn tx ->
-        case TransactionParser.analyze(tx.raw) do
-          {:ok, meta} ->
-            from(t in Transaction, where: t.id == ^tx.id)
-            |> Repo.update_all(
-              set: [
-                output_types: meta.output_types,
-                protocols: meta.protocols,
-                coinbase: meta.coinbase,
-                script_analysis_version: meta.script_analysis_version,
-                output_script_hashes: meta.output_script_hashes,
-                output_template_hashes: meta.output_template_hashes,
-                aip_signers: meta.aip_signers
-              ]
-            )
-
-            # Bitcom commands are indexed from analyze output, so a re-analyze
-            # must index them too (idempotent per txid + output).
-            Bitblocks.Bitcom.index(%{tx | protocols: meta.protocols})
-
-          {:error, reason} ->
-            Logger.warning("analyze_transactions: failed for tx #{tx.id}: #{inspect(reason)}")
-        end
-      end)
-
-      new_processed = processed + length(txs)
-      Logger.info("analyze_transactions: #{new_processed}/#{total}")
-      do_analyze_batch(List.last(txs).id, new_processed, total, batch_size, current_version)
-    end
-  end
+  # ---------------------------------------------------------------------------
+  # Derived data: backfills that bring rows up to the pipeline's current
+  # versions, each recorded in derivation_runs (docs/DERIVED_DATA.md).
 
   @doc """
-  Recomputes the tx pipeline's tallies (sats in, sats out, fee, burned) for
-  the transactions of completed blocks from `from_height` to `to_height`,
-  then each block's totals (`docs/TX_PIPELINE.md`). Bounded batches, in
-  height order. See `Bitblocks.Chain.TxPipeline.Backfill`.
+  Brings the tallies (sats in, sats out, fee, burned) of completed blocks
+  from `from_height` to `to_height` up to `TxPipeline.version(:tallies)`,
+  then rewrites those blocks' totals (`block_totals`). Picks only rows whose
+  stamp is nil or older, in bounded batches in height order, so a rerun
+  after a full apply finds nothing. Records the run in `derivation_runs`.
+  See `Bitblocks.Chain.TxPipeline.Backfill` and `docs/DERIVED_DATA.md`.
 
-  **Dry run by default**: prints what it would change and writes nothing.
-  Pass `apply: true` to write; only rows whose values change are updated.
+  **Dry run by default**: prints what it would stamp and writes only its
+  run record. Pass `apply: true` to write.
+
+  It ends by printing the rows changed and the rows still below the version
+  in the range: 0 for a complete run.
 
   ## Options
     - apply: true to write (default false)
+    - force: true to recompute every row in the range, whatever its stamp
     - block_batch: blocks per batch (default 100)
     - tx_batch: txs per page within a block (default 1,000)
+    - pause_ms: sleep after each page written (default 50)
+    - statement_timeout_ms: per page (default 60,000)
 
   ## Usage
 
@@ -606,16 +526,16 @@ defmodule Bitblocks.Release do
   """
   def backfill_tx_tallies(from_height, to_height, opts \\ [])
       when is_integer(from_height) and is_integer(to_height) do
-    with_running_repo(fn ->
-      progress = fn r ->
-        IO.puts("  ...through #{r.blocks} block(s), #{r.txs} tx(s), #{r.txs_changed} changed")
-      end
+    command = command("backfill_tx_tallies", [from_height, to_height], opts)
 
+    with_running_repo(fn ->
       report =
         Bitblocks.Chain.TxPipeline.Backfill.run(
           from_height,
           to_height,
-          Keyword.put_new(opts, :on_batch, progress)
+          opts
+          |> Keyword.put_new(:on_batch, &print_progress/1)
+          |> Keyword.put(:command, command)
         )
 
       print_tally_backfill(report)
@@ -624,23 +544,26 @@ defmodule Bitblocks.Release do
   end
 
   defp print_tally_backfill(r) do
-    IO.puts(
-      if(r.applied, do: "APPLIED", else: "DRY RUN (nothing written)") <>
-        ": tx tallies for completed blocks #{r.from_height}..#{r.to_height}"
-    )
+    print_run_header(r, "tx tallies for completed blocks")
+    d = r.details
 
-    IO.puts("  #{r.blocks} block(s), #{r.txs} transaction(s) scanned")
-    IO.puts("  #{r.txs_changed} transaction(s) #{if r.applied, do: "updated", else: "to update"}")
+    IO.puts("  #{r.blocks_examined} block(s), #{r.rows_examined} transaction(s) scanned")
 
     IO.puts(
-      "  #{r.sats_in_unknown} transaction(s) with sats in unknown (a previous tx not stored)"
+      "  #{r.rows_changed} transaction(s) #{if r.applied, do: "stamped", else: "to stamp"}" <>
+        " v#{r.version}, #{d.values_changed} with values that change"
     )
 
     IO.puts(
-      "  #{r.blocks_changed} block total(s) #{if r.applied, do: "written", else: "to write"}"
+      "  #{d.sats_in_unknown} transaction(s) with sats in unknown (a previous tx not stored)"
     )
 
-    case r.unverified do
+    IO.puts(
+      "  #{d.blocks_changed} block total(s) #{if r.applied, do: "written", else: "to write"}" <>
+        " v#{d.block_totals_version}, #{d.block_values_changed} with values that change"
+    )
+
+    case d.unverified do
       [] ->
         IO.puts("  every block with known fees verifies: miner reward <= subsidy + fees")
 
@@ -651,7 +574,167 @@ defmodule Bitblocks.Release do
         )
     end
 
-    unless r.applied, do: IO.puts("  Run again with apply: true to write these.")
+    IO.puts(
+      "  #{r.rows_below_version} transaction(s) and #{d.blocks_below_version} block(s)" <>
+        " below the version in the range"
+    )
+
+    print_run_footer(r)
+  end
+
+  @doc """
+  Brings script analysis (output types, protocols, coinbase, script and
+  template hashes, AIP signers) of the txs with `block_height` from
+  `from_height` to `to_height` up to the `script_analysis` step's version
+  (`TransactionParser.script_analysis_version/0`), and re-indexes their
+  Bitcom commands. Picks only rows whose stamp is nil or older, in bounded
+  height windows; a rerun after a full apply finds nothing. Records the run
+  in `derivation_runs`. See `Bitblocks.Chain.TxPipeline.ScriptAnalysisBackfill`.
+
+  **Dry run by default**; `apply: true` writes.
+
+  ## Options
+    - apply: true to write (default false)
+    - force: true to re-analyze every row in the range
+    - batch_size: txs per page (default 500)
+    - height_batch: heights per window (default 1,000)
+    - pause_ms, statement_timeout_ms: as `backfill_tx_tallies/3`
+
+  ## Usage
+
+      bin/bitblocks rpc 'Bitblocks.Release.backfill_script_analysis(0, 10_000)'
+      bin/bitblocks rpc 'Bitblocks.Release.backfill_script_analysis(0, 10_000, apply: true)'
+  """
+  def backfill_script_analysis(from_height, to_height, opts \\ [])
+      when is_integer(from_height) and is_integer(to_height) do
+    command = command("backfill_script_analysis", [from_height, to_height], opts)
+
+    with_running_repo(fn ->
+      report =
+        Bitblocks.Chain.TxPipeline.ScriptAnalysisBackfill.run(
+          from_height,
+          to_height,
+          opts
+          |> Keyword.put_new(:on_batch, &print_progress/1)
+          |> Keyword.put(:command, command)
+        )
+
+      print_script_analysis_backfill(report)
+      report
+    end)
+  end
+
+  @doc """
+  Brings script analysis of every stored transaction up to the current
+  version, applying as it goes: `backfill_script_analysis/3` over all rows,
+  heights or not (paged by id), recorded in `derivation_runs`.
+  Idempotent; returns `:ok` when the run finished, `{:error, report}` when
+  it stopped. Kept for the existing runbooks; prefer
+  `backfill_script_analysis/3`, which dry-runs first and walks a height range.
+
+  ## Usage
+
+      bin/bitblocks rpc 'Bitblocks.Release.analyze_transactions()'
+      bin/bitblocks rpc 'Bitblocks.Release.analyze_transactions(batch_size: 1000)'
+  """
+  def analyze_transactions(opts \\ []) do
+    command = command("analyze_transactions", [], opts)
+
+    with_running_repo(fn ->
+      report =
+        Bitblocks.Chain.TxPipeline.ScriptAnalysisBackfill.run(
+          nil,
+          nil,
+          opts
+          |> Keyword.put_new(:apply, true)
+          |> Keyword.put_new(:on_batch, &print_progress/1)
+          |> Keyword.put(:command, command)
+        )
+
+      print_script_analysis_backfill(report)
+      if report.outcome == "ok", do: :ok, else: {:error, report}
+    end)
+  end
+
+  defp print_script_analysis_backfill(r) do
+    print_run_header(r, "script analysis")
+    IO.puts("  #{r.rows_examined} transaction(s) below v#{r.version} found")
+
+    IO.puts(
+      "  #{r.rows_changed} transaction(s) #{if r.applied, do: "stamped", else: "to stamp"} v#{r.version}"
+    )
+
+    IO.puts("  #{r.details.undecodable} transaction(s) don't decode and keep their old stamp")
+    IO.puts("  #{r.rows_below_version} transaction(s) below the version in the range")
+    print_run_footer(r)
+  end
+
+  defp print_progress(r) do
+    IO.puts(
+      "  ...#{r.rows_examined} row(s) read, #{r.rows_changed} #{if r.applied, do: "stamped", else: "to stamp"}"
+    )
+  end
+
+  defp print_run_header(r, what) do
+    range =
+      if r.from_height, do: " #{r.from_height}..#{r.to_height}", else: " (every stored tx)"
+
+    IO.puts(
+      if(r.applied, do: "APPLIED", else: "DRY RUN (nothing written)") <>
+        ": #{what}#{range}, v#{r.version}, derivation run ##{r.run_id}"
+    )
+  end
+
+  defp print_run_footer(r) do
+    case r.outcome do
+      "ok" -> IO.puts("  outcome: ok")
+      outcome -> IO.puts("  outcome: #{String.upcase(outcome)}: #{r.error}")
+    end
+
+    if r.outcome == "ok" and not r.applied and r.rows_changed > 0,
+      do: IO.puts("  Run again with apply: true to write these.")
+  end
+
+  # The command as typed, for the derivation_runs record.
+  defp command(name, args, opts) do
+    opts = Keyword.drop(opts, [:on_batch, :command])
+
+    args =
+      Enum.map(args, &inspect/1) ++
+        if(opts == [], do: [], else: [inspect(opts) |> String.slice(1..-2//1)])
+
+    "Release.#{name}(#{Enum.join(args, ", ")})"
+  end
+
+  @doc """
+  Prints and returns the latest derivation runs, newest first: what each
+  derived, at which version and range, dry run or applied, the counts, and
+  the outcome. Options: `limit:` (20), `derivation:` ("tallies",
+  "script_analysis").
+
+      bin/bitblocks rpc 'Bitblocks.Release.derivation_runs()'
+      bin/bitblocks rpc 'Bitblocks.Release.derivation_runs(derivation: "tallies", limit: 5)'
+  """
+  def derivation_runs(opts \\ []) do
+    with_running_repo(fn ->
+      runs = Bitblocks.Derivations.list_runs(opts)
+
+      for r <- runs do
+        range = if r.from_height, do: "#{r.from_height}..#{r.to_height}", else: "all"
+
+        IO.puts(
+          "##{r.id} #{r.derivation} v#{r.version} #{range} " <>
+            "#{if r.applied, do: "applied", else: "dry run"} #{r.outcome}: " <>
+            "examined #{r.rows_examined}, changed #{r.rows_changed}, " <>
+            "below version #{inspect(r.rows_below_version)}; " <>
+            "#{r.started_at} -> #{inspect(r.finished_at)}" <>
+            if(r.error, do: "; error: #{r.error}", else: "")
+        )
+      end
+
+      if runs == [], do: IO.puts("no derivation runs yet")
+      runs
+    end)
   end
 
   @doc """

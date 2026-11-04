@@ -105,4 +105,53 @@ defmodule BitblocksWeb.TxPipelinePagesTest do
     assert html =~ "reward 6.250025 BSV"
     assert html =~ "fees —"
   end
+
+  describe "provenance (docs/DERIVED_DATA.md)" do
+    require Ecto.Query
+    alias Bitblocks.Chain.{Transaction, TxPipeline}
+
+    test "the tx page names the versions that computed its tallies and analysis, and when",
+         %{conn: conn} do
+      block = block_fixture(%{height: 33})
+      {txid, _} = t = tx([funding_outpoint()], [p2pkh(address(), 5_000)])
+      assert :ok = TxIngest.store(tx_json(t), block)
+
+      {:ok, view, _html} = live(conn, ~p"/transactions/#{txid}")
+      provenance = view |> element("#tx-provenance") |> render()
+      today = Date.utc_today() |> Date.to_iso8601()
+
+      assert provenance =~ "Tallies v#{TxPipeline.version(:tallies)} · computed #{today}"
+      assert provenance =~ "Script analysis v#{TxPipeline.version(:script_analysis)}"
+
+      Bitblocks.Repo.update_all(
+        Ecto.Query.from(t in Transaction, where: t.txid == ^txid),
+        set: [tallies_version: nil]
+      )
+
+      {:ok, view, _html} = live(conn, ~p"/transactions/#{txid}")
+      assert view |> element("#tx-provenance") |> render() =~ "Tallies: no version yet"
+    end
+
+    test "the block page names the version of its totals once completed", %{conn: conn} do
+      block_fixture(%{height: 42, sync_state: "completed", fees: 0, miner_reward: 1})
+      block_fixture(%{height: 43, sync_state: "completed", fees: 0, miner_reward: 1})
+      block_fixture(%{height: 44, sync_state: "txs_syncing"})
+
+      Bitblocks.Repo.update_all(
+        Ecto.Query.from(b in Bitblocks.Chain.Block, where: b.height == 42),
+        set: [tallies_version: TxPipeline.version(:block_totals)]
+      )
+
+      {:ok, view, _html} = live(conn, ~p"/blocks/42")
+
+      assert view |> element("#block-provenance") |> render() =~
+               "Totals v#{TxPipeline.version(:block_totals)}"
+
+      {:ok, view, _html} = live(conn, ~p"/blocks/43")
+      assert view |> element("#block-provenance") |> render() =~ "Totals: no version yet"
+
+      {:ok, view, _html} = live(conn, ~p"/blocks/44")
+      refute has_element?(view, "#block-provenance")
+    end
+  end
 end

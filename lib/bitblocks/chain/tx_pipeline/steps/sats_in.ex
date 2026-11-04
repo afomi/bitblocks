@@ -25,6 +25,10 @@ defmodule Bitblocks.Chain.TxPipeline.Steps.SatsIn do
   @impl true
   def name, do: "sats_in"
 
+  # Bump when this step\'s output would change; docs/DERIVED_DATA.md.
+  @impl true
+  def version, do: 1
+
   @impl true
   def description,
     do: "Sums each input's previous output value from stored txs into total_input_satoshis."

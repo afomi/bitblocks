@@ -18,4 +18,16 @@ defmodule BitblocksWeb.Api.StatusController do
     |> put_resp_header("cache-control", "public, max-age=60")
     |> json(Bitblocks.Ops.coverage())
   end
+
+  @doc """
+  `GET /api/v1/status/derivations`: the provenance of derived data. Every
+  pipeline step with its version, the version of each stage and derivation,
+  and the latest backfill runs (`Bitblocks.Derivations.status/0`,
+  `docs/DERIVED_DATA.md`). No secrets, no node address.
+  """
+  def derivations(conn, _params) do
+    conn
+    |> put_resp_header("cache-control", "public, max-age=60")
+    |> json(Bitblocks.Derivations.status())
+  end
 end

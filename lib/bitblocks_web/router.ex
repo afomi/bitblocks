@@ -144,6 +144,7 @@ defmodule BitblocksWeb.Router do
 
     get "/status", StatusController, :show
     get "/status/coverage", StatusController, :coverage
+    get "/status/derivations", StatusController, :derivations
     get "/price/bsv", PriceController, :show
     get "/support", SupportController, :show
 

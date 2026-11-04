@@ -3,7 +3,7 @@
 What happens after a transaction comes in.
 This doc depicts `Bitblocks.Chain.TxPipeline`; the list in `TxPipeline.steps/0` is the source of truth, and `test/bitblocks/chain/tx_pipeline_doc_test.exs` fails when this doc lists anything else.
 
-Related: `docs/SYNCING.md` (how blocks and their txs arrive), `docs/TYPING_PIPELINE.md` (the typing steps still to come).
+Related: `docs/SYNCING.md` (how blocks and their txs arrive), `docs/TYPING_PIPELINE.md` (the typing steps still to come), `docs/DERIVED_DATA.md` (each step's version, the stamps on each row, and the backfills).
 
 ## Where it runs
 
@@ -111,15 +111,18 @@ The block page and the homepage's recent blocks show fees and miner reward, and 
 
 ## Filling in older blocks
 
-Blocks completed before these steps existed have empty tally columns.
-`Release.backfill_tx_tallies(from_height, to_height, opts)` runs the same step modules over them, in bounded batches in height order.
-It is a dry run by default; `apply: true` writes only the rows whose values change, then runs `block_totals` on each block.
+Every step has a version, and each row records which version computed it: `transactions.script_analysis_version`, `transactions.tallies_version` and `blocks.tallies_version`.
+Rows from before a step existed, or computed by an older version, are below the current version.
+`Release.backfill_tx_tallies(from_height, to_height, opts)` and `Release.backfill_script_analysis(from_height, to_height, opts)` run the same step modules over just those rows, in bounded batches in height order, stamp them, and record each run in `derivation_runs`.
+Both are dry runs by default; `apply: true` writes.
+`docs/DERIVED_DATA.md` is authoritative for versions, stamps and backfills.
 
 ## Adding a step
 
-1. Write one module under `lib/bitblocks/chain/tx_pipeline/steps/` implementing `Bitblocks.Chain.TxPipeline.Step`: `name/0`, a one-line `description/0`, `stage/0`, and `run_chunk/2`, `run/2` or `run_block/1` for its stage.
-2. Add one line for it in `@steps` in `Bitblocks.Chain.TxPipeline`, where it should run.
-3. Add its row to the table for its stage above, and to the flowchart.
+1. Write one module under `lib/bitblocks/chain/tx_pipeline/steps/` implementing `Bitblocks.Chain.TxPipeline.Step`: `name/0`, a one-line `description/0`, `stage/0`, `version/0`, and `run_chunk/2`, `run/2` or `run_block/1` for its stage.
+2. Give it a `version/0` (start at 1), and add it to a derivation in `TxPipeline` if a row should stamp its output.
+3. Add one line for it in `@steps` in `Bitblocks.Chain.TxPipeline`, where it should run.
+4. Add its row to the table for its stage above, and to the flowchart, and to the step table in `docs/DERIVED_DATA.md`.
 
 A chunk step returns its columns in the row attrs, so they go in with the insert.
 A new column on `transactions` is a nullable add in its own migration, with no index in the same change (AGENTS.md, "Migrations on large tables").

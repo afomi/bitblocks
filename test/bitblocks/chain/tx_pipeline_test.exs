@@ -78,6 +78,49 @@ defmodule Bitblocks.Chain.TxPipelineTest do
     end
   end
 
+  describe "versions (docs/DERIVED_DATA.md)" do
+    test "every step has a positive version, and a stage or derivation sums its steps" do
+      for step <- TxPipeline.steps() do
+        assert is_integer(step.version()) and step.version() > 0, "#{step.name()} needs a version"
+      end
+
+      for stage <- [:chunk, :tx, :block] do
+        assert TxPipeline.version(stage) ==
+                 TxPipeline.steps(stage) |> Enum.map(& &1.version()) |> Enum.sum()
+      end
+
+      assert TxPipeline.version(:tallies) ==
+               Enum.sum(
+                 for s <- [Steps.SatsOut, Steps.Burned, Steps.SatsIn, Steps.Fee], do: s.version()
+               )
+
+      assert TxPipeline.version(:block_totals) == Steps.BlockTotals.version()
+    end
+
+    test "script analysis keeps one number: the step's version is the analyzer's" do
+      assert Steps.ScriptAnalysis.version() ==
+               Bitblocks.TransactionParser.script_analysis_version()
+
+      assert TxPipeline.version(:script_analysis) == Steps.ScriptAnalysis.version()
+    end
+
+    test "ingest stamps each tx's tallies and analysis, and the block step stamps the block" do
+      store_block9()
+      block = block170()
+      RpcStub.stub_rest_block(@block170_hash, {:ok, block170_bytes()})
+
+      assert :ok = FetchTransactionsWorker.perform(%Oban.Job{args: %{"block_hash" => block.hash}})
+
+      for txid <- [@hal_payment, @block170_coinbase] do
+        tx = Chain.get_transaction!(txid)
+        assert tx.tallies_version == TxPipeline.version(:tallies)
+        assert tx.script_analysis_version == TxPipeline.version(:script_analysis)
+      end
+
+      assert Chain.get_block!(170).tallies_version == TxPipeline.version(:block_totals)
+    end
+  end
+
   describe "block 170, the first payment" do
     test "tallies sats in from block 9's stored coinbase, and the block's totals verify" do
       store_block9()

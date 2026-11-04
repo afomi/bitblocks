@@ -19,12 +19,18 @@ defmodule Bitblocks.Chain.Transaction do
     field :total_input_satoshis, :integer
     field :fee_satoshis, :integer
     field :burned_satoshis, :integer
+    # Provenance for the four tallies: TxPipeline.version(:tallies) when they
+    # were computed (at ingest, or by Release.backfill_tx_tallies/3); nil for
+    # rows from before versions, which the backfill picks up. The row's
+    # updated_at is when it was stamped. docs/DERIVED_DATA.md.
+    field :tallies_version, :integer
     field :input_count, :integer
     field :output_count, :integer
 
     # Script analysis — derived deterministically from raw.
     # script_analysis_version tracks which analyzer version produced these fields.
-    # Bump Bitblocks.TransactionAnalyzer.current_version() to trigger reanalysis.
+    # Bump TransactionParser.script_analysis_version() (the script_analysis
+    # step's version) to trigger reanalysis: Release.backfill_script_analysis/3.
     field :output_types, :map
     field :protocols, {:array, :string}
     field :coinbase, :boolean
@@ -62,6 +68,7 @@ defmodule Bitblocks.Chain.Transaction do
       :total_input_satoshis,
       :fee_satoshis,
       :burned_satoshis,
+      :tallies_version,
       :input_count,
       :output_count,
       :output_types,

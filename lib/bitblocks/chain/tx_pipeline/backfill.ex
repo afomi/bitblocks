@@ -1,166 +1,282 @@
 defmodule Bitblocks.Chain.TxPipeline.Backfill do
   @moduledoc """
-  Recomputes the tally columns for blocks that completed before the tally
-  steps existed: `total_input_satoshis`, `total_output_satoshis`,
-  `fee_satoshis` and `burned_satoshis` on each tx, then the block totals.
-  It runs the same step modules the ingest runs (`sats_out`, `burned`,
-  `sats_in`, `fee`, `block_totals`), so the two can't disagree.
+  Brings the tallies of completed blocks up to the current version
+  (`docs/DERIVED_DATA.md`): `total_input_satoshis`, `total_output_satoshis`,
+  `fee_satoshis` and `burned_satoshis` on each tx, stamped
+  `tallies_version`, then the block totals, stamped `blocks.tallies_version`.
+  It runs the same step modules the ingest runs (`TxPipeline.derivation_steps(:tallies)`
+  and `block_totals`), so the two can't disagree.
 
-  Dry run by default: reads, computes and counts, writes nothing. With
-  `apply: true` it writes only the rows whose values change, one `UPDATE …
-  FROM unnest(…)` per page of txs, then runs `block_totals` on each block.
+  Selects by version: a tx is picked when its `tallies_version` is nil or
+  below `TxPipeline.version(:tallies)`, and a block's totals are rewritten
+  when it is below `TxPipeline.version(:block_totals)` or any of its txs was
+  picked. So a rerun after a full apply picks nothing, and a stopped run
+  resumes where it stopped. `force: true` picks every row in the range.
+
+  Dry run by default: reads, computes and counts, and writes only its
+  `derivation_runs` row. With `apply: true` it stamps every picked row,
+  writing its values too, one `UPDATE … FROM unnest(…)` per page.
 
   Bounded: completed blocks in height order, `:block_batch` at a time, each
-  block's txs paged by id, `:tx_batch` at a time. Ascending, so a page's
-  previous outputs are stored (and tallied) before it. Entry point:
-  `Bitblocks.Release.backfill_tx_tallies/3`.
+  block's txs paged by id, `:tx_batch` at a time. Each page is one short
+  transaction under a statement timeout, with a pause after each write
+  (`Bitblocks.Derivations`). Ascending, so a page's previous outputs are
+  stored before it. Entry point: `Bitblocks.Release.backfill_tx_tallies/3`.
+
+  Cost: every tx row in the range is read once (the stamp and the stored
+  values, for the block sums); raw bytes are read only for picked rows.
   """
 
   import Ecto.Query
 
-  require Logger
-
   alias Bitblocks.Chain.{Block, Transaction, TxPipeline}
   alias Bitblocks.Chain.TxPipeline.Steps
-  alias Bitblocks.Repo
+  alias Bitblocks.{Derivations, Repo}
 
-  @tally_steps [Steps.SatsOut, Steps.Burned, Steps.SatsIn, Steps.Fee]
   @columns [:total_input_satoshis, :total_output_satoshis, :fee_satoshis, :burned_satoshis]
   @block_columns [:sats_out, :fees, :miner_reward, :subsidy, :burned, :fees_verified]
-
-  @type report :: %{
-          applied: boolean(),
-          from_height: integer(),
-          to_height: integer(),
-          blocks: non_neg_integer(),
-          txs: non_neg_integer(),
-          txs_changed: non_neg_integer(),
-          sats_in_unknown: non_neg_integer(),
-          blocks_changed: non_neg_integer(),
-          unverified: [integer()]
-        }
+  # Heights kept in a report's unverified list.
+  @unverified_cap 100
 
   @doc """
-  Runs over completed blocks from `from_height` to `to_height` inclusive.
+  Runs over completed blocks from `from_height` to `to_height` inclusive and
+  returns the `Derivations` report; `details` holds `values_changed`,
+  `sats_in_unknown`, `blocks_changed`, `block_values_changed`,
+  `blocks_below_version` and `unverified` (heights failing
+  `miner_reward <= subsidy + fees`).
 
-  Options: `apply: true` to write (default false); `block_batch` (100);
-  `tx_batch` (1,000); `on_batch`, a function given the report so far after
-  each batch of blocks (the Release task prints progress with it).
+  Options: `apply: true` to write (default false); `force: true` to pick
+  every row; `block_batch` (100); `tx_batch` (1,000); and the
+  `Bitblocks.Derivations` options (`pause_ms`, `statement_timeout_ms`,
+  `command`, `on_batch`).
   """
-  @spec run(non_neg_integer(), non_neg_integer(), keyword()) :: report()
+  @spec run(non_neg_integer(), non_neg_integer(), keyword()) :: Derivations.report()
   def run(from_height, to_height, opts \\ []) do
-    report = %{
+    ctx = %{
       applied: Keyword.get(opts, :apply, false),
+      force: Keyword.get(opts, :force, false),
+      version: TxPipeline.version(:tallies),
+      block_version: TxPipeline.version(:block_totals),
       from_height: from_height,
       to_height: to_height,
-      blocks: 0,
-      txs: 0,
-      txs_changed: 0,
-      sats_in_unknown: 0,
-      blocks_changed: 0,
-      unverified: []
+      block_batch: Keyword.get(opts, :block_batch, 100),
+      tx_batch: Keyword.get(opts, :tx_batch, 1_000),
+      steps:
+        TxPipeline.derivation_steps(:tallies) ++
+          Application.get_env(:bitblocks, :tx_backfill_extra_steps, []),
+      opts: opts
     }
 
-    report
-    |> batches(from_height - 1, to_height, opts)
-    |> Map.update!(:unverified, &Enum.reverse/1)
+    Derivations.run(
+      %{
+        derivation: "tallies",
+        version: ctx.version,
+        from_height: from_height,
+        to_height: to_height,
+        cursor: {from_height - 1, 0},
+        details: %{
+          block_totals_version: ctx.block_version,
+          values_changed: 0,
+          sats_in_unknown: 0,
+          blocks_changed: 0,
+          block_values_changed: 0,
+          blocks_below_version: 0,
+          unverified: []
+        },
+        next: &next(&1, &2, ctx)
+      },
+      opts
+    )
   end
 
-  defp batches(report, after_height, to_height, opts) do
+  # One batch of completed blocks after the cursor, keyset on (height, id).
+  defp next({after_height, after_id}, report, ctx) do
     blocks =
       Repo.all(
         from(b in Block,
-          where:
-            b.sync_state == "completed" and b.height > ^after_height and b.height <= ^to_height,
-          order_by: [asc: b.height],
-          limit: ^Keyword.get(opts, :block_batch, 100)
+          where: b.sync_state == "completed",
+          where: b.height >= ^ctx.from_height and b.height <= ^ctx.to_height,
+          where: b.height > ^after_height or (b.height == ^after_height and b.id > ^after_id),
+          order_by: [asc: b.height, asc: b.id],
+          limit: ^ctx.block_batch
         )
       )
 
     case blocks do
       [] ->
-        report
+        :done
 
       blocks ->
-        report = Enum.reduce(blocks, report, &block(&1, &2, opts))
-        if on_batch = opts[:on_batch], do: on_batch.(report)
-        batches(report, List.last(blocks).height, to_height, opts)
+        report = Enum.reduce(blocks, report, &block(&1, &2, ctx))
+        last = List.last(blocks)
+        {:cont, {last.height, last.id}, remaining(blocks, report, ctx)}
     end
   end
 
-  defp block(block, report, opts) do
-    {report, sums} = pages(block, report, 0, empty_sums(), opts)
+  defp block(block, report, ctx) do
+    {report, sums, picked} = pages(block, report, 0, empty_sums(), 0, ctx)
 
-    totals =
-      if report.applied do
-        TxPipeline.run_block(block)
-        Map.take(Repo.reload!(block), @block_columns)
-      else
-        Steps.BlockTotals.from_sums(sums, block.height)
-      end
+    if picked > 0 or ctx.force or below?(block.tallies_version, ctx.block_version) do
+      totals =
+        if ctx.applied do
+          Derivations.bounded(ctx.opts, fn -> run_block!(block) end)
+          Map.take(Repo.reload!(block), @block_columns)
+        else
+          Steps.BlockTotals.from_sums(sums, block.height)
+        end
 
-    changed? = Map.take(block, @block_columns) != totals
+      changed? = Map.take(block, @block_columns) != totals
 
-    %{
       report
-      | blocks: report.blocks + 1,
-        blocks_changed: report.blocks_changed + if(changed?, do: 1, else: 0),
-        unverified:
-          if(totals.fees_verified == false,
-            do: [block.height | report.unverified],
-            else: report.unverified
-          )
-    }
+      |> bump(:blocks_examined, 1)
+      |> detail(:blocks_changed, 1)
+      |> detail(:block_values_changed, if(changed?, do: 1, else: 0))
+      |> unverified(totals.fees_verified == false, block.height)
+    else
+      bump(report, :blocks_examined, 1)
+    end
   end
 
-  defp pages(block, report, after_id, sums, opts) do
-    rows =
-      Repo.all(
+  # A block step that fails stops the run, so it is recorded, not skipped.
+  defp run_block!(block) do
+    case Enum.find(TxPipeline.run_block(block), &match?({_, {:error, _}}, &1)) do
+      nil -> :ok
+      {step, {:error, message}} -> raise "block #{block.height} #{step}: #{message}"
+    end
+  end
+
+  defp pages(block, report, after_id, sums, picked, ctx) do
+    result =
+      Derivations.bounded(ctx.opts, fn ->
+        rows = page(block, after_id, ctx)
+
+        case rows do
+          [] -> :done
+          rows -> {rows, compute_and_write(rows, block, ctx)}
+        end
+      end)
+
+    case result do
+      :done ->
+        {report, sums, picked}
+
+      {rows, {pairs, n_picked, n_values_changed, n_unknown}} ->
+        if ctx.applied and n_picked > 0, do: Derivations.pause(ctx.opts)
+
+        report =
+          report
+          |> bump(:rows_examined, length(rows))
+          |> bump(:rows_changed, n_picked)
+          |> detail(:values_changed, n_values_changed)
+          |> detail(:sats_in_unknown, n_unknown)
+
+        sums =
+          Enum.reduce(pairs, sums, fn {row, values}, acc -> add(acc, row.coinbase, values) end)
+
+        pages(block, report, List.last(rows).id, sums, picked + n_picked, ctx)
+    end
+  end
+
+  # Every row of the block (the block sums need them all), with raw only for
+  # the picked ones, so a rerun reads no raw bytes.
+  defp page(block, after_id, ctx) do
+    Repo.all(
+      from(t in Transaction,
+        where: t.block_hash == ^block.hash and t.id > ^after_id,
+        order_by: [asc: t.id],
+        limit: ^ctx.tx_batch,
+        select: %{
+          id: t.id,
+          txid: t.txid,
+          coinbase: t.coinbase,
+          tallies_version: t.tallies_version,
+          total_input_satoshis: t.total_input_satoshis,
+          total_output_satoshis: t.total_output_satoshis,
+          fee_satoshis: t.fee_satoshis,
+          burned_satoshis: t.burned_satoshis,
+          raw:
+            fragment(
+              "CASE WHEN ?::boolean OR ? IS NULL OR ? < ? THEN ? END",
+              ^ctx.force,
+              t.tallies_version,
+              t.tallies_version,
+              ^ctx.version,
+              t.raw
+            )
+        }
+      )
+    )
+  end
+
+  defp compute_and_write(rows, block, ctx) do
+    {picked, kept} =
+      Enum.split_with(rows, &(ctx.force or below?(&1.tallies_version, ctx.version)))
+
+    computed =
+      Enum.reduce(ctx.steps, Enum.map(picked, &%{txid: &1.txid, raw: &1.raw}), fn step, acc ->
+        step.run_chunk(acc, block)
+      end)
+
+    picked_pairs = Enum.zip(picked, Enum.map(computed, &values/1))
+    values_changed = Enum.count(picked_pairs, fn {row, new} -> Map.take(row, @columns) != new end)
+
+    if ctx.applied and picked_pairs != [], do: write(picked_pairs, ctx.version)
+
+    kept_pairs = Enum.map(kept, &{&1, Map.take(&1, @columns)})
+
+    {picked_pairs ++ kept_pairs, length(picked), values_changed,
+     Enum.count(computed, &is_nil(&1[:total_input_satoshis]))}
+  end
+
+  # Rows and blocks of this batch still below the version, read back after
+  # the writes: the explicit success check, summed over the range.
+  defp remaining(blocks, report, ctx) do
+    hashes = Enum.map(blocks, & &1.hash)
+    ids = Enum.map(blocks, & &1.id)
+
+    txs =
+      Repo.one(
         from(t in Transaction,
-          where: t.block_hash == ^block.hash and t.id > ^after_id,
-          order_by: [asc: t.id],
-          limit: ^Keyword.get(opts, :tx_batch, 1_000),
-          select: map(t, [:id, :txid, :raw, :coinbase | @columns])
+          where: t.block_hash in ^hashes,
+          where: is_nil(t.tallies_version) or t.tallies_version < ^ctx.version,
+          select: count()
         )
       )
 
-    case rows do
-      [] ->
-        {report, sums}
+    blocks_below =
+      Repo.one(
+        from(b in Block,
+          where: b.id in ^ids,
+          where: is_nil(b.tallies_version) or b.tallies_version < ^ctx.block_version,
+          select: count()
+        )
+      )
 
-      rows ->
-        computed =
-          Enum.reduce(@tally_steps, Enum.map(rows, &%{txid: &1.txid, raw: &1.raw}), fn step,
-                                                                                       acc ->
-            step.run_chunk(acc, block)
-          end)
+    report
+    |> bump(:rows_below_version, txs)
+    |> detail(:blocks_below_version, blocks_below)
+  end
 
-        pairs = Enum.zip(rows, computed)
-        changed = for {row, new} <- pairs, Map.take(row, @columns) != values(new), do: {row, new}
+  defp below?(nil, _version), do: true
+  defp below?(stamp, version), do: stamp < version
 
-        if report.applied and changed != [], do: write(changed)
+  defp bump(report, key, n), do: Map.update!(report, key, &(&1 + n))
 
-        report = %{
-          report
-          | txs: report.txs + length(rows),
-            txs_changed: report.txs_changed + length(changed),
-            sats_in_unknown:
-              report.sats_in_unknown + Enum.count(computed, &is_nil(&1[:total_input_satoshis]))
-        }
+  defp detail(report, key, n), do: update_in(report, [:details, key], &(&1 + n))
 
-        sums =
-          Enum.reduce(pairs, sums, fn {row, new}, acc -> add(acc, row.coinbase, values(new)) end)
+  defp unverified(report, false, _height), do: report
 
-        pages(block, report, List.last(rows).id, sums, opts)
-    end
+  defp unverified(report, true, height) do
+    update_in(report, [:details, :unverified], fn heights ->
+      if length(heights) < @unverified_cap, do: heights ++ [height], else: heights
+    end)
   end
 
   defp values(computed), do: Map.new(@columns, &{&1, computed[&1]})
 
-  # One statement per page; only rows whose values change.
-  defp write(changed) do
-    ids = Enum.map(changed, fn {row, _} -> row.id end)
-    column = fn name -> Enum.map(changed, fn {_, new} -> new[name] end) end
+  # One statement per page: every picked row gets its values and the stamp.
+  defp write(pairs, version) do
+    column = fn name -> Enum.map(pairs, fn {_, new} -> new[name] end) end
 
     Repo.query!(
       """
@@ -169,17 +285,19 @@ defmodule Bitblocks.Chain.TxPipeline.Backfill do
           total_output_satoshis = u.sats_out,
           fee_satoshis = u.fee,
           burned_satoshis = u.burned,
+          tallies_version = $6,
           updated_at = now() AT TIME ZONE 'utc'
       FROM unnest($1::bigint[], $2::bigint[], $3::bigint[], $4::bigint[], $5::bigint[])
         AS u(id, sats_in, sats_out, fee, burned)
       WHERE t.id = u.id
       """,
       [
-        ids,
+        Enum.map(pairs, fn {row, _} -> row.id end),
         column.(:total_input_satoshis),
         column.(:total_output_satoshis),
         column.(:fee_satoshis),
-        column.(:burned_satoshis)
+        column.(:burned_satoshis),
+        version
       ]
     )
   end

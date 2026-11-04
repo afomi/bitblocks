@@ -8,6 +8,10 @@ defmodule Bitblocks.Chain.TxPipeline.Steps.SatsOut do
   @impl true
   def name, do: "sats_out"
 
+  # Bump when this step\'s output would change; docs/DERIVED_DATA.md.
+  @impl true
+  def version, do: 1
+
   @impl true
   def description, do: "Sums the tx's output values into total_output_satoshis."
 

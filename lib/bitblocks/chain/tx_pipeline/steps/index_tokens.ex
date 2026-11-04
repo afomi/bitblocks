@@ -6,6 +6,10 @@ defmodule Bitblocks.Chain.TxPipeline.Steps.IndexTokens do
   @impl true
   def name, do: "index_tokens"
 
+  # Bump when this step\'s output would change; docs/DERIVED_DATA.md.
+  @impl true
+  def version, do: 1
+
   @impl true
   def description, do: "Indexes BSV-20 and BSV-21 token inscriptions (txs tagged BSV20 only)."
 

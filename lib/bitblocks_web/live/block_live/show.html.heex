@@ -189,6 +189,26 @@
               <% end %>
             </span>
           </div>
+          <%!-- Provenance of the totals above (docs/DERIVED_DATA.md) --%>
+          <div
+            :if={@block.sync_state == "completed"}
+            id="block-provenance"
+            class="py-3 border-b border-neutral-800 flex justify-between"
+          >
+            <span
+              class="font-mono text-xs text-neutral-500"
+              title="The version of the block_totals step that computed fees, miner reward, subsidy and burned."
+            >
+              Computed by
+            </span>
+            <span class="font-mono text-xs text-neutral-400">
+              <%= if @block.tallies_version do %>
+                Totals v<%= @block.tallies_version %>
+              <% else %>
+                Totals: no version yet
+              <% end %>
+            </span>
+          </div>
           <div class="py-3 border-b border-neutral-800 flex justify-between">
             <span class="font-mono text-xs text-neutral-500">Version</span>
             <span class="font-mono text-xs text-neutral-400"><%= @block.version %></span>

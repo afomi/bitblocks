@@ -6,6 +6,10 @@ defmodule Bitblocks.Chain.TxPipeline.Steps.RecordSpends do
   @impl true
   def name, do: "record_spends"
 
+  # Bump when this step\'s output would change; docs/DERIVED_DATA.md.
+  @impl true
+  def version, do: 1
+
   @impl true
   def description, do: "Records which outpoints each input spends in spend_index."
 

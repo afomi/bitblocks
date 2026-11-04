@@ -6,6 +6,10 @@ defmodule Bitblocks.Chain.TxPipeline.Steps.IndexBitcom do
   @impl true
   def name, do: "index_bitcom"
 
+  # Bump when this step\'s output would change; docs/DERIVED_DATA.md.
+  @impl true
+  def version, do: 1
+
   @impl true
   def description, do: "Logs Bitcom $ commands and ownership proofs (txs tagged Bitcom only)."
 

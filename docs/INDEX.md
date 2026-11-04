@@ -13,6 +13,7 @@ Docs marked *(mixed)* are mostly aspirational but contain sections that accurate
 - `SYSTEM_ARCHITECTURE.md` — background services, job queues, and async work that keep the index in sync.
 - `SYNCING.md` — single source of truth for how Bitblocks syncs the chain (code-authoritative).
 - `SYNC_PIPELINE.md` — process map of the running sync pipeline.
+- `DERIVED_DATA.md` — ingested data vs derived metadata: every derived field with its step, version, cost and backfill; the per-row version stamps; the `derivation_runs` record; and how to verify a backfill.
 - `TX_PIPELINE.md` — what happens after a tx comes in: the ordered steps of `Chain.TxPipeline` (analysis, sats in and out, fee, burned, spends, tokens, Bitcom, block totals), the read-time facts, and how to add a step.
 - `NODE_OPERATIONS.md` — operator runbook for our Dockerized SV node: config, clean shutdown, disk, health check, upgrades.
 - `PERFORMANCE.md` — RPC- and HTTP-layer optimizations under the sync jobs.

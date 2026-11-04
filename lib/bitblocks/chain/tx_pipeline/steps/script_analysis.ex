@@ -12,6 +12,11 @@ defmodule Bitblocks.Chain.TxPipeline.Steps.ScriptAnalysis do
   @impl true
   def name, do: "script_analysis"
 
+  # The analyzer's own version, stamped per row as script_analysis_version:
+  # one number, kept in TransactionParser beside the code it versions.
+  @impl true
+  def version, do: TransactionParser.script_analysis_version()
+
   @impl true
   def description,
     do: "Classifies each output and tags protocols, coinbase, script and template hashes."

@@ -251,7 +251,7 @@ defmodule Bitblocks.BitcomTest do
         set: [script_analysis_version: nil]
       )
 
-      assert :ok = Release.analyze_transactions()
+      ExUnit.CaptureIO.capture_io(fn -> assert :ok = Release.analyze_transactions() end)
       assert [%Command{valid: true}] = logged(tx.txid)
 
       assert ProtocolRegistry.get_protocol_by_address(ctx.admin_addr).ownership_proof_txid ==
@@ -270,7 +270,10 @@ defmodule Bitblocks.BitcomTest do
         set: [script_analysis_version: nil]
       )
 
-      assert :ok = Release.analyze_transactions(batch_size: 1)
+      ExUnit.CaptureIO.capture_io(fn ->
+        assert :ok = Release.analyze_transactions(batch_size: 1)
+      end)
+
       assert [%Command{valid: true}] = logged(tx.txid)
     end
   end

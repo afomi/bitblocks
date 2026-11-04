@@ -15,7 +15,8 @@ defmodule Bitblocks.Chain.TxPipeline.Steps.BlockTotals do
   logged at error level. `fees_verified` is nil while fees are unknown.
 
   One aggregate over the block's rows on the `block_hash` index, and one
-  update of the block row.
+  update of the block row, which also stamps `blocks.tallies_version` with
+  `TxPipeline.version(:block_totals)` (`docs/DERIVED_DATA.md`).
   """
 
   @behaviour Bitblocks.Chain.TxPipeline.Step
@@ -32,6 +33,10 @@ defmodule Bitblocks.Chain.TxPipeline.Steps.BlockTotals do
 
   @impl true
   def name, do: "block_totals"
+
+  # Bump when this step\'s output would change; docs/DERIVED_DATA.md.
+  @impl true
+  def version, do: 1
 
   @impl true
   def description,
@@ -50,7 +55,10 @@ defmodule Bitblocks.Chain.TxPipeline.Steps.BlockTotals do
         from(b in Block, where: b.id == ^block.id),
         set:
           Map.to_list(totals) ++
-            [updated_at: NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second)]
+            [
+              tallies_version: Bitblocks.Chain.TxPipeline.version(:block_totals),
+              updated_at: NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second)
+            ]
       )
 
     totals

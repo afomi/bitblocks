@@ -12,6 +12,10 @@ defmodule Bitblocks.Chain.TxPipeline.Steps.Burned do
   @impl true
   def name, do: "burned"
 
+  # Bump when this step\'s output would change; docs/DERIVED_DATA.md.
+  @impl true
+  def version, do: 1
+
   @impl true
   def description, do: "Sums sats locked in OP_RETURN outputs into burned_satoshis."
 
