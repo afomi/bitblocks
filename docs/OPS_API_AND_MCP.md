@@ -163,6 +163,27 @@ These go through the existing mailer (`Bitblocks.Notifications`, SES):
 
 Each alert names the `Ops` call that explains it.
 
+### What `/api/v1/status` reports today
+
+`Bitblocks.Ops.health/0` backs the endpoint and the alert cron (`OpsAlertWorker`, every five minutes, each problem emailed at most every six hours).
+It reads cached state only: the /syncing snapshot, the node info cache and our newest header row.
+
+- `index.tip` is our newest header; `index.complete_through` is the promise from docs/SYNCING.md.
+- `index.latest_block_at` is when our newest header row landed; `index.last_completed_at` is when the newest block reached `completed`.
+- `node.blocks` is what the node has validated; `node.headers` is what it has heard of, and can run far ahead while it catches up.
+- `lag.index_behind_node` is `node.blocks` minus `index.tip`: our header sync follows the node's validated chain, so that is the gap we can close.
+- `lag.node_behind_network` is the public tip minus `node.blocks`, how far the node itself trails the network.
+  `lag.node_headers_behind_network` is the same against `node.headers`.
+- While the node is warming up ("Loading block index...", "Verifying blocks..."), `node.state` is `warming_up`, `node.message` says why, and the node's counts and lags are null rather than guessed.
+
+`index_stalled` means no progress for an hour while there is work to do, and `index.stalled` says which kind:
+
+- `headers`: our newest header is more than 6 blocks behind `node.blocks`, and no header has landed for an hour.
+- `blocks`: blocks above `complete_through` wait, none has completed for an hour, and no block job is working on a block without failures.
+  A single large block can take longer than an hour, so a clean job in progress counts as progress; a failing block also sends its own email (`Notifications.sync_stall_alert/3`).
+
+A node catching up, with its headers far ahead of its blocks, is not a stall on our side while blocks keep completing.
+
 ---
 
 ## Order of work

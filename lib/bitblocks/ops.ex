@@ -13,8 +13,10 @@ defmodule Bitblocks.Ops do
 
   alias Bitblocks.{Chain, Config, Notifications, RpcCache, SyncProgress}
 
-  # Our index this many blocks behind the node, with no new block for this
-  # long, is stalled (not just catching up between minutes).
+  # A stall is no progress for this long while there is work to do: our
+  # headers more than @stall_blocks behind the node's validated blocks with no
+  # new header, or blocks above complete_through with none completed and none
+  # being worked.
   @stall_blocks 6
   @stall_seconds 3_600
 
@@ -26,27 +28,50 @@ defmodule Bitblocks.Ops do
 
   @doc """
   Health from given facts (for tests): `%{node: blockchain_info | {:error, _},
-  overview: SyncProgress overview, latest_block_at: DateTime | nil, now:}`.
+  overview: SyncProgress overview, latest_block_at: DateTime | nil,
+  last_completed_at: DateTime | nil, blocks_in_progress: integer, now:}`.
+
+  `latest_block_at` is when our newest header row landed,
+  `last_completed_at` when the newest block reached `completed`, and
+  `blocks_in_progress` counts live block jobs on a block with no failures.
+
+  Both lags are measured from the node's validated `blocks`, not its
+  `headers`, which can run far ahead while the node catches up: ours behind
+  it, and it behind the network.
   """
   def health(%{node: node, overview: overview, now: now} = facts) do
     node_state = Config.node_status(node)
-    node_blocks = if is_map(node), do: node["blocks"]
+    node_blocks = (is_map(node) && node["blocks"]) || overview[:node_tip]
     node_headers = (is_map(node) && node["headers"]) || overview[:node_headers]
     our_tip = overview[:our_tip]
+    through = overview[:complete_through]
+    public_tip = overview[:public_tip]
     latest_at = facts[:latest_block_at]
+    completed_at = facts[:last_completed_at]
 
-    index_behind = diff(node_headers, our_tip)
-    idle = latest_at && DateTime.diff(now, latest_at)
+    index_behind = diff(node_blocks, our_tip)
+
+    stalled =
+      cond do
+        is_integer(index_behind) and index_behind > @stall_blocks and idle?(latest_at, now) ->
+          "headers"
+
+        is_integer(through) and is_integer(our_tip) and through < our_tip and
+          idle?(completed_at || latest_at, now) and (facts[:blocks_in_progress] || 0) == 0 ->
+          "blocks"
+
+        true ->
+          nil
+      end
 
     problems =
       Enum.reject(
         [
           match?({:unreachable, _}, node_state) && "node_unreachable",
           match?({:warming_up, _}, node_state) && "node_warming_up",
-          (is_integer(index_behind) and index_behind > @stall_blocks and
-             is_integer(idle) and idle > @stall_seconds) && "index_stalled"
+          stalled && "index_stalled"
         ],
-        &(&1 == false)
+        &(&1 in [false, nil])
       )
 
     %{
@@ -55,8 +80,10 @@ defmodule Bitblocks.Ops do
       as_of: DateTime.to_iso8601(now),
       index: %{
         tip: our_tip,
-        complete_through: overview[:complete_through],
-        latest_block_at: latest_at && DateTime.to_iso8601(latest_at)
+        complete_through: through,
+        latest_block_at: iso(latest_at),
+        last_completed_at: iso(completed_at),
+        stalled: stalled
       },
       node: %{
         state: node_state_name(node_state),
@@ -64,14 +91,24 @@ defmodule Bitblocks.Ops do
         blocks: node_blocks,
         headers: node_headers
       },
-      network: %{public_tip: overview[:public_tip]},
+      network: %{public_tip: public_tip},
       release: facts[:release] || release(),
       lag: %{
         index_behind_node: index_behind,
-        node_behind_network: diff(overview[:public_tip], node_headers)
+        node_behind_network: diff(public_tip, node_blocks),
+        node_headers_behind_network: diff(public_tip, node_headers)
       }
     }
   end
+
+  # A single large block can take longer than an hour, which is why a clean
+  # job in progress counts as progress; a failing one has its own email
+  # (Notifications.sync_stall_alert/3) and counts as a stall here.
+  defp idle?(nil, _now), do: false
+  defp idle?(at, now), do: DateTime.diff(now, at) > @stall_seconds
+
+  defp iso(nil), do: nil
+  defp iso(at), do: DateTime.to_iso8601(at)
 
   @doc """
   Emails each problem in `health` once per #{div(@alert_every_seconds, 3600)} hours.
@@ -198,13 +235,38 @@ defmodule Bitblocks.Ops do
   # -- Facts ---------------------------------------------------------------------
 
   defp facts do
+    snapshot = SyncProgress.snapshot()
+
     %{
       node: safe(fn -> RpcCache.get_blockchain_info() end),
-      overview: SyncProgress.snapshot().overview,
+      overview: snapshot.overview,
       latest_block_at: latest_block_at(),
+      last_completed_at: last_completed_at(snapshot.recent),
+      blocks_in_progress: blocks_in_progress(snapshot.sync),
       now: DateTime.utc_now() |> DateTime.truncate(:second)
     }
   end
+
+  @doc false
+  # The newest completion among the snapshot's recent blocks (read from
+  # blocks_tx_sync_completed_at_index, refreshed every 30 s).
+  def last_completed_at(recent) do
+    recent
+    |> Enum.map(& &1[:tx_sync_completed_at])
+    |> Enum.filter(&match?(%DateTime{}, &1))
+    |> Enum.max(DateTime, fn -> nil end)
+  end
+
+  @doc false
+  # Live block jobs on an incomplete block that hasn't failed: the loop is
+  # working, even if nothing has completed lately.
+  def blocks_in_progress(%{rows: rows}) do
+    Enum.count(rows, fn row ->
+      row[:job_state] != nil and row[:sync_state] != "completed" and (row[:failures] || 0) == 0
+    end)
+  end
+
+  def blocks_in_progress(_), do: 0
 
   defp latest_block_at do
     case safe(&Chain.get_latest_block/0) do
@@ -250,7 +312,7 @@ defmodule Bitblocks.Ops do
   end
 
   defp subject("node_unreachable"), do: "Bitblocks: node unreachable"
-  defp subject("index_stalled"), do: "Bitblocks: index stalled behind the node"
+  defp subject("index_stalled"), do: "Bitblocks: index stalled"
   defp subject(_), do: nil
 
   defp body("node_unreachable", h) do
@@ -261,10 +323,18 @@ defmodule Bitblocks.Ops do
     """
   end
 
+  defp body("index_stalled", %{index: %{stalled: "headers"}} = h) do
+    """
+    Our headers are #{h.lag.index_behind_node} blocks behind the node, and no new header has landed since #{h.index.latest_block_at}.
+    The node has validated #{h.node.blocks} blocks; our newest header is #{h.index.tip}.
+    See /sync for the coordinator and job state.
+    """
+  end
+
   defp body("index_stalled", h) do
     """
-    Our index is #{h.lag.index_behind_node} blocks behind the node, and no new block has been added since #{h.index.latest_block_at}.
-    The node is at #{h.node.headers} headers; our tip is #{h.index.tip}.
+    No block has completed since #{h.index.last_completed_at || h.index.latest_block_at}, and no block job is working without failures.
+    Complete through block #{h.index.complete_through} of #{h.index.tip} known; the node is #{h.node.state}.
     See /sync for the coordinator and job state.
     """
   end
