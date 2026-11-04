@@ -1,5 +1,6 @@
 import * as THREE from "three"
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js"
+import { fitDistance, lodLevel } from "../block_graph/framing.mjs"
 
 const COLORS = {
   coinbase: 0xfbbf24,
@@ -25,12 +26,10 @@ const LAYOUT = {
   transitionDuration: 500
 }
 
-// Zoom level thresholds (camera distance)
-const ZOOM = {
-  far: 500,    // > 500: show blocks as single nodes
-  medium: 150, // 150-500: show transaction clusters
-  close: 0     // < 150: show individual transactions with full detail
-}
+// Detail levels are relative to the distance the graph was framed at
+// (block_graph/framing.mjs), so any range opens showing its transactions.
+// Spend edges show at the framed view too, unless there are this many.
+const MEDIUM_EDGE_LIMIT = 5000
 
 export default {
   mounted() {
@@ -628,15 +627,7 @@ export default {
   // Progressive disclosure: update LOD based on camera distance
   updateLOD() {
     const dist = this.camera.position.distanceTo(this.controls.target)
-    let newLevel
-
-    if (dist > ZOOM.far) {
-      newLevel = "far"
-    } else if (dist > ZOOM.medium) {
-      newLevel = "medium"
-    } else {
-      newLevel = "close"
-    }
+    const newLevel = lodLevel(dist, this.framedDistance || dist)
 
     if (newLevel !== this.currentZoomLevel || this.lodDirty) {
       this.currentZoomLevel = newLevel
@@ -652,9 +643,9 @@ export default {
           break
 
         case "medium":
-          // Show both blocks and transactions, but transactions are smaller context
+          // Blocks and transactions; spend edges too unless there are a lot
           this.txGroup.visible = true
-          this.edgeGroup.visible = false
+          this.edgeGroup.visible = this.edges.length <= MEDIUM_EDGE_LIMIT
           this.blockGroup.visible = true
           this.blockEdgeGroup.visible = true
           break
@@ -704,14 +695,16 @@ export default {
 
     const center = box.getCenter(new THREE.Vector3())
     const size = box.getSize(new THREE.Vector3())
-    const maxDim = Math.max(size.x, size.y, size.z)
+    const dist = fitDistance(size, this.camera.fov, this.camera.aspect)
 
+    // Look at the graph nearly face-on, tilted slightly so depth reads.
+    const direction = new THREE.Vector3(0.12, 0.18, 1).normalize()
+
+    this.framedDistance = dist
     this.controls.target.copy(center)
-    this.camera.position.set(
-      center.x + maxDim * 0.5,
-      center.y + maxDim * 0.4,
-      center.z + maxDim * 0.8
-    )
+    this.camera.position.copy(center).addScaledVector(direction, dist)
+    this.camera.far = Math.max(50000, dist * 10)
+    this.camera.updateProjectionMatrix()
     this.controls.update()
     this.lodDirty = true
   },
