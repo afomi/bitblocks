@@ -209,6 +209,9 @@ bin/bitblocks rpc 'Bitblocks.Release.reconcile_orphaned_block("<orphan hash>")'
 # Chain-scrubber tiles (#48): full build once, then the cron keeps them current
 bin/bitblocks rpc 'Bitblocks.Release.build_chain_tiles()'
 bin/bitblocks rpc 'Bitblocks.Release.chain_tiles_status()'
+
+# The tx store (CDN) counted against the chain: declared, stored, in the store, sampled (read-only)
+bin/bitblocks rpc 'Bitblocks.Release.tx_store_reconcile(0, 9_999)'
 ```
 
 `/syncing` shows the loop live; `/sync` adds the worker-slot control and the load on our node.

@@ -765,6 +765,36 @@ defmodule Bitblocks.Release do
   end
 
   @doc """
+  Counts the tx store against the chain for blocks `from..to` and prints each
+  number, then OK or every gap (`Bitblocks.TxStore.reconcile/3`). Read-only.
+  Give large spans in pieces on a busy database.
+
+      bin/bitblocks rpc 'Bitblocks.Release.tx_store_reconcile(0, 9_999)'
+      bin/bitblocks rpc 'Bitblocks.Release.tx_store_reconcile(150_000, 159_999, sample: 50)'
+  """
+  def tx_store_reconcile(from, to, opts \\ []) do
+    r = Bitblocks.TxStore.reconcile(from, to, opts)
+    n = &(&1 |> Integer.to_string() |> String.replace(~r/\B(?=(\d{3})+(?!\d))/, ","))
+
+    IO.puts("""
+    tx store reconcile, blocks #{n.(from)}..#{n.(to)}
+      blocks            #{n.(r.blocks)} of #{n.(to - from + 1)} (#{n.(r.completed)} completed)
+      txs declared      #{n.(r.declared)} (sum of num_tx)
+      txs stored        #{n.(r.stored)}
+      txs in the store  #{n.(r.in_store)}
+      sample            #{n.(r.sampled - length(r.sample_bad))} of #{n.(r.sampled)} match by size\
+    """)
+
+    case r.gaps do
+      [] -> IO.puts("  OK: every declared tx is stored and in the store")
+      gaps -> for {kind, count} <- gaps, do: IO.puts("  GAP #{kind}: #{n.(count)}")
+    end
+
+    for txid <- r.sample_bad, do: IO.puts("  mismatch: #{txid}")
+    r
+  end
+
+  @doc """
   Backfill missing block HEADERS from height 0 to the chain tip.
 
   Delegates to sync_headers/2 (range mode) which fills header gaps only.

@@ -147,6 +147,90 @@ defmodule Bitblocks.TxStore do
     %{stored: stored, checked: length(txids), ok: length(txids) - length(bad), bad: bad}
   end
 
+  @doc """
+  Counts and cross-checks the store against the chain for blocks
+  `from..to`, so a shortfall is a number rather than a silence:
+
+    * `blocks`, `completed`: block rows in the range, and how many are done;
+    * `declared`: txs the headers declare (sum of `num_tx`);
+    * `stored`: tx rows we hold for those heights;
+    * `in_store`: those rows stamped `blob_stored_at` (uploaded and verified);
+    * `sampled`, `sample_bad`: up to `sample` stamped rows re-checked in the
+      store by byte size;
+    * `gaps`: each shortfall as `{kind, count}`, empty when everything adds up.
+
+  Read-only. Counts run on the `block_height` and `blob_stored_at` indexes;
+  give large spans in pieces (say 10,000 blocks) on a busy database.
+  """
+  @spec reconcile(non_neg_integer(), non_neg_integer(), keyword()) :: map()
+  def reconcile(from, to, opts \\ []) when is_integer(from) and is_integer(to) and from <= to do
+    sample = Keyword.get(opts, :sample, 20)
+
+    {blocks, completed, declared} =
+      Repo.one(
+        from b in Bitblocks.Chain.Block,
+          where: b.height >= ^from and b.height <= ^to,
+          select:
+            {count(), fragment("count(*) FILTER (WHERE ? = 'completed')", b.sync_state),
+             coalesce(sum(b.num_tx), 0)}
+      )
+
+    in_range = from(t in Transaction, where: t.block_height >= ^from and t.block_height <= ^to)
+
+    stored = Repo.aggregate(in_range, :count)
+    in_store = Repo.aggregate(where(in_range, [t], not is_nil(t.blob_stored_at)), :count)
+
+    txids =
+      Repo.all(
+        from t in in_range,
+          where: not is_nil(t.blob_stored_at),
+          order_by: fragment("random()"),
+          limit: ^sample,
+          select: t.txid
+      )
+
+    # Any failure to compare (no database copy, no object, a size that
+    # differs) counts as a mismatch, never as a skip.
+    bad = Enum.reject(txids, &matches_store?/1)
+
+    declared = to_int(declared)
+
+    gaps =
+      [
+        {:blocks_missing, to - from + 1 - blocks},
+        {:blocks_incomplete, blocks - completed},
+        {:txs_not_stored, declared - stored},
+        {:txs_not_in_store, stored - in_store},
+        {:sample_mismatch, length(bad)}
+      ]
+      |> Enum.filter(fn {_kind, n} -> n != 0 end)
+
+    %{
+      from: from,
+      to: to,
+      blocks: blocks,
+      completed: completed,
+      declared: declared,
+      stored: stored,
+      in_store: in_store,
+      sampled: length(txids),
+      sample_bad: bad,
+      gaps: gaps
+    }
+  end
+
+  defp matches_store?(txid) do
+    with {:ok, bytes} <- db_bytes(txid),
+         {:ok, size} <- adapter().size(key(txid)) do
+      size == byte_size(bytes)
+    else
+      _ -> false
+    end
+  end
+
+  defp to_int(%Decimal{} = d), do: Decimal.to_integer(d)
+  defp to_int(n) when is_integer(n), do: n
+
   defp do_enqueue(txids) do
     pending =
       Repo.all(
