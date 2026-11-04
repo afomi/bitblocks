@@ -28,7 +28,7 @@ defmodule Bitblocks.TxTypes do
     @atom_keys ~w(id title short group summary description history spec label url pattern
                   parts token note spendable spend related explore href examples kind vector
                   template_hashes shape standard protocols collections reason concepts term text
-                  attribution license license_url source_url share_alike)
+                  attribution license license_url source_url share_alike vectors)
 
     def atomize(map) when is_map(map) do
       Map.new(map, fn {key, value} ->

@@ -69,6 +69,7 @@
         "note": "25 bytes in all."
       },
       "spendable": true,
+      "vectors": ["p2pkh"],
       "spend": "A signature and the public key whose hash is in the lock: <signature> <public key>.",
       "related": ["1sat-output", "1sat-inscription", "cosign", "multisig"],
       "examples": {
@@ -105,6 +106,7 @@
         "note": "The script is identical to P2PKH; the output's value is 1 sat."
       },
       "spendable": true,
+      "vectors": ["p2pkh_one_sat"],
       "spend": "The owner's signature, as P2PKH. To move the object with it, send it on as 1 sat.",
       "related": ["p2pkh", "1sat-inscription", "ordlock"],
       "examples": {
@@ -145,6 +147,7 @@
         "note": "Some inscriptions put the envelope before the lock instead of after it."
       },
       "spendable": true,
+      "vectors": ["inscription_text", "inscription_text_lock_first", "inscription_bare"],
       "spend": "The owner's signature, as P2PKH, sent on as 1 sat so the object goes with it.",
       "related": ["1sat-output", "inscription-map", "ordlock", "bsv-20", "bsv-21"],
       "explore": {"label": "Browse NFT collections", "href": "/collections"},
@@ -181,6 +184,7 @@
         ]
       },
       "spendable": true,
+      "vectors": ["inscription_with_map"],
       "spend": "The owner's signature, as P2PKH.",
       "related": ["1sat-inscription", "map"],
       "examples": {
@@ -218,6 +222,7 @@
         "note": "The contract code is the same in every listing; only the seller and the payout change."
       },
       "spendable": true,
+      "vectors": ["ordlock_listing"],
       "spend": "Either the seller cancels with a signature, or anyone buys by paying the price the lock names.",
       "related": ["1sat-inscription", "1sat-output", "bsv-21"],
       "examples": {
@@ -260,6 +265,7 @@
         ]
       },
       "spendable": true,
+      "vectors": ["bsv20_transfer"],
       "spend": "The owner's signature, as P2PKH. A transfer must account for the whole amount it spends.",
       "related": ["bsv-21", "1sat-inscription", "ordlock"],
       "explore": {"label": "Browse tokens", "href": "/tokens?standard=bsv-20"},
@@ -299,6 +305,7 @@
         ]
       },
       "spendable": true,
+      "vectors": ["bsv21_deploy_mint", "bsv21_transfer", "bsv21_transfer_mnee"],
       "spend": "The owner's signature, as P2PKH. A transfer must account for the whole amount it spends.",
       "related": ["bsv-20", "1sat-inscription", "ordlock", "cosign"],
       "explore": {"label": "Browse tokens", "href": "/tokens?standard=bsv-21"},
@@ -335,6 +342,7 @@
         ]
       },
       "spendable": false,
+      "vectors": ["op_return_memo", "op_return_valued"],
       "spend": "It cannot be spent. Any sats sent to it are gone for good.",
       "related": ["b", "map", "aip", "metanet"],
       "examples": {
@@ -373,6 +381,7 @@
         ]
       },
       "spendable": false,
+      "vectors": ["b_text", "b_then_map"],
       "spend": "It cannot be spent.",
       "related": ["op-return", "map", "aip"],
       "explore": {"label": "See B in the Bitcom registry", "href": "/bitcom/19HxigV4QyBv3tHpQVcUEQyq1pzZVdoAut"},
@@ -409,6 +418,7 @@
         ]
       },
       "spendable": false,
+      "vectors": ["map_set", "map_then_sigma"],
       "spend": "It cannot be spent.",
       "related": ["b", "aip", "sigma", "inscription-map"],
       "explore": {"label": "See MAP in the Bitcom registry", "href": "/bitcom/1PuQa7K62MiKCtssSLKy1kh56WWU7MtUR5"},
@@ -519,6 +529,7 @@
         "note": "Shown as 2-of-3; m and n can be anything up to 16."
       },
       "spendable": true,
+      "vectors": ["p2ms_2_of_3"],
       "spend": "OP_0, then m signatures in the same order as their keys.",
       "related": ["p2pkh", "cosign"],
       "examples": {
@@ -556,6 +567,7 @@
         ]
       },
       "spendable": true,
+      "vectors": ["cosign"],
       "spend": "The cosigner's signature, then the owner's signature and public key: <cosigner sig> <owner sig> <owner pubkey>.",
       "related": ["p2pkh", "multisig", "bsv-21"],
       "examples": {
@@ -592,6 +604,7 @@
         ]
       },
       "spendable": true,
+      "vectors": ["lock_timelock"],
       "spend": "The owner's signature, in a transaction the chain accepts only once the block height is reached.",
       "related": ["p2pkh", "cosign"],
       "examples": {
@@ -627,6 +640,7 @@
         ]
       },
       "spendable": true,
+      "vectors": ["unknown_op_true"],
       "spend": "Nothing. An empty unlocking script will do.",
       "related": ["p2pkh", "op-return"],
       "examples": {
