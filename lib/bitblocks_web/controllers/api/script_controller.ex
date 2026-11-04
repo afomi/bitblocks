@@ -4,7 +4,8 @@ defmodule BitblocksWeb.Api.ScriptController do
   scripts that have no address:
 
       GET  /api/v1/script/:scripthash/history   — txs whose outputs include the script
-      GET  /api/v1/script/:scripthash/unspent   — its unspent outputs (spend index)
+      GET  /api/v1/script/:scripthash/unspent   — its unspent outputs, exact or unknown
+                                                  (`Bitblocks.Chain.Utxos`)
       POST /api/v1/script/decode                — hex → type/fields/asm/hashes/template
       GET  /api/v1/script/templates             — registered script templates
       POST /api/v1/script/templates             — register a template
@@ -19,6 +20,7 @@ defmodule BitblocksWeb.Api.ScriptController do
   use BitblocksWeb, :controller
 
   alias Bitblocks.Chain
+  alias Bitblocks.Chain.Utxos
   alias Bitblocks.Script.{Descriptor, Templates}
   alias BitblocksWeb.Utils.BsvParams
 
@@ -40,9 +42,15 @@ defmodule BitblocksWeb.Api.ScriptController do
     with {:ok, scripthash} <- BsvParams.scripthash(raw) do
       scripthash = String.downcase(scripthash)
 
+      set = Utxos.for_script_hash(scripthash)
+
       json(conn, %{
         scripthash: scripthash,
-        unspent: Chain.utxos_for_script_hash(scripthash),
+        unspent: Utxos.with_status(set, :unspent),
+        unknown: Utxos.with_status(set, :unknown),
+        status: set.status,
+        indexed_through_height: set.indexed_through_height,
+        tip_height: set.tip_height,
         source: "local"
       })
     end

@@ -100,7 +100,7 @@ mix assets.deploy           # Build and minify for production
 - Tx steps run after it: `record_spends`, `index_tokens`, `index_bitcom`.
 - The block step `block_totals` runs once the block is `completed`: `sats_out`, `fees`, `miner_reward`, `subsidy`, `burned`, and `fees_verified` (`miner_reward <= subsidy + fees`).
 - A failing step is logged and reported (telemetry `[:bitblocks, :tx_pipeline, :step_failed]`) and never loses the stored tx.
-- Read-time facts, never stored: `Chain.output_status/1` (spent, unspent or unspendable per output) and `Chain.nft_facts/1` (inscription or Run jig, and collection membership).
+- Read-time facts, never stored: `Chain.output_status/1` (spent, unspent, unknown or unspendable per output; unspent only when the index reaches the tip, see `Bitblocks.Chain.Utxos`) and `Chain.nft_facts/1` (inscription or Run jig, and collection membership).
 - `Release.backfill_tx_tallies(from, to, apply: true)` fills the tally columns for blocks completed before the steps; dry run by default.
 
 - **Derived data** (authoritative: `docs/DERIVED_DATA.md`): everything `Chain.TxPipeline` adds after ingestion carries its provenance.
@@ -250,6 +250,10 @@ GET /api/v1/tokens/:id/holders  — holder balances for a token
 GET /api/v1/tokens/:id/transfers — transfer history for a token
 GET /api/v1/tokens/stats        — token aggregate statistics
 GET /api/v1/stream/tokens       — SSE stream of new tokens / transfers
+GET /api/v1/addresses/:address/balance — status exact | partial | unknown, indexed_through_height, tip_height; confirmed only when exact, else unknown (sats with no settled spent-ness). Rule: Bitblocks.Chain.Utxos
+GET /api/v1/addresses/:address/utxos — data: known-unspent outputs only (empty unless exact); unknown: outputs whose spent-ness isn't settled; meta.status, meta.indexed_through_height
+GET /api/v1/utxo/:txid/:vout/owner — address, spent (true | false | null), status, source: local | whatsonchain (local first; WoC only when local is unknown or the tx isn't stored)
+GET /api/v1/woc/address/:address/balance|unspent — WoC shapes, served only when exact; otherwise a 503 with status and indexed_through_height
 GET /api/v1/addresses/:address/tokens — unspent BSV-20/21 outputs held by an address (?standard=bsv-21, ?token_id=)
 GET /api/v1/types               — transaction types, each with its page URL (CORS *)
 GET|POST|PATCH|DELETE /api/v1/annotations[/:id] — admin only: chain annotations (?from=&to=, ?kind=); writes must be application/json
@@ -265,7 +269,7 @@ POST /api/v1/collections/:id/items/lookup — {"outpoints": [...]} up to 200, an
 GET /api/v1/collections/:id/items/:outpoint — one item by origin or current outpoint; member (true | false | "unknown"; false only after a finished chain walk with every trace settled: current or ended), spent (null unless settled; always true when ended), ownership, owner (?refresh=1 re-traces)
 GET /api/v1/outpoints/:txid/:vout — is this outpoint an ordinal/token? answer: yes | no | unknown (spend only on "no")
 GET /api/v1/script/:scripthash/history — tx history for a script (Electrum scripthash: sha256 of scriptPubKey, reversed hex)
-GET /api/v1/script/:scripthash/unspent — UTXOs locked by a script
+GET /api/v1/script/:scripthash/unspent — UTXOs locked by a script, as the address utxos: unspent (exact only), unknown, status, indexed_through_height, tip_height
 POST /api/v1/script/decode      — decode script hex into a descriptor (type, fields, asm, matched template)
 GET /api/v1/script/templates    — registered script templates
 POST /api/v1/script/templates   — register a script template

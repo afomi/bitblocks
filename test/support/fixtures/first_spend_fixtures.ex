@@ -70,8 +70,19 @@ defmodule Bitblocks.FirstSpendFixtures do
       block_height: height,
       coinbase: coinbase?,
       inputs: [],
-      outputs: []
+      outputs: [],
+      output_addresses: output_addresses(Map.fetch!(raw, txid))
     })
     |> Repo.insert!()
+  end
+
+  # The P2PK addresses the outputs pay, as the tx pipeline tags them.
+  defp output_addresses(hex) do
+    {:ok, %{outputs: outputs}} = Bitblocks.Chain.RawTx.flows(hex)
+
+    outputs
+    |> Enum.map(fn {_sats, script} -> Bitblocks.Chain.RawBlock.script_address(script) end)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
   end
 end

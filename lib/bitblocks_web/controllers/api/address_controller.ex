@@ -1,32 +1,46 @@
 defmodule BitblocksWeb.Api.AddressController do
   @moduledoc """
-  Address endpoints.
+  Address endpoints, served from local data (`spend_index` and the raw txs
+  tagged with the address in `output_addresses`).
 
-  `/utxos` and `/balance` are served from local data (spend_index + output_addresses).
-  Local data is only as current as the sync state — addresses in un-synced blocks
-  will be missing. The response includes a `source: "local"` meta field.
+  `/utxos` and `/balance` are exact or say they are not, by the rule in
+  `Bitblocks.Chain.Utxos`: an output is unspent only when no stored tx
+  spends it and every block through our tip is synced. Each answer has a
+  `status` (`exact`, `partial` or `unknown`), `indexed_through_height` and
+  `tip_height`, and `source: "local"`.
   """
   use BitblocksWeb, :controller
 
-  alias Bitblocks.Chain
+  alias Bitblocks.Chain.Utxos
   alias BitblocksWeb.Utils.BsvParams
 
   action_fallback BitblocksWeb.FallbackController
 
   @doc """
-  Get unspent outputs for an address.
+  Unspent outputs for an address.
 
   GET /api/v1/addresses/:address/utxos
 
-  Returns UTXOs from the local spend_index + output_addresses index.
+  `data` lists only outputs known to be unspent, so it is empty unless the
+  index reaches the tip. `unknown` lists outputs with no recorded spend
+  whose spent-ness isn't settled yet; don't spend those on our word.
   """
   def utxos(conn, %{"address" => address}) do
     with {:ok, valid} <- BsvParams.address(address) do
-      utxos = Chain.utxos_for_address(valid)
+      set = Utxos.for_address(valid)
+      unspent = Utxos.with_status(set, :unspent)
 
       json(conn, %{
-        data: utxos,
-        meta: %{address: valid, count: length(utxos), source: "local"}
+        data: unspent,
+        unknown: Utxos.with_status(set, :unknown),
+        meta: %{
+          address: valid,
+          count: length(unspent),
+          status: set.status,
+          indexed_through_height: set.indexed_through_height,
+          tip_height: set.tip_height,
+          source: "local"
+        }
       })
     else
       {:error, :invalid_address} ->
@@ -35,18 +49,19 @@ defmodule BitblocksWeb.Api.AddressController do
   end
 
   @doc """
-  Get balance for an address.
+  Balance for an address.
 
   GET /api/v1/addresses/:address/balance
 
-  Returns confirmed satoshi balance from local data.
+  `data` has `status`, `indexed_through_height` and `tip_height`. When
+  `status` is `exact` it has `confirmed` (satoshis); otherwise it has
+  `unknown` (satoshis in outputs with no recorded spend that may be spent
+  in blocks not synced yet) and no `confirmed` key.
   """
   def balance(conn, %{"address" => address}) do
     with {:ok, valid} <- BsvParams.address(address) do
-      satoshis = Chain.balance_for_address(valid)
-
       json(conn, %{
-        data: %{confirmed: satoshis},
+        data: Utxos.balance(valid),
         meta: %{address: valid, source: "local"}
       })
     else

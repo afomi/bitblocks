@@ -11,12 +11,14 @@ defmodule BitblocksWeb.Api.WocController do
   Reads are served from local indexed data (`source` is implied local — only as
   current as sync). See docs/EXTERNAL_APIS.md for the mapping and rationale.
 
-  Tier 1 (read): chain/info, tx hex, address unspent + balance.
+  Tier 1 (read): chain/info, tx hex, address unspent + balance (exact
+  only, else a 503 naming `indexed_through_height`).
   Tier 2 (broadcast + proof): POST tx/raw, TSC merkle proof.
   """
   use BitblocksWeb, :controller
 
   alias Bitblocks.Chain
+  alias Bitblocks.Chain.Utxos
   alias BitblocksWeb.Utils.BsvParams
 
   # --- Tier 1: chain info -----------------------------------------------------
@@ -57,38 +59,59 @@ defmodule BitblocksWeb.Api.WocController do
     end
   end
 
-  # --- Tier 1: address UTXOs --------------------------------------------------
+  # --- Tier 1: address UTXOs and balance -------------------------------------
+  #
+  # WoC's shapes have no way to say "unknown", so these answer only when the
+  # local answer is exact (`Bitblocks.Chain.Utxos`: every block through our
+  # tip synced). Otherwise they are a 503 that says how far the index
+  # reaches, rather than a list or a `confirmed` number that may be wrong.
 
   # GET /api/v1/woc/address/:address/unspent
   # Bare array in WoC shape: [{height, tx_pos, tx_hash, value}].
   def address_unspent(conn, %{"address" => address}) do
-    with {:ok, valid} <- BsvParams.address(address) do
+    with {:ok, valid} <- BsvParams.address(address),
+         %{status: :exact} = set <- Utxos.for_address(valid) do
       utxos =
-        valid
-        |> Chain.utxos_for_address()
-        |> Enum.map(fn %{txid: txid, vout: vout, satoshis: sats, block_height: height} ->
+        for %{txid: txid, vout: vout, satoshis: sats, block_height: height} <-
+              Utxos.with_status(set, :unspent) do
           %{height: height, tx_pos: vout, tx_hash: txid, value: sats}
-        end)
+        end
 
       json(conn, utxos)
     else
       {:error, :invalid_address} ->
         conn |> put_status(400) |> json(%{error: "Invalid address"})
+
+      %{} = set ->
+        not_exact(conn, set)
     end
   end
-
-  # --- Tier 1: address balance ------------------------------------------------
 
   # GET /api/v1/woc/address/:address/balance
   # WoC shape: {confirmed, unconfirmed}. We only index confirmed local data, so
   # unconfirmed is always 0 (documented limitation, not a silent omission).
   def address_balance(conn, %{"address" => address}) do
-    with {:ok, valid} <- BsvParams.address(address) do
-      json(conn, %{confirmed: Chain.balance_for_address(valid), unconfirmed: 0})
+    with {:ok, valid} <- BsvParams.address(address),
+         %{status: :exact, confirmed: confirmed} <- Utxos.balance(valid) do
+      json(conn, %{confirmed: confirmed, unconfirmed: 0})
     else
       {:error, :invalid_address} ->
         conn |> put_status(400) |> json(%{error: "Invalid address"})
+
+      %{} = balance ->
+        not_exact(conn, balance)
     end
+  end
+
+  defp not_exact(conn, set) do
+    conn
+    |> put_status(503)
+    |> json(%{
+      error: "The index is not synced to the tip, so spent-ness is unknown",
+      status: set.status,
+      indexed_through_height: set.indexed_through_height,
+      tip_height: set.tip_height
+    })
   end
 
   # --- Tier 2: broadcast ------------------------------------------------------

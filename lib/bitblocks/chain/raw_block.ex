@@ -324,6 +324,18 @@ defmodule Bitblocks.Chain.RawBlock do
 
   defp address(pubkey_hash), do: BSV.Address.to_string(%BSV.Address{pubkey_hash: pubkey_hash})
 
+  @doc """
+  The address a locking script pays, read from its bytes: P2PKH and P2PK,
+  the two forms `tx_json/2` gives `addresses`. nil for any other script.
+  """
+  @spec script_address(binary()) :: String.t() | nil
+  def script_address(<<0x76, 0xA9, 0x14, hash::binary-20, 0x88, 0xAC>>), do: address(hash)
+
+  def script_address(<<len, pubkey::binary-size(len), 0xAC>>) when len in [33, 65],
+    do: address(BSV.Hash.sha256_ripemd160(pubkey))
+
+  def script_address(_script), do: nil
+
   # -- Helpers -------------------------------------------------------------------
 
   defp sha256d(bytes), do: :crypto.hash(:sha256, :crypto.hash(:sha256, bytes))

@@ -32,13 +32,20 @@ defmodule BitblocksWeb.TxPipelinePagesTest do
     assert has_element?(view, "#output-status-0 a[href='/transactions/#{spender}']")
     assert view |> element("#output-status-1") |> render() =~ "Unspendable"
 
+    # Block 30 isn't completed, so an output with no recorded spend is unknown.
+    {:ok, view, _html} = live(conn, ~p"/transactions/#{spender}")
+    assert view |> element("#output-status-0") |> render() =~ "Unknown"
+    refute has_element?(view, "#badge-utxo")
+
     {:ok, view, _html} = live(conn, ~p"/transactions/#{parent_txid}")
     assert view |> element("#tx-sats-in") |> render() =~ "—"
     assert render(view) =~ "We never guess them."
   end
 
   test "an inscription in a collection gets NFT and collection badges", %{conn: conn} do
-    block = block_fixture(%{height: 31})
+    # Unspent is exact only when every block through the tip is synced.
+    completed_chain_fixture(31)
+    block = Bitblocks.Repo.get_by!(Bitblocks.Chain.Block, height: 31)
     collection_id = Bitblocks.OrdinalCollections.known()["grand-tardinians"]
     {txid, _} = t = tx([funding_outpoint()], [item(collection_id, "Tardinian 9", address())])
     assert :ok = TxIngest.store(tx_json(t), block)

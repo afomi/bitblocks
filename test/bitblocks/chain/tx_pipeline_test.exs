@@ -329,10 +329,13 @@ defmodule Bitblocks.Chain.TxPipelineTest do
         tx([funding_outpoint()], [p2pkh(address(), 1_000), data_output(), p2pkh(address(), 546)])
 
       {spender, _} = s = tx(["#{txid}_0"], [p2pkh(address(), 900)])
-      TxIngest.store_chunk([tx_json(t), tx_json(s)], %Block{hash: "o", height: 9})
+      completed_chain_fixture(9)
+      TxIngest.store_chunk([tx_json(t), tx_json(s)], Repo.get_by!(Block, height: 9))
 
       assert %{
                utxo?: true,
+               indexed_through_height: 9,
+               tip_height: 9,
                outputs: [
                  %{vout: 0, satoshis: 1_000, status: :spent, spent_by: ^spender, spent_by_vin: 0},
                  %{vout: 1, satoshis: 0, status: :unspendable, spent_by: nil},
@@ -342,12 +345,23 @@ defmodule Bitblocks.Chain.TxPipelineTest do
 
       assert %{utxo?: true} = Chain.output_status(spender)
       assert Chain.output_status(String.duplicate("0", 64)) == nil
+
+      # A header above the index: no recorded spend is no longer unspent.
+      block_fixture(%{height: 10, sync_state: "header_only"})
+
+      assert %{
+               utxo?: false,
+               indexed_through_height: 9,
+               tip_height: 10,
+               outputs: [%{status: :spent}, %{status: :unspendable}, %{status: :unknown}]
+             } = Chain.output_status(txid)
     end
 
     test "a tx whose outputs are all spent is not a UTXO" do
       {txid, _} = t = tx([funding_outpoint()], [p2pkh(address(), 1_000)])
       s = tx(["#{txid}_0"], [p2pkh(address(), 900)])
-      TxIngest.store_chunk([tx_json(t), tx_json(s)], %Block{hash: "u", height: 10})
+      completed_chain_fixture(10)
+      TxIngest.store_chunk([tx_json(t), tx_json(s)], Repo.get_by!(Block, height: 10))
 
       assert %{utxo?: false} = Chain.output_status(txid)
     end

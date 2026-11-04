@@ -1008,6 +1008,8 @@ defmodule Bitblocks.Chain do
       %{
         txid: "...",
         utxo?: true,
+        indexed_through_height: 900_000,
+        tip_height: 900_000,
         outputs: [
           %{vout: 0, satoshis: 1_000, status: :spent, spent_by: "<txid>", spent_by_vin: 0},
           %{vout: 1, satoshis: 0, status: :unspendable, spent_by: nil, spent_by_vin: nil},
@@ -1015,50 +1017,16 @@ defmodule Bitblocks.Chain do
         ]
       }
 
-  `:unspendable` is an OP_RETURN output, which no tx can spend. A tx "is a
-  UTXO" (`utxo?`) when any output is `:unspent`. Unspent means no stored tx
-  spends it: true as of the blocks synced so far.
+  `:unspendable` is an OP_RETURN output, which no tx can spend. `:unspent`
+  is exact: no stored tx spends it and every block through our tip is
+  synced. Without that, an output with no recorded spend is `:unknown`
+  (see `Bitblocks.Chain.Utxos`). A tx "is a UTXO" (`utxo?`) when any
+  output is `:unspent`.
 
-  Two indexed queries: the tx by txid, its spends by `(txid, vout)`.
   nil when the tx isn't stored or its raw bytes don't decode.
   """
   @spec output_status(String.t()) :: map() | nil
-  def output_status(txid) when is_binary(txid) do
-    with raw when is_binary(raw) <-
-           Repo.one(from(t in Transaction, where: t.txid == ^txid, select: t.raw)),
-         {:ok, %{outputs: outputs}} <- Bitblocks.Chain.RawTx.flows(raw) do
-      spends =
-        Repo.all(
-          from(s in Spend,
-            where: s.txid == ^txid,
-            select: {s.vout, {s.spending_txid, s.spending_vin}}
-          )
-        )
-        |> Map.new()
-
-      statuses =
-        outputs
-        |> Enum.with_index()
-        |> Enum.map(fn {{sats, script}, vout} ->
-          {status, by, vin} =
-            case spends do
-              %{^vout => {by, vin}} ->
-                {:spent, by, vin}
-
-              _ ->
-                if Bitblocks.Chain.TxPipeline.Steps.Flows.unspendable?(script),
-                  do: {:unspendable, nil, nil},
-                  else: {:unspent, nil, nil}
-            end
-
-          %{vout: vout, satoshis: sats, status: status, spent_by: by, spent_by_vin: vin}
-        end)
-
-      %{txid: txid, utxo?: Enum.any?(statuses, &(&1.status == :unspent)), outputs: statuses}
-    else
-      _ -> nil
-    end
-  end
+  def output_status(txid) when is_binary(txid), do: Bitblocks.Chain.Utxos.of_tx(txid)
 
   # An outpoint list for the collection lookup stays bounded on huge txs.
   @nft_facts_max_outpoints 10_000
@@ -1342,49 +1310,6 @@ defmodule Bitblocks.Chain do
   end
 
   @doc """
-  Returns all unspent outputs (UTXOs) for an address from local data.
-
-  Finds transactions whose `output_addresses` array contains the address (GIN index),
-  parses each output to find matching vouts, then filters out any spent by the spend index.
-
-  Each UTXO is a map:
-    %{txid: string, vout: integer, satoshis: integer, block_height: integer}
-  """
-  def utxos_for_address(address) when is_binary(address) do
-    txs =
-      Repo.all(
-        from t in Transaction,
-          where: fragment("? @> ARRAY[?]::varchar[]", t.output_addresses, ^address),
-          select: %{txid: t.txid, block_height: t.block_height, outputs: t.outputs}
-      )
-
-    txids = Enum.map(txs, & &1.txid)
-
-    spent_set =
-      Repo.all(
-        from s in Spend,
-          where: s.txid in ^txids,
-          select: {s.txid, s.vout}
-      )
-      |> MapSet.new()
-
-    Enum.flat_map(txs, fn %{txid: txid, block_height: height, outputs: outputs} ->
-      outputs
-      |> Enum.with_index()
-      |> Enum.flat_map(fn {output_json, vout} ->
-        with {:ok, output} <- Jason.decode(output_json),
-             [^address | _] <- get_in(output, ["scriptPubKey", "addresses"]),
-             false <- MapSet.member?(spent_set, {txid, vout}),
-             satoshis <- bsv_to_satoshis(output["value"]) do
-          [%{txid: txid, vout: vout, satoshis: satoshis, block_height: height}]
-        else
-          _ -> []
-        end
-      end)
-    end)
-  end
-
-  @doc """
   Total satoshis ever paid to `address` in indexed transactions, spent or not.
 
   `:min_height` counts only txs confirmed at or above that height
@@ -1416,18 +1341,6 @@ defmodule Bitblocks.Chain do
   end
 
   @doc """
-  Returns the confirmed balance in satoshis for an address from local data.
-
-  Sums the satoshi value of all unspent outputs for the address.
-  Returns 0 for an address with no transactions or all outputs spent.
-  """
-  def balance_for_address(address) when is_binary(address) do
-    address
-    |> utxos_for_address()
-    |> Enum.sum_by(& &1.satoshis)
-  end
-
-  @doc """
   Transactions whose outputs include the given Electrum-convention scripthash
   (GIN lookup on `output_script_hashes`), newest first.
 
@@ -1442,49 +1355,6 @@ defmodule Bitblocks.Chain do
         limit: 1000,
         select: %{txid: t.txid, block_height: t.block_height, block_hash: t.block_hash}
     )
-  end
-
-  @doc """
-  Unspent outputs locked by the exact script with the given scripthash.
-
-  Candidate transactions come from the GIN array lookup; per-vout matching
-  re-hashes each output's `scriptPubKey.hex` (no script decode needed) and
-  spent-ness comes from the spend index — same construction as
-  `utxos_for_address/1`.
-  """
-  def utxos_for_script_hash(script_hash) when is_binary(script_hash) do
-    txs =
-      Repo.all(
-        from t in Transaction,
-          where: fragment("? @> ARRAY[?]::varchar[]", t.output_script_hashes, ^script_hash),
-          select: %{txid: t.txid, block_height: t.block_height, outputs: t.outputs}
-      )
-
-    txids = Enum.map(txs, & &1.txid)
-
-    spent_set =
-      Repo.all(
-        from s in Spend,
-          where: s.txid in ^txids,
-          select: {s.txid, s.vout}
-      )
-      |> MapSet.new()
-
-    Enum.flat_map(txs, fn %{txid: txid, block_height: height, outputs: outputs} ->
-      outputs
-      |> Enum.with_index()
-      |> Enum.flat_map(fn {output_json, vout} ->
-        with {:ok, output} <- Jason.decode(output_json),
-             hex when is_binary(hex) <- get_in(output, ["scriptPubKey", "hex"]),
-             ^script_hash <- Bitblocks.Script.script_hash_from_hex(hex),
-             false <- MapSet.member?(spent_set, {txid, vout}),
-             satoshis <- bsv_to_satoshis(output["value"]) do
-          [%{txid: txid, vout: vout, satoshis: satoshis, block_height: height}]
-        else
-          _ -> []
-        end
-      end)
-    end)
   end
 
   @doc """
