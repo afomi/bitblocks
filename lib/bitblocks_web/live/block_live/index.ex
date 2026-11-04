@@ -6,8 +6,16 @@ defmodule BitblocksWeb.BlockLive.Index do
 
   @impl true
   def mount(_params, _session, socket) do
-    {:ok, socket}
+    if connected?(socket), do: Bitblocks.SyncProgress.subscribe()
+    {:ok, assign(socket, :sync, Bitblocks.SyncProgress.snapshot().sync)}
   end
+
+  # The shared /syncing snapshot, for the sync rows above the list.
+  @impl true
+  def handle_info({:sync_snapshot, snapshot}, socket),
+    do: {:noreply, assign(socket, :sync, snapshot.sync)}
+
+  def handle_info(_msg, socket), do: {:noreply, socket}
 
   @impl true
   def handle_params(params, _url, socket) do

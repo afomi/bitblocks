@@ -42,6 +42,23 @@
           latest_height={latest_height}
         />
       </div>
+      <% working = BitblocksWeb.SyncRow.working(@sync) %>
+      <div
+        :if={working != []}
+        id="sync-rows"
+        class="space-y-1 mb-2"
+      >
+        <BitblocksWeb.SyncRow.sync_row
+          :for={row <- working}
+          row={row}
+        />
+        <a
+          href="/syncing"
+          class="block text-right text-xs text-brand-strong dark:text-brand hover:underline"
+        >
+          Watch the sync →
+        </a>
+      </div>
     <% end %>
 
     <%!-- Block List --%>
