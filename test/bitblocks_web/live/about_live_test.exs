@@ -6,6 +6,12 @@ defmodule BitblocksWeb.AboutLiveTest do
 
   alias Bitblocks.SyncProgress
 
+  # Start from an empty snapshot, whatever an earlier test left in the table.
+  setup do
+    :ets.insert(SyncProgress, {:snapshot, SyncProgress.empty_snapshot()})
+    :ok
+  end
+
   defp put_coverage(overview) do
     snapshot = SyncProgress.empty_snapshot()
 
