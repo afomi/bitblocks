@@ -4,12 +4,12 @@ defmodule BitblocksWeb.ChainStatusComponent do
   def chain_status(assigns) do
     ~H"""
     <div class="flex flex-col gap-2 mb-6">
-      <%!-- RPC Node Status --%>
+      <%!-- Our BSV node --%>
       <%= if assigns[:blockchain_info] do %>
         <div class="bg-white dark:bg-gray-800 shadow-md rounded-lg p-4">
           <div class="flex items-center justify-between mb-3">
             <div class="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">
-              RPC Node Status
+              Our BSV node
             </div>
             <%= if @blockchain_info.blocks == @blockchain_info.headers do %>
               <span class="text-xs text-green-700 dark:text-green-400 font-semibold">
@@ -33,19 +33,19 @@ defmodule BitblocksWeb.ChainStatusComponent do
               <% end %>
             </div>
             <div>
-              Synced Blocks:
+              Blocks verified by our node:
               <span class="font-semibold text-gray-900 dark:text-white text-sm">
                 <%= format_number(@blockchain_info.blocks) %>
               </span>
             </div>
             <div>
-              Total Blocks:
+              Headers our node knows:
               <span class="font-semibold text-gray-900 dark:text-white text-sm">
                 <%= format_number(@blockchain_info.headers) %>
               </span>
             </div>
             <div>
-              Verification progress:
+              Node verification:
               <span class="font-semibold text-gray-900 dark:text-white text-sm">
                 <%= (@blockchain_info.verificationprogress * 100) |> Decimal.from_float() |> Decimal.round(6) %>% verified
               </span>

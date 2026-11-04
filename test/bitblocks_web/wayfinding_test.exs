@@ -130,11 +130,17 @@ defmodule BitblocksWeb.WayfindingTest do
 
   test "home leaves node status to /status, and /status points to the live sync", %{conn: conn} do
     home = html_response(get(conn, "/"), 200)
-    refute home =~ "RPC Node Status"
+    refute home =~ "Our BSV node"
     assert home =~ ~s(href="/status")
 
     status = html_response(get(conn, "/status"), 200)
     assert Regex.match?(~r/id="status-live-sync"[^>]*href="\/syncing"/, status)
     refute home =~ ~s(id="beta-syncing")
+  end
+
+  test "/syncing says which tip is ours", %{conn: conn} do
+    html = html_response(get(conn, "/syncing"), 200)
+    assert html =~ "Our index&#39;s newest header" or html =~ "Our index's newest header"
+    refute html =~ "Bitblocks tip"
   end
 end
