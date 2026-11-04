@@ -11,4 +11,11 @@ defmodule BitblocksWeb.Api.StatusController do
     |> put_resp_header("cache-control", "public, max-age=15")
     |> json(Bitblocks.Ops.health())
   end
+
+  @doc "`GET /api/v1/status/coverage`: completeness per 10k blocks, rate and ETA."
+  def coverage(conn, _params) do
+    conn
+    |> put_resp_header("cache-control", "public, max-age=60")
+    |> json(Bitblocks.Ops.coverage())
+  end
 end

@@ -48,6 +48,7 @@ Docs marked *(mixed)* are mostly aspirational but contain sections that accurate
 - `USE_CASES.md` — draft use cases for Bitblocks as full-chain support for other applications: application registry, cross-app identity UX, and hydration (initial + ongoing).
 - `MANAGED_SERVICES.md` — prototype scenario for shared managed projections (hosted filter + hydrate/follow/webhook) over the full index; four portfolio tenants mapped to Planaria use cases.
 - `OPS_API_AND_MCP.md` — proposal: one `Bitblocks.Ops` context behind a public status endpoint, an operator API and MCP, a developer MCP and lag alerts; for operators, developers, support and sales.
+- `TYPING_PIPELINE.md` — plan: full coverage, then strong typing in batches, with exact first-seen heights and adoption curves (#49, #50, #51).
 - `DATA_MANAGEMENT_CONSIDERATIONS.md` — proposal for tiered, importable chain dataset packs instead of full local sync.
 - `EVENT_DRIVEN_OBJECT_ORIENTED_BITCOIN.md` — sketch for representing CRUD actions as immutable Bitcoin events (Bitcom + AIP + schemas).
 - `NEXT_GEN_BLOCK_EXPLORER.md` — works backward from a 2032-scale explorer: intent-centric, entity-centric, operational intelligence.

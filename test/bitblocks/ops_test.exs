@@ -114,4 +114,38 @@ defmodule Bitblocks.OpsTest do
       refute_email_sent()
     end
   end
+
+  test "health names the running release, so a deploy can be confirmed" do
+    h = Ops.health(facts(%{release: %{sha: "abc1234", node: "bitblocks@10.0.0.1"}}))
+    assert h.release.sha == "abc1234"
+  end
+
+  describe "coverage" do
+    test "turns per-bucket counts, the completion rate and the tip into a curve and an ETA" do
+      c =
+        Ops.coverage(%{
+          buckets: [
+            %{bucket: 0, present: 10_000, completed: 10_000},
+            %{bucket: 1, present: 10_000, completed: 4_000}
+          ],
+          complete_through: 13_999,
+          tip: 19_999,
+          completed_last_hour: 600
+        })
+
+      assert [%{from: 0, to: 9_999, complete_pct: 100.0}, %{from: 10_000, complete_pct: 40.0}] =
+               c.buckets
+
+      assert c.remaining == 6_000
+      assert c.blocks_per_hour == 600
+      assert c.eta_hours == 10.0
+    end
+
+    test "with nothing completing, no ETA" do
+      c =
+        Ops.coverage(%{buckets: [], complete_through: 5, tip: 10, completed_last_hour: 0})
+
+      assert c.eta_hours == nil
+    end
+  end
 end

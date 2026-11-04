@@ -65,6 +65,7 @@ defmodule Bitblocks.Ops do
         headers: node_headers
       },
       network: %{public_tip: overview[:public_tip]},
+      release: facts[:release] || release(),
       lag: %{
         index_behind_node: index_behind,
         node_behind_network: diff(overview[:public_tip], node_headers)
@@ -95,6 +96,98 @@ defmodule Bitblocks.Ops do
         do: :persistent_term.erase({__MODULE__, :alerted, problem})
 
     :ok
+  end
+
+  @doc """
+  The running release: the image's git sha (RELEASE_SHA, set by
+  .github/scripts/deploy.sh from the image tag) and this node's name, so a
+  deploy can be confirmed from the outside.
+  """
+  def release do
+    %{sha: System.get_env("RELEASE_SHA"), node: to_string(node())}
+  end
+
+  # Inlined as a literal in the bucket query, so GROUP BY and SELECT match.
+  @bucket 10_000
+  @coverage_ttl_ms 60_000
+
+  @doc """
+  Coverage as a curve: completeness per #{@bucket}-block bucket, blocks
+  completed in the last hour, and an ETA to the tip at that rate. Computed at
+  most once a minute and shared (two index-only queries on `blocks`).
+  """
+  def coverage do
+    now = System.monotonic_time(:millisecond)
+
+    case :persistent_term.get({__MODULE__, :coverage}, nil) do
+      {at, value} when now - at < @coverage_ttl_ms ->
+        value
+
+      _ ->
+        value = coverage(coverage_facts())
+        :persistent_term.put({__MODULE__, :coverage}, {now, value})
+        value
+    end
+  end
+
+  @doc "Coverage from given facts (for tests)."
+  def coverage(%{buckets: buckets, complete_through: through, tip: tip} = facts) do
+    rate = facts[:completed_last_hour] || 0
+    remaining = if is_integer(tip) and is_integer(through), do: max(tip - through, 0), else: nil
+
+    %{
+      bucket_size: @bucket,
+      complete_through: through,
+      tip: tip,
+      remaining: remaining,
+      blocks_per_hour: rate,
+      eta_hours: if(rate > 0 and is_integer(remaining), do: Float.round(remaining / rate, 1)),
+      buckets:
+        Enum.map(buckets, fn %{bucket: b, present: present, completed: completed} ->
+          %{
+            from: b * @bucket,
+            to: b * @bucket + @bucket - 1,
+            present: present,
+            completed: completed,
+            complete_pct: Float.round(completed * 100 / @bucket, 1)
+          }
+        end)
+    }
+  end
+
+  defp coverage_facts do
+    import Ecto.Query
+    alias Bitblocks.Chain.Block
+
+    buckets =
+      Bitblocks.Repo.all(
+        from(b in Block,
+          group_by: fragment("? / 10000", b.height),
+          order_by: fragment("? / 10000", b.height),
+          select: %{
+            bucket: fragment("? / 10000", b.height),
+            present: count(b.id),
+            completed: fragment("count(*) FILTER (WHERE ? = 'completed')", b.sync_state)
+          }
+        ),
+        timeout: 15_000
+      )
+
+    hour_ago = DateTime.utc_now() |> DateTime.add(-3600, :second)
+
+    completed_last_hour =
+      Bitblocks.Repo.one(
+        from(b in Block, where: b.tx_sync_completed_at >= ^hour_ago, select: count(b.id))
+      )
+
+    s = Bitblocks.Sync.status()
+
+    %{
+      buckets: buckets,
+      complete_through: s.complete_through,
+      tip: s.tip,
+      completed_last_hour: completed_last_hour
+    }
   end
 
   # -- Facts ---------------------------------------------------------------------
