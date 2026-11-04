@@ -9,6 +9,7 @@ Docs marked *(mixed)* are mostly aspirational but contain sections that accurate
 
 ## Current system
 
+- `../DESIGN.md` — the site's design rules: light by default with `dark:` variants, dark backgrounds only for three.js scenes, AA colour pairs, the beta badge, HEEx markup style.
 - `SYSTEM_ARCHITECTURE.md` — background services, job queues, and async work that keep the index in sync.
 - `SYNCING.md` — single source of truth for how Bitblocks syncs the chain (code-authoritative).
 - `SYNC_PIPELINE.md` — process map of the running sync pipeline.

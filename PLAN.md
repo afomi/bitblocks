@@ -3,6 +3,7 @@
 Tasks live in GitHub Issues: https://github.com/afomi/bitblocks/issues
 Labels carry status: `now` (single active thread), `next`, `needs-decision`, `deferred`; `from-inbox` marks handoff-sourced work.
 Docs entrypoint: `docs/INDEX.md`.
+Design rules (authoritative for every page's look and markup): [DESIGN.md](DESIGN.md).
 Completed-work history (pre-Issues): `product-cycle/BACKLOG.md`.
 
 ## Now

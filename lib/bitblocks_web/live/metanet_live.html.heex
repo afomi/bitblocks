@@ -1,18 +1,18 @@
-<div class="min-h-screen bg-neutral-950 text-neutral-200">
+<div class="text-gray-900 dark:text-gray-100">
   <div class="max-w-4xl mx-auto px-4 py-8">
     <div class="flex items-center gap-4 mb-6">
       <a
         href="/"
-        class="text-neutral-400 hover:text-neutral-200 text-sm"
+        class="text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white text-sm"
       >
         &larr; Back
       </a>
-      <h1 class="text-2xl font-bold">
+      <h1 class="text-2xl font-bold text-gray-900 dark:text-white">
         Metanet Explorer
       </h1>
     </div>
 
-    <p class="text-neutral-400 text-sm mb-6">
+    <p class="text-gray-600 dark:text-gray-400 text-sm mb-6">
       Navigate the Metanet DAG.
       Enter a transaction ID to see its node content, parent, and children.
     </p>
@@ -22,12 +22,19 @@
       phx-submit="explore"
       class="flex gap-3 mb-6"
     >
+      <label
+        for="metanet-txid"
+        class="sr-only"
+      >
+        Transaction ID
+      </label>
       <input
+        id="metanet-txid"
         type="text"
         name="txid"
         value={@txid}
         placeholder="Enter transaction ID..."
-        class="flex-1 px-4 py-2 bg-neutral-800 border border-neutral-700 rounded-lg text-sm font-mono text-neutral-200 focus:outline-none focus:ring-1 focus:ring-blue-500"
+        class="flex-1 px-4 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-mono text-gray-900 dark:text-gray-100 placeholder:text-gray-500 dark:placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
       />
       <button
         type="submit"
@@ -41,7 +48,7 @@
       <%= if @roots == [] do %>
         <p
           id="metanet-roots"
-          class="text-sm text-neutral-400 mb-6"
+          class="text-sm text-gray-600 dark:text-gray-400 mb-6"
         >
           No Metanet roots are indexed.
         </p>
@@ -54,7 +61,7 @@
             <li>
               <a
                 href={"/metanet?txid=#{root.txid}"}
-                class="text-sm text-blue-400 hover:text-blue-300"
+                class="text-sm text-blue-700 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
               >
                 <%= root[:name] || root.txid_short %>
               </a>
@@ -66,14 +73,14 @@
 
     <%!-- Error --%>
     <%= if @error do %>
-      <div class="bg-red-900/30 border border-red-800 rounded-lg px-4 py-3 mb-6 text-sm text-red-300">
+      <div class="bg-red-50 border border-red-200 rounded-lg px-4 py-3 mb-6 text-sm text-red-800 dark:bg-red-900/30 dark:border-red-800 dark:text-red-200">
         <%= @error %>
       </div>
     <% end %>
 
     <%!-- Loading --%>
     <%= if @loading do %>
-      <div class="text-amber-400 animate-pulse mb-6 text-sm">
+      <div class="text-amber-800 dark:text-amber-300 animate-pulse mb-6 text-sm">
         Loading Metanet node...
       </div>
     <% end %>
@@ -81,23 +88,23 @@
     <%!-- MURL breadcrumb --%>
     <%= if @murl do %>
       <div class="mb-6">
-        <div class="text-xs text-neutral-500 mb-1">
+        <div class="text-xs text-gray-600 dark:text-gray-400 mb-1">
           MURL
         </div>
         <div class="flex items-center gap-1 text-sm font-mono">
-          <span class="text-neutral-500">
+          <span class="text-gray-600 dark:text-gray-400">
             mnp://
           </span>
           <%= for {segment, idx} <- Enum.with_index(@path) do %>
             <%= if idx > 0 do %>
-              <span class="text-neutral-600">
+              <span class="text-gray-500 dark:text-gray-400">
                 /
               </span>
             <% end %>
             <button
               phx-click="navigate"
               phx-value-txid={segment.txid}
-              class={"hover:text-blue-400 transition-colors " <> if(segment.txid == @txid, do: "text-blue-400 font-semibold", else: "text-neutral-300")}
+              class={"hover:text-blue-700 dark:hover:text-blue-400 transition-colors " <> if(segment.txid == @txid, do: "text-blue-700 dark:text-blue-400 font-semibold", else: "text-gray-700 dark:text-gray-300")}
             >
               <%= segment[:name] || String.slice(segment.txid, 0, 8) <> "..." %>
             </button>
@@ -110,18 +117,18 @@
     <%= if @node do %>
       <div class="space-y-4">
         <%!-- Node card --%>
-        <div class="bg-neutral-900 border border-neutral-800 rounded-lg p-5">
+        <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-5">
           <div class="flex items-center gap-3 mb-4">
-            <h2 class="text-lg font-semibold">
+            <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
               <%= @node[:name] || "Unnamed node" %>
             </h2>
             <%= if @node.is_root do %>
-              <span class="text-xs px-2 py-0.5 rounded bg-amber-500/20 text-amber-400">
+              <span class="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-900 dark:bg-amber-900/40 dark:text-amber-200">
                 root
               </span>
             <% end %>
             <%= if @node[:content_type] do %>
-              <span class="text-xs px-2 py-0.5 rounded bg-neutral-700 text-neutral-300">
+              <span class="rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-700 dark:bg-gray-700 dark:text-gray-200">
                 <%= @node.content_type %>
               </span>
             <% end %>
@@ -129,12 +136,12 @@
 
           <div class="space-y-2 text-sm">
             <div class="flex items-start gap-3">
-              <span class="text-neutral-500 w-24 shrink-0">
+              <span class="text-gray-600 dark:text-gray-400 w-24 shrink-0">
                 TxID
               </span>
               <a
                 href={"/transactions/#{@node.txid}"}
-                class="font-mono text-blue-400 hover:text-blue-300 break-all"
+                class="font-mono text-blue-700 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300 break-all"
               >
                 <%= @node.txid %>
               </a>
@@ -142,32 +149,32 @@
 
             <%= if @node[:node_id] do %>
               <div class="flex items-start gap-3">
-                <span class="text-neutral-500 w-24 shrink-0">
+                <span class="text-gray-600 dark:text-gray-400 w-24 shrink-0">
                   Node ID
                 </span>
-                <span class="font-mono text-neutral-300 break-all">
+                <span class="font-mono text-gray-800 dark:text-gray-200 break-all">
                   <%= @node.node_id %>
                 </span>
               </div>
             <% end %>
 
             <div class="flex items-start gap-3">
-              <span class="text-neutral-500 w-24 shrink-0">
+              <span class="text-gray-600 dark:text-gray-400 w-24 shrink-0">
                 Parent
               </span>
-              <span class="font-mono text-neutral-300 break-all">
+              <span class="font-mono text-gray-800 dark:text-gray-200 break-all">
                 <%= @node.p_node %>
               </span>
             </div>
 
             <%= if @node[:block_height] do %>
               <div class="flex items-start gap-3">
-                <span class="text-neutral-500 w-24 shrink-0">
+                <span class="text-gray-600 dark:text-gray-400 w-24 shrink-0">
                   Block
                 </span>
                 <a
                   href={"/blocks/#{@node.block_height}"}
-                  class="text-blue-400 hover:text-blue-300"
+                  class="text-blue-700 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
                 >
                   <%= @node.block_height %>
                 </a>
@@ -178,11 +185,11 @@
 
         <%!-- Content section --%>
         <%= if @node[:content] do %>
-          <div class="bg-neutral-900 border border-neutral-800 rounded-lg p-5">
-            <h3 class="text-sm font-semibold text-neutral-400 mb-3">
+          <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-5">
+            <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">
               Content
             </h3>
-            <div class="font-mono text-sm text-neutral-200 whitespace-pre-wrap break-all bg-neutral-950 rounded p-4">
+            <div class="font-mono text-sm text-gray-800 dark:text-gray-200 whitespace-pre-wrap break-all bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded p-4">
               <%= @node.content %>
             </div>
           </div>
@@ -190,23 +197,23 @@
 
         <%!-- Parent link --%>
         <%= if @parent do %>
-          <div class="bg-neutral-900 border border-neutral-800 rounded-lg p-4">
-            <h3 class="text-sm font-semibold text-neutral-400 mb-2">
+          <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+            <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
               Parent
             </h3>
             <button
               phx-click="navigate"
               phx-value-txid={@parent.txid}
-              class="flex items-center gap-3 w-full text-left hover:bg-neutral-800 rounded px-3 py-2 -mx-3 transition-colors"
+              class="flex items-center gap-3 w-full text-left hover:bg-gray-100 dark:hover:bg-gray-700 rounded px-3 py-2 -mx-3 transition-colors"
             >
-              <span class="font-mono text-sm text-blue-400">
+              <span class="font-mono text-sm text-blue-700 dark:text-blue-400">
                 <%= String.slice(@parent.txid, 0, 24) %>...
               </span>
-              <span class="text-sm text-neutral-400">
+              <span class="text-sm text-gray-600 dark:text-gray-400">
                 <%= @parent[:name] || "unnamed" %>
               </span>
               <%= if @parent.is_root do %>
-                <span class="text-xs px-2 py-0.5 rounded bg-amber-500/20 text-amber-400">
+                <span class="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-900 dark:bg-amber-900/40 dark:text-amber-200">
                   root
                 </span>
               <% end %>
@@ -215,10 +222,10 @@
         <% end %>
 
         <%!-- Children list --%>
-        <div class="bg-neutral-900 border border-neutral-800 rounded-lg p-4">
-          <h3 class="text-sm font-semibold text-neutral-400 mb-2">
+        <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+          <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
             Children
-            <span class="text-neutral-600 font-normal">
+            <span class="text-gray-600 dark:text-gray-400 font-normal">
               (<%= length(@children) %>)
             </span>
           </h3>
@@ -228,16 +235,16 @@
                 <button
                   phx-click="navigate"
                   phx-value-txid={child.txid}
-                  class="flex items-center gap-3 w-full text-left hover:bg-neutral-800 rounded px-3 py-2 -mx-3 transition-colors"
+                  class="flex items-center gap-3 w-full text-left hover:bg-gray-100 dark:hover:bg-gray-700 rounded px-3 py-2 -mx-3 transition-colors"
                 >
-                  <span class="font-mono text-sm text-blue-400">
+                  <span class="font-mono text-sm text-blue-700 dark:text-blue-400">
                     <%= String.slice(child.txid, 0, 16) %>...
                   </span>
-                  <span class="text-sm text-neutral-300">
+                  <span class="text-sm text-gray-700 dark:text-gray-300">
                     <%= child[:name] || "unnamed" %>
                   </span>
                   <%= if child[:content_type] do %>
-                    <span class="text-xs text-neutral-500">
+                    <span class="text-xs text-gray-600 dark:text-gray-400">
                       <%= child.content_type %>
                     </span>
                   <% end %>
@@ -245,7 +252,7 @@
               <% end %>
             </div>
           <% else %>
-            <p class="text-sm text-neutral-600">
+            <p class="text-sm text-gray-600 dark:text-gray-400">
               No child nodes.
             </p>
           <% end %>

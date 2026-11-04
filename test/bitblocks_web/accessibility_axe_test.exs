@@ -82,6 +82,24 @@ defmodule BitblocksWeb.AccessibilityAxeTest do
       |> assert_no_violations()
     end
 
+    test "metanet page is accessible in light mode", %{session: session} do
+      session
+      |> visit("/metanet")
+      |> assert_has(css("#metanet-roots"))
+      |> assert_no_violations()
+    end
+
+    test "metanet page is accessible in dark mode", %{session: session} do
+      session
+      |> visit("/metanet")
+      |> execute_script(
+        "document.documentElement.classList.remove('light'); document.documentElement.classList.add('dark');"
+      )
+      |> assert_has(css("html.dark"))
+      |> assert_has(css("#metanet-roots"))
+      |> assert_no_violations()
+    end
+
     test "reorgs page is accessible with no reorgs recorded", %{session: session} do
       session
       |> visit("/reorgs")

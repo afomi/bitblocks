@@ -10,6 +10,9 @@ const COLORS = {
   blockFar: 0x6366f1,
   blockMedium: 0x8b5cf6,
   genesis: 0xf59e0b,
+  // The scene stays near-black in light and dark mode: it is the one dark
+  // region on the page, framed by site-style chrome (DESIGN.md). Keep it in
+  // step with the canvas container's bg-[#050608] in block_graph_live.html.heex.
   background: 0x050608
 }
 
@@ -745,7 +748,7 @@ export default {
             <div>Transactions: ${block.tx_count}</div>
             <div>Total value: ${bsv} BSV</div>
             <div>Size: ${((block.size || 0) / 1024).toFixed(1)} KB</div>
-            <div class="font-mono text-[10px] mt-1 text-neutral-400">${(block.hash || "").slice(0, 16)}...</div>
+            <div class="font-mono text-[10px] mt-1 text-gray-600 dark:text-gray-400">${(block.hash || "").slice(0, 16)}...</div>
           `
           this.tooltip.style.left = event.clientX + 12 + "px"
           this.tooltip.style.top = event.clientY - 10 + "px"
@@ -765,8 +768,8 @@ export default {
           const satoshis = node.total_out || 0
           const btc = (satoshis / 100_000_000).toFixed(8)
           const utxoLabel = node.spent
-            ? '<span class="text-neutral-500">spent</span>'
-            : '<span class="text-green-400">unspent (live UTXO)</span>'
+            ? '<span class="text-gray-600 dark:text-gray-400">spent</span>'
+            : '<span class="text-green-700 dark:text-green-400">unspent (live UTXO)</span>'
           this.tooltip.innerHTML = `
             <div class="font-mono mb-1">${node.id.slice(0, 16)}...</div>
             <div>Block: ${node.block_height}</div>
