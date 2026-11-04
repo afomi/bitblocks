@@ -7,6 +7,22 @@
     Node Status
   </h1>
 
+  <a
+    id="status-live-sync"
+    href="/syncing"
+    class="mb-6 flex items-center justify-between gap-4 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 hover:border-blue-400 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-100 dark:hover:border-blue-600"
+  >
+    <span>
+      Watch the sync live: each block as it fills, with transactions synced and processed.
+    </span>
+    <span
+      class="shrink-0 font-semibold"
+      aria-hidden="true"
+    >
+      /syncing →
+    </span>
+  </a>
+
   <%= if @chain do %>
     <div class="bg-white dark:bg-gray-800 shadow-md rounded-lg p-4 mb-4">
       <div class="flex items-center justify-between mb-3">

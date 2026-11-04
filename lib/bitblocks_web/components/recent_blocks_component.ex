@@ -55,7 +55,7 @@ defmodule BitblocksWeb.RecentBlocksComponent do
                 :if={block.num_tx}
                 class="font-mono text-xs text-neutral-500 tabular-nums"
               >
-                {block.num_tx} tx
+                {format_count(block.num_tx)} tx
               </span>
               <span
                 :if={delta}
@@ -92,4 +92,13 @@ defmodule BitblocksWeb.RecentBlocksComponent do
   defp interval_color(seconds) when seconds <= 600, do: "text-green-500"
   defp interval_color(seconds) when seconds <= 1800, do: "text-neutral-500"
   defp interval_color(_seconds), do: "text-amber-400"
+
+  # 23363 -> "23,363"
+  defp format_count(n) when is_integer(n) do
+    n
+    |> Integer.to_string()
+    |> String.replace(~r/\B(?=(\d{3})+(?!\d))/, ",")
+  end
+
+  defp format_count(n), do: to_string(n)
 end

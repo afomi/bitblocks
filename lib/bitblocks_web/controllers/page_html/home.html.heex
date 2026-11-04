@@ -50,18 +50,6 @@
     </div>
   </div>
 
-  <%!-- Chain Status Component --%>
-  <div class="max-w-2xl mx-auto mb-8">
-    <BitblocksWeb.ChainStatusComponent.chain_status
-      blockchain_info={@blockchain_info}
-      blocks_count={@blocks_count}
-      transactions_count={@transactions_count}
-      latest_block={@latest_block}
-      time_ago_minutes={@time_ago_minutes}
-      block_time={@block_time}
-    />
-  </div>
-
   <%!-- Recent Blocks --%>
   <div class="max-w-2xl mx-auto mb-8">
     <BitblocksWeb.RecentBlocksComponent.recent_blocks

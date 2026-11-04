@@ -8,31 +8,6 @@ defmodule BitblocksWeb.PageController do
   end
 
   def home(conn, _params) do
-    alias Bitblocks.Chain
-    alias Bitblocks.StatsCache
-
-    # Get latest block (fast query with index)
-    latest_block = Chain.get_latest_block()
-
-    # Use cached counts to avoid slow COUNT(*) queries
-    total_blocks = StatsCache.blocks_count()
-    transactions_count = StatsCache.transactions_count()
-
-    # Calculate time since last block if we have one
-    {time_ago_minutes, block_time} =
-      if latest_block do
-        block_time = DateTime.from_unix!(latest_block.time)
-        now = DateTime.utc_now()
-        diff_seconds = DateTime.diff(now, block_time)
-        minutes_ago = div(diff_seconds, 60)
-        {minutes_ago, block_time}
-      else
-        {nil, nil}
-      end
-
-    # Get blockchain info from RPC node
-    blockchain_info = get_blockchain_info()
-
     seo =
       Seo.public_page(
         page_title: "Bitcoin SV Blockchain Explorer",
@@ -41,48 +16,11 @@ defmodule BitblocksWeb.PageController do
         canonical_path: "/"
       )
 
-    # Recent blocks for the activity feed
-    recent_blocks = Chain.list_blocks(per_page: 7)
+    # Recent blocks for the activity feed. Node and sync status live on
+    # /status and /syncing, not here.
+    recent_blocks = Bitblocks.Chain.list_blocks(per_page: 7)
 
-    render(
-      conn,
-      :home,
-      Map.merge(seo, %{
-        latest_block: latest_block,
-        total_blocks: total_blocks,
-        time_ago_minutes: time_ago_minutes,
-        block_time: block_time,
-        blockchain_info: blockchain_info,
-        blocks_count: total_blocks,
-        transactions_count: transactions_count,
-        recent_blocks: recent_blocks
-      })
-    )
-  end
-
-  defp get_blockchain_info do
-    try do
-      case Bitblocks.RpcCache.get_blockchain_info() do
-        %{
-          "blocks" => blocks,
-          "headers" => headers,
-          "chain" => chain,
-          "verificationprogress" => verificationprogress
-        } ->
-          %{
-            chain: chain,
-            blocks: blocks,
-            headers: headers,
-            verificationprogress: verificationprogress,
-            synced: blocks == headers
-          }
-
-        _ ->
-          nil
-      end
-    rescue
-      _ -> nil
-    end
+    render(conn, :home, Map.put(seo, :recent_blocks, recent_blocks))
   end
 
   def applications(conn, _params) do

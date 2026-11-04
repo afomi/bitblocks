@@ -22,7 +22,7 @@ defmodule BitblocksWeb.AboutLive do
     ~H"""
     <div class="bg-surface-base min-h-screen">
       <div class="max-w-7xl mx-auto px-4">
-        <section class="border-b border-neutral-800 pt-10 pb-6">
+        <section class="border-b border-neutral-800 pt-6 pb-6">
           <h1 class="text-4xl font-semibold text-neutral-50 tracking-tight mb-3">
             About Bitblocks
           </h1>

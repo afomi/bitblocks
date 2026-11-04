@@ -5,16 +5,16 @@ defmodule BitblocksWeb.WayfindingTest do
 
   alias Bitblocks.ProtocolRegistry
 
-  test "the header keeps to blocks, transactions and about, and sends Transactions to search",
+  test "the header keeps to blocks, transactions and about, and sends Transactions to the transactions list",
        %{conn: conn} do
     html = html_response(get(conn, "/"), 200)
 
     for {id, href} <- [
           {"nav-blocks", "/blocks"},
-          {"nav-transactions", "/search"},
+          {"nav-transactions", "/transactions"},
           {"nav-about", "/about"},
           {"nav-blocks-mobile", "/blocks"},
-          {"nav-transactions-mobile", "/search"},
+          {"nav-transactions-mobile", "/transactions"},
           {"nav-about-mobile", "/about"}
         ] do
       assert Regex.match?(
@@ -126,5 +126,14 @@ defmodule BitblocksWeb.WayfindingTest do
            }) do
         {:ok, protocol} -> protocol
       end
+  end
+
+  test "home leaves node status to /status, and /status points to the live sync", %{conn: conn} do
+    home = html_response(get(conn, "/"), 200)
+    refute home =~ "RPC Node Status"
+    assert home =~ ~s(href="/status")
+
+    status = html_response(get(conn, "/status"), 200)
+    assert Regex.match?(~r/id="status-live-sync"[^>]*href="\/syncing"/, status)
   end
 end
