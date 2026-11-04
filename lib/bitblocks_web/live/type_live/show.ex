@@ -19,7 +19,7 @@ defmodule BitblocksWeb.TypeLive.Show do
      socket
      |> assign(
        Seo.public_page(
-         page_title: "#{type.title}: transaction type",
+         page_title: "#{type.title}: a Bitcoin SV transaction type",
          meta_description: type.summary,
          canonical_path: "/types/#{type.id}"
        )

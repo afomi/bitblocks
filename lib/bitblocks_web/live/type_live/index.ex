@@ -14,7 +14,7 @@ defmodule BitblocksWeb.TypeLive.Index do
      socket
      |> assign(
        Seo.public_page(
-         page_title: "Transaction types",
+         page_title: "Bitcoin SV transaction types",
          meta_description:
            "A glossary of Bitcoin SV transaction types: payments, inscriptions, tokens, data protocols and contracts, each with its script pattern and real examples.",
          canonical_path: "/types"
