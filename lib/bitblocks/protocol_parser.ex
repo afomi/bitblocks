@@ -99,8 +99,17 @@ defmodule Bitblocks.ProtocolParser do
     |> Enum.with_index()
     |> Enum.flat_map(fn {output, vout} ->
       case Bitblocks.Bsv20Parser.parse(output.script) do
-        {:ok, token} -> [%{vout: vout, token: token}]
-        _ -> []
+        {:ok, token} ->
+          [
+            %{
+              vout: vout,
+              token: token,
+              owner: Bitblocks.Ordinals.Inscription.lock_owner(output.script)
+            }
+          ]
+
+        _ ->
+          []
       end
     end)
   end

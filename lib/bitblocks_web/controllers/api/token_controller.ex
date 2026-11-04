@@ -57,7 +57,9 @@ defmodule BitblocksWeb.Api.TokenController do
   end
 
   @doc """
-  Holder balances for a token (summed transfer credits, most-held first).
+  Holder balances for a token: unspent mint and validated transfer outputs,
+  most-held first. `transfers` counts the token's transfer outputs by
+  status; pending and invalid ones are in no balance.
 
   GET /api/v1/tokens/:id/holders
   """
@@ -65,7 +67,13 @@ defmodule BitblocksWeb.Api.TokenController do
     case BsvParams.token_ref(id) do
       {:ok, id} ->
         holders = Tokens.token_holders(id)
-        json(conn, %{token_id: id, count: length(holders), data: holders})
+
+        json(conn, %{
+          token_id: id,
+          count: length(holders),
+          data: holders,
+          transfers: Tokens.transfer_counts(id)
+        })
 
       {:error, _} ->
         conn |> put_status(400) |> json(%{error: "Invalid token id"})
@@ -125,6 +133,10 @@ defmodule BitblocksWeb.Api.TokenController do
       supply: token.supply,
       minted: token.minted,
       holders: token.holders,
+      validated: token.validated,
+      status: token.status,
+      reason: token.reason,
+      burned: token.burned,
       inserted_at: token.inserted_at
     }
   end

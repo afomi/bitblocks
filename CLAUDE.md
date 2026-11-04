@@ -209,6 +209,9 @@ bin/bitblocks rpc 'Bitblocks.Release.reconcile_orphaned_block("<orphan hash>")'
 # Block objects in the tx store (docs/TX_STORAGE.md): dry run first, then add apply: true
 bin/bitblocks rpc 'Bitblocks.Release.store_block_objects(0, 9_999)'
 
+# BSV-21 transfer validation (#41): dry run first, then add apply: true
+bin/bitblocks rpc 'Bitblocks.Release.revalidate_token_transfers()'
+
 # Chain-scrubber tiles (#48): full build once, then the cron keeps them current
 bin/bitblocks rpc 'Bitblocks.Release.build_chain_tiles()'
 bin/bitblocks rpc 'Bitblocks.Release.chain_tiles_status()'
@@ -250,7 +253,7 @@ GET /api/v1/order-book/stats    — order book aggregate statistics
 GET /api/v1/stream/order-book   — SSE stream of order book events
 GET /api/v1/tokens              — indexed BSV-20/BSV-21 tokens (filters: standard, sym)
 GET /api/v1/tokens/:id          — token by token_id (<txid>_<vout>) or ticker
-GET /api/v1/tokens/:id/holders  — holder balances for a token
+GET /api/v1/tokens/:id/holders  — holder balances for a token: the mint and validated transfers only (#41), with transfer counts by status
 GET /api/v1/tokens/:id/transfers — transfer history for a token
 GET /api/v1/tokens/stats        — token aggregate statistics
 GET /api/v1/stream/tokens       — SSE stream of new tokens / transfers

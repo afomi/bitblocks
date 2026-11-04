@@ -67,6 +67,14 @@ defmodule BitblocksWeb.TokenLiveTest do
     test "renders a token's supply and holders", %{conn: conn} do
       token = index_meme()
 
+      # The transfer spends the mint output.
+      Bitblocks.Repo.insert!(%Bitblocks.Chain.Spend{
+        txid: @txid,
+        vout: 0,
+        spending_txid: "cc" <> String.duplicate("0", 62),
+        spending_vin: 0
+      })
+
       {:ok, _} =
         Tokens.index_transfer(%{
           txid: "cc" <> String.duplicate("0", 62),
@@ -91,6 +99,32 @@ defmodule BitblocksWeb.TokenLiveTest do
       assert html =~ "Holders"
       assert html =~ "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa"
       assert html =~ "500"
+    end
+
+    test "a classic BSV-20 deploy shows max as max, not as Supply", %{conn: conn} do
+      {:ok, _} =
+        Tokens.index(%{
+          txid: "dc" <> String.duplicate("0", 62),
+          vout: 0,
+          token: %{
+            standard: "bsv-20",
+            op: "deploy",
+            token_id: nil,
+            tick: "ordi",
+            amt: nil,
+            max: "21000000",
+            lim: "1000",
+            dec: nil,
+            sym: nil,
+            icon: nil
+          }
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/tokens/ordi")
+
+      refute has_element?(view, "#token-supply")
+      assert has_element?(view, "#token-max", "Max (deploy)")
+      assert has_element?(view, "#token-max", "21,000,000")
     end
 
     test "the standard badge links to the standard's type page", %{conn: conn} do

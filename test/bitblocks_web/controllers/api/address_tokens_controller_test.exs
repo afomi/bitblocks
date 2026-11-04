@@ -55,11 +55,11 @@ defmodule BitblocksWeb.Api.AddressTokensControllerTest do
 
     ingest(mint_txid, ~s({"p":"bsv-20","op":"deploy+mint","amt":"1000","sym":"HODL","dec":"2"}))
 
+    # The transfer spends the mint output (recorded before its tokens are).
+    Repo.insert!(%Spend{txid: mint_txid, vout: 0, spending_txid: xfer_txid, spending_vin: 0})
+
     xfer_script =
       ingest(xfer_txid, ~s({"p":"bsv-20","op":"transfer","id":"#{token_id}","amt":"250"}))
-
-    # The transfer spent the mint output.
-    Repo.insert!(%Spend{txid: mint_txid, vout: 0, spending_txid: xfer_txid, spending_vin: 0})
 
     body =
       conn
@@ -79,6 +79,43 @@ defmodule BitblocksWeb.Api.AddressTokensControllerTest do
              "locking_script" => ^xfer_script,
              "height" => 500
            } = utxo
+  end
+
+  test "omits a transfer that spends no output of its token", %{conn: conn} do
+    mint_txid = "ce" <> String.duplicate("0", 62)
+    funding_txid = "cf" <> String.duplicate("0", 62)
+    copy_txid = "de" <> String.duplicate("0", 62)
+    token_id = "#{mint_txid}_0"
+
+    # The mint goes to someone else; the copy is funded by a stored plain tx.
+    other_mint(mint_txid)
+
+    Repo.insert!(
+      Transaction.changeset(%Transaction{}, %{
+        txid: funding_txid,
+        raw: "00",
+        version: "1",
+        inputs: [],
+        outputs: [],
+        block_height: 499,
+        block_hash: String.duplicate("b", 64)
+      })
+    )
+
+    Repo.insert!(%Spend{txid: funding_txid, vout: 0, spending_txid: copy_txid, spending_vin: 0})
+    ingest(copy_txid, ~s({"p":"bsv-20","op":"transfer","id":"#{token_id}","amt":"500"}))
+
+    body = conn |> get(~p"/api/v1/addresses/#{@address}/tokens") |> json_response(200)
+    assert %{"data" => [], "meta" => %{"count" => 0}} = body
+  end
+
+  defp other_mint(txid) do
+    Bitblocks.Tokens.index_token(%{
+      txid: txid,
+      vout: 0,
+      recipient: "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa",
+      token: %{standard: "bsv-21", op: "deploy+mint", token_id: nil, amt: "1000"}
+    })
   end
 
   test "filters by token_id", %{conn: conn} do

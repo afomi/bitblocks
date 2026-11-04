@@ -95,16 +95,12 @@ defmodule Bitblocks.Chain.IndexTokensTest do
     assert Chain.index_tokens(mint_tx) == 1
     token_id = "#{mint_txid}_0"
 
-    # Then a transfer crediting `address`.
+    assert Tokens.balance_of(token_id, address) == 1000
+
+    # Then a transfer crediting `address`, spending the mint output (the
+    # pipeline records spends before it indexes tokens).
     xfer_txid = "dd" <> String.duplicate("0", 62)
-    xfer_body = ~s({"p":"bsv-20","op":"transfer","id":"#{token_id}","amt":"250"})
-    xfer_tx = store_tx(inscription_raw(xfer_body, pkh), xfer_txid, address)
-    assert Chain.index_tokens(xfer_tx) == 1
 
-    # Balances are net: the mint output is still unspent here, so both count.
-    assert Tokens.balance_of(token_id, address) == 1250
-
-    # Once the transfer spends the mint output, only the transfer remains.
     Repo.insert!(%Bitblocks.Chain.Spend{
       txid: mint_txid,
       vout: 0,
@@ -112,6 +108,12 @@ defmodule Bitblocks.Chain.IndexTokensTest do
       spending_vin: 0
     })
 
+    xfer_body = ~s({"p":"bsv-20","op":"transfer","id":"#{token_id}","amt":"250"})
+    xfer_tx = store_tx(inscription_raw(xfer_body, pkh), xfer_txid, address)
+    assert Chain.index_tokens(xfer_tx) == 1
+
+    # Balances are net: the mint output is spent, the transfer holds 250 and
+    # the other 750 are burned (outputs below inputs, per the BSV-21 spec).
     assert Tokens.balance_of(token_id, address) == 250
   end
 end
