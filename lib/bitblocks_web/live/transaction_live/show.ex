@@ -49,7 +49,7 @@ defmodule BitblocksWeb.TransactionLive.Show do
     block =
       if transaction do
         Chain.get_block(transaction.block_hash) ||
-          Chain.get_block(transaction.block_height)
+          (transaction.block_height && Chain.get_block_at_height(transaction.block_height))
       end
 
     # Decode `raw` exactly once; everything downstream (OP_RETURN parsing,

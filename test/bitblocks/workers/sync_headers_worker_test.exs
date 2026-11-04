@@ -240,4 +240,50 @@ defmodule Bitblocks.Workers.SyncHeadersWorkerTest do
       assert {:error, {:rpc, _reason}} = SyncHeadersWorker.fork_point(102, "node_102")
     end
   end
+
+  describe "fork walk looks blocks up by height, never by row id" do
+    # 2026-11-03: Chain.get_block(integer) tries the primary key first, so on
+    # prod the walk compared the node's chain against whatever row had
+    # id 957_300 and reported a 1-block orphan as "deeper than 10 blocks".
+    # The same lookup chose which rows to delete as orphans.
+    setup do
+      BitblocksWeb.RpcStub.setup()
+      ancestor = block_fixture(%{height: 900_100, hash: "common_ancestor"})
+      orphan = block_fixture(%{height: 900_101, hash: "our_orphan"})
+
+      # A row whose primary key equals the ancestor's and orphan's heights.
+      decoy_a = Bitblocks.Repo.insert!(%Block{id: 900_100, height: 5, hash: "decoy_a"})
+      decoy_b = Bitblocks.Repo.insert!(%Block{id: 900_101, height: 6, hash: "decoy_b"})
+
+      %{ancestor: ancestor, orphan: orphan, decoys: [decoy_a, decoy_b]}
+    end
+
+    test "finds the common ancestor by height" do
+      BitblocksWeb.RpcStub.stub_getblockheader("node_900102", %{
+        "hash" => "node_900102",
+        "height" => 900_102,
+        "previousblockhash" => "node_900101"
+      })
+
+      BitblocksWeb.RpcStub.stub_getblockheader("node_900101", %{
+        "hash" => "node_900101",
+        "height" => 900_101,
+        "previousblockhash" => "common_ancestor"
+      })
+
+      assert {:ok, 900_100} = SyncHeadersWorker.fork_point(900_102, "node_900102")
+    end
+
+    test "deletes the orphans at those heights and nothing else", %{
+      ancestor: ancestor,
+      orphan: orphan,
+      decoys: decoys
+    } do
+      SyncHeadersWorker.delete_orphans(900_100, 900_101)
+
+      refute Bitblocks.Repo.get(Block, orphan.id)
+      assert Bitblocks.Repo.get(Block, ancestor.id)
+      for d <- decoys, do: assert(Bitblocks.Repo.get(Block, d.id))
+    end
+  end
 end

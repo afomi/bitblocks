@@ -166,19 +166,13 @@ defmodule Bitblocks.Workers.SyncHeadersWorker do
 
     case fork_point(fork_height, node_hash) do
       {:ok, fork_point} ->
-        orphan_heights = (fork_point + 1)..fork_height |> Enum.to_list()
-        orphan_count = length(orphan_heights)
+        orphan_count = fork_height - fork_point
 
         Logger.warning(
           "SyncHeaders: reorg fork point #{fork_point}, deleting orphans #{fork_point + 1}..#{fork_height}"
         )
 
-        Enum.each(orphan_heights, fn h ->
-          case Chain.get_block(h) do
-            nil -> :ok
-            block -> Chain.delete_block(block)
-          end
-        end)
+        delete_orphans(fork_point, fork_height)
 
         Logger.warning("SyncHeaders: reorg resolved, re-syncing from #{fork_point + 1}")
         record_reorg(fork_height, fork_point, orphan_count)
@@ -239,6 +233,19 @@ defmodule Bitblocks.Workers.SyncHeadersWorker do
   @doc false
   def fork_point(height, node_hash), do: find_fork_point(height, node_hash, 0)
 
+  # Deletes our blocks above the fork point, by height.
+  @doc false
+  def delete_orphans(fork_point, fork_height) do
+    for h <- (fork_point + 1)..fork_height//1 do
+      case Chain.get_block_at_height(h) do
+        nil -> :ok
+        block -> Chain.delete_block(block)
+      end
+    end
+
+    :ok
+  end
+
   defp find_fork_point(_height, _node_hash, depth) when depth > @max_reorg_depth,
     do: {:error, :too_deep}
 
@@ -247,7 +254,7 @@ defmodule Bitblocks.Workers.SyncHeadersWorker do
       %{"previousblockhash" => prev_hash, "height" => ^height} ->
         prev_height = height - 1
 
-        case Chain.get_block(prev_height) do
+        case Chain.get_block_at_height(prev_height) do
           %Block{hash: ^prev_hash} ->
             # Our block at prev_height matches the node's prevhash — fork point found.
             {:ok, prev_height}

@@ -97,6 +97,17 @@ defmodule Bitblocks.Chain do
     end
   end
 
+  @doc """
+  The block at `height`, or nil. Height only: unlike `get_block/1` with an
+  integer, it never matches a row's primary key, so sync code that means a
+  height always gets that height.
+  """
+  def get_block_at_height(height) when is_integer(height) do
+    Repo.one(from b in Block, where: b.height == ^height, limit: 1)
+  end
+
+  # An integer is tried as a primary key first, then as a height. Sync code
+  # that means a height must use get_block_at_height/1.
   def get_block(id_or_height_or_hash) when is_integer(id_or_height_or_hash) do
     Repo.get(Block, id_or_height_or_hash) ||
       Repo.one(from b in Block, where: b.height == ^id_or_height_or_hash, limit: 1)
@@ -599,7 +610,7 @@ defmodule Bitblocks.Chain do
   end
 
   defp fetch_block(height) when is_integer(height) do
-    case get_block(height) do
+    case get_block_at_height(height) do
       nil -> {:error, :block_not_found}
       block -> {:ok, block}
     end
