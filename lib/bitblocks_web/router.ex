@@ -145,6 +145,10 @@ defmodule BitblocksWeb.Router do
     get "/status", StatusController, :show
     get "/price/bsv", PriceController, :show
     get "/support", SupportController, :show
+
+    # Transaction types (#49): definitions for other tools to link to.
+    get "/types/:id", TypeController, :show
+    get "/types", TypeController, :index
   end
 
   # Own scope, no pipeline: the :browser pipeline only accepts html.
@@ -222,6 +226,8 @@ defmodule BitblocksWeb.Router do
       live "/metanet", MetanetLive
       live "/collections", CollectionLive.Index
       live "/collections/:id", CollectionLive.Show
+      live "/types", TypeLive.Index
+      live "/types/:id", TypeLive.Show
       live "/about", AboutLive
       live "/pricing", PricingLive
       live "/guide", GuideLive

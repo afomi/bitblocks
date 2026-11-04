@@ -46,6 +46,7 @@ defmodule BitblocksWeb.TokenLiveTest do
       assert html =~ "Tokens"
       assert html =~ "MEME"
       assert html =~ "bsv-21"
+      assert html =~ ~s(href="/types/bsv-21")
     end
 
     test "shows an empty state when no tokens", %{conn: conn} do
@@ -90,6 +91,14 @@ defmodule BitblocksWeb.TokenLiveTest do
       assert html =~ "Holders"
       assert html =~ "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa"
       assert html =~ "500"
+    end
+
+    test "the standard badge links to the standard's type page", %{conn: conn} do
+      token = index_meme()
+
+      {:ok, view, _html} = live(conn, ~p"/tokens/#{token.token_id}")
+
+      assert has_element?(view, ~s(a#token-standard[href="/types/bsv-21"]), "bsv-21")
     end
 
     test "shows not-found for an unknown token", %{conn: conn} do

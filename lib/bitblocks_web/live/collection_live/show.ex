@@ -35,6 +35,7 @@ defmodule BitblocksWeb.CollectionLive.Show do
          socket
          |> assign(seo)
          |> assign(:collection, collection)
+         |> assign(:standard_type, Bitblocks.TxTypes.id_for_standard(collection.standard))
          |> assign(:stats, OrdinalCollections.stats(collection.id))
          |> assign(:per_page, @per_page)
          |> assign(:selected, nil)}

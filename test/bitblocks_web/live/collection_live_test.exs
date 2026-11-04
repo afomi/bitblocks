@@ -102,6 +102,14 @@ defmodule BitblocksWeb.CollectionLiveTest do
   end
 
   describe "show" do
+    test "the standard pill links to the standard's type page", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/collections/grand-tardinians")
+      assert has_element?(view, ~s(a#collection-standard[href="/types/1sat-inscription"]), "1Sat")
+
+      {:ok, view, _html} = live(conn, ~p"/collections/rexxies")
+      assert has_element?(view, ~s(a#collection-standard[href="/types/run"]), "Run")
+    end
+
     test "lists items and states what's proven", %{conn: conn} do
       cid = OrdinalCollections.known()["grand-tardinians"]
       item = item!(cid, 1, %{owner: "1HolderXXXXXXXXXXXXXXXXXXXXXXXXXXX"})

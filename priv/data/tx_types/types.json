@@ -1,0 +1,790 @@
+{
+  "version": 1,
+  "groups": [
+    {
+      "id": "cash",
+      "title": "Cash",
+      "summary": "Sats a key can spend. Most outputs on chain are this."
+    },
+    {
+      "id": "objects",
+      "title": "Objects",
+      "summary": "One sat that stands for a thing. Spending the sat moves the thing."
+    },
+    {
+      "id": "tokens",
+      "title": "Tokens",
+      "summary": "Inscriptions whose file is a token ledger entry. The amount lives in the JSON, not in the sats."
+    },
+    {
+      "id": "data",
+      "title": "Data",
+      "summary": "Records with no lock. They hold no value and can never be spent."
+    },
+    {
+      "id": "conditions",
+      "title": "Conditions",
+      "summary": "Locks that ask for more than one signature, for time to pass, or for nothing at all."
+    },
+    {
+      "id": "applications",
+      "title": "Applications",
+      "summary": "Protocols that link many transactions into one structure: a tree of nodes, or a set of objects."
+    },
+    {
+      "id": "other",
+      "title": "Everything else",
+      "summary": "The catch-all for what has not been typed yet."
+    }
+  ],
+  "types": [
+    {
+      "id": "p2pkh",
+      "title": "Pay to public key hash",
+      "short": "P2PKH",
+      "group": "cash",
+      "summary": "The ordinary payment. The lock names a key by its hash, and only that key can spend it.",
+      "description": [
+        "A P2PKH output locks sats to the hash of a public key.",
+        "A Bitcoin address is that hash, written in Base58Check with a version byte in front.",
+        "To spend the output, the owner shows the full public key and signs the spending transaction with it."
+      ],
+      "history": [
+        "P2PKH has been the standard payment since Bitcoin's first release in 2009.",
+        "Locking to a hash rather than the key itself keeps the key private until the first spend, and makes addresses shorter.",
+        "Wallets use it for payments and for change, so it is the most common output on chain by far."
+      ],
+      "spec": {
+        "label": "P2PKH on the Bitcoin SV wiki",
+        "url": "https://wiki.bitcoinsv.io/index.php/P2PKH"
+      },
+      "pattern": {
+        "parts": [
+          {"token": "OP_DUP", "label": "Copies the public key the spender supplies."},
+          {"token": "OP_HASH160", "label": "Hashes the copy with SHA-256, then RIPEMD-160."},
+          {"token": "<pubkey hash>", "label": "20 bytes: the owner's key hash. This is the address."},
+          {"token": "OP_EQUALVERIFY", "label": "Stops unless the two hashes match."},
+          {"token": "OP_CHECKSIG", "label": "Checks the spender's signature against the key."}
+        ],
+        "note": "25 bytes in all."
+      },
+      "spendable": true,
+      "spend": "A signature and the public key whose hash is in the lock: <signature> <public key>.",
+      "related": ["1sat-output", "1sat-inscription", "cosign", "multisig"],
+      "examples": {
+        "kind": "template",
+        "vector": "p2pkh",
+        "template_hashes": ["09507a7ca50f690592bd1c63b0c826f82e835c4b68d967aea9c5e2c4e666b2d5"]
+      }
+    },
+    {
+      "id": "1sat-output",
+      "title": "Bare 1-sat output",
+      "short": "1 sat",
+      "group": "objects",
+      "summary": "A P2PKH output holding exactly one sat, with no envelope. It may carry an object made earlier.",
+      "description": [
+        "The lock is plain P2PKH; what makes it different is the amount.",
+        "Under the 1Sat Ordinals convention, a single sat can carry an inscription from the transaction that made it, through every transfer after.",
+        "So a 1-sat output with no envelope of its own may still be an object, and a careful wallet keeps it out of coin selection until it knows."
+      ],
+      "history": [
+        "1Sat Ordinals arrived on BSV in 2023, adapting the ordinal idea to whole outputs of one sat.",
+        "Wallets that follow it hold back every 1-sat output from payments, so an object is never spent as change by accident."
+      ],
+      "spec": {
+        "label": "1Sat Ordinals documentation",
+        "url": "https://docs.1satordinals.com/"
+      },
+      "pattern": {
+        "parts": [
+          {"token": "OP_DUP OP_HASH160", "label": "The P2PKH opening."},
+          {"token": "<pubkey hash>", "label": "20 bytes: the owner's key hash."},
+          {"token": "OP_EQUALVERIFY OP_CHECKSIG", "label": "The P2PKH close."}
+        ],
+        "note": "The script is identical to P2PKH; the output's value is 1 sat."
+      },
+      "spendable": true,
+      "spend": "The owner's signature, as P2PKH. To move the object with it, send it on as 1 sat.",
+      "related": ["p2pkh", "1sat-inscription", "ordlock"],
+      "examples": {
+        "kind": "none",
+        "reason": "Telling a 1-sat P2PKH from any other P2PKH needs the output's value, which our indexes do not hold yet."
+      }
+    },
+    {
+      "id": "1sat-inscription",
+      "title": "1Sat Ordinals inscription",
+      "short": "Inscription",
+      "group": "objects",
+      "summary": "A P2PKH lock plus an envelope that carries a file. The file is the object; the sat carries it.",
+      "description": [
+        "An inscription puts a file inside the locking script, wrapped in an envelope that never runs.",
+        "The envelope opens with OP_FALSE OP_IF, so the script skips it, and names itself with the word \"ord\".",
+        "The output where the file first appears is its origin, and the origin outpoint is the object's id for life.",
+        "Each later spend of that single sat moves the object to a new owner."
+      ],
+      "history": [
+        "Ordinal inscriptions began on BTC in early 2023.",
+        "1Sat Ordinals brought the envelope to BSV the same year, with one change that matters: an object is a whole 1-sat output, so tracking it needs no sat numbering.",
+        "Because BSV has no small data limit, the file can be a full image, page or program."
+      ],
+      "spec": {
+        "label": "1Sat Ordinals documentation",
+        "url": "https://docs.1satordinals.com/"
+      },
+      "pattern": {
+        "parts": [
+          {"token": "OP_DUP OP_HASH160 <pubkey hash> OP_EQUALVERIFY OP_CHECKSIG", "label": "A P2PKH lock: who owns the object."},
+          {"token": "OP_FALSE OP_IF", "label": "Opens the envelope. The script never runs what follows."},
+          {"token": "\"ord\"", "label": "Names the envelope as an inscription."},
+          {"token": "OP_1 <content type>", "label": "Field 1: the file's media type, such as image/png."},
+          {"token": "OP_0 <file data>", "label": "Field 0: the file itself."},
+          {"token": "OP_ENDIF", "label": "Closes the envelope."}
+        ],
+        "note": "Some inscriptions put the envelope before the lock instead of after it."
+      },
+      "spendable": true,
+      "spend": "The owner's signature, as P2PKH, sent on as 1 sat so the object goes with it.",
+      "related": ["1sat-output", "inscription-map", "ordlock", "bsv-20", "bsv-21"],
+      "explore": {"label": "Browse NFT collections", "href": "/collections"},
+      "examples": {
+        "kind": "collections",
+        "collections": ["grand-tardinians"]
+      }
+    },
+    {
+      "id": "inscription-map",
+      "title": "Inscription with MAP",
+      "short": "Inscription + MAP",
+      "group": "objects",
+      "summary": "An inscription with a MAP tail after the lock, naming the object's fields.",
+      "description": [
+        "The same envelope and lock as any inscription, followed by OP_RETURN and a MAP record.",
+        "The MAP record holds key-value pairs about the object, such as its name, its collection or its traits.",
+        "Everything after OP_RETURN is data, so the tail never affects who can spend the output."
+      ],
+      "history": [
+        "Collections minted on 1Sat Ordinals commonly use a MAP tail to carry names and traits beside the file."
+      ],
+      "spec": {
+        "label": "1Sat Ordinals documentation",
+        "url": "https://docs.1satordinals.com/"
+      },
+      "pattern": {
+        "parts": [
+          {"token": "OP_DUP OP_HASH160 <pubkey hash> OP_EQUALVERIFY OP_CHECKSIG", "label": "A P2PKH lock: who owns the object."},
+          {"token": "OP_FALSE OP_IF \"ord\" OP_1 <type> OP_0 <data> OP_ENDIF", "label": "The inscription envelope."},
+          {"token": "OP_RETURN", "label": "Ends the script. What follows is data."},
+          {"token": "\"1PuQa7K62MiKCtssSLKy1kh56WWU7MtUR5\"", "label": "The MAP prefix."},
+          {"token": "\"SET\" <key> <value> …", "label": "The object's fields, as pairs."}
+        ]
+      },
+      "spendable": true,
+      "spend": "The owner's signature, as P2PKH.",
+      "related": ["1sat-inscription", "map"],
+      "examples": {
+        "kind": "none",
+        "reason": "Our indexes do not yet tell an inscription's MAP tail apart from a MAP record elsewhere in the transaction."
+      }
+    },
+    {
+      "id": "ordlock",
+      "title": "OrdLock listing",
+      "short": "OrdLock",
+      "group": "objects",
+      "summary": "An object offered for sale. The lock itself is the offer: it names the price and who gets paid.",
+      "description": [
+        "OrdLock is a contract that holds an object until someone pays for it.",
+        "The seller writes the payment they want, as a whole output, into the lock.",
+        "Any buyer can open it by building a transaction that includes that exact output, so the seller is paid in the same transaction that hands over the object, or neither happens.",
+        "The seller can also cancel with a signature."
+      ],
+      "history": [
+        "OrdLock came with the 1Sat Ordinals marketplace in 2023, so listings could live on chain rather than in a market's database.",
+        "It ships in the @1sat/templates package that wallets use to build and read listings."
+      ],
+      "spec": {
+        "label": "@1sat/templates",
+        "url": "https://www.npmjs.com/package/@1sat/templates"
+      },
+      "pattern": {
+        "parts": [
+          {"token": "<contract prefix>", "label": "Fixed contract code that checks the spending transaction."},
+          {"token": "<seller pubkey hash>", "label": "20 bytes: who can cancel."},
+          {"token": "<payout output>", "label": "The output a buyer must create: the price in sats and the seller's lock."},
+          {"token": "<contract suffix>", "label": "More fixed contract code."}
+        ],
+        "note": "The contract code is the same in every listing; only the seller and the payout change."
+      },
+      "spendable": true,
+      "spend": "Either the seller cancels with a signature, or anyone buys by paying the price the lock names.",
+      "related": ["1sat-inscription", "1sat-output", "bsv-21"],
+      "examples": {
+        "kind": "template",
+        "vector": "ordlock_listing",
+        "template_hashes": [
+          "515d5c67348414fd7f16182ad510e4a2010c659b5b92020b2ba26c73d1318e7f",
+          "f53f98ec68a232c69c0bd4aff530807f4bb4c5d48890149fc93ecccd32302875"
+        ]
+      }
+    },
+    {
+      "id": "bsv-20",
+      "title": "BSV-20",
+      "short": "BSV-20",
+      "group": "tokens",
+      "summary": "Fungible tokens named by ticker, written as JSON inscriptions. First deploy of a ticker wins.",
+      "description": [
+        "A BSV-20 token is a run of inscriptions with the content type application/bsv-20.",
+        "A deploy names a ticker and sets its maximum supply and the most any one mint may claim.",
+        "Mints claim amounts until the supply runs out, and transfers move amounts between owners.",
+        "Balances come from an indexer that replays every operation in order and applies the rules: the first deploy of a ticker counts, and later ones are ignored."
+      ],
+      "history": [
+        "BSV-20 launched on 1Sat Ordinals in 2023, after the BRC-20 experiment on BTC.",
+        "Open minting by ticker made launches fair, but meant every indexer had to scan every mint to know a balance.",
+        "BSV-21 followed to fix that, and is the format new tokens use."
+      ],
+      "spec": {
+        "label": "1Sat Ordinals documentation",
+        "url": "https://docs.1satordinals.com/"
+      },
+      "pattern": {
+        "parts": [
+          {"token": "OP_DUP OP_HASH160 <pubkey hash> OP_EQUALVERIFY OP_CHECKSIG", "label": "A P2PKH lock: who holds the tokens."},
+          {"token": "OP_FALSE OP_IF \"ord\"", "label": "Opens the inscription envelope."},
+          {"token": "OP_1 \"application/bsv-20\"", "label": "The content type that marks a token operation."},
+          {"token": "OP_0 {\"p\":\"bsv-20\",\"op\":\"transfer\",\"tick\":\"…\",\"amt\":\"…\"}", "label": "The operation: deploy, mint or transfer, by ticker."},
+          {"token": "OP_ENDIF", "label": "Closes the envelope."}
+        ]
+      },
+      "spendable": true,
+      "spend": "The owner's signature, as P2PKH. A transfer must account for the whole amount it spends.",
+      "related": ["bsv-21", "1sat-inscription", "ordlock"],
+      "explore": {"label": "Browse tokens", "href": "/tokens?standard=bsv-20"},
+      "examples": {
+        "kind": "tokens",
+        "standard": "bsv-20"
+      }
+    },
+    {
+      "id": "bsv-21",
+      "title": "BSV-21",
+      "short": "BSV-21",
+      "group": "tokens",
+      "summary": "Fungible tokens with no ticker race. One output creates the token and its whole supply, and its outpoint is the token's id.",
+      "description": [
+        "A BSV-21 token starts with a single deploy+mint inscription that creates the whole supply at once.",
+        "The token's id is that output's outpoint, written as txid_vout.",
+        "Every transfer names the id, so any indexer can check a balance by following outputs back to the genesis, without scanning every mint on chain.",
+        "The issuer decides how the supply is handed out, for example through a contract that releases it over time."
+      ],
+      "history": [
+        "BSV-21 came to 1Sat Ordinals in late 2023 as the successor to BSV-20.",
+        "Ids replaced tickers, so two tokens may share a symbol and still never collide.",
+        "Stablecoins such as MNEE use it."
+      ],
+      "spec": {
+        "label": "1Sat Ordinals documentation",
+        "url": "https://docs.1satordinals.com/"
+      },
+      "pattern": {
+        "parts": [
+          {"token": "OP_DUP OP_HASH160 <pubkey hash> OP_EQUALVERIFY OP_CHECKSIG", "label": "A P2PKH lock: who holds the tokens."},
+          {"token": "OP_FALSE OP_IF \"ord\"", "label": "Opens the inscription envelope."},
+          {"token": "OP_1 \"application/bsv-20\"", "label": "The same content type as BSV-20."},
+          {"token": "OP_0 {\"p\":\"bsv-20\",\"op\":\"deploy+mint\",\"sym\":\"…\",\"amt\":\"…\"}", "label": "A genesis. A transfer instead carries \"op\":\"transfer\" and the token's \"id\"."},
+          {"token": "OP_ENDIF", "label": "Closes the envelope."}
+        ]
+      },
+      "spendable": true,
+      "spend": "The owner's signature, as P2PKH. A transfer must account for the whole amount it spends.",
+      "related": ["bsv-20", "1sat-inscription", "ordlock", "cosign"],
+      "explore": {"label": "Browse tokens", "href": "/tokens?standard=bsv-21"},
+      "examples": {
+        "kind": "tokens",
+        "standard": "bsv-21"
+      }
+    },
+    {
+      "id": "op-return",
+      "title": "OP_RETURN data",
+      "short": "OP_RETURN",
+      "group": "data",
+      "summary": "Data with no lock. Anything at all can follow it; nothing on chain says how to read it.",
+      "description": [
+        "An output that starts with OP_FALSE OP_RETURN can never be spent, so it is a safe place to write data.",
+        "Nodes know it can never be spent and can leave it out of the set of coins they track.",
+        "Protocols such as B, MAP and AIP give the data a shape by starting it with a known prefix."
+      ],
+      "history": [
+        "Bitcoin made small OP_RETURN outputs standard in 2014, so people would stop hiding data in fake addresses.",
+        "BSV later lifted the size limit, which made whole files on chain practical.",
+        "A plain OP_RETURN before OP_FALSE was added could be spent in some cases; OP_FALSE OP_RETURN rules that out."
+      ],
+      "spec": {
+        "label": "OP_RETURN on the Bitcoin SV wiki",
+        "url": "https://wiki.bitcoinsv.io/index.php/OP_RETURN"
+      },
+      "pattern": {
+        "parts": [
+          {"token": "OP_FALSE", "label": "Puts false on the stack, so the output can never be spent."},
+          {"token": "OP_RETURN", "label": "Ends the script. What follows is data."},
+          {"token": "<data> …", "label": "Any number of pushes, in any format."}
+        ]
+      },
+      "spendable": false,
+      "spend": "It cannot be spent. Any sats sent to it are gone for good.",
+      "related": ["b", "map", "aip", "metanet"],
+      "examples": {
+        "kind": "none",
+        "reason": "Every OP_RETURN has a different shape, so our script-shape index does not group them yet."
+      }
+    },
+    {
+      "id": "b",
+      "title": "B:// file",
+      "short": "B://",
+      "group": "data",
+      "summary": "A file on chain: the data, its media type, its encoding and an optional name, under the B prefix.",
+      "description": [
+        "B is a Bitcom protocol for storing a file in an OP_RETURN output.",
+        "Its prefix is a Bitcoin address, 19HxigV4QyBv3tHpQVcUEQyq1pzZVdoAut, and the fields after it are fixed in order.",
+        "Any page or app can then load the file by its transaction id."
+      ],
+      "history": [
+        "unwriter published B in 2019 as one of the first Bitcom protocols, alongside tools that served B files straight to the browser.",
+        "It became the common way to put images, pages and media on chain, and other protocols pipe into it."
+      ],
+      "spec": {
+        "label": "B:// specification",
+        "url": "https://b.bitdb.network/"
+      },
+      "pattern": {
+        "parts": [
+          {"token": "OP_FALSE OP_RETURN", "label": "A data output."},
+          {"token": "\"19HxigV4QyBv3tHpQVcUEQyq1pzZVdoAut\"", "label": "The B prefix."},
+          {"token": "<data>", "label": "The file's bytes."},
+          {"token": "<media type>", "label": "Such as image/png or text/markdown."},
+          {"token": "<encoding>", "label": "Such as binary or utf-8."},
+          {"token": "<filename>", "label": "Optional."},
+          {"token": "\"|\" …", "label": "Optional: a pipe, then another protocol such as MAP or AIP."}
+        ]
+      },
+      "spendable": false,
+      "spend": "It cannot be spent.",
+      "related": ["op-return", "map", "aip"],
+      "explore": {"label": "See B in the Bitcom registry", "href": "/bitcom/19HxigV4QyBv3tHpQVcUEQyq1pzZVdoAut"},
+      "examples": {
+        "kind": "protocol",
+        "protocols": ["B://"]
+      }
+    },
+    {
+      "id": "map",
+      "title": "MAP record",
+      "short": "MAP",
+      "group": "data",
+      "summary": "Key-value pairs that say what a transaction is for: its app, its type, and any fields the app needs.",
+      "description": [
+        "MAP, the Magic Attribute Protocol, writes pairs of keys and values into an OP_RETURN output.",
+        "A SET command adds pairs; apps use them to label a post, a like, a ticket or an object.",
+        "Because MAP is a Bitcom protocol, it can follow another one in the same output after a pipe."
+      ],
+      "history": [
+        "MAP was published in 2019 and became the shared vocabulary of many BSV apps.",
+        "Its keys are free-form, so each app documents its own and readers agree on the common ones, such as app and type."
+      ],
+      "spec": {
+        "label": "MAP specification",
+        "url": "https://github.com/rohenaz/MAP"
+      },
+      "pattern": {
+        "parts": [
+          {"token": "OP_FALSE OP_RETURN", "label": "A data output."},
+          {"token": "\"1PuQa7K62MiKCtssSLKy1kh56WWU7MtUR5\"", "label": "The MAP prefix."},
+          {"token": "\"SET\"", "label": "The command."},
+          {"token": "<key> <value> …", "label": "Pairs, such as app and type."}
+        ]
+      },
+      "spendable": false,
+      "spend": "It cannot be spent.",
+      "related": ["b", "aip", "sigma", "inscription-map"],
+      "explore": {"label": "See MAP in the Bitcom registry", "href": "/bitcom/1PuQa7K62MiKCtssSLKy1kh56WWU7MtUR5"},
+      "examples": {
+        "kind": "protocol",
+        "protocols": ["MAP"]
+      }
+    },
+    {
+      "id": "aip",
+      "title": "AIP signature",
+      "short": "AIP",
+      "group": "data",
+      "summary": "A signature over the data before it, so a record names its author.",
+      "description": [
+        "AIP, the Author Identity Protocol, signs the fields that come before it in the same output.",
+        "It records the signing method, the signer's address and the signature, and may list which fields it covers.",
+        "Anyone can check the signature without trusting the app that wrote it."
+      ],
+      "history": [
+        "AIP was published in 2019 and is often piped after B and MAP, so a post carries its file, its labels and its author together."
+      ],
+      "spec": {
+        "label": "AIP specification",
+        "url": "https://github.com/BitcoinFiles/AIP"
+      },
+      "pattern": {
+        "parts": [
+          {"token": "… \"|\"", "label": "Usually follows other data, after a pipe."},
+          {"token": "\"15PciHG22SNLQJXMoSUaWVi7WSqc7hCfva\"", "label": "The AIP prefix."},
+          {"token": "\"BITCOIN_ECDSA\"", "label": "The signing method."},
+          {"token": "<address>", "label": "The signer's address."},
+          {"token": "<signature>", "label": "The signature over the covered fields."},
+          {"token": "<field index> …", "label": "Optional: which fields the signature covers."}
+        ]
+      },
+      "spendable": false,
+      "spend": "It cannot be spent.",
+      "related": ["map", "b", "sigma"],
+      "explore": {"label": "See AIP in the Bitcom registry", "href": "/bitcom/15PciHG22SNLQJXMoSUaWVi7WSqc7hCfva"},
+      "examples": {
+        "kind": "protocol",
+        "protocols": ["AIP"]
+      }
+    },
+    {
+      "id": "sigma",
+      "title": "SIGMA signature",
+      "short": "SIGMA",
+      "group": "data",
+      "summary": "A signature over a record and the transaction's inputs, so it cannot be copied into another transaction.",
+      "description": [
+        "SIGMA signs the data before it together with an input of the transaction that carries it.",
+        "That ties the signature to this one transaction, so nobody can lift it into a different one and claim the author's name.",
+        "Like AIP, it follows other data after a pipe."
+      ],
+      "history": [
+        "SIGMA came from the Bitcoin Schema project as a successor to AIP for signing on-chain records."
+      ],
+      "spec": {
+        "label": "SIGMA specification",
+        "url": "https://github.com/BitcoinSchema/sigma"
+      },
+      "pattern": {
+        "parts": [
+          {"token": "… \"|\"", "label": "Follows other data, such as MAP, after a pipe."},
+          {"token": "\"SIGMA\"", "label": "The SIGMA prefix."},
+          {"token": "\"BSM\"", "label": "The signing method: a Bitcoin signed message."},
+          {"token": "<address>", "label": "The signer's address."},
+          {"token": "<signature>", "label": "The signature."},
+          {"token": "<vin>", "label": "Which input the signature is bound to."}
+        ]
+      },
+      "spendable": false,
+      "spend": "It cannot be spent.",
+      "related": ["aip", "map"],
+      "examples": {
+        "kind": "none",
+        "reason": "Our protocol detector does not tag SIGMA yet."
+      }
+    },
+    {
+      "id": "multisig",
+      "title": "Bare multisig",
+      "short": "Multisig",
+      "group": "conditions",
+      "summary": "Lists several keys and asks for a number of them to sign, such as any two of three.",
+      "description": [
+        "A bare multisig output writes every public key into the lock, then the number of signatures it needs.",
+        "It suits shared funds and escrow, where no single key holder should be able to spend alone.",
+        "Bare means the keys sit in the lock itself, not behind a hash."
+      ],
+      "history": [
+        "OP_CHECKMULTISIG has been part of Bitcoin's script since the start.",
+        "An off-by-one in it consumes one extra stack item, which is why every unlock starts with OP_0."
+      ],
+      "spec": {
+        "label": "Multisignature on the Bitcoin SV wiki",
+        "url": "https://wiki.bitcoinsv.io/index.php/Multisignature"
+      },
+      "pattern": {
+        "parts": [
+          {"token": "OP_2", "label": "How many signatures are needed (m)."},
+          {"token": "<pubkey 1> <pubkey 2> <pubkey 3>", "label": "Every key that may sign, 33 bytes each."},
+          {"token": "OP_3", "label": "How many keys there are (n)."},
+          {"token": "OP_CHECKMULTISIG", "label": "Checks the signatures against the keys, in order."}
+        ],
+        "note": "Shown as 2-of-3; m and n can be anything up to 16."
+      },
+      "spendable": true,
+      "spend": "OP_0, then m signatures in the same order as their keys.",
+      "related": ["p2pkh", "cosign"],
+      "examples": {
+        "kind": "template",
+        "vector": "p2ms_2_of_3",
+        "template_hashes": ["ff13a2361f3a30b529465e9b4ed1505d11fd8193a3ffd343fe3378515282e803"],
+        "shape": "2-of-3"
+      }
+    },
+    {
+      "id": "cosign",
+      "title": "Cosign",
+      "short": "Cosign",
+      "group": "conditions",
+      "summary": "The owner signs, then a named cosigner. A service can approve each transfer without ever holding the funds.",
+      "description": [
+        "A cosign lock is P2PKH for the owner, followed by a second check against one fixed public key.",
+        "The owner cannot move the output alone, and the cosigner cannot move it at all without the owner.",
+        "Token issuers use it so their service can apply rules to each transfer."
+      ],
+      "history": [
+        "Cosign ships in @1sat/templates.",
+        "The MNEE stablecoin uses it, so each MNEE transfer carries the issuer's approval."
+      ],
+      "spec": {
+        "label": "@1sat/templates",
+        "url": "https://www.npmjs.com/package/@1sat/templates"
+      },
+      "pattern": {
+        "parts": [
+          {"token": "OP_DUP OP_HASH160 <owner pubkey hash> OP_EQUALVERIFY", "label": "Checks the owner's key, as P2PKH does."},
+          {"token": "OP_CHECKSIGVERIFY", "label": "Checks the owner's signature, and stops if it fails."},
+          {"token": "<cosigner pubkey>", "label": "33 bytes: the cosigner's key."},
+          {"token": "OP_CHECKSIG", "label": "Checks the cosigner's signature."}
+        ]
+      },
+      "spendable": true,
+      "spend": "The cosigner's signature, then the owner's signature and public key: <cosigner sig> <owner sig> <owner pubkey>.",
+      "related": ["p2pkh", "multisig", "bsv-21"],
+      "examples": {
+        "kind": "template",
+        "vector": "cosign",
+        "template_hashes": ["752b2ba09caa3f59a0d466fbfee3df7c5ecdb1c5878ab08c052fedb40259c5f3"]
+      }
+    },
+    {
+      "id": "timelock",
+      "title": "Time lock",
+      "short": "Lock",
+      "group": "conditions",
+      "summary": "Sats the owner cannot move until a chosen block height.",
+      "description": [
+        "A time lock is a contract that checks the spending transaction's lock time against a block height written into the output.",
+        "Until the chain reaches that height, no transaction can spend it, not even the owner's.",
+        "After that, the owner spends it with a signature."
+      ],
+      "history": [
+        "Locking coins to show commitment, for example to back a post or a vote, became popular on BSV in 2023.",
+        "This contract ships in @1sat/templates."
+      ],
+      "spec": {
+        "label": "@1sat/templates",
+        "url": "https://www.npmjs.com/package/@1sat/templates"
+      },
+      "pattern": {
+        "parts": [
+          {"token": "<contract prefix>", "label": "Fixed contract code that reads the spending transaction."},
+          {"token": "<owner pubkey hash>", "label": "20 bytes: who may spend after the lock ends."},
+          {"token": "<block height>", "label": "The height the chain must reach first."},
+          {"token": "<contract suffix>", "label": "More fixed contract code."}
+        ]
+      },
+      "spendable": true,
+      "spend": "The owner's signature, in a transaction the chain accepts only once the block height is reached.",
+      "related": ["p2pkh", "cosign"],
+      "examples": {
+        "kind": "template",
+        "vector": "lock_timelock",
+        "template_hashes": [
+          "6c0d4d6b4e7ab62b03ebec527ca1d5e80e702626c743d42be630c54c3ddeecbb",
+          "bdf72d11821af8797a27fc144dc580639f7dd335ccb2fef3d25b71c0db94048e"
+        ]
+      }
+    },
+    {
+      "id": "anyone-can-spend",
+      "title": "Anyone can spend",
+      "short": "OP_TRUE",
+      "group": "conditions",
+      "summary": "OP_TRUE and nothing else. Whoever sees it first can take it.",
+      "description": [
+        "The lock is a single OP_TRUE, which always succeeds, so spending it needs no signature at all.",
+        "Sats sent here belong to whoever spends them first, usually a bot or a miner.",
+        "People use it for puzzles, tests and giveaways, and sometimes by mistake."
+      ],
+      "history": [
+        "Anyone-can-spend outputs are as old as Bitcoin's script."
+      ],
+      "spec": {
+        "label": "Script on the Bitcoin SV wiki",
+        "url": "https://wiki.bitcoinsv.io/index.php/Script"
+      },
+      "pattern": {
+        "parts": [
+          {"token": "OP_TRUE", "label": "Leaves true on the stack. The output is unlocked."}
+        ]
+      },
+      "spendable": true,
+      "spend": "Nothing. An empty unlocking script will do.",
+      "related": ["p2pkh", "op-return"],
+      "examples": {
+        "kind": "template",
+        "vector": "unknown_op_true",
+        "template_hashes": [
+          "a50d721c4c96b8ba82756e868513bea40160267af3e96fb80b214cdc0a5ce04c",
+          "df289db2dd16ed83ae5ab3d2aa71c254df1c2a18ef7a945f8dcc45173ebc60b8"
+        ]
+      }
+    },
+    {
+      "id": "metanet",
+      "title": "Metanet node",
+      "short": "Metanet",
+      "group": "applications",
+      "summary": "A transaction that is a node in a tree of on-chain content, linked to its parent by the parent's signature.",
+      "description": [
+        "The Metanet structures data on chain as a directed graph, so content in different transactions can be related, named and found.",
+        "A node is a transaction with an OP_RETURN output that starts with the four-byte Metanet flag, \"meta\", followed by the node's public key and its parent's transaction id.",
+        "An edge from parent to child exists only when the parent's key signs an input of the child, so only a parent can add children.",
+        "Nobody needs to trust an index: anyone can rebuild the whole graph from the chain."
+      ],
+      "history": [
+        "nChain proposed the Metanet as a layer on the blockchain that needs no change to the protocol or its consensus rules.",
+        "Its technical summary describes how nodes, edges, versions and names give the chain the shape of an internet, with resource locators like URLs.",
+        "Bitblocks detects Metanet nodes as they sync, and the Metanet explorer walks their trees."
+      ],
+      "spec": {
+        "label": "The Metanet Technical Summary (nChain, PDF)",
+        "url": "https://nchain.com/wp-content/uploads/2022/09/The-Metanet-Technical-Summary-v1.0.pdf"
+      },
+      "pattern": {
+        "parts": [
+          {"token": "Input: <Sig P_parent> <P_parent>", "label": "The parent's signature and key. This is what creates the edge."},
+          {"token": "OP_FALSE OP_RETURN", "label": "A data output."},
+          {"token": "\"meta\"", "label": "The Metanet flag: this transaction is a node."},
+          {"token": "<P_node>", "label": "The node's public key: its address."},
+          {"token": "<TxID_parent>", "label": "The parent's transaction id. Without it, the node is a root."},
+          {"token": "<attributes and content> …", "label": "Optional: a name, keywords, a file and its type."}
+        ],
+        "note": "The node's id is H(P_node || TxID_node): its key and its own transaction id, hashed together."
+      },
+      "spendable": false,
+      "spend": "The node's OP_RETURN output cannot be spent. Its key, P_node, signs for the node's children in later transactions.",
+      "related": ["op-return", "b", "map", "aip"],
+      "explore": {"label": "Open the Metanet explorer", "href": "/metanet"},
+      "concepts": [
+        {
+          "term": "Node",
+          "text": "A transaction carrying the Metanet flag. It stores content, and it has a public key, P_node, written in its OP_RETURN. Its id is the hash of that key and its transaction id."
+        },
+        {
+          "term": "Edge",
+          "text": "A link from a parent to a child. It exists only when the parent's key signs an input of the child, so a parent alone decides its children. A node has at most one parent and may have any number of children. An edge is a logical link: the child need not spend an output of the parent."
+        },
+        {
+          "term": "Root",
+          "text": "A node with no parent, or whose parent field does not point to a valid Metanet node. A root is like a top-level domain; its children are sub-domains, and a node with no children is an end point."
+        },
+        {
+          "term": "Versions",
+          "text": "Two nodes with the same public key are versions of one node. The one with the most proof of work behind it is the latest: the higher block, or within a block, the later transaction."
+        },
+        {
+          "term": "MURL",
+          "text": "A Metanet URL, built like a web address from a domain name, a path and a file: mnp://bobsblog/path/file. Each part maps to a node in the tree."
+        },
+        {
+          "term": "Search",
+          "text": "A node's fixed attributes are its id and its parent's id; a name and keywords are optional. An explorer finds every transaction with the flag, checks it is a valid node, and indexes its keywords. A node may also carry a hash of its content, so it can be found by what it holds."
+        },
+        {
+          "term": "Insertion methods",
+          "text": "Content can go in one OP_RETURN after the node fields; in an OP_RETURN header followed by pushes that are dropped with OP_DROP; or across several sibling transactions that share a parent and carry an index for reassembly."
+        }
+      ],
+      "attribution": {
+        "text": "The summary and concepts on this page are adapted from The Metanet Technical Summary, original work by nChain Limited.",
+        "license": "CC BY-SA 4.0",
+        "license_url": "https://creativecommons.org/licenses/by-sa/4.0/",
+        "source_url": "https://nchain.com/wp-content/uploads/2022/09/The-Metanet-Technical-Summary-v1.0.pdf",
+        "share_alike": "This adaptation is shared under the same licence."
+      },
+      "examples": {
+        "kind": "protocol",
+        "protocols": ["Metanet"]
+      }
+    },
+    {
+      "id": "run",
+      "title": "Run jig",
+      "short": "Run",
+      "group": "applications",
+      "summary": "A JavaScript object that lives on chain. Each update is a transaction, and its owner is whoever holds its output.",
+      "description": [
+        "Run is a protocol for tokens and objects written as JavaScript classes, called jigs.",
+        "Each transaction carries a Run record in OP_RETURN that says which jigs it creates or updates, and outputs that hold each jig's current owner.",
+        "A Run client replays the record to rebuild each jig's state, so the chain is the database."
+      ],
+      "history": [
+        "Run launched on BSV in 2020 and hosted NFT collections and games, among them the Rexxies.",
+        "Bitblocks traces the Rexxies collection through its Run jigs."
+      ],
+      "spec": {
+        "label": "Run on GitHub",
+        "url": "https://github.com/runonbitcoin/run"
+      },
+      "pattern": {
+        "parts": [
+          {"token": "OP_FALSE OP_RETURN", "label": "A data output."},
+          {"token": "\"run\"", "label": "The Run prefix."},
+          {"token": "<version>", "label": "The protocol version."},
+          {"token": "<app>", "label": "The app that wrote it."},
+          {"token": "<payload>", "label": "JSON: the jigs this transaction creates or updates, and how."}
+        ],
+        "note": "Each jig's owner is a separate output, usually P2PKH."
+      },
+      "spendable": false,
+      "spend": "The Run record cannot be spent. Each jig moves when its owner spends the output that holds it.",
+      "related": ["op-return", "p2pkh", "1sat-inscription"],
+      "explore": {"label": "Browse the Rexxies", "href": "/collections/rexxies"},
+      "examples": {
+        "kind": "protocol",
+        "protocols": ["Run"]
+      }
+    },
+    {
+      "id": "custom",
+      "title": "Custom",
+      "short": "Custom",
+      "group": "other",
+      "summary": "Any output that matches none of the types above. Its count is the measure of what is left to type.",
+      "description": [
+        "Custom is not a format.",
+        "It is where an output lands when its script matches no type we have defined yet.",
+        "Some are one-off contracts, some are protocols we have not written up, and some are mistakes.",
+        "As we add types, the custom count goes down."
+      ],
+      "history": [
+        "Typing every output on chain is ongoing work, tracked in the open."
+      ],
+      "spec": {
+        "label": "The tracking issue",
+        "url": "https://github.com/afomi/bitblocks/issues/49"
+      },
+      "pattern": {
+        "parts": [
+          {"token": "…", "label": "Anything not matched by another type."}
+        ]
+      },
+      "spendable": true,
+      "spend": "Depends on the script. Some can be spent; some never can.",
+      "related": ["p2pkh", "op-return"],
+      "examples": {
+        "kind": "none",
+        "reason": "Every output will get a type, and custom will be counted, in the next phase of this work."
+      }
+    }
+  ]
+}

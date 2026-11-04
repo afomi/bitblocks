@@ -474,7 +474,8 @@ defmodule Bitblocks.ProtocolRegistry do
         verification_status: :verified,
         description:
           "Metanet protocol: a directed acyclic graph (DAG) layered on BSV transactions for on-chain content hierarchies.",
-        documentation_url: "https://metanet.planaria.network/",
+        documentation_url:
+          "https://nchain.com/wp-content/uploads/2022/09/The-Metanet-Technical-Summary-v1.0.pdf",
         author: "nchain"
       }
     ]

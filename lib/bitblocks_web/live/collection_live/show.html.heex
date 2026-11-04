@@ -20,7 +20,18 @@
       <h1 class="text-4xl font-bold break-all">
         <%= @collection.name %>
       </h1>
-      <.pill>
+      <.link
+        :if={@standard_type}
+        id="collection-standard"
+        navigate={~p"/types/#{@standard_type}"}
+        title={"What is a #{@collection.standard} collection?"}
+        class="rounded-full hover:underline"
+      >
+        <.pill>
+          <%= @collection.standard %>
+        </.pill>
+      </.link>
+      <.pill :if={!@standard_type}>
         <%= @collection.standard %>
       </.pill>
     </div>

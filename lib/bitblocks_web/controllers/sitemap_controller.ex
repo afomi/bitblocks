@@ -29,8 +29,13 @@ defmodule BitblocksWeb.SitemapController do
     {"/reward_wall", "daily", "0.4"},
     {"/collections", "weekly", "0.5"},
     {"/collections/grand-tardinians", "weekly", "0.3"},
-    {"/collections/rexxies", "monthly", "0.3"}
+    {"/collections/rexxies", "monthly", "0.3"},
+    {"/types", "weekly", "0.6"}
   ]
+
+  # One page per transaction type (the glossary, #49).
+  @public_paths @public_paths ++
+                  Enum.map(Bitblocks.TxTypes.ids(), &{"/types/#{&1}", "weekly", "0.4"})
 
   @doc "The public paths listed in the sitemap."
   def public_paths, do: Enum.map(@public_paths, &elem(&1, 0))

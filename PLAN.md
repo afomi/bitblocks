@@ -43,6 +43,9 @@ Rexxies (Run) is built on the same engine (`/api/v1/collections/rexxies`): membe
 Grand Tardinians is 999 items: the 1,494 in #30 counted transfers ([field note](docs/field-notes/2026-11-02-the-495-tardinians.md)).
 #33 TXSTORE: raw tx bytes in S3 (one immutable CDN URL per txid), collections first; images parsed from raw txs on the fly at `/content/:outpoint`.
 Queued after #30: #32 BAP identity index (qart request).
+#49 TYPES: a public page per transaction type, then every tx typed (unmatched is `custom`), then types as CRUD resources.
+Phase 1 is built: `/types`, `/types/:id` and `/api/v1/types`, with examples read only from existing indexes, and token and collection badges linking to their type.
+Phase 2 classifies every output against `priv/data/tx_types/output_types_v1.json`; it depends on #1 for full coverage.
 #48 SCRUBBER: admin three.js scrub from genesis to tip, and the first surface for accounting for misspends and burns.
 Built in the working tree (2026-11-03): tile pyramid, incremental builds, `/chain-scrubber`, reorg and classified-loss layers ([docs/CHAIN_SCRUBBER.md](docs/CHAIN_SCRUBBER.md)).
 Needs on prod, after deploy: `Release.build_chain_tiles()` once; a browser pass on the WebGL scene.

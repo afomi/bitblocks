@@ -13,5 +13,12 @@ defmodule Bitblocks.ProtocolRegistrySeedTest do
       assert aip.author == "attilaaf"
       refute haip.author == "unwriter"
     end
+
+    test "points Metanet's documentation at nChain's technical summary" do
+      :ok = ProtocolRegistry.seed_builtin_protocols()
+
+      assert ProtocolRegistry.get_protocol_by_address("meta").documentation_url ==
+               "https://nchain.com/wp-content/uploads/2022/09/The-Metanet-Technical-Summary-v1.0.pdf"
+    end
   end
 end

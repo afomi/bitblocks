@@ -119,6 +119,42 @@ defmodule BitblocksWeb.TokenLive do
   def token_label(%{token_id: token_id}), do: token_id
   def token_label(_), do: "—"
 
+  @doc """
+  A token's standard as a pill. A standard with a type page (BSV-20, BSV-21)
+  links to it, so the badge explains itself.
+  """
+  attr :id, :string, default: nil
+  attr :standard, :string, required: true
+
+  def standard_pill(assigns) do
+    assigns = assign(assigns, :type_id, Bitblocks.TxTypes.id_for_standard(assigns.standard))
+
+    ~H"""
+    <.link
+      :if={@type_id}
+      id={@id}
+      navigate={~p"/types/#{@type_id}"}
+      title={"What is #{String.upcase(@standard)}?"}
+      class={[
+        "px-2 py-1 rounded-full text-xs font-semibold hover:underline",
+        standard_badge(@standard)
+      ]}
+    >
+      <%= @standard %>
+    </.link>
+    <span
+      :if={!@type_id}
+      id={@id}
+      class={[
+        "px-2 py-1 rounded-full text-xs font-semibold",
+        standard_badge(@standard)
+      ]}
+    >
+      <%= @standard %>
+    </span>
+    """
+  end
+
   def standard_badge("bsv-21"), do: "bg-purple-100 text-purple-700"
   def standard_badge("bsv-20"), do: "bg-amber-100 text-amber-700"
   def standard_badge(_), do: "bg-gray-100 text-gray-700"

@@ -1,0 +1,696 @@
+{
+  "version": 1,
+  "source": "tools/output-type-vectors/generate.js",
+  "reference": "Yours Wallet: @1sat/actions internalizeBeef.js runs these indexers in this order; first owner/basket/protocol wins",
+  "packages": {
+    "@1sat/wallet": "0.0.118",
+    "@1sat/templates": "0.0.43",
+    "@1sat/types": "0.0.52",
+    "@bsv/sdk": "2.8.11"
+  },
+  "indexer_order": [
+    "fund",
+    "insc",
+    "bsv21",
+    "cosign",
+    "origin",
+    "opns",
+    "list",
+    "sigma",
+    "map"
+  ],
+  "owner_address": "1BgGZ9tcN4rm9KBzDn7KprQz87SZ26SAMH",
+  "stubs": "services.bsv21.getTokenDetails returns { sym: QART, dec: 0 } for every token",
+  "vectors": [
+    {
+      "name": "p2pkh",
+      "description": "P2PKH, 1000 sats",
+      "script_hex": "76a914751e76e8199196d454941c45d1b3a323f1433bd688ac",
+      "satoshis": 1000,
+      "expected": {
+        "owner": "1BgGZ9tcN4rm9KBzDn7KprQz87SZ26SAMH",
+        "basket": "fund",
+        "protocol": "wallet payment",
+        "indexers": [
+          "fund"
+        ],
+        "data": {
+          "fund": {
+            "data": "1BgGZ9tcN4rm9KBzDn7KprQz87SZ26SAMH",
+            "tags": []
+          }
+        }
+      }
+    },
+    {
+      "name": "p2pkh_one_sat",
+      "description": "P2PKH holding exactly 1 sat, no envelope",
+      "script_hex": "76a914751e76e8199196d454941c45d1b3a323f1433bd688ac",
+      "satoshis": 1,
+      "expected": {
+        "owner": "1BgGZ9tcN4rm9KBzDn7KprQz87SZ26SAMH",
+        "basket": "1sat",
+        "protocol": "wallet payment",
+        "indexers": [
+          "origin"
+        ],
+        "data": {
+          "origin": {
+            "data": {
+              "outpoint": "",
+              "nonce": 0
+            },
+            "tags": []
+          }
+        }
+      }
+    },
+    {
+      "name": "op_return_memo",
+      "description": "OP_FALSE OP_RETURN \"hello\"",
+      "script_hex": "006a0568656c6c6f",
+      "satoshis": 0,
+      "expected": {
+        "owner": null,
+        "basket": null,
+        "protocol": "wallet payment",
+        "indexers": [],
+        "data": {}
+      }
+    },
+    {
+      "name": "op_return_valued",
+      "description": "OP_FALSE OP_RETURN \"hello\" holding 1000 sats (burned: no key can spend it)",
+      "script_hex": "006a0568656c6c6f",
+      "satoshis": 1000,
+      "expected": {
+        "owner": null,
+        "basket": "fund",
+        "protocol": "wallet payment",
+        "indexers": [
+          "fund"
+        ],
+        "data": {
+          "fund": {
+            "data": "",
+            "tags": []
+          }
+        }
+      },
+      "known_divergence": "FundIndexer files any output of 2+ sats as fund, owner \"\"; Yours then drops it at internalize because no address of the wallet owns it. Qart classifies without an owner set, so a data output is never fund: its sats are burned."
+    },
+    {
+      "name": "inscription_text",
+      "description": "Text inscription before a P2PKH lock (the usual 1Sat shape)",
+      "script_hex": "76a914751e76e8199196d454941c45d1b3a323f1433bd688ac0063036f7264510a746578742f706c61696e000568656c6c6f68",
+      "satoshis": 1,
+      "expected": {
+        "owner": "1BgGZ9tcN4rm9KBzDn7KprQz87SZ26SAMH",
+        "basket": "1sat",
+        "protocol": "wallet payment",
+        "indexers": [
+          "insc",
+          "origin"
+        ],
+        "data": {
+          "insc": {
+            "data": {
+              "file": {
+                "hash": "LPJNul+wow4m6DsqxbninhsWHlwfp0JecwQzYpOLmCQ=",
+                "size": 5,
+                "type": "text/plain",
+                "content": [
+                  104,
+                  101,
+                  108,
+                  108,
+                  111
+                ]
+              },
+              "fields": {}
+            },
+            "tags": []
+          },
+          "origin": {
+            "data": {
+              "outpoint": "",
+              "nonce": 0,
+              "insc": {
+                "file": {
+                  "hash": "LPJNul+wow4m6DsqxbninhsWHlwfp0JecwQzYpOLmCQ=",
+                  "size": 5,
+                  "type": "text/plain",
+                  "content": [
+                    104,
+                    101,
+                    108,
+                    108,
+                    111
+                  ]
+                },
+                "fields": {}
+              }
+            },
+            "tags": []
+          }
+        }
+      }
+    },
+    {
+      "name": "inscription_text_lock_first",
+      "description": "P2PKH lock, then the inscription envelope",
+      "script_hex": "0063036f7264510a746578742f706c61696e000568656c6c6f6876a914751e76e8199196d454941c45d1b3a323f1433bd688ac",
+      "satoshis": 1,
+      "expected": {
+        "owner": "1BgGZ9tcN4rm9KBzDn7KprQz87SZ26SAMH",
+        "basket": "1sat",
+        "protocol": "wallet payment",
+        "indexers": [
+          "insc",
+          "origin"
+        ],
+        "data": {
+          "insc": {
+            "data": {
+              "file": {
+                "hash": "LPJNul+wow4m6DsqxbninhsWHlwfp0JecwQzYpOLmCQ=",
+                "size": 5,
+                "type": "text/plain",
+                "content": [
+                  104,
+                  101,
+                  108,
+                  108,
+                  111
+                ]
+              },
+              "fields": {}
+            },
+            "tags": []
+          },
+          "origin": {
+            "data": {
+              "outpoint": "",
+              "nonce": 0,
+              "insc": {
+                "file": {
+                  "hash": "LPJNul+wow4m6DsqxbninhsWHlwfp0JecwQzYpOLmCQ=",
+                  "size": 5,
+                  "type": "text/plain",
+                  "content": [
+                    104,
+                    101,
+                    108,
+                    108,
+                    111
+                  ]
+                },
+                "fields": {}
+              }
+            },
+            "tags": []
+          }
+        }
+      }
+    },
+    {
+      "name": "inscription_bare",
+      "description": "Inscription envelope with no lock",
+      "script_hex": "0063036f7264510a746578742f706c61696e000568656c6c6f68",
+      "satoshis": 1,
+      "expected": {
+        "owner": null,
+        "basket": "1sat",
+        "protocol": "wallet payment",
+        "indexers": [
+          "insc",
+          "origin"
+        ],
+        "data": {
+          "insc": {
+            "data": {
+              "file": {
+                "hash": "LPJNul+wow4m6DsqxbninhsWHlwfp0JecwQzYpOLmCQ=",
+                "size": 5,
+                "type": "text/plain",
+                "content": [
+                  104,
+                  101,
+                  108,
+                  108,
+                  111
+                ]
+              },
+              "fields": {}
+            },
+            "tags": []
+          },
+          "origin": {
+            "data": {
+              "outpoint": "",
+              "nonce": 0,
+              "insc": {
+                "file": {
+                  "hash": "LPJNul+wow4m6DsqxbninhsWHlwfp0JecwQzYpOLmCQ=",
+                  "size": 5,
+                  "type": "text/plain",
+                  "content": [
+                    104,
+                    101,
+                    108,
+                    108,
+                    111
+                  ]
+                },
+                "fields": {}
+              }
+            },
+            "tags": []
+          }
+        }
+      }
+    },
+    {
+      "name": "inscription_with_map",
+      "description": "P2PKH-locked inscription with a MAP OP_RETURN tail",
+      "script_hex": "76a914751e76e8199196d454941c45d1b3a323f1433bd688ac0063036f7264510a746578742f706c61696e000568656c6c6f686a223150755161374b36324d694b43747373534c4b79316b683536575755374d74555235035345540361707004716172740474797065067469636b6574",
+      "satoshis": 1,
+      "expected": {
+        "owner": "1BgGZ9tcN4rm9KBzDn7KprQz87SZ26SAMH",
+        "basket": "1sat",
+        "protocol": "wallet payment",
+        "indexers": [
+          "insc",
+          "origin",
+          "map"
+        ],
+        "data": {
+          "insc": {
+            "data": {
+              "file": {
+                "hash": "LPJNul+wow4m6DsqxbninhsWHlwfp0JecwQzYpOLmCQ=",
+                "size": 5,
+                "type": "text/plain",
+                "content": [
+                  104,
+                  101,
+                  108,
+                  108,
+                  111
+                ]
+              },
+              "fields": {}
+            },
+            "tags": []
+          },
+          "origin": {
+            "data": {
+              "outpoint": "",
+              "nonce": 0,
+              "insc": {
+                "file": {
+                  "hash": "LPJNul+wow4m6DsqxbninhsWHlwfp0JecwQzYpOLmCQ=",
+                  "size": 5,
+                  "type": "text/plain",
+                  "content": [
+                    104,
+                    101,
+                    108,
+                    108,
+                    111
+                  ]
+                },
+                "fields": {}
+              }
+            },
+            "tags": []
+          },
+          "map": {
+            "data": {
+              "app": "qart",
+              "type": "ticket"
+            },
+            "tags": []
+          }
+        }
+      }
+    },
+    {
+      "name": "bsv21_deploy_mint",
+      "description": "BSV-21 deploy+mint over P2PKH",
+      "script_hex": "76a914751e76e8199196d454941c45d1b3a323f1433bd688ac0063036f726451126170706c69636174696f6e2f6273762d3230003b7b2270223a226273762d3230222c226f70223a226465706c6f792b6d696e74222c2273796d223a2251415254222c22616d74223a2231303030227d68",
+      "satoshis": 1,
+      "expected": {
+        "owner": "1BgGZ9tcN4rm9KBzDn7KprQz87SZ26SAMH",
+        "basket": "bsv21",
+        "protocol": "wallet payment",
+        "indexers": [
+          "insc",
+          "bsv21"
+        ],
+        "data": {
+          "insc": {
+            "data": {
+              "file": {
+                "hash": "evK5pAWAcmzFg3vEnMPAwQ00ABsMK0geiVzYK+U4TOc=",
+                "size": 59,
+                "type": "application/bsv-20",
+                "content": "7b2270223a226273762d3230222c226f70223a226465706c6f792b6d696e74222c2273796d223a2251415254222c22616d74223a2231303030227d"
+              },
+              "fields": {}
+            },
+            "tags": []
+          },
+          "bsv21": {
+            "data": {
+              "id": "0000000000000000000000000000000000000000000000000000000000000000_0",
+              "op": "deploy+mint",
+              "amt": "1000",
+              "dec": 0,
+              "sym": "QART",
+              "status": "valid",
+              "fundAddress": "1A4BHZMjachhzeFSY11pGyWx5997ykgVuF"
+            },
+            "tags": [
+              "bsv21:0000000000000000000000000000000000000000000000000000000000000000_0",
+              "bsv21:deploy"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "bsv21_transfer",
+      "description": "BSV-21 transfer over P2PKH",
+      "script_hex": "76a914751e76e8199196d454941c45d1b3a323f1433bd688ac0063036f726451126170706c69636174696f6e2f6273762d3230004c737b2270223a226273762d3230222c226f70223a227472616e73666572222c226964223a22616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161615f30222c22616d74223a223130227d68",
+      "satoshis": 1,
+      "expected": {
+        "owner": "1BgGZ9tcN4rm9KBzDn7KprQz87SZ26SAMH",
+        "basket": "bsv21",
+        "protocol": "wallet payment",
+        "indexers": [
+          "insc",
+          "bsv21"
+        ],
+        "data": {
+          "insc": {
+            "data": {
+              "file": {
+                "hash": "3ecKRC8Sz1WyTLLPcl3nS+8i9HDdfF4uet7TYds07pA=",
+                "size": 115,
+                "type": "application/bsv-20",
+                "content": "7b2270223a226273762d3230222c226f70223a227472616e73666572222c226964223a22616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161615f30222c22616d74223a223130227d"
+              },
+              "fields": {}
+            },
+            "tags": []
+          },
+          "bsv21": {
+            "data": {
+              "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa_0",
+              "op": "transfer",
+              "amt": "10",
+              "dec": 0,
+              "sym": "QART",
+              "status": "pending",
+              "fundAddress": "1A4BHZMjachhzeFSY11pGyWx5997ykgVuF"
+            },
+            "tags": [
+              "bsv21:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa_0"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "bsv21_transfer_mnee",
+      "description": "MNEE (a BSV-21 token) transfer over P2PKH: Yours files it in its own basket",
+      "script_hex": "76a914751e76e8199196d454941c45d1b3a323f1433bd688ac0063036f726451126170706c69636174696f6e2f6273762d3230004c747b2270223a226273762d3230222c226f70223a227472616e73666572222c226964223a22616535396633623839386563363161636264623663633761323435666162656465643063303934626630343666333532303661336165633630656638383132375f30222c22616d74223a22313030227d68",
+      "satoshis": 1,
+      "expected": {
+        "owner": "1BgGZ9tcN4rm9KBzDn7KprQz87SZ26SAMH",
+        "basket": "mnee",
+        "protocol": "wallet payment",
+        "indexers": [
+          "insc",
+          "bsv21"
+        ],
+        "data": {
+          "insc": {
+            "data": {
+              "file": {
+                "hash": "nvtAgVNI5LVs8bJfbV112c8MUwVQQY0vMnNyeBUQoJg=",
+                "size": 116,
+                "type": "application/bsv-20",
+                "content": "7b2270223a226273762d3230222c226f70223a227472616e73666572222c226964223a22616535396633623839386563363161636264623663633761323435666162656465643063303934626630343666333532303661336165633630656638383132375f30222c22616d74223a22313030227d"
+              },
+              "fields": {}
+            },
+            "tags": []
+          },
+          "bsv21": {
+            "data": {
+              "id": "ae59f3b898ec61acbdb6cc7a245fabeded0c094bf046f35206a3aec60ef88127_0",
+              "op": "transfer",
+              "amt": "100",
+              "dec": 0,
+              "sym": "QART",
+              "status": "pending",
+              "fundAddress": "1A4BHZMjachhzeFSY11pGyWx5997ykgVuF"
+            },
+            "tags": [
+              "bsv21:ae59f3b898ec61acbdb6cc7a245fabeded0c094bf046f35206a3aec60ef88127_0"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "bsv20_transfer",
+      "description": "BSV-20 transfer over P2PKH",
+      "script_hex": "76a914751e76e8199196d454941c45d1b3a323f1433bd688ac0063036f726451126170706c69636174696f6e2f6273762d323000377b2270223a226273762d3230222c226f70223a227472616e73666572222c227469636b223a2251415254222c22616d74223a223130227d68",
+      "satoshis": 1,
+      "expected": {
+        "owner": "1BgGZ9tcN4rm9KBzDn7KprQz87SZ26SAMH",
+        "basket": null,
+        "protocol": "wallet payment",
+        "indexers": [
+          "insc"
+        ],
+        "data": {
+          "insc": {
+            "data": {
+              "file": {
+                "hash": "xs/LIbyElsNYej81L/QngP9Ym2mW/ppApsrI8mtgDvw=",
+                "size": 55,
+                "type": "application/bsv-20",
+                "content": "7b2270223a226273762d3230222c226f70223a227472616e73666572222c227469636b223a2251415254222c22616d74223a223130227d"
+              },
+              "fields": {}
+            },
+            "tags": []
+          }
+        }
+      }
+    },
+    {
+      "name": "map_set",
+      "description": "MAP SET app=qart type=receipt",
+      "script_hex": "6a223150755161374b36324d694b43747373534c4b79316b683536575755374d745552350353455403617070047161727404747970650772656365697074",
+      "satoshis": 0,
+      "expected": {
+        "owner": null,
+        "basket": null,
+        "protocol": "wallet payment",
+        "indexers": [
+          "map"
+        ],
+        "data": {
+          "map": {
+            "data": {
+              "app": "qart",
+              "type": "receipt"
+            },
+            "tags": []
+          }
+        }
+      }
+    },
+    {
+      "name": "b_text",
+      "description": "B:// text/plain \"hello\"",
+      "script_hex": "6a2231394878696756345179427633744870515663554551797131707a5a56646f4175740568656c6c6f0a746578742f706c61696e057574662d38",
+      "satoshis": 0,
+      "expected": {
+        "owner": null,
+        "basket": null,
+        "protocol": "wallet payment",
+        "indexers": [],
+        "data": {}
+      }
+    },
+    {
+      "name": "b_then_map",
+      "description": "B:// \"hello\" | MAP SET app=qart type=post",
+      "script_hex": "006a2231394878696756345179427633744870515663554551797131707a5a56646f4175740568656c6c6f0a746578742f706c61696e057574662d38017c223150755161374b36324d694b43747373534c4b79316b683536575755374d7455523503534554036170700471617274047479706504706f7374",
+      "satoshis": 0,
+      "expected": {
+        "owner": null,
+        "basket": null,
+        "protocol": "wallet payment",
+        "indexers": [],
+        "data": {}
+      },
+      "known_divergence": "MapIndexer skips to the next protocol with `data[0] !== 0x7c` (first single-byte push that is NOT \"|\"), so MAP after B:// is never found. Intended: split on \"|\"."
+    },
+    {
+      "name": "map_then_sigma",
+      "description": "MAP SET app=qart | SIGMA BSM <address> <sig> 0 (signature not checked at parse)",
+      "script_hex": "006a223150755161374b36324d694b43747373534c4b79316b683536575755374d7455523503534554036170700471617274047479706504706f7374017c055349474d410342534d22314267475a3974634e34726d394b427a446e374b7072517a3837535a323653414d484178787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878780130",
+      "satoshis": 0,
+      "expected": {
+        "owner": null,
+        "basket": null,
+        "protocol": "wallet payment",
+        "indexers": [
+          "map"
+        ],
+        "data": {
+          "map": {
+            "data": {
+              "app": "qart",
+              "type": "post",
+              "|": "SIGMA",
+              "BSM": "1BgGZ9tcN4rm9KBzDn7KprQz87SZ26SAMH",
+              "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": "0"
+            },
+            "tags": []
+          }
+        }
+      },
+      "known_divergence": "parseMap stops on a single-byte push that is NOT \"|\", so \"|\" and the SIGMA fields are read as MAP keys. SigmaIndexer walks chunks after OP_RETURN, but @bsv/sdk folds everything after a top-level OP_RETURN into one chunk, so Sigma never fires. Intended: map {app, type} and a sigma entry."
+    },
+    {
+      "name": "ordlock_listing",
+      "description": "OrdLock listing (assembled; create is disabled in templates 0.0.43)",
+      "script_hex": "2097dfd76851bf465e8f715593b217714858bbe9570ff3bd5e33840a34e20ff0262102ba79df5f8ae7604a9830f03c7933028186aede0675a16f025dc4f8be8eec0382201008ce7480da41702918d1ec8e6849ba32b4d65b1e40dc669c31a1e6306b266c000014751e76e8199196d454941c45d1b3a323f1433bd62288130000000000001976a914751e76e8199196d454941c45d1b3a323f1433bd688ac615179547a75537a537a537a0079537a75527a527a7575615579008763567901c161517957795779210ac407f0e4bd44bfc207355a778b046225a7068fc59ee7eda43ad905aadbffc800206c266b30e6a1319c66dc401e5bd6b432ba49688eecd118297041da8074ce081059795679615679aa0079610079517f517f517f517f517f517f517f517f517f517f517f517f517f517f517f517f517f517f517f517f517f517f517f517f517f517f517f517f517f517f517f7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e01007e81517a75615779567956795679567961537956795479577995939521414136d08c5ed2bf3ba048afe6dcaebafeffffffffffffffffffffffffffffff00517951796151795179970079009f63007952799367007968517a75517a75517a7561527a75517a517951795296a0630079527994527a75517a6853798277527982775379012080517f517f517f517f517f517f517f517f517f517f517f517f517f517f517f517f517f517f517f517f517f517f517f517f517f517f517f517f517f517f517f7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e01205279947f7754537993527993013051797e527e54797e58797e527e53797e52797e57797e0079517a75517a75517a75517a75517a75517a75517a75517a75517a75517a75517a75517a75517a756100795779ac517a75517a75517a75517a75517a75517a75517a75517a75517a7561517a75517a756169587951797e58797eaa577961007982775179517958947f7551790128947f77517a75517a75618777777777777777777767557951876351795779a9876957795779ac777777777777777767006868",
+      "satoshis": 1,
+      "expected": {
+        "owner": "1BgGZ9tcN4rm9KBzDn7KprQz87SZ26SAMH",
+        "basket": "1sat",
+        "protocol": "basket insertion",
+        "indexers": [
+          "origin",
+          "list"
+        ],
+        "data": {
+          "origin": {
+            "data": {
+              "outpoint": "",
+              "nonce": 0
+            },
+            "tags": []
+          },
+          "list": {
+            "data": {
+              "payout": "88130000000000001976a914751e76e8199196d454941c45d1b3a323f1433bd688ac",
+              "price": "5000"
+            },
+            "tags": [
+              "ordlock",
+              "price:5000"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "lock_timelock",
+      "description": "Lock: address, until block 900000",
+      "script_hex": "2097dfd76851bf465e8f715593b217714858bbe9570ff3bd5e33840a34e20ff0262102ba79df5f8ae7604a9830f03c7933028186aede0675a16f025dc4f8be8eec0382201008ce7480da41702918d1ec8e6849ba32b4d65b1e40dc669c31a1e6306b266c000014751e76e8199196d454941c45d1b3a323f1433bd603a0bb0d610079040065cd1d9f690079547a75537a537a537a5179537a75527a527a7575615579014161517957795779210ac407f0e4bd44bfc207355a778b046225a7068fc59ee7eda43ad905aadbffc800206c266b30e6a1319c66dc401e5bd6b432ba49688eecd118297041da8074ce081059795679615679aa0079610079517f517f517f517f517f517f517f517f517f517f517f517f517f517f517f517f517f517f517f517f517f517f517f517f517f517f517f517f517f517f517f7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e01007e81517a75615779567956795679567961537956795479577995939521414136d08c5ed2bf3ba048afe6dcaebafeffffffffffffffffffffffffffffff00517951796151795179970079009f63007952799367007968517a75517a75517a7561527a75517a517951795296a0630079527994527a75517a6853798277527982775379012080517f517f517f517f517f517f517f517f517f517f517f517f517f517f517f517f517f517f517f517f517f517f517f517f517f517f517f517f517f517f517f7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e7c7e01205279947f7754537993527993013051797e527e54797e58797e527e53797e52797e57797e0079517a75517a75517a75517a75517a75517a75517a75517a75517a75517a75517a75517a75517a756100795779ac517a75517a75517a75517a75517a75517a75517a75517a75517a7561517a75517a756169557961007961007982775179517954947f75517958947f77517a75517a756161007901007e81517a7561517a7561040065cd1d9f6955796100796100798277517951790128947f755179012c947f77517a75517a756161007901007e81517a7561517a756105ffffffff009f69557961007961007982775179517954947f75517958947f77517a75517a756161007901007e81517a7561517a75615279a2695679a95179876957795779ac7777777777777777",
+      "satoshis": 1000,
+      "expected": {
+        "owner": null,
+        "basket": "fund",
+        "protocol": "wallet payment",
+        "indexers": [
+          "fund"
+        ],
+        "data": {
+          "fund": {
+            "data": "",
+            "tags": []
+          }
+        }
+      }
+    },
+    {
+      "name": "cosign",
+      "description": "Cosign: owner address + cosigner pubkey",
+      "script_hex": "76a914751e76e8199196d454941c45d1b3a323f1433bd688ad2102c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5ac",
+      "satoshis": 1000,
+      "expected": {
+        "owner": "1BgGZ9tcN4rm9KBzDn7KprQz87SZ26SAMH",
+        "basket": "fund",
+        "protocol": "basket insertion",
+        "indexers": [
+          "fund",
+          "cosign"
+        ],
+        "data": {
+          "fund": {
+            "data": "",
+            "tags": []
+          },
+          "cosign": {
+            "data": {
+              "address": "1BgGZ9tcN4rm9KBzDn7KprQz87SZ26SAMH",
+              "cosigner": "02c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5"
+            },
+            "tags": []
+          }
+        }
+      }
+    },
+    {
+      "name": "p2ms_2_of_3",
+      "description": "Bare multisig, 2 of 3",
+      "script_hex": "52210279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f817982102c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee52102f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f953ae",
+      "satoshis": 1000,
+      "expected": {
+        "owner": null,
+        "basket": "fund",
+        "protocol": "wallet payment",
+        "indexers": [
+          "fund"
+        ],
+        "data": {
+          "fund": {
+            "data": "",
+            "tags": []
+          }
+        }
+      }
+    },
+    {
+      "name": "unknown_op_true",
+      "description": "OP_TRUE: anyone can spend",
+      "script_hex": "51",
+      "satoshis": 1000,
+      "expected": {
+        "owner": null,
+        "basket": "fund",
+        "protocol": "wallet payment",
+        "indexers": [
+          "fund"
+        ],
+        "data": {
+          "fund": {
+            "data": "",
+            "tags": []
+          }
+        }
+      }
+    }
+  ]
+}
