@@ -122,7 +122,9 @@
       </span>
     </div>
 
-    <%!-- What the diamonds are: colours match COLORS and EVENT_COLORS in the hook. --%>
+    <%!-- What the diamonds are: colours match COLORS and EVENT_COLORS in the hook.
+         The hover label below is for pointer users over the canvas; the same
+         events are a list at /annotations, so it stays out of the a11y tree. --%>
     <ul
       id="chain-scrubber-legend"
       aria-label="Marker colours"
@@ -204,7 +206,7 @@
 
     <div
       id="chain-scrubber-marker-tip"
-      role="tooltip"
+      aria-hidden="true"
       class="pointer-events-none absolute z-10 max-w-xs space-y-0.5 rounded-lg border border-gray-200 bg-white/95 px-3 py-2 text-xs text-gray-700 shadow empty:hidden dark:border-gray-700 dark:bg-gray-800/95 dark:text-gray-300"
     ></div>
 

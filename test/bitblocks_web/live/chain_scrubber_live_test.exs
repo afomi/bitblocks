@@ -160,6 +160,6 @@ defmodule BitblocksWeb.ChainScrubberLiveTest do
     for kind <- ~w(reorg loss fork upgrade halving milestone mint world note),
         do: assert(has_element?(view, "#chain-scrubber-legend li", kind))
 
-    assert has_element?(view, ~s(#chain-scrubber-marker-tip[role="tooltip"]))
+    assert has_element?(view, ~s(#chain-scrubber-marker-tip[aria-hidden="true"]))
   end
 end
