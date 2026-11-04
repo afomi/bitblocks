@@ -84,6 +84,10 @@ defmodule BitblocksWeb.BlockLive.Show do
   end
 
   defp assign_block(socket, block, tx_total) do
+    # No txid list on the row (raw-block path, big blocks): page the stored
+    # transactions instead (Chain.BlockTxids), and count those.
+    tx_total = if tx_total > 0, do: tx_total, else: Bitblocks.Chain.BlockTxids.count(block)
+
     socket
     |> assign(:block, block)
     |> assign(:tx_total, tx_total)
@@ -96,7 +100,7 @@ defmodule BitblocksWeb.BlockLive.Show do
   defp assign_tx_page(socket, page) do
     socket
     |> assign(:tx_page, page)
-    |> assign(:txids, Chain.block_txids_page(socket.assigns.block.id, page, @tx_page_size))
+    |> assign(:txids, Bitblocks.Chain.BlockTxids.page(socket.assigns.block, page, @tx_page_size))
   end
 
   defp total_pages(0), do: 1

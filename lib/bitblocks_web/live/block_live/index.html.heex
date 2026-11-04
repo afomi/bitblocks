@@ -40,6 +40,7 @@
       <div class="pt-6">
         <BitblocksWeb.NextBlockComponent.next_block
           latest_height={latest_height}
+          info={Bitblocks.NextBlock.info(latest_height)}
         />
       </div>
       <% working = BitblocksWeb.SyncRow.working(@sync) %>

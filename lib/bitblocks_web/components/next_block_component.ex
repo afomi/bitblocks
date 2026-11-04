@@ -10,26 +10,60 @@ defmodule BitblocksWeb.NextBlockComponent do
 
   attr :latest_height, :integer, required: true
 
+  attr :info, :map,
+    default: nil,
+    doc: "Bitblocks.NextBlock.info/1: state and tx count, when known"
+
   def next_block(assigns) do
-    assigns = assign(assigns, :next_height, (assigns.latest_height || 0) + 1)
+    info = assigns.info || %{state: :unknown, num_tx: nil}
+
+    assigns =
+      assigns
+      |> assign(:next_height, (assigns.latest_height || 0) + 1)
+      |> assign(:state, info.state)
+      |> assign(:num_tx, info.num_tx)
 
     ~H"""
-    <div class="border border-dashed border-neutral-700 rounded py-4 px-5 mb-2">
-      <div class="flex items-center justify-between">
+    <div
+      id="next-block"
+      class="border border-dashed border-gray-300 dark:border-gray-700 rounded py-2 px-3 mb-2"
+    >
+      <div class="flex items-center justify-between gap-3 font-mono text-xs">
         <div class="flex items-center gap-3">
-          <span class="w-2 h-2 rounded-full bg-brand-strong animate-pulse"></span>
-          <span class="font-mono text-sm text-neutral-50 tabular-nums">
-            {@next_height}
+          <span
+            class="w-2 h-2 rounded-full bg-brand-strong motion-safe:animate-pulse"
+            aria-hidden="true"
+          >
           </span>
-          <span class="font-mono text-xs text-neutral-500">
-            assembling…
+          <span class="text-sm text-gray-900 dark:text-white tabular-nums">
+            {number(@next_height)}
+          </span>
+          <span
+            :if={is_integer(@num_tx)}
+            id="next-block-txs"
+            class="text-gray-700 dark:text-gray-300 tabular-nums"
+          >
+            {number(@num_tx)} {if @state == :assembling, do: "txs waiting", else: "txs"}
+          </span>
+          <span class="text-gray-600 dark:text-gray-400">
+            {label(@state)}
           </span>
         </div>
-        <span class="font-mono text-xs text-neutral-500">
+        <span class="text-gray-600 dark:text-gray-400">
           next block
         </span>
       </div>
     </div>
     """
   end
+
+  defp label(:on_chain), do: "on chain, not stored yet"
+  defp label(:node_verifying), do: "on chain · our node is still verifying it"
+  defp label(:assembling), do: "assembling…"
+  defp label(_), do: "assembling…"
+
+  defp number(n) when is_integer(n),
+    do: n |> Integer.to_string() |> String.replace(~r/\B(?=(\d{3})+(?!\d))/, ",")
+
+  defp number(n), do: to_string(n)
 end
