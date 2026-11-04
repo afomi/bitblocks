@@ -4,6 +4,8 @@ defmodule Bitblocks.TelemetryHandlers do
   require Logger
 
   @handler_id "bitblocks-slow-rpc-logger"
+  @query_handler_id "bitblocks-slow-query-logger"
+  @query_event [:bitblocks, :repo, :query]
 
   @slow_rpc_events [
     [:bitblocks, :bitcoin_rpc, :call],
@@ -15,12 +17,58 @@ defmodule Bitblocks.TelemetryHandlers do
   Safe to call multiple times; subsequent calls are no-ops.
   """
   def attach do
-    case :telemetry.attach_many(@handler_id, @slow_rpc_events, &__MODULE__.handle_slow_rpc/4, %{}) do
-      :ok -> :ok
-      {:error, :already_exists} -> :ok
+    for {id, events, fun} <- [
+          {@handler_id, @slow_rpc_events, &__MODULE__.handle_slow_rpc/4},
+          {@query_handler_id, [@query_event], &__MODULE__.handle_slow_query/4}
+        ] do
+      case :telemetry.attach_many(id, events, fun, %{}) do
+        :ok -> :ok
+        {:error, :already_exists} -> :ok
+      end
     end
+
+    :ok
   rescue
     ArgumentError -> :ok
+  end
+
+  @doc """
+  Logs a Repo query that waited long for a connection or ran long, so a pool
+  timeout ("checked out the connection for longer than 60000ms") names its
+  statement and its caller instead of only the victim. Thresholds:
+  `:slow_query_queue_ms` (default 5,000) and `:slow_query_run_ms` (10,000).
+  Params are never logged.
+  """
+  def handle_slow_query(_event, measurements, metadata, _config) do
+    queue_ms = ms(measurements[:queue_time])
+    query_ms = ms(measurements[:query_time])
+
+    if queue_ms >= Application.get_env(:bitblocks, :slow_query_queue_ms, 5_000) or
+         query_ms >= Application.get_env(:bitblocks, :slow_query_run_ms, 10_000) do
+      Logger.warning(
+        "Slow DB query: queue=#{queue_ms}ms query=#{query_ms}ms source=#{metadata[:source] || "-"} " <>
+          "caller=#{caller()} sql=#{metadata[:query] |> to_string() |> String.slice(0, 200)}"
+      )
+    end
+  end
+
+  defp ms(nil), do: 0
+  defp ms(native), do: System.convert_time_unit(native, :native, :millisecond)
+
+  # The process running the query, by its label (Oban labels a job's process
+  # with its worker; DBConnection's timeout error prints the same label), else
+  # its initial call.
+  defp caller do
+    case Process.get(:"$process_label") do
+      nil ->
+        case Process.get(:"$initial_call") do
+          {m, f, a} -> "#{inspect(m)}.#{f}/#{a}"
+          _ -> inspect(self())
+        end
+
+      label ->
+        inspect(label)
+    end
   end
 
   def handle_slow_rpc(event, measurements, metadata, _config) do

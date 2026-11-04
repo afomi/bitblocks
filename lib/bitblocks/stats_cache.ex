@@ -62,13 +62,11 @@ defmodule Bitblocks.StatsCache do
     :ets.insert(__MODULE__, {:blocks_count, 0})
     :ets.insert(__MODULE__, {:transactions_count, 0})
 
-    # Subscribe to block updates so counts refresh when blocks complete
-    Phoenix.PubSub.subscribe(Bitblocks.PubSub, "blocks")
-
-    # Async refresh will fill in real values. One periodic timer, kept in
-    # state; a burst of block updates gets one debounced refresh of its own and
-    # never touches the periodic timer (each used to start another loop).
-    {:ok, %{periodic: Process.send_after(self(), :refresh, 0), debounce: nil}}
+    # One periodic refresh. Block updates don't trigger one: completing a
+    # block changes neither count (the block count moves with headers, the
+    # tx count is the planner's estimate), and refreshing on every
+    # completion counted the blocks table ~10 times a minute per node.
+    {:ok, %{periodic: Process.send_after(self(), :refresh, 0)}}
   end
 
   @impl true
@@ -82,18 +80,6 @@ defmodule Bitblocks.StatsCache do
     do_refresh()
     {:noreply, %{state | periodic: Process.send_after(self(), :refresh, @refresh_interval)}}
   end
-
-  def handle_info(:debounced_refresh, state) do
-    do_refresh()
-    {:noreply, %{state | debounce: nil}}
-  end
-
-  def handle_info({:block_updated, _block}, %{debounce: nil} = state) do
-    # Debounce: wait 2 seconds so a burst of block updates triggers one refresh
-    {:noreply, %{state | debounce: Process.send_after(self(), :debounced_refresh, 2_000)}}
-  end
-
-  def handle_info({:block_updated, _block}, state), do: {:noreply, state}
 
   def handle_info(_msg, state) do
     {:noreply, state}

@@ -53,24 +53,15 @@ defmodule Bitblocks.StatsCacheTest do
   end
 
   describe "refresh timers" do
-    # Each block update used to schedule a :refresh, and each :refresh scheduled
-    # the next periodic one, so every burst of completed blocks started another
-    # refresh loop that never stopped.
-    test "a burst of block updates refreshes once and never adds a periodic loop" do
+    # Block updates used to trigger refreshes (and once, a new loop each);
+    # completing a block changes neither count, so only the 60 s timer runs.
+    test "block updates neither refresh nor add a timer; one periodic timer stays" do
       pid = Process.whereis(StatsCache)
       %{periodic: periodic} = :sys.get_state(pid)
-      assert is_reference(periodic)
+      assert is_integer(Process.read_timer(periodic))
 
       for _ <- 1..5, do: send(pid, {:block_updated, nil})
-      %{debounce: debounce} = :sys.get_state(pid)
-      assert is_reference(debounce)
-
-      # The debounce fires: one refresh, and the periodic timer is the same one.
-      send(pid, :debounced_refresh)
-      state = :sys.get_state(pid)
-      assert state.periodic == periodic
-      assert state.debounce == nil
-      assert is_integer(Process.read_timer(periodic))
+      assert :sys.get_state(pid) == %{periodic: periodic}
     end
   end
 end
