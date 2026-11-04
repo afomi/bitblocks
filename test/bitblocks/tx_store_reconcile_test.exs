@@ -33,18 +33,22 @@ defmodule Bitblocks.TxStoreReconcileTest do
     refute Keyword.has_key?(r.gaps, :txs_not_stored)
   end
 
-  test "every tx stored and uploaded is OK", %{raw: raw} do
+  test "every tx uploaded as its own object is in the store", %{raw: raw} do
     for {txid, hex} <- raw do
       :ok = TxStore.put(txid, Base.decode16!(hex, case: :mixed))
       stamp(txid)
     end
 
     r = TxStore.reconcile(170, 170)
-    assert r.gaps == []
+    assert r.in_store == 2
     assert {r.sampled, r.sample_bad} == {2, []}
 
+    # The block's own object is still missing, and counted: every gap is a
+    # number. A fully OK range is covered in BlockObjectTest.
+    assert r.gaps == [block_objects_missing: 1]
+
     assert capture_io(fn -> Bitblocks.Release.tx_store_reconcile(170, 170) end) =~
-             "OK: every declared tx is stored and in the store"
+             "GAP block_objects_missing: 1"
   end
 
   test "a tx stamped as stored whose object is missing is a mismatch, not a skip" do

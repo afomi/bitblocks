@@ -13,6 +13,7 @@ defmodule BitblocksWeb.ContentBlobUnavailableTest do
     def put(_key, _bytes), do: {:error, :no_bucket_configured}
     def get(_key), do: {:error, :no_bucket_configured}
     def size(_key), do: {:error, :no_bucket_configured}
+    def get_range(_key, _offset, _length), do: {:error, :no_bucket_configured}
     def public_url(_key), do: nil
     def ready?, do: {:error, :no_bucket_configured}
   end

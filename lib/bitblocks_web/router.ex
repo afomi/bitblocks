@@ -153,6 +153,12 @@ defmodule BitblocksWeb.Router do
     get "/types", TypeController, :index
   end
 
+  # A tx's raw bytes, the CDN's origin (docs/TX_STORAGE.md). No pipeline:
+  # :api only accepts json, and this answers application/octet-stream.
+  scope "/api/v1", BitblocksWeb.Api do
+    get "/txs/:txid/raw", RawTxController, :show
+  end
+
   # Own scope, no pipeline: the :browser pipeline only accepts html.
   scope "/", BitblocksWeb do
     get "/sitemap.xml", SitemapController, :index

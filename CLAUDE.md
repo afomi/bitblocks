@@ -206,6 +206,9 @@ bin/bitblocks rpc 'Bitblocks.Release.derivation_runs()'
 # A reorg's orphaned tx rows (#34): dry run first, then add apply: true
 bin/bitblocks rpc 'Bitblocks.Release.reconcile_orphaned_block("<orphan hash>")'
 
+# Block objects in the tx store (docs/TX_STORAGE.md): dry run first, then add apply: true
+bin/bitblocks rpc 'Bitblocks.Release.store_block_objects(0, 9_999)'
+
 # Chain-scrubber tiles (#48): full build once, then the cron keeps them current
 bin/bitblocks rpc 'Bitblocks.Release.build_chain_tiles()'
 bin/bitblocks rpc 'Bitblocks.Release.chain_tiles_status()'
@@ -228,6 +231,7 @@ GET /api/v1/blocks/:id          — block by height or hash
 GET /api/v1/txs                 — paginated transactions (?protocol=Twetch to filter)
 GET /api/v1/txs/:txid           — single transaction by txid
 GET /api/v1/txs/:txid/proof     — merkle proof for a transaction
+GET /api/v1/txs/:txid/raw       — the tx's exact bytes (octet-stream), verified against the txid, immutable; the CDN origin (docs/TX_STORAGE.md)
 GET /content/:outpoint          — inscription body parsed from the raw tx on the fly (1Sat convention; immutable, nosniff, sandbox CSP)
 GET /api/v1/status/derivations  — each pipeline step's version, stage and derivation versions, latest backfill runs
 GET /api/v1/price/bsv           — cached BSV spot price (USD) from CoinGecko

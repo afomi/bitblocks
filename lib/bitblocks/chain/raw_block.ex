@@ -51,7 +51,10 @@ defmodule Bitblocks.Chain.RawBlock do
   @doc """
   Fetches and checks `block`. Returns `{:ok, txs, stats}` where `txs` is the
   ordered list of `{txid, tx_bytes}` and `stats` is
-  `%{source: :rest | :rpc, bytes: n, ms: n}`; or `{:error, reason}`.
+  `%{source: :rest | :rpc | :file, bytes: n, ms: n, raw: block_bytes}`; or
+  `{:error, reason}`. `raw` is the block's exact serialized bytes, checked,
+  for the tx store's block object (`Bitblocks.TxStore.BlockObject`); the
+  txs are sub-binaries of it, so it costs no extra memory.
   """
   @spec fetch(Block.t(), keyword()) ::
           {:ok, [{String.t(), binary()}], map()} | {:error, term()}
@@ -66,7 +69,8 @@ defmodule Bitblocks.Chain.RawBlock do
        %{
          source: source,
          bytes: byte_size(bytes),
-         ms: System.monotonic_time(:millisecond) - started
+         ms: System.monotonic_time(:millisecond) - started,
+         raw: bytes
        }}
     end
   end
@@ -138,6 +142,32 @@ defmodule Bitblocks.Chain.RawBlock do
   end
 
   def parse(_), do: {:error, :invalid_block}
+
+  @doc """
+  Where each tx of `parse/1`'s result sits in the block's bytes, in block
+  order: `{txid, offset, length}`. The txs are contiguous after the 80-byte
+  header and the tx-count varint, so this is arithmetic, with no re-hashing.
+  `txs` must be `parse(block_bytes)`'s list.
+  """
+  @spec locate(binary(), [{String.t(), binary()}]) ::
+          {:ok, [{String.t(), non_neg_integer(), non_neg_integer()}]} | {:error, :invalid_block}
+  def locate(<<_header::binary-80, rest::binary>> = block_bytes, txs) do
+    total = byte_size(block_bytes)
+
+    with {:ok, _count, body} <- varint(rest),
+         start = total - byte_size(body),
+         # The txs must fill the block exactly, or they aren't its parse.
+         {located, ^total} <-
+           Enum.map_reduce(txs, start, fn {txid, tx}, offset ->
+             {{txid, offset, byte_size(tx)}, offset + byte_size(tx)}
+           end) do
+      {:ok, located}
+    else
+      _ -> {:error, :invalid_block}
+    end
+  end
+
+  def locate(_, _), do: {:error, :invalid_block}
 
   defp split(rest, 0, acc), do: {:ok, Enum.reverse(acc), rest}
 

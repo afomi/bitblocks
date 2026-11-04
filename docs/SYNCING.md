@@ -49,6 +49,8 @@ A header gap below it is found by an index-only count of heights, and only searc
 6. **Checked before it counts.**
    After the last chunk, a count by txid confirms every transaction is stored; only then is the block `completed`.
    That change is broadcast; a run goes on to its next block, and when the job ends the coordinator hands the slot on.
+   A raw-path block's exact bytes then go to the tx store as one object, `blocks/<height>-<hash>.bin`, read back and verified, with each tx's offset on its row (`TxStore.BlockObject`; docs/TX_STORAGE.md).
+   That write never decides or delays completion: a failure is logged, the block's `raw_object_stored_at` stays nil, and `Release.store_block_objects/3` writes it later.
 7. **Retries replace give-ups.**
    Any failure (node unreachable, rate limit, a tx no source returns, a merkle mismatch) marks the block `failed` and snoozes the job: 1, 2, 4, 8, 16, 32 minutes, then hourly.
    `tx_sync_attempts` counts failures in a row and resets on progress.

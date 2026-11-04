@@ -60,6 +60,9 @@ defmodule Bitblocks.Chain.Block do
     # (TxPipeline.version(:block_totals)); nil before versions existed, which
     # Release.backfill_tx_tallies/3 picks up. docs/DERIVED_DATA.md.
     field :tallies_version, :integer
+    # When the block's exact bytes were written to the tx store as one object
+    # and verified (Bitblocks.TxStore.BlockObject); nil for blocks over 32 MB.
+    field :raw_object_stored_at, :utc_datetime
 
     timestamps()
   end

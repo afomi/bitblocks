@@ -779,10 +779,11 @@ defmodule Bitblocks.Release do
     IO.puts("""
     tx store reconcile, blocks #{n.(from)}..#{n.(to)}
       blocks            #{n.(r.blocks)} of #{n.(to - from + 1)} (#{n.(r.completed)} completed)
+      block objects     #{n.(r.block_objects)} stored, #{n.(r.block_objects_missing)} missing (#{n.(r.block_objects_too_large)} over the raw-block cap)
       txs declared      #{n.(r.declared)} (sum of num_tx)
       txs stored        #{n.(r.stored)}
-      txs in the store  #{n.(r.in_store)}
-      sample            #{n.(r.sampled - length(r.sample_bad))} of #{n.(r.sampled)} match by size\
+      txs in the store  #{n.(r.in_store)} (#{n.(r.in_block_objects)} located in block objects)
+      sample            #{n.(r.sampled - length(r.sample_bad))} of #{n.(r.sampled)} match (#{n.(r.range_sampled)} by ranged read)\
     """)
 
     case r.gaps do
@@ -791,6 +792,62 @@ defmodule Bitblocks.Release do
     end
 
     for txid <- r.sample_bad, do: IO.puts("  mismatch: #{txid}")
+    r
+  end
+
+  @doc """
+  Writes the tx store's block objects (`Bitblocks.TxStore.BlockObject`) for
+  completed blocks `from..to` that have none: refetches each raw block from
+  the node (REST, else `getblock(hash, 0)`), writes it, reads it back and
+  verifies it, then locates its txs and stamps the block. The sync loop does
+  this as each block completes; this finds the ones it missed (a failed
+  write, the store not ready yet, blocks synced before it existed).
+
+  **Dry run by default**: counts only, touching neither the node nor the
+  store. `apply: true` writes. Bounded and resumable: at most `limit:` blocks
+  (500) per call, lowest first; stamped blocks are never picked again, so run
+  it again to carry on. Stops after `max_failures:` (3) failures in a row,
+  e.g. a node refusing RPC, and prints why.
+
+      bin/bitblocks rpc 'Bitblocks.Release.store_block_objects(0, 9_999)'
+      bin/bitblocks rpc 'Bitblocks.Release.store_block_objects(0, 9_999, apply: true)'
+  """
+  def store_block_objects(from, to, opts \\ []) when is_integer(from) and is_integer(to) do
+    r = Bitblocks.TxStore.BlockObject.backfill(from, to, opts)
+
+    IO.puts(
+      if(r.applied, do: "APPLIED", else: "DRY RUN (nothing fetched or written)") <>
+        ": block objects for completed blocks #{from}..#{to}"
+    )
+
+    IO.puts("  #{r.missing} completed block(s) without an object in the range")
+
+    IO.puts(
+      "  this call: #{r.considered} considered, #{r.eligible} small enough to fetch whole," <>
+        " #{r.too_large} over the raw-block cap (per-tx path; stay missing)"
+    )
+
+    if r.applied do
+      IO.puts("  #{r.attempted} attempted, #{r.stored} stored and verified, #{r.failed} failed")
+      for {height, reason} <- r.failures, do: IO.puts("  FAILED #{height}: #{inspect(reason)}")
+    end
+
+    case r.stopped do
+      nil -> :ok
+      reason -> IO.puts("  STOPPED: #{inspect(reason)}")
+    end
+
+    cond do
+      not r.applied and r.eligible > 0 ->
+        IO.puts("  Run again with apply: true to write these.")
+
+      r.applied and r.stopped == nil and r.missing > r.considered ->
+        IO.puts("  More remain: run again.")
+
+      true ->
+        :ok
+    end
+
     r
   end
 
