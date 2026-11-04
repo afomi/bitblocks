@@ -156,6 +156,39 @@
               <%= if @block.size, do: format_number(@block.size), else: "—" %> bytes
             </span>
           </div>
+          <div
+            id="block-fees"
+            class="py-3 border-b border-neutral-800 flex justify-between"
+          >
+            <span
+              class="font-mono text-xs text-neutral-500"
+              title="The sum of every transaction's fee: sats in minus sats out."
+            >
+              Fees
+            </span>
+            <span class="font-mono text-xs text-neutral-400 tabular-nums">
+              <%= BitblocksWeb.Sats.block_sats(@block, :fees) %>
+            </span>
+          </div>
+          <div
+            id="block-miner-reward"
+            class="py-3 border-b border-neutral-800 flex justify-between"
+          >
+            <span
+              class="font-mono text-xs text-neutral-500"
+              title="What the coinbase pays the miner: at most the subsidy plus fees."
+            >
+              Miner reward
+            </span>
+            <span class="font-mono text-xs text-neutral-400 tabular-nums text-right">
+              <%= BitblocksWeb.Sats.block_sats(@block, :miner_reward) %>
+              <%= if @block.sync_state == "completed" && @block.fees_verified do %>
+                <span class="block text-neutral-500">
+                  Checked: at most the subsidy of <%= BitblocksWeb.Sats.block_sats(@block, :subsidy) %> plus fees.
+                </span>
+              <% end %>
+            </span>
+          </div>
           <div class="py-3 border-b border-neutral-800 flex justify-between">
             <span class="font-mono text-xs text-neutral-500">Version</span>
             <span class="font-mono text-xs text-neutral-400"><%= @block.version %></span>

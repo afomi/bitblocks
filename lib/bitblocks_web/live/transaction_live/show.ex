@@ -15,7 +15,9 @@ defmodule BitblocksWeb.TransactionLive.Show do
        input_satoshis: %{},
        output_descriptors: [],
        script_templates: %{},
-       output_protocols: %{}
+       output_protocols: %{},
+       output_status: nil,
+       nft_facts: nil
      )}
   end
 
@@ -129,8 +131,16 @@ defmodule BitblocksWeb.TransactionLive.Show do
      |> assign(:input_satoshis, input_satoshis)
      |> assign(:output_descriptors, output_descriptors)
      |> assign(:script_templates, script_templates)
-     |> assign(:output_protocols, output_protocols)}
+     |> assign(:output_protocols, output_protocols)
+     |> assign(:output_status, transaction.txid && Chain.output_status(transaction.txid))
+     |> assign(:nft_facts, transaction.txid && Chain.nft_facts(transaction.txid))}
   end
+
+  # Outputs listed in the value card; the rest are counted.
+  @status_rows 100
+
+  @doc false
+  def status_rows, do: @status_rows
 
   # Map of template_hash => registered %Bitblocks.Script.Template{} for the
   # unknown-script outputs of this transaction. Hashes without a registered

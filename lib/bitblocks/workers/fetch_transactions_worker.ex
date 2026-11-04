@@ -267,16 +267,10 @@ defmodule Bitblocks.Workers.FetchTransactionsWorker do
   # Bodies already in hand from the raw block: no node calls.
   defp store_parsed(txs, block) do
     failed =
-      Enum.reject(txs, fn {txid, bytes} ->
-        case TxIngest.store(RawBlock.tx_json(txid, bytes), block) do
-          :ok ->
-            true
-
-          {:error, reason} ->
-            Logger.warning("FetchTxs tx #{txid} rejected: #{inspect(reason)}")
-            false
-        end
-      end)
+      txs
+      |> Enum.map(fn {txid, bytes} -> RawBlock.tx_json(txid, bytes) end)
+      |> TxIngest.store_chunk(block)
+      |> rejected()
 
     if failed == [], do: :ok, else: {:error, {:unstored_txs, length(failed)}}
   end
@@ -284,29 +278,33 @@ defmodule Bitblocks.Workers.FetchTransactionsWorker do
   defp fetch_batch(txids, block) do
     results = TxSources.fetch_raw(txids, block)
 
-    failed =
-      Enum.reject(txids, fn txid ->
-        case Map.get(results, txid) do
-          tx when is_map(tx) ->
-            case TxIngest.store(tx, block) do
-              :ok ->
-                true
+    {fetched, unfetched} =
+      Enum.split_with(txids, fn txid -> is_map(Map.get(results, txid)) end)
 
-              {:error, reason} ->
-                Logger.warning("FetchTxs tx #{txid} rejected: #{inspect(reason)}")
-                false
-            end
+    for txid <- unfetched do
+      Logger.warning("FetchTxs tx #{txid} not fetched: #{inspect(Map.get(results, txid))}")
+    end
 
-          other ->
-            Logger.warning("FetchTxs tx #{txid} not fetched: #{inspect(other)}")
-            false
-        end
-      end)
+    rejected =
+      fetched
+      |> Enum.map(&Map.fetch!(results, &1))
+      |> TxIngest.store_chunk(block)
+      |> rejected()
+
+    failed = unfetched ++ rejected
 
     cond do
       failed == [] -> :ok
       TxSources.any_rate_limited?(Map.take(results, failed)) -> {:error, :rate_limited}
       true -> {:error, {:unfetched_txs, length(failed)}}
+    end
+  end
+
+  # The txids TxIngest didn't store, each logged.
+  defp rejected(results) do
+    for {txid, {:error, reason}} <- results do
+      Logger.warning("FetchTxs tx #{txid} rejected: #{inspect(reason)}")
+      txid
     end
   end
 
@@ -359,6 +357,7 @@ defmodule Bitblocks.Workers.FetchTransactionsWorker do
              tx_sync_attempts: 0
            }) do
       Logger.info("FetchTxs block=#{block.height} completed")
+      totals(completed)
       notify_projections(completed)
     end
   end
@@ -378,6 +377,14 @@ defmodule Bitblocks.Workers.FetchTransactionsWorker do
       Chain.broadcast_block_update(updated)
       {:ok, updated}
     end
+  end
+
+  # The tx pipeline's :block steps (block totals; docs/TX_PIPELINE.md), after
+  # the block is completed, so they never decide whether it completes. The
+  # row they wrote is broadcast so open pages show it.
+  defp totals(completed) do
+    Chain.TxPipeline.run_block(completed)
+    Chain.broadcast_block_update(Repo.reload!(completed))
   end
 
   # Follow (#29 step 4): webhook projections hear about matches in blocks that

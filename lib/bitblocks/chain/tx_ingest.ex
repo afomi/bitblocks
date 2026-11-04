@@ -1,7 +1,8 @@
 defmodule Bitblocks.Chain.TxIngest do
   @moduledoc """
-  The single ingest path for a fetched transaction: body-hash check, script
-  analysis, insert, spend recording, token indexing.
+  The single ingest path for a fetched transaction: body-hash check, then
+  the tx pipeline around the insert (`Chain.TxPipeline`: analysis and
+  tallies before it, spends, tokens and Bitcom after it).
 
   Both tx-fetch workers (`FetchTransactionsWorker`, `BackfillTransactionsWorker`)
   store through here so their pipelines cannot drift — previously the backfill
@@ -18,7 +19,7 @@ defmodule Bitblocks.Chain.TxIngest do
   require Logger
 
   alias Bitblocks.{Chain, Repo}
-  alias Bitblocks.Chain.Block
+  alias Bitblocks.Chain.{Block, TxPipeline}
   alias Bitblocks.TransactionParser
 
   @doc """
@@ -84,24 +85,63 @@ defmodule Bitblocks.Chain.TxIngest do
 
   @doc """
   Stores one transaction (a `getrawtransaction` verbosity-1 map) for `block`.
+  The one-tx case of `store_chunk/2`.
 
   Returns `:ok`, or `{:error, {:body_txid_mismatch, txid}}` /
   `{:error, {:insert_failed, txid}}` — callers count errors against the batch
   so the block can never be marked complete around them.
   """
   def store(tx_json, %Block{} = block) when is_map(tx_json) do
-    txid = tx_json["txid"]
-    raw = tx_json["hex"]
+    [{_txid, result}] = store_chunk([tx_json], block)
+    result
+  end
 
-    if body_matches_txid?(raw, txid) do
-      insert(tx_json, txid, raw, block)
-    else
-      Logger.error(
-        "TxIngest block=#{block.height} REJECTED tx #{txid} — body does not hash to txid"
-      )
+  @doc """
+  Stores a chunk of `block`'s transactions, given in block order, through the
+  tx pipeline (`Chain.TxPipeline`, `docs/TX_PIPELINE.md`):
 
-      {:error, {:body_txid_mismatch, txid}}
-    end
+    1. the body-hash check, per tx (a tx that fails it goes no further);
+    2. the `:chunk` steps over the chunk's rows (analysis and tallies), so
+       their columns go in with the insert;
+    3. the insert, per tx;
+    4. the `:tx` steps for each stored tx (spends, tokens, Bitcom).
+
+  Returns `[{txid, :ok | {:error, reason}}]` in the order given. A pipeline
+  step that fails is logged and reported; it never turns a stored tx into an
+  error.
+  """
+  @spec store_chunk([map()], Block.t()) :: [{String.t(), :ok | {:error, term()}}]
+  def store_chunk(tx_jsons, %Block{} = block) when is_list(tx_jsons) do
+    checked =
+      Enum.map(tx_jsons, fn tx_json ->
+        txid = tx_json["txid"]
+
+        if body_matches_txid?(tx_json["hex"], txid) do
+          {:ok, base_attrs(tx_json, block)}
+        else
+          Logger.error(
+            "TxIngest block=#{block.height} REJECTED tx #{txid} — body does not hash to txid"
+          )
+
+          {:error, txid, {:body_txid_mismatch, txid}}
+        end
+      end)
+
+    derived =
+      checked
+      |> Enum.flat_map(fn
+        {:ok, attrs} -> [attrs]
+        _ -> []
+      end)
+      |> TxPipeline.run_chunk(block)
+
+    {results, []} =
+      Enum.map_reduce(checked, derived, fn
+        {:ok, _}, [attrs | rest] -> {{attrs.txid, insert(attrs, block)}, rest}
+        {:error, txid, reason}, rest -> {{txid, {:error, reason}}, rest}
+      end)
+
+    results
   end
 
   @doc """
@@ -133,47 +173,34 @@ defmodule Bitblocks.Chain.TxIngest do
 
   def body_matches_txid?(_raw, _expected), do: false
 
-  defp insert(tx_json, txid, raw, block) do
-    analysis =
-      case TransactionParser.analyze(raw) do
-        {:ok, meta} -> meta
-        _ -> %{}
-      end
-
+  defp base_attrs(tx_json, block) do
     inputs = (tx_json["vin"] || []) |> Enum.map(&Jason.encode!/1)
     outputs = (tx_json["vout"] || []) |> Enum.map(&Jason.encode!/1)
 
-    attrs =
-      Map.merge(
-        %{
-          txid: txid,
-          raw: raw,
-          block_hash: tx_json["blockhash"] || block.hash,
-          block_height: tx_json["height"] || block.height,
-          version: to_string(tx_json["version"] || 1),
-          inputs: inputs,
-          input_txids: TransactionParser.extract_input_txids(inputs),
-          outputs: outputs,
-          output_addresses: TransactionParser.extract_output_addresses(outputs)
-        },
-        analysis
-      )
+    %{
+      txid: tx_json["txid"],
+      raw: tx_json["hex"],
+      block_hash: tx_json["blockhash"] || block.hash,
+      block_height: tx_json["height"] || block.height,
+      version: to_string(tx_json["version"] || 1),
+      inputs: inputs,
+      input_txids: TransactionParser.extract_input_txids(inputs),
+      outputs: outputs,
+      output_addresses: TransactionParser.extract_output_addresses(outputs)
+    }
+  end
 
+  defp insert(attrs, block) do
     changeset = Chain.Transaction.changeset(%Chain.Transaction{}, attrs)
 
     case Repo.insert(changeset, on_conflict: :nothing, conflict_target: :txid) do
       {:ok, tx} ->
-        Chain.record_spends(tx)
-        # Index any BSV-20/21 token inscriptions this tx carries (no-op unless
-        # it was tagged "BSV20" during analyze).
-        Chain.index_tokens(tx)
-        # Log Bitcom `$` commands and ownership proofs (no-op unless tagged "Bitcom").
-        Chain.index_bitcom(tx)
+        TxPipeline.run_tx(tx, block)
         :ok
 
       {:error, changeset} ->
-        Logger.error("TxIngest failed to store tx #{txid}: #{inspect(changeset.errors)}")
-        {:error, {:insert_failed, txid}}
+        Logger.error("TxIngest failed to store tx #{attrs.txid}: #{inspect(changeset.errors)}")
+        {:error, {:insert_failed, attrs.txid}}
     end
   end
 end

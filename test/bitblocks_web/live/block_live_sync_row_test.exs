@@ -15,6 +15,7 @@ defmodule BitblocksWeb.BlockLiveSyncRowTest do
       in_use: 1,
       concurrency: 2,
       limit: 2,
+      max_concurrency: 2,
       limit_reason: "CPU cores",
       rows: rows
     }

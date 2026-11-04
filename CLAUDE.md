@@ -93,6 +93,16 @@ mix assets.deploy           # Build and minify for production
 - Concurrency: admin-set on /sync, persisted in `sync_settings`, clamped to `Sync.concurrency_limit/0` (CPU cores, `pool_size` minus `:sync_pool_reserve`, `:sync_rpc_limit` / `SYNC_RPC_LIMIT`). Default `:sync_workers`: 1 in dev and test, 2 in prod.
 - `Bitblocks.Workers.SyncHeadersWorker` holds the header logic (`sync_tip/0`, `sync_range/2`, reorg handling) and still runs a manual range job.
 
+**After a tx comes in** (authoritative: `docs/TX_PIPELINE.md`):
+
+- `Bitblocks.Chain.TxPipeline.steps/0` is the ordered list of what happens to every stored tx, and the one place to add a step (one module plus one line).
+- Chunk steps run before the insert, in `Chain.TxIngest.store_chunk/2`: `script_analysis`, `sats_out`, `burned`, `sats_in` (previous outputs from stored txs, one query per chunk; nil when one isn't stored), `fee`.
+- Tx steps run after it: `record_spends`, `index_tokens`, `index_bitcom`.
+- The block step `block_totals` runs once the block is `completed`: `sats_out`, `fees`, `miner_reward`, `subsidy`, `burned`, and `fees_verified` (`miner_reward <= subsidy + fees`).
+- A failing step is logged and reported (telemetry `[:bitblocks, :tx_pipeline, :step_failed]`) and never loses the stored tx.
+- Read-time facts, never stored: `Chain.output_status/1` (spent, unspent or unspendable per output) and `Chain.nft_facts/1` (inscription or Run jig, and collection membership).
+- `Release.backfill_tx_tallies(from, to, apply: true)` fills the tally columns for blocks completed before the steps; dry run by default.
+
 - `Bitblocks.Workers.ChainTilesWorker` — builds chain-scrubber tiles (`Bitblocks.ChainTiles`) on the `:chain_tiles` lane (concurrency 1), reading `blocks` only. Cron every 5 minutes in incremental mode: a no-op until `Release.build_chain_tiles()` has run once, and when no block changed. See `docs/CHAIN_SCRUBBER.md`.
 
 ### Data Layer

@@ -13,7 +13,12 @@ defmodule Bitblocks.Chain.Transaction do
     field :outputs, {:array, :string}
     field :output_addresses, {:array, :string}
     field :total_output_satoshis, :integer
+    # Tallies (docs/TX_PIPELINE.md): sats in from stored previous outputs,
+    # nil while any is unknown; fee = in - out (0 for a coinbase); burned =
+    # sats in provably unspendable outputs.
     field :total_input_satoshis, :integer
+    field :fee_satoshis, :integer
+    field :burned_satoshis, :integer
     field :input_count, :integer
     field :output_count, :integer
 
@@ -55,6 +60,8 @@ defmodule Bitblocks.Chain.Transaction do
       :output_addresses,
       :total_output_satoshis,
       :total_input_satoshis,
+      :fee_satoshis,
+      :burned_satoshis,
       :input_count,
       :output_count,
       :output_types,
@@ -69,9 +76,11 @@ defmodule Bitblocks.Chain.Transaction do
   end
 
   @doc """
-  Calculates the miner fee for this transaction.
+  Calculates the miner fee for this transaction: the stored `fee_satoshis`
+  when the tx pipeline has tallied it, else inputs minus outputs.
   Returns nil if input or output totals are not available.
   """
+  def miner_fee(%__MODULE__{fee_satoshis: fee}) when is_integer(fee), do: fee
   def miner_fee(%__MODULE__{total_input_satoshis: nil}), do: nil
   def miner_fee(%__MODULE__{total_output_satoshis: nil}), do: nil
 

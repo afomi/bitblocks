@@ -58,6 +58,13 @@ defmodule BitblocksWeb.RecentBlocksComponent do
                 {format_count(block.num_tx)} tx
               </span>
               <span
+                class="hidden sm:inline font-mono text-xs text-neutral-500 tabular-nums"
+                title="Fees paid to the miner, and the miner's reward (subsidy plus fees)"
+              >
+                fees {BitblocksWeb.Sats.block_sats(block, :fees)}
+                · reward {BitblocksWeb.Sats.block_bsv(block, :miner_reward)}
+              </span>
+              <span
                 :if={delta}
                 class={"font-mono text-xs tabular-nums #{interval_color(delta)}"}
               >

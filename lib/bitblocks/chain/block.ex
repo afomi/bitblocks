@@ -48,6 +48,15 @@ defmodule Bitblocks.Chain.Block do
     field :tx_sync_error, :string
     field :tx_sync_attempts, :integer, default: 0
 
+    # Block totals, written at completion (docs/TX_PIPELINE.md, block_totals).
+    # nil until then; fees is nil while any tx's fee is unknown.
+    field :sats_out, :integer
+    field :fees, :integer
+    field :miner_reward, :integer
+    field :subsidy, :integer
+    field :burned, :integer
+    field :fees_verified, :boolean
+
     timestamps()
   end
 
@@ -75,7 +84,13 @@ defmodule Bitblocks.Chain.Block do
       :tx_sync_started_at,
       :tx_sync_completed_at,
       :tx_sync_error,
-      :tx_sync_attempts
+      :tx_sync_attempts,
+      :sats_out,
+      :fees,
+      :miner_reward,
+      :subsidy,
+      :burned,
+      :fees_verified
     ])
     |> validate_required([:hash, :height])
     |> validate_inclusion(:sync_state, @sync_states)

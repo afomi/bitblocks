@@ -50,6 +50,7 @@ Write tools come after, behind `ops_write`, dry-run by default and recorded as c
    Canonical names, then re-stamp the affected rows; otherwise "first seen" splits in two.
 2. **Classify at completion.** When a block becomes `completed`, every output gets a type and every transaction a composite type (for example inscription + OrdLock = listing).
    Anything unmatched is `custom`, keyed by its normalized template hash.
+   It will be a block step in `Chain.TxPipeline`, after `block_totals`; `docs/TX_PIPELINE.md` holds its placeholder.
 3. **First seen and adoption.** Per type and per unmatched shape: first height, txid and block time, and counts per 10,000-block bucket.
    Cheap to keep, because blocks complete in order.
 4. **Candidate types.** The signal is an unmatched shape that starts recurring.

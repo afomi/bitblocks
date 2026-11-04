@@ -586,6 +586,75 @@ defmodule Bitblocks.Release do
   end
 
   @doc """
+  Recomputes the tx pipeline's tallies (sats in, sats out, fee, burned) for
+  the transactions of completed blocks from `from_height` to `to_height`,
+  then each block's totals (`docs/TX_PIPELINE.md`). Bounded batches, in
+  height order. See `Bitblocks.Chain.TxPipeline.Backfill`.
+
+  **Dry run by default**: prints what it would change and writes nothing.
+  Pass `apply: true` to write; only rows whose values change are updated.
+
+  ## Options
+    - apply: true to write (default false)
+    - block_batch: blocks per batch (default 100)
+    - tx_batch: txs per page within a block (default 1,000)
+
+  ## Usage
+
+      bin/bitblocks rpc 'Bitblocks.Release.backfill_tx_tallies(0, 10_000)'
+      bin/bitblocks rpc 'Bitblocks.Release.backfill_tx_tallies(0, 10_000, apply: true)'
+  """
+  def backfill_tx_tallies(from_height, to_height, opts \\ [])
+      when is_integer(from_height) and is_integer(to_height) do
+    with_running_repo(fn ->
+      progress = fn r ->
+        IO.puts("  ...through #{r.blocks} block(s), #{r.txs} tx(s), #{r.txs_changed} changed")
+      end
+
+      report =
+        Bitblocks.Chain.TxPipeline.Backfill.run(
+          from_height,
+          to_height,
+          Keyword.put_new(opts, :on_batch, progress)
+        )
+
+      print_tally_backfill(report)
+      report
+    end)
+  end
+
+  defp print_tally_backfill(r) do
+    IO.puts(
+      if(r.applied, do: "APPLIED", else: "DRY RUN (nothing written)") <>
+        ": tx tallies for completed blocks #{r.from_height}..#{r.to_height}"
+    )
+
+    IO.puts("  #{r.blocks} block(s), #{r.txs} transaction(s) scanned")
+    IO.puts("  #{r.txs_changed} transaction(s) #{if r.applied, do: "updated", else: "to update"}")
+
+    IO.puts(
+      "  #{r.sats_in_unknown} transaction(s) with sats in unknown (a previous tx not stored)"
+    )
+
+    IO.puts(
+      "  #{r.blocks_changed} block total(s) #{if r.applied, do: "written", else: "to write"}"
+    )
+
+    case r.unverified do
+      [] ->
+        IO.puts("  every block with known fees verifies: miner reward <= subsidy + fees")
+
+      heights ->
+        IO.puts(
+          "  #{length(heights)} block(s) FAIL miner reward <= subsidy + fees: " <>
+            Enum.map_join(Enum.take(heights, 20), ", ", &to_string/1)
+        )
+    end
+
+    unless r.applied, do: IO.puts("  Run again with apply: true to write these.")
+  end
+
+  @doc """
   Checks the blob store (Bitblocks.TxStore): is it configured, how many txs
   are stored, and do `n` random stored objects still match the database's
   bytes? Prints and returns the result.

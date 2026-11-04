@@ -997,6 +997,158 @@ defmodule Bitblocks.Chain do
     end
   end
 
+  # ---------------------------------------------------------------------------
+  # Read-time facts (docs/TX_PIPELINE.md): computed when read, never stored,
+  # because they change as later blocks come in.
+  # ---------------------------------------------------------------------------
+
+  @doc """
+  Each output of `txid` and whether it is still a UTXO, from the spend index:
+
+      %{
+        txid: "...",
+        utxo?: true,
+        outputs: [
+          %{vout: 0, satoshis: 1_000, status: :spent, spent_by: "<txid>", spent_by_vin: 0},
+          %{vout: 1, satoshis: 0, status: :unspendable, spent_by: nil, spent_by_vin: nil},
+          %{vout: 2, satoshis: 546, status: :unspent, spent_by: nil, spent_by_vin: nil}
+        ]
+      }
+
+  `:unspendable` is an OP_RETURN output, which no tx can spend. A tx "is a
+  UTXO" (`utxo?`) when any output is `:unspent`. Unspent means no stored tx
+  spends it: true as of the blocks synced so far.
+
+  Two indexed queries: the tx by txid, its spends by `(txid, vout)`.
+  nil when the tx isn't stored or its raw bytes don't decode.
+  """
+  @spec output_status(String.t()) :: map() | nil
+  def output_status(txid) when is_binary(txid) do
+    with raw when is_binary(raw) <-
+           Repo.one(from(t in Transaction, where: t.txid == ^txid, select: t.raw)),
+         {:ok, %{outputs: outputs}} <- Bitblocks.Chain.RawTx.flows(raw) do
+      spends =
+        Repo.all(
+          from(s in Spend,
+            where: s.txid == ^txid,
+            select: {s.vout, {s.spending_txid, s.spending_vin}}
+          )
+        )
+        |> Map.new()
+
+      statuses =
+        outputs
+        |> Enum.with_index()
+        |> Enum.map(fn {{sats, script}, vout} ->
+          {status, by, vin} =
+            case spends do
+              %{^vout => {by, vin}} ->
+                {:spent, by, vin}
+
+              _ ->
+                if Bitblocks.Chain.TxPipeline.Steps.Flows.unspendable?(script),
+                  do: {:unspendable, nil, nil},
+                  else: {:unspent, nil, nil}
+            end
+
+          %{vout: vout, satoshis: sats, status: status, spent_by: by, spent_by_vin: vin}
+        end)
+
+      %{txid: txid, utxo?: Enum.any?(statuses, &(&1.status == :unspent)), outputs: statuses}
+    else
+      _ -> nil
+    end
+  end
+
+  # An outpoint list for the collection lookup stays bounded on huge txs.
+  @nft_facts_max_outpoints 10_000
+
+  @doc """
+  Whether `txid` is an NFT, and whether it is part of a collection:
+
+      %{
+        nft?: true,
+        inscriptions: [%{vout: 0, content_type: "image/png"}],
+        run?: false,
+        collections: [
+          %{slug: "grand-tardinians", name: "Grand Tardinians", item: "Grand Tardinians 1",
+            origin: "<txid>_0", current_outpoint: "<txid>_0", role: :origin}
+        ]
+      }
+
+  An NFT is a 1Sat inscription output (an `OP_FALSE OP_IF "ord"` envelope;
+  a BSV-20/21 token inscription is fungible, so it doesn't count) or a Run
+  jig (the tx is tagged `Run`). Collection membership comes from
+  `collection_items`, matched on any of the tx's outpoints by origin (`role:
+  :origin`, the mint) or current outpoint (`role: :current`, where it is now).
+
+  Two indexed queries: the tx by txid, then `collection_items` by origin and
+  current outpoint. nil when the tx isn't stored.
+  """
+  @spec nft_facts(String.t()) :: map() | nil
+  def nft_facts(txid) when is_binary(txid) do
+    case Repo.one(from(t in Transaction, where: t.txid == ^txid, select: {t.raw, t.protocols})) do
+      nil ->
+        nil
+
+      {raw, protocols} ->
+        outputs =
+          case is_binary(raw) && Bitblocks.Chain.RawTx.parse(raw) do
+            {:ok, %BSV.Tx{outputs: outputs}} -> outputs
+            _ -> []
+          end
+
+        inscriptions =
+          for {%BSV.TxOut{script: script}, vout} <- Enum.with_index(outputs),
+              {:ok, inscription} <- [Bitblocks.Ordinals.Inscription.parse(script)],
+              inscription.content_type != "application/bsv-20",
+              do: %{vout: vout, content_type: inscription.content_type}
+
+        run? = "Run" in (protocols || [])
+
+        %{
+          nft?: inscriptions != [] or run?,
+          inscriptions: inscriptions,
+          run?: run?,
+          collections: collection_memberships(txid, length(outputs))
+        }
+    end
+  end
+
+  defp collection_memberships(_txid, 0), do: []
+
+  defp collection_memberships(txid, output_count) do
+    outpoints =
+      for vout <- 0..(min(output_count, @nft_facts_max_outpoints) - 1), do: "#{txid}_#{vout}"
+
+    known = Bitblocks.OrdinalCollections.known()
+    known_ids = Map.new(known, fn {slug, id} -> {id, slug} end)
+
+    Repo.all(
+      from(i in Bitblocks.OrdinalCollections.Item,
+        where: i.origin in ^outpoints or i.current_outpoint in ^outpoints,
+        order_by: [asc: i.origin],
+        select: {i.collection_id, i.name, i.origin, i.current_outpoint}
+      )
+    )
+    |> Enum.map(fn {cid, item, origin, current} ->
+      {slug, name} =
+        case known_ids do
+          %{^cid => slug} -> {slug, Bitblocks.OrdinalCollections.config_for(cid)[:name] || slug}
+          _ -> {cid, cid}
+        end
+
+      %{
+        slug: slug,
+        name: name,
+        item: item,
+        origin: origin,
+        current_outpoint: current,
+        role: if(String.starts_with?(origin, txid <> "_"), do: :origin, else: :current)
+      }
+    end)
+  end
+
   @doc """
   Records spends from a transaction's inputs into the spend index.
 
