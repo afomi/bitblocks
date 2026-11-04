@@ -129,6 +129,7 @@ mix assets.deploy           # Build and minify for production
   - `/tokens` and `/tokens/:id` - BSV-20/BSV-21 token index (supply, holders); read-only, minting lives in qart
   - `/collections` and `/collections/:id` - BSV NFT collections index and show (`:id` is a slug or origin outpoint; one view for every collection)
   - `/bitcom` and `/bitcom/:address` - live Bitcom registry (unwriter's Bitcom): namespaces, on-chain ownership proof, files, routes, usage
+  - `/syncing` - public live sync view: blocks fetching on each lane with synced and processed x of y, recent completions, tips and blocks by sync_state, from one shared snapshot (`Bitblocks.SyncProgress`; `docs/SYNCING.md`). `/sync` is the admin operator page
   - `/chain-scrubber` - admin only: scrub the chain genesis to tip in three.js from precomputed tiles (`docs/CHAIN_SCRUBBER.md`); `/chain-scrubber/tiles/manifest` and `/chain-scrubber/tiles/:level/:idx` serve the tiles from ETS with no DB query
   - `/dev/dashboard` - LiveDashboard (dev only)
 

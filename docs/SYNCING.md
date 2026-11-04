@@ -144,6 +144,19 @@ stateDiagram-v2
 
 ---
 
+## Watching it: `/syncing`
+
+`/syncing` is the public, live view of the sync; `/sync` stays the operator page.
+It shows each block fetching on the tip and backfill lanes, the blocks queued next, the last 10 completed, and the overall picture (our tip, the node's tip, the public tip, header coverage, blocks by `sync_state`).
+Each block carries two bars: **synced** (stored txs of `TxidSource.expected_tx_count/1`) and **processed** (stored txs with `script_analysis_version` at `TransactionParser.script_analysis_version/0` or later).
+
+It is built to cost the same for one viewer or a thousand:
+
+- **The workers count, the page doesn't.** `SyncProgress.Tracker` runs inside both tx workers: after each chunk of up to 100 txids, one query over `transactions_txid_index` counts stored and processed for that chunk, and the running totals go out on PubSub topic `"sync_progress"` at most once a second per block, plus a final report.
+- **One snapshot, shared.** `Bitblocks.SyncProgress` (one GenServer per node) merges those reports and `{:block_updated, block}` events, reloads from bounded `blocks` queries every 30 s, and publishes on `"sync_progress:snapshot"` at most once a second when something changed. Viewers read the snapshot from ETS and subscribe; the LiveView never queries.
+- **Bounded reads.** Syncing (≤20) and queued (≤10) blocks use `blocks_sync_state_height_index`; recent completions (10) use `blocks_tx_sync_completed_at_index`; state counts are an index-only scan of `blocks_sync_state_index`; the `tx` array is measured, never loaded. The node tip comes from `RpcCache`, the public tip from WhatsOnChain `/chain/info` at most every 5 minutes, header coverage from `StatsCache`.
+- A block completed before the current boot is counted once by `block_hash` (5 s statement timeout) and remembered; one finished on this boot carries the worker's final counts.
+
 ## Key parameters (from code, authoritative)
 
 | Thing | Value | Source |

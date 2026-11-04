@@ -41,7 +41,8 @@ defmodule BitblocksWeb.WayfindingTest do
           {"beta-order-book", "/order-book"},
           {"beta-metanet", "/metanet"},
           {"beta-bitcom", "/bitcom"},
-          {"beta-collections", "/collections"}
+          {"beta-collections", "/collections"},
+          {"beta-syncing", "/syncing"}
         ] do
       assert Regex.match?(
                ~r/id="#{id}"[^>]*href="#{Regex.escape(href)}"/,

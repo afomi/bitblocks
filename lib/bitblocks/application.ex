@@ -46,6 +46,8 @@ defmodule Bitblocks.Application do
       Bitblocks.Protocol.RegistryCache,
       # ETS copy of chain-scrubber tiles, so tile requests never query (#48)
       Bitblocks.ChainTiles.Cache,
+      # One shared live sync snapshot for /syncing: computed once, broadcast to every viewer
+      Bitblocks.SyncProgress,
       # Start the Finch HTTP client for sending emails
       {Finch, name: Bitblocks.Finch},
       # Start Oban for background job processing

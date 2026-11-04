@@ -31,6 +31,10 @@ defmodule Bitblocks.WocStub do
     {:ok, for(txid <- txids, tx = known[txid], do: tx)}
   end
 
+  # The public tip is read by the long-lived SyncProgress server, not a test
+  # process, so there is no per-test fixture: WoC is simply unavailable.
+  def chain_tip, do: {:error, :not_stubbed}
+
   def spent(txid, vout) do
     case Process.get(:woc_spent, %{})["#{txid}_#{vout}"] do
       nil -> {:ok, :unspent}

@@ -73,6 +73,9 @@ config :bitblocks, Bitblocks.TxStore, adapter: Bitblocks.TxStore.Local, root: "t
 # Chain-scrubber tiles: no boot-time warm (the sandbox owns the connection).
 config :bitblocks, Bitblocks.ChainTiles, warm_on_boot: false
 
+# /syncing snapshot: no timers or boot load in tests; tests call refresh/0 and flush/0.
+config :bitblocks, Bitblocks.SyncProgress, auto_refresh: false
+
 # Rexxie catalog PNGs. Tests never read ~/workspace/rexxie-indexer/images.
 config :bitblocks,
        :rexxie_images_dir,

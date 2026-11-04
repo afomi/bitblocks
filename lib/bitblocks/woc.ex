@@ -47,6 +47,14 @@ defmodule Bitblocks.Woc do
           {:ok, %{txid: String.t(), vin: non_neg_integer()} | :unspent} | {:error, term()}
   def spent(txid, vout), do: client().spent(txid, vout)
 
+  @doc """
+  WhatsOnChain's view of the chain tip height, from `/chain/info`. A public
+  reference point only, never a sync source. `Bitblocks.SyncProgress` caches
+  it and asks at most once every few minutes.
+  """
+  @spec chain_tip() :: {:ok, non_neg_integer()} | {:error, term()}
+  def chain_tip, do: client().chain_tip()
+
   defp client, do: Application.get_env(:bitblocks, :woc_client, __MODULE__.HTTP)
 
   defmodule HTTP do
@@ -104,6 +112,14 @@ defmodule Bitblocks.Woc do
       case request(:get, "/tx/#{txid}/#{vout}/spent", "") do
         {:ok, 200, %{"txid" => spender, "vin" => vin}} -> {:ok, %{txid: spender, vin: vin}}
         {:ok, 404, _} -> {:ok, :unspent}
+        {:ok, status, body} -> {:error, {:http_status, status, body}}
+        error -> error
+      end
+    end
+
+    def chain_tip do
+      case request(:get, "/chain/info", "") do
+        {:ok, 200, %{"blocks" => blocks}} when is_integer(blocks) -> {:ok, blocks}
         {:ok, status, body} -> {:error, {:http_status, status, body}}
         error -> error
       end

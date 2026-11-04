@@ -1,0 +1,52 @@
+<%!-- One block: height, time, tx count, state, and its synced and processed bars. --%>
+<li
+  id={"#{@prefix}-#{@entry.hash}"}
+  class="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900"
+>
+  <div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+    <a
+      href={"/blocks/#{@entry.height}"}
+      class="text-lg font-semibold text-gray-900 underline decoration-gray-400 underline-offset-4 hover:decoration-gray-900 dark:text-white dark:decoration-gray-500 dark:hover:decoration-white"
+    >
+      Block {number(@entry.height)}
+    </a>
+    <span class="text-sm text-gray-700 dark:text-gray-300">
+      <%= if dt = block_time(@entry.time) do %>
+        <time datetime={DateTime.to_iso8601(dt)}>
+          {time_text(dt)}
+        </time>
+      <% else %>
+        {time_text(nil)}
+      <% end %>
+    </span>
+  </div>
+  <p class="mt-1 text-sm text-gray-700 dark:text-gray-300">
+    {number(@entry.expected)} transactions.
+    <span class="whitespace-nowrap">
+      {state_label(@entry.sync_state)}
+      <code class="ml-1 rounded bg-gray-100 px-1 text-xs text-gray-800 dark:bg-gray-800 dark:text-gray-200">{@entry.sync_state}</code>
+    </span>
+    <span
+      :if={@show_lane}
+      class="whitespace-nowrap"
+    >
+      · {lane_label(@entry.lane)}
+    </span>
+  </p>
+  <.progress_bar
+    id={"#{@prefix}-#{@entry.hash}-synced"}
+    label="Synced"
+    value={@entry.stored}
+    total={@entry.expected}
+    pending_text={@pending_text}
+    bar_class="bg-blue-700 dark:bg-blue-400"
+  />
+  <.progress_bar
+    id={"#{@prefix}-#{@entry.hash}-processed"}
+    label="Processed"
+    value={@entry.processed}
+    total={@entry.expected}
+    pending_text={@pending_text}
+    bar_class="bg-emerald-700 dark:bg-emerald-400"
+  />
+</li>

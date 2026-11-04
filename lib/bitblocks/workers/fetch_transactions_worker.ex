@@ -46,6 +46,7 @@ defmodule Bitblocks.Workers.FetchTransactionsWorker do
   alias Bitblocks.Repo
   alias Bitblocks.Chain
   alias Bitblocks.Chain.{Block, TxIngest, TxidSource, TxSources}
+  alias Bitblocks.SyncProgress.Tracker
 
   # How many transactions to fetch and write per batch.
   # Bounds memory: 100 raw transactions ≈ 10-50 MB depending on tx size.
@@ -76,7 +77,9 @@ defmodule Bitblocks.Workers.FetchTransactionsWorker do
           "already_fetched=#{already_fetched} batch_size=#{@batch_size}"
       )
 
-      case fetch_in_batches(block, txids, total, started_at) do
+      tracker = Tracker.new(block, job.queue, total)
+
+      case fetch_in_batches(block, txids, total, started_at, tracker) do
         :ok ->
           with {:ok, completed} <- transition_to_completed(block),
                do: notify_projections(completed, job.queue)
@@ -130,11 +133,11 @@ defmodule Bitblocks.Workers.FetchTransactionsWorker do
   # `failed` and Oban retries (idempotent — the retry fetches only what's still
   # missing). This is what prevents a block whose tail txs persistently fail
   # from being silently marked `completed` with stored < num_tx.
-  defp fetch_in_batches(block, txids, total, started_at) do
+  defp fetch_in_batches(block, txids, total, started_at, tracker) do
     txids
     |> Stream.chunk_every(@batch_size)
     |> Stream.with_index()
-    |> Enum.reduce_while(:ok, fn {chunk, index}, :ok ->
+    |> Enum.reduce_while({:ok, tracker}, fn {chunk, index}, {:ok, tracker} ->
       # Diff: fetch only the txids of this chunk not already in the database.
       needed_txids = filter_already_fetched(chunk)
 
@@ -144,6 +147,9 @@ defmodule Bitblocks.Workers.FetchTransactionsWorker do
         else
           fetch_batch(needed_txids, block)
         end
+
+      # Counts for /syncing: stored and analyzed, reported at most once a second.
+      tracker = Tracker.chunk(tracker, chunk)
 
       batch_end = min((index + 1) * @batch_size, total)
 
@@ -160,11 +166,15 @@ defmodule Bitblocks.Workers.FetchTransactionsWorker do
       end
 
       # Stop the pass on a rate limit: the rest would only hit it too.
-      if rate_limited?, do: {:halt, {:error, :rate_limited}}, else: {:cont, :ok}
+      if rate_limited?, do: {:halt, {:error, :rate_limited}}, else: {:cont, {:ok, tracker}}
     end)
     |> case do
-      :ok -> verify_complete(block, txids, total)
-      error -> error
+      {:ok, tracker} ->
+        Tracker.finish(tracker)
+        verify_complete(block, txids, total)
+
+      error ->
+        error
     end
   end
 

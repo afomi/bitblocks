@@ -196,6 +196,49 @@ defmodule Bitblocks.Workers.FetchTransactionsWorkerTest do
     end
   end
 
+  describe "progress for /syncing" do
+    test "the fetch reports synced and processed counts as it walks the block" do
+      block =
+        block_fixture(%{
+          height: 999_006,
+          hash: "progress_hash",
+          merkleroot: @genesis_merkleroot,
+          num_tx: 1,
+          tx: [@genesis_txid],
+          sync_state: "txs_queued"
+        })
+
+      RpcStub.stub_getrawtransaction(@genesis_txid, 1, %{
+        "txid" => @genesis_txid,
+        "hex" => @genesis_raw,
+        "blockhash" => block.hash,
+        "height" => block.height,
+        "version" => 1,
+        "vin" => [%{"coinbase" => "04ffff001d0104", "sequence" => 4_294_967_295}],
+        "vout" => []
+      })
+
+      Phoenix.PubSub.subscribe(Bitblocks.PubSub, Bitblocks.SyncProgress.Tracker.topic())
+
+      assert :ok =
+               FetchTransactionsWorker.perform(%Oban.Job{
+                 args: %{"block_hash" => block.hash},
+                 queue: "transactions_tip"
+               })
+
+      assert_receive {:sync_progress, %{hash: "progress_hash", stored: 0, processed: 0, total: 1}}
+
+      assert_receive {:sync_progress,
+                      %{
+                        hash: "progress_hash",
+                        lane: "transactions_tip",
+                        stored: 1,
+                        processed: 1,
+                        total: 1
+                      }}
+    end
+  end
+
   describe "projection webhooks (#29 step 4)" do
     # A tip-lane completion notifies webhook projections of matches in the
     # block; a backfill completion doesn't (history is served by hydrate).

@@ -1,0 +1,234 @@
+<div class="mx-auto max-w-4xl px-4 py-10 text-gray-700 dark:text-gray-300">
+  <h1 class="mb-3 text-3xl font-bold text-gray-900 dark:text-white">
+    Syncing
+  </h1>
+  <p class="mb-2 leading-relaxed">
+    Bitblocks fetches every transaction in every block and checks each one against its block.
+  </p>
+  <p class="mb-2 leading-relaxed">
+    <strong class="text-gray-900 dark:text-white">Synced</strong>
+    counts the transactions stored so far.
+  </p>
+  <p class="mb-2 leading-relaxed">
+    <strong class="text-gray-900 dark:text-white">Processed</strong>
+    counts the ones analyzed for Bitblocks metadata (scripts, protocols, tokens), at analyzer version {@snapshot.analyzer_version}.
+  </p>
+  <p class="mb-8 leading-relaxed">
+    This page updates live, at most once a second.
+  </p>
+
+  <%!-- The overall picture --%>
+  <section
+    id="sync-overview"
+    aria-labelledby="sync-overview-heading"
+    class="mb-10"
+  >
+    <h2
+      id="sync-overview-heading"
+      class="mb-3 text-xl font-semibold text-gray-900 dark:text-white"
+    >
+      The overall picture
+    </h2>
+    <dl class="grid grid-cols-1 gap-3 sm:grid-cols-3">
+      <div class="rounded-lg border border-gray-200 p-4 dark:border-gray-700">
+        <dt class="text-sm text-gray-700 dark:text-gray-300">
+          Bitblocks tip
+        </dt>
+        <dd
+          id="our-tip"
+          class="font-mono text-2xl font-semibold tabular-nums text-gray-900 dark:text-white"
+        >
+          {number(@snapshot.overview.our_tip)}
+        </dd>
+      </div>
+      <div class="rounded-lg border border-gray-200 p-4 dark:border-gray-700">
+        <dt class="text-sm text-gray-700 dark:text-gray-300">
+          Our node's tip
+        </dt>
+        <dd
+          id="node-tip"
+          class="font-mono text-2xl font-semibold tabular-nums text-gray-900 dark:text-white"
+        >
+          {number(@snapshot.overview.node_tip)}
+        </dd>
+        <dd
+          :if={n = behind(@snapshot.overview.our_tip, @snapshot.overview.node_tip)}
+          class="text-sm"
+        >
+          {if n == 0, do: "Bitblocks is level with the node.", else: "Bitblocks is #{number(n)} blocks behind the node."}
+        </dd>
+      </div>
+      <div class="rounded-lg border border-gray-200 p-4 dark:border-gray-700">
+        <dt class="text-sm text-gray-700 dark:text-gray-300">
+          Public tip (WhatsOnChain)
+        </dt>
+        <dd
+          id="public-tip"
+          class="font-mono text-2xl font-semibold tabular-nums text-gray-900 dark:text-white"
+        >
+          {number(@snapshot.overview.public_tip)}
+        </dd>
+        <dd
+          :if={n = behind(@snapshot.overview.node_tip, @snapshot.overview.public_tip)}
+          class="text-sm"
+        >
+          {if n == 0, do: "Our node is level with the public tip.", else: "Our node is #{number(n)} blocks behind it."}
+        </dd>
+      </div>
+    </dl>
+
+    <div class="mt-4 rounded-lg border border-gray-200 p-4 dark:border-gray-700">
+      <.progress_bar
+        id="header-coverage"
+        label="Headers stored"
+        value={@snapshot.overview.our_tip && @snapshot.overview.headers_stored}
+        total={(@snapshot.overview.our_tip || -1) + 1}
+        pending_text="Counting"
+        bar_class="bg-gray-700 dark:bg-gray-300"
+      />
+    </div>
+
+    <h3 class="mb-2 mt-6 text-base font-semibold text-gray-900 dark:text-white">
+      Blocks by sync state
+    </h3>
+    <%= if @snapshot.overview.states == [] do %>
+      <p id="sync-states-empty">
+        The first count arrives within a minute.
+      </p>
+    <% else %>
+      <table
+        id="sync-states"
+        class="w-full max-w-md text-sm"
+      >
+        <thead>
+          <tr class="border-b border-gray-300 text-left dark:border-gray-600">
+            <th
+              scope="col"
+              class="py-1 pr-4 font-semibold text-gray-900 dark:text-white"
+            >
+              State
+            </th>
+            <th
+              scope="col"
+              class="py-1 text-right font-semibold text-gray-900 dark:text-white"
+            >
+              Blocks
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr
+            :for={{state, count} <- @snapshot.overview.states}
+            id={"sync-state-#{state}"}
+            class="border-b border-gray-200 dark:border-gray-800"
+          >
+            <td class="py-1 pr-4">
+              {state_label(state)}
+              <code class="ml-1 rounded bg-gray-100 px-1 text-xs text-gray-800 dark:bg-gray-800 dark:text-gray-200">{state}</code>
+            </td>
+            <td class="py-1 text-right font-mono tabular-nums">
+              {number(count)}
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    <% end %>
+  </section>
+
+  <%!-- Blocks being synced right now, both lanes --%>
+  <section
+    id="syncing-now"
+    aria-labelledby="syncing-now-heading"
+    class="mb-10"
+  >
+    <h2
+      id="syncing-now-heading"
+      class="mb-1 text-xl font-semibold text-gray-900 dark:text-white"
+    >
+      Syncing now
+    </h2>
+    <p class="mb-3 text-sm">
+      The tip lane keeps up with new blocks.
+      The backfill lane fills in history, one block at a time.
+      Each runs one block at a time, side by side.
+    </p>
+    <%= if @snapshot.syncing == [] do %>
+      <p
+        id="syncing-empty"
+        class="text-gray-900 dark:text-gray-100"
+      >
+        No block is fetching transactions right now.
+      </p>
+    <% else %>
+      <ul
+        role="list"
+        class="space-y-3"
+      >
+        <.block_card
+          :for={entry <- @snapshot.syncing}
+          entry={entry}
+          prefix="syncing"
+          show_lane={true}
+          pending_text="Starting"
+        />
+      </ul>
+    <% end %>
+
+    <div
+      :if={@snapshot.queued != []}
+      id="queued"
+      class="mt-6"
+    >
+      <h3 class="mb-1 text-base font-semibold text-gray-900 dark:text-white">
+        Up next
+      </h3>
+      <p class="mb-3 text-sm">
+        {number(@snapshot.overview.queued_count)} blocks are queued.
+        The newest are shown here.
+      </p>
+      <ul
+        role="list"
+        class="space-y-3"
+      >
+        <.block_card
+          :for={entry <- @snapshot.queued}
+          entry={entry}
+          prefix="queued"
+          show_lane={true}
+          pending_text="Waiting to start"
+        />
+      </ul>
+    </div>
+  </section>
+
+  <%!-- Recently completed --%>
+  <section
+    id="recently-completed"
+    aria-labelledby="recently-completed-heading"
+  >
+    <h2
+      id="recently-completed-heading"
+      class="mb-3 text-xl font-semibold text-gray-900 dark:text-white"
+    >
+      Recently completed
+    </h2>
+    <%= if @snapshot.recent == [] do %>
+      <p id="recent-empty">
+        Completed blocks appear here as they finish.
+      </p>
+    <% else %>
+      <ul
+        role="list"
+        class="space-y-3"
+      >
+        <.block_card
+          :for={entry <- @snapshot.recent}
+          entry={entry}
+          prefix="recent"
+          show_lane={false}
+          pending_text="Not counted"
+        />
+      </ul>
+    <% end %>
+  </section>
+</div>

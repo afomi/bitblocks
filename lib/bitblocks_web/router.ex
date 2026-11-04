@@ -213,6 +213,7 @@ defmodule BitblocksWeb.Router do
     live "/pricing", PricingLive
     live "/guide", GuideLive
     live "/reorgs", ReorgLive
+    live "/syncing", SyncingLive
     live "/did", DIDLive
 
     get "/wall", WallController, :index

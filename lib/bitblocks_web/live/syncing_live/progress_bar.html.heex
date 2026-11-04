@@ -1,0 +1,43 @@
+<%!-- One labelled bar: "label · 1,234 of 4,000". The numbers carry the meaning; colour only repeats it. --%>
+<div
+  id={@id}
+  class="mt-2"
+>
+  <div class="flex items-baseline justify-between gap-2 text-sm">
+    <span
+      id={"#{@id}-label"}
+      class="font-medium text-gray-900 dark:text-gray-100"
+    >
+      {@label}
+    </span>
+    <span
+      id={"#{@id}-count"}
+      class="font-mono tabular-nums text-gray-700 dark:text-gray-300"
+    >
+      <%= if is_nil(@value) do %>
+        {@pending_text}
+      <% else %>
+        {x_of_y(@value, @total)}
+      <% end %>
+    </span>
+  </div>
+  <div
+    :if={not is_nil(@value)}
+    role="progressbar"
+    aria-labelledby={"#{@id}-label"}
+    aria-valuemin="0"
+    aria-valuemax={@total}
+    aria-valuenow={@value}
+    aria-valuetext={x_of_y(@value, @total)}
+    class="mt-1 h-2.5 w-full overflow-hidden rounded-full bg-gray-200 ring-1 ring-inset ring-gray-300 dark:bg-gray-800 dark:ring-gray-600"
+  >
+    <div
+      class={[
+        "h-full rounded-full transition-[width] duration-700 ease-out motion-reduce:transition-none",
+        @bar_class
+      ]}
+      style={"width: #{percent(@value, @total)}%"}
+    >
+    </div>
+  </div>
+</div>

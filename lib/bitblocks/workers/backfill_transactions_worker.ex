@@ -53,6 +53,7 @@ defmodule Bitblocks.Workers.BackfillTransactionsWorker do
 
   alias Bitblocks.{Repo, Chain}
   alias Bitblocks.Chain.{Block, Transaction, TxIngest, TxidSource, TxSources}
+  alias Bitblocks.SyncProgress.Tracker
 
   @batch_size Application.compile_env(:bitblocks, :tx_fetch_batch_size, 100)
 
@@ -237,23 +238,30 @@ defmodule Bitblocks.Workers.BackfillTransactionsWorker do
   end
 
   defp fetch_missing_in_batches(%Block{} = block, txids) when is_list(txids) do
+    tracker = Tracker.new(block, "transactions_backfill", length(txids))
+
     txids
     |> Stream.chunk_every(@batch_size)
-    |> Enum.reduce_while(:ok, fn chunk, :ok ->
+    |> Enum.reduce_while({:ok, tracker}, fn chunk, {:ok, tracker} ->
       existing = existing_txids(chunk)
       missing = Enum.reject(chunk, &MapSet.member?(existing, &1))
 
-      case missing do
-        [] ->
-          {:cont, :ok}
+      result = if missing == [], do: :ok, else: fetch_and_store_batch(missing, block)
 
-        _ ->
-          case fetch_and_store_batch(missing, block) do
-            :ok -> {:cont, :ok}
-            {:error, _} = err -> {:halt, err}
-          end
+      case result do
+        # Counts for /syncing: stored and analyzed, reported at most once a second.
+        :ok -> {:cont, {:ok, Tracker.chunk(tracker, chunk)}}
+        {:error, _} = err -> {:halt, err}
       end
     end)
+    |> case do
+      {:ok, tracker} ->
+        Tracker.finish(tracker)
+        :ok
+
+      error ->
+        error
+    end
   end
 
   defp fetch_and_store_batch(txids, block) do
