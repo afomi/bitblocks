@@ -480,6 +480,7 @@ defmodule Bitblocks.SyncProgress do
       num_tx: row.num_tx,
       expected: expected(row.num_tx, row.tx_len),
       sync_state: row.sync_state,
+      tx_sync_completed_at: row[:tx_sync_completed_at],
       stored: nil,
       processed: nil
     }
@@ -492,6 +493,9 @@ defmodule Bitblocks.SyncProgress do
       time: block.time,
       num_tx: block.num_tx,
       expected: expected(block.num_tx, length(block.tx || [])),
+      # When it finished: /syncing holds a finished block a minute, then fades it.
+      tx_sync_completed_at:
+        block.tx_sync_completed_at || DateTime.utc_now() |> DateTime.truncate(:second),
       sync_state: block.sync_state,
       stored: nil,
       processed: nil

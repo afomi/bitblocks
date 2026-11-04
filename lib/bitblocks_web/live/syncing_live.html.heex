@@ -154,7 +154,11 @@
     >
       Syncing now
     </h2>
-    <%= if @snapshot.syncing == [] do %>
+    <p class="mb-2 text-xs text-gray-600 dark:text-gray-400">
+      Lowest block first.
+      A finished block stays a minute, marked verified, then fades out.
+    </p>
+    <%= if @board == [] do %>
       <p
         id="syncing-empty"
         class="text-gray-900 dark:text-gray-100"
@@ -167,43 +171,11 @@
         class="space-y-2"
       >
         <.block_card
-          :for={entry <- @snapshot.syncing}
+          :for={entry <- @board}
           entry={entry}
           prefix="syncing"
           target={@snapshot.overview.target}
-          pending_text="Starting"
-        />
-      </ul>
-    <% end %>
-
-  </section>
-
-  <%!-- Recently completed --%>
-  <section
-    id="recently-completed"
-    aria-labelledby="recently-completed-heading"
-  >
-    <h2
-      id="recently-completed-heading"
-      class="mb-2 text-xl font-semibold text-gray-900 dark:text-white"
-    >
-      Recently completed
-    </h2>
-    <%= if @snapshot.recent == [] do %>
-      <p id="recent-empty">
-        Completed blocks appear here as they finish.
-      </p>
-    <% else %>
-      <ul
-        role="list"
-        class="space-y-2"
-      >
-        <.block_card
-          :for={entry <- @snapshot.recent}
-          entry={entry}
-          prefix="recent"
-          target={nil}
-          pending_text="Not counted"
+          pending_text={if entry.finished, do: "Not counted", else: "Starting"}
         />
       </ul>
     <% end %>

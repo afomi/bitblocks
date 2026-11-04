@@ -89,8 +89,8 @@ defmodule BitblocksWeb.SyncingLiveTest do
     assert has_element?(view, "#syncing-#{block.hash}-synced-count", "1,234 of 4,000")
     assert has_element?(view, "#syncing-#{block.hash}-processed-count", "1,200 of 4,000")
 
-    # The worker's final report, then completion: the block moves to recent
-    # with the worker's counts, and nothing is counted again.
+    # The worker's final report, then completion: the block stays in place,
+    # verified, with the worker's counts, and nothing is counted again.
     Phoenix.PubSub.broadcast(
       Bitblocks.PubSub,
       Tracker.topic(),
@@ -108,9 +108,9 @@ defmodule BitblocksWeb.SyncingLiveTest do
     Bitblocks.Chain.broadcast_block_update(completed)
     SyncProgress.flush()
 
-    refute has_element?(view, "#syncing-#{block.hash}")
-    assert has_element?(view, "#recent-#{block.hash}-synced-count", "4,000 of 4,000")
-    assert has_element?(view, "#recent-#{block.hash}-processed-count", "3,990 of 4,000")
+    assert has_element?(view, "#syncing-#{block.hash}[data-finished]")
+    assert has_element?(view, "#syncing-#{block.hash}-synced-count", "4,000 of 4,000")
+    assert has_element?(view, "#syncing-#{block.hash}-processed-count", "3,990 of 4,000")
   end
 
   test "the overall picture shows our tip and blocks by sync state", %{conn: conn} do
@@ -121,7 +121,7 @@ defmodule BitblocksWeb.SyncingLiveTest do
 
     assert has_element?(view, "#our-tip", "970,100")
     assert has_element?(view, "#sync-states")
-    assert has_element?(view, "#syncing-empty", "No block is fetching transactions right now.")
+    assert has_element?(view, "#syncing-empty")
   end
 
   test "the block table shows each block's stages in height order", %{conn: conn} do
@@ -149,5 +149,42 @@ defmodule BitblocksWeb.SyncingLiveTest do
 
     rows = Regex.scan(~r/id="sync-table-row-(\d+)"/, html) |> Enum.map(fn [_, h] -> h end)
     assert rows == ["1", "2", "3"]
+  end
+
+  describe "the board: one list in height order, finished blocks fade in place" do
+    @now ~U[2026-11-04 12:00:00Z]
+
+    defp done(height, seconds_ago),
+      do: %{
+        hash: "h#{height}",
+        height: height,
+        sync_state: "completed",
+        tx_sync_completed_at: DateTime.add(@now, -seconds_ago, :second)
+      }
+
+    defp working(height), do: %{hash: "h#{height}", height: height, sync_state: "txs_syncing"}
+
+    test "working and just-finished blocks share one list, lowest height first" do
+      board =
+        BitblocksWeb.SyncingLive.board([working(5), working(3)], [done(4, 10), done(2, 50)], @now)
+
+      assert Enum.map(board, & &1.height) == [2, 3, 4, 5]
+    end
+
+    test "a finished block holds for 45 s, fades to 60 s, then leaves" do
+      board =
+        BitblocksWeb.SyncingLive.board([], [done(4, 10), done(2, 52), done(1, 70)], @now)
+
+      by = Map.new(board, &{&1.height, &1})
+      assert by[4].finished and by[4].opacity == 1.0
+      assert by[2].finished and by[2].opacity < 1.0 and by[2].opacity > 0
+      refute Map.has_key?(by, 1)
+    end
+
+    test "a working block is never faded" do
+      [entry] = BitblocksWeb.SyncingLive.board([working(9)], [], @now)
+      refute entry.finished
+      assert entry.opacity == 1.0
+    end
   end
 end
