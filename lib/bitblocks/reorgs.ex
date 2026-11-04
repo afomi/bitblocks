@@ -73,11 +73,23 @@ defmodule Bitblocks.Reorgs do
     attention_cutoff = DateTime.add(now, -@attention_seconds, :second)
     resolved_cutoff = DateTime.add(now, -@resolved_notice_seconds, :second)
 
+    # A fork that a later run resolved no longer needs a person, even inside
+    # the attention window.
+    resolved_since =
+      from(s in Reorg,
+        where: s.outcome == "resolved",
+        where: s.fork_height >= parent_as(:attention).fork_height,
+        where: s.detected_at >= parent_as(:attention).last_seen_at,
+        select: 1
+      )
+
     attention =
       Repo.one(
         from(r in Reorg,
+          as: :attention,
           where: r.outcome == "needs_attention",
           where: r.last_seen_at >= ^attention_cutoff,
+          where: not exists(resolved_since),
           order_by: [desc: r.last_seen_at, desc: r.id],
           limit: 1
         )

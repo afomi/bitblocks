@@ -126,4 +126,22 @@ defmodule Bitblocks.ReorgsTest do
 
     assert Enum.map(Reorgs.list_reorgs(), & &1.id) == [higher.id, lower.id]
   end
+
+  test "resolving a fork clears its needs-attention notice at once" do
+    {:ok, _} =
+      Reorgs.record_observed(
+        %{fork_height: 957_302, fork_point: nil, orphan_count: nil, outcome: "needs_attention"},
+        @now
+      )
+
+    later = DateTime.add(@now, 10 * 60, :second)
+
+    {:ok, resolved} =
+      Reorgs.record_observed(
+        %{fork_height: 957_302, fork_point: 957_300, orphan_count: 1, outcome: "resolved"},
+        later
+      )
+
+    assert Reorgs.active_notice(DateTime.add(later, 60, :second)).id == resolved.id
+  end
 end
