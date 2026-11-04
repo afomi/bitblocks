@@ -19,7 +19,9 @@ It takes a chunk of a block's transactions in block order (the sync worker sends
 Completion is still decided only by the merkleroot and the stored count, before any block step runs.
 
 A step that raises is logged at error level and reported as the telemetry event `[:bitblocks, :tx_pipeline, :step_failed]`.
-The stored tx stays stored, and the next steps still run.
+A failing tx step rolls its tx back: `TxIngest` runs the insert and the tx steps in one database transaction, so the chunk fails, the block isn't completed, and the retry redoes the whole tx.
+That keeps spends, tokens and Bitcom rows from going silently missing.
+A failing block step only leaves that block's totals unset.
 
 Plain function calls in order: no process, no queue.
 

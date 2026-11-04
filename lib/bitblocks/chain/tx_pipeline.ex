@@ -15,8 +15,11 @@ defmodule Bitblocks.Chain.TxPipeline do
 
   Plain function calls in order: no process, no queue. A step that raises is
   logged at error level and reported as a `[:bitblocks, :tx_pipeline,
-  :step_failed]` telemetry event; the tx stays stored, and whether a block
-  completes is still decided only by its merkleroot and stored count.
+  :step_failed]` telemetry event. A failing `:tx` step rolls its tx back
+  (`TxIngest` runs the insert and these steps in one database transaction),
+  so the chunk fails, the block isn't completed, and the retry redoes the
+  whole tx: no silent gaps in spends, tokens or Bitcom rows. A failing
+  `:block` step only leaves that block's totals unset.
 
   Adding a step: write one module implementing `TxPipeline.Step`, add it to
   `@steps` below, and add its row to `docs/TX_PIPELINE.md`.
@@ -48,7 +51,11 @@ defmodule Bitblocks.Chain.TxPipeline do
 
   @doc "The steps of one stage, in order."
   @spec steps(:chunk | :tx | :block) :: [module()]
-  def steps(stage), do: Enum.filter(@steps, &(&1.stage() == stage))
+  def steps(stage), do: Enum.filter(@steps ++ extra_steps(stage), &(&1.stage() == stage))
+
+  # Tests add a step (e.g. one that raises) without editing the list.
+  defp extra_steps(:tx), do: Application.get_env(:bitblocks, :tx_pipeline_extra_tx_steps, [])
+  defp extra_steps(_), do: []
 
   @doc """
   Runs the `:chunk` steps over `attrs_list` (row attrs for a chunk of

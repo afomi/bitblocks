@@ -210,6 +210,27 @@ defmodule Bitblocks.Chain.TxPipelineTest do
              ]
     end
 
+    # No silent failures: a tx whose spends, tokens or Bitcom rows didn't get
+    # recorded must not stay stored, or the retry (which skips stored txids)
+    # would never record them and the block would complete without them.
+    test "a tx step that raises rolls the tx back, so the block retries it" do
+      defmodule RaisingStep do
+        def name, do: "raising"
+        def stage, do: :tx
+        def run(_tx, _block), do: raise("boom")
+      end
+
+      Application.put_env(:bitblocks, :tx_pipeline_extra_tx_steps, [RaisingStep])
+      on_exit(fn -> Application.delete_env(:bitblocks, :tx_pipeline_extra_tx_steps) end)
+
+      {txid, _} = parent = tx([funding_outpoint()], [p2pkh(address(), 5_000)])
+
+      assert [{^txid, {:error, {:tx_step_failed, ^txid, "raising"}}}] =
+               TxIngest.store_chunk([tx_json(parent)], %Block{hash: "r", height: 7})
+
+      refute Repo.get_by(Transaction, txid: txid)
+    end
+
     test "a body that doesn't hash to its txid is rejected before any step" do
       {_txid, hex} = tx([funding_outpoint()], [p2pkh(address(), 5_000)])
       bad = Map.put(tx_json({String.duplicate("f", 64), hex}), "txid", String.duplicate("f", 64))

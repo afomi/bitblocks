@@ -193,12 +193,31 @@ defmodule Bitblocks.Chain.TxIngest do
   defp insert(attrs, block) do
     changeset = Chain.Transaction.changeset(%Chain.Transaction{}, attrs)
 
-    case Repo.insert(changeset, on_conflict: :nothing, conflict_target: :txid) do
-      {:ok, tx} ->
-        TxPipeline.run_tx(tx, block)
+    # The insert and the :tx steps commit together: a step that fails rolls
+    # the row back, so the block's retry (which skips stored txids) redoes
+    # the whole tx instead of leaving its spends or tokens unrecorded.
+    result =
+      Repo.transaction(fn ->
+        case Repo.insert(changeset, on_conflict: :nothing, conflict_target: :txid) do
+          {:ok, tx} ->
+            case Enum.find(TxPipeline.run_tx(tx, block), &match?({_, {:error, _}}, &1)) do
+              nil -> :ok
+              {step, _error} -> Repo.rollback({:tx_step_failed, attrs.txid, step})
+            end
+
+          {:error, changeset} ->
+            Repo.rollback({:changeset, changeset})
+        end
+      end)
+
+    case result do
+      {:ok, :ok} ->
         :ok
 
-      {:error, changeset} ->
+      {:error, {:tx_step_failed, _, _} = reason} ->
+        {:error, reason}
+
+      {:error, {:changeset, changeset}} ->
         Logger.error("TxIngest failed to store tx #{attrs.txid}: #{inspect(changeset.errors)}")
         {:error, {:insert_failed, attrs.txid}}
     end
