@@ -37,8 +37,8 @@ describes. Where a control is **not yet built**, it says so honestly in §5.
   node can be slow, return oversized payloads (a single mainnet block is GBs), return malformed JSON,
   or be a compromised/rogue node feeding poisoned data. Every response is bytes to be bounded and
   validated before it touches the DB.
-- **TB3 — third-party proxies (WhatsOnChain).** Address/UTXO/balance endpoints proxy to an external
-  service. Its responses are untrusted input, and our *requests* to it must not be injectable by a
+- **TB3 — third-party proxies (WhatsOnChain).** `/utxo/:txid/:vout/owner` falls back to an external
+  service when the local answer is unknown (address balance and UTXO endpoints are local-only since #36). Its responses are untrusted input, and our *requests* to it must not be injectable by a
   caller-controlled path param.
 - **TB4 — admin surface** (`/config`, `/debug`, `/sync`, edit pages). Privileged; gated by HTTP basic
   auth. The boundary between "public read" and "operator write" must not be crossable.
