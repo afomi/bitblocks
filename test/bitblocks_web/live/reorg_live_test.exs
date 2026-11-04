@@ -74,4 +74,41 @@ defmodule BitblocksWeb.ReorgLiveTest do
     assert html =~ "654321"
     refute html =~ "id=\"reorg-notice\""
   end
+
+  test "a fork a later run resolved reads as resolved, not as needing a person", %{conn: conn} do
+    first = ~U[2026-11-03 23:50:00Z]
+
+    {:ok, stale} =
+      Reorgs.record_observed(%{fork_height: 957_302, outcome: "needs_attention"}, first)
+
+    {:ok, resolved} =
+      Reorgs.record_observed(
+        %{fork_height: 957_302, fork_point: 957_300, orphan_count: 1, outcome: "resolved"},
+        ~U[2026-11-04 00:56:00Z]
+      )
+
+    {:ok, view, _html} = live(conn, ~p"/reorgs")
+
+    refute has_element?(view, "#reorg-#{stale.id}", "Needs a person")
+    assert has_element?(view, "#reorg-#{stale.id}", "Resolved later")
+    assert has_element?(view, ~s(#reorg-#{stale.id} a[href="#reorg-#{resolved.id}"]))
+    assert has_element?(view, "#reorg-#{resolved.id}", "Headers realigned")
+  end
+
+  test "a fork nothing resolved still needs a person", %{conn: conn} do
+    {:ok, open} =
+      Reorgs.record_observed(
+        %{fork_height: 900_000, outcome: "needs_attention"},
+        ~U[2026-11-04 00:00:00Z]
+      )
+
+    {:ok, _} =
+      Reorgs.record_observed(
+        %{fork_height: 800_000, fork_point: 799_999, orphan_count: 1, outcome: "resolved"},
+        ~U[2026-11-04 01:00:00Z]
+      )
+
+    {:ok, view, _html} = live(conn, ~p"/reorgs")
+    assert has_element?(view, "#reorg-#{open.id}", "Needs a person")
+  end
 end

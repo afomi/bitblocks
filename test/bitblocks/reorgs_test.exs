@@ -42,7 +42,9 @@ defmodule Bitblocks.ReorgsTest do
 
     assert reorg.outcome == "needs_attention"
     assert reorg.summary =~ "deeper than 10 blocks"
-    assert reorg.summary =~ "900010"
+
+    assert reorg.summary =~
+             "the node's block at height 900010 did not build on this index's chain"
   end
 
   test "a repeat of the same fork within the window updates the existing row" do
@@ -170,7 +172,7 @@ defmodule Bitblocks.ReorgsTest do
       assert {:ok, updated} = Reorgs.update_after_reconcile(reorg, orphan_count: 1)
 
       assert updated.orphan_count == 1
-      assert updated.summary =~ "1 block between those heights was set aside."
+      assert updated.summary =~ "1 block above that height was set aside."
       refute updated.summary =~ "2 blocks"
       assert updated.summary =~ "On 2026-11-04 00:56 UTC"
     end
@@ -189,6 +191,25 @@ defmodule Bitblocks.ReorgsTest do
                  "Any that no block holds were removed."
 
       assert Reorgs.summary(updated) == updated.summary
+    end
+
+    # 2026-11-04: the banner said the node and this index "disagreed at height
+    # 957302" and "meet again at height 957300", which read as two blocks
+    # apart. Height 957302 is the node's first block that didn't build on our
+    # chain; the block actually set aside was ours at 957301.
+    test "names the node's block that did not build on this index, and where they agree", %{
+      reorg: reorg
+    } do
+      assert {:ok, updated} = Reorgs.update_after_reconcile(reorg, orphan_count: 1)
+
+      assert updated.summary =~
+               "On 2026-11-04 00:56 UTC, the node's block at height 957302 did not build on this index's chain. " <>
+                 "The two agree through height 957300. " <>
+                 "1 block above that height was set aside. " <>
+                 "Headers from height 957301 were fetched again."
+
+      refute updated.summary =~ "disagreed"
+      refute updated.summary =~ "meet again"
     end
 
     test "finds the resolved reorg that set aside a given height", %{reorg: reorg} do

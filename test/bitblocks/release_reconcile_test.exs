@@ -73,7 +73,7 @@ defmodule Bitblocks.ReleaseReconcileTest do
     updated = Repo.get!(Reorgs.Reorg, reorg.id)
     assert updated.orphan_count == 1
     assert updated.txs_reconciled_at
-    assert updated.summary =~ "1 block between those heights was set aside."
+    assert updated.summary =~ "1 block above that height was set aside."
     refute updated.summary =~ "still in this index"
   end
 

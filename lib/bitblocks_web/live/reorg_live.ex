@@ -14,10 +14,12 @@ defmodule BitblocksWeb.ReorgLive do
         canonical_path: "/reorgs"
       )
 
+    reorgs = Reorgs.list_reorgs()
+
     {:ok,
      socket
      |> assign(seo)
-     |> assign(:reorgs, Reorgs.list_reorgs())}
+     |> assign(reorgs: reorgs, resolved_later: Reorgs.resolved_later(reorgs))}
   end
 
   @doc false

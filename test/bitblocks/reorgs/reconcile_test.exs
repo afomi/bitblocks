@@ -200,7 +200,7 @@ defmodule Bitblocks.Reorgs.ReconcileTest do
       assert updated.orphan_count == 1
       assert is_nil(updated.txs_reconciled_at)
       assert updated.summary =~ "still in this index"
-      assert updated.summary =~ "1 block between"
+      assert updated.summary =~ "1 block above that height"
     end
 
     test "with every row settled, the reorg is marked reconciled", %{reorg: reorg} do

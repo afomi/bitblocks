@@ -103,6 +103,30 @@ defmodule Bitblocks.Reorgs do
   end
 
   @doc """
+  For each `needs_attention` row in `reorgs` that a later run resolved, the
+  resolving row: `%{needs_attention_id => resolved_reorg}`. A resolved row
+  covers it when it reaches at least the same fork height and was seen at or
+  after it. The rows themselves stay as recorded history; this is how the
+  timeline reads them.
+  """
+  @spec resolved_later([Reorg.t()]) :: %{integer() => Reorg.t()}
+  def resolved_later(reorgs) do
+    resolved = Enum.filter(reorgs, &(&1.outcome == "resolved"))
+
+    for %Reorg{outcome: "needs_attention"} = r <- reorgs,
+        by =
+          resolved
+          |> Enum.filter(
+            &(&1.fork_height >= r.fork_height and
+                DateTime.compare(&1.detected_at, r.detected_at) != :lt)
+          )
+          |> Enum.min_by(& &1.detected_at, DateTime, fn -> nil end),
+        by != nil,
+        into: %{},
+        do: {r.id, by}
+  end
+
+  @doc """
   The reorg the site should announce right now, or nil.
 
   A `needs_attention` row is announced while tip sync is still reporting it.
@@ -176,22 +200,29 @@ defmodule Bitblocks.Reorgs do
 
   @doc """
   The sentence for a reorg row, computed from its fields.
+
+  `fork_height` is the node's first block that did not build on this index's
+  chain, so it is never one of ours: the blocks set aside sit above
+  `fork_point` and below `fork_height`.
   """
   @spec summary(Reorg.t()) :: String.t()
   def summary(%Reorg{outcome: "resolved"} = reorg) do
-    "On #{when_seen(reorg)}, the node and this index disagreed at height #{reorg.fork_height}. " <>
-      "They meet again at height #{reorg.fork_point}. " <>
+    "On #{when_seen(reorg)}, #{parted_phrase(reorg)} " <>
+      "The two agree through height #{reorg.fork_point}. " <>
       "#{blocks_phrase(reorg.orphan_count)} " <>
       "Headers from height #{reorg.fork_point + 1} were fetched again. " <>
       transactions_phrase(reorg)
   end
 
   def summary(%Reorg{outcome: "needs_attention"} = reorg) do
-    "On #{when_seen(reorg)}, the node and this index disagreed at height #{reorg.fork_height}. " <>
+    "On #{when_seen(reorg)}, #{parted_phrase(reorg)} " <>
       "The fork is deeper than 10 blocks. " <>
       "Headers were left as they were. " <>
       "An operator has to compare the node with this index."
   end
+
+  defp parted_phrase(%Reorg{fork_height: height}),
+    do: "the node's block at height #{height} did not build on this index's chain."
 
   defp when_seen(%Reorg{detected_at: at}), do: Calendar.strftime(at, "%Y-%m-%d %H:%M UTC")
 
@@ -208,10 +239,10 @@ defmodule Bitblocks.Reorgs do
       "Transactions from the replaced blocks now point to the blocks that hold them. " <>
         "Any that no block holds were removed."
 
-  defp blocks_phrase(1), do: "1 block between those heights was set aside."
+  defp blocks_phrase(1), do: "1 block above that height was set aside."
 
   defp blocks_phrase(n) when is_integer(n),
-    do: "#{n} blocks between those heights were set aside."
+    do: "#{n} blocks above that height were set aside."
 
-  defp blocks_phrase(_), do: "The blocks between those heights were set aside."
+  defp blocks_phrase(_), do: "The blocks above that height were set aside."
 end
