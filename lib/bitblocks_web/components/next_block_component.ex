@@ -22,6 +22,8 @@ defmodule BitblocksWeb.NextBlockComponent do
       |> assign(:next_height, (assigns.latest_height || 0) + 1)
       |> assign(:state, info.state)
       |> assign(:num_tx, info.num_tx)
+      |> assign(:node_blocks, Map.get(info, :node_blocks))
+      |> assign(:node_headers, Map.get(info, :node_headers))
 
     ~H"""
     <div
@@ -47,6 +49,13 @@ defmodule BitblocksWeb.NextBlockComponent do
           </span>
           <span class="text-gray-600 dark:text-gray-400">
             {label(@state)}
+          </span>
+          <span
+            :if={@state == :node_verifying and is_integer(@node_blocks) and is_integer(@node_headers)}
+            id="next-block-node-progress"
+            class="text-gray-600 dark:text-gray-400 tabular-nums"
+          >
+            (verified {number(@node_blocks)} of {number(@node_headers)})
           </span>
         </div>
         <span class="text-gray-600 dark:text-gray-400">

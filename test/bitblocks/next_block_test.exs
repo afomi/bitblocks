@@ -16,7 +16,7 @@ defmodule Bitblocks.NextBlockTest do
     assert info == %{height: 959_002, state: :on_chain, num_tx: 1_234}
   end
 
-  test "on chain but our node is still verifying it: no count" do
+  test "on chain but our node is still verifying it: no count, and how far the node has got" do
     info =
       NextBlock.info(959_001, %{
         node: %{"blocks" => 957_678, "headers" => 973_992},
@@ -24,7 +24,13 @@ defmodule Bitblocks.NextBlockTest do
         mempool: fn -> flunk("not at the tip") end
       })
 
-    assert info == %{height: 959_002, state: :node_verifying, num_tx: nil}
+    assert info == %{
+             height: 959_002,
+             state: :node_verifying,
+             num_tx: nil,
+             node_blocks: 957_678,
+             node_headers: 973_992
+           }
   end
 
   test "at the network tip: assembling, with the mempool's tx count" do

@@ -6,7 +6,9 @@ defmodule Bitblocks.NextBlock do
     * `:on_chain`: mined, and our node has verified it; `num_tx` is from the
       node's header.
     * `:node_verifying`: mined (the node has its header), but the node
-      hasn't verified it yet, so it can't name it; no count.
+      hasn't verified it yet, so it can't name it; no count. The node is
+      catching up: `node_blocks` of `node_headers` are verified (its
+      `getblockchaininfo` `blocks` and `headers`), the x of y to show.
     * `:assembling`: we're at the network tip; `num_tx` is the node's
       mempool size (nil if the node keeps no mempool, e.g. `blocksonly=1`).
     * `:unknown`: the node isn't answering.
@@ -46,8 +48,14 @@ defmodule Bitblocks.NextBlock do
       %{"blocks" => blocks, "headers" => headers} when headers >= next and blocks >= next ->
         %{height: next, state: :on_chain, num_tx: field(facts.header.(next), "num_tx")}
 
-      %{"headers" => headers} when headers >= next ->
-        %{height: next, state: :node_verifying, num_tx: nil}
+      %{"headers" => headers} = info when headers >= next ->
+        %{
+          height: next,
+          state: :node_verifying,
+          num_tx: nil,
+          node_blocks: positive(info["blocks"]),
+          node_headers: positive(headers)
+        }
 
       %{"headers" => _} ->
         %{height: next, state: :assembling, num_tx: field(facts.mempool.(), "size")}
