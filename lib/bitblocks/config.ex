@@ -112,4 +112,34 @@ defmodule Bitblocks.Config do
   def oban_config do
     Application.fetch_env!(:bitblocks, Oban)
   end
+
+  @doc """
+  What a `getblockchaininfo` answer says about the node.
+
+  `-28` (RPC_IN_WARMUP: "Loading block index...", "Verifying blocks...") is
+  a reachable node still starting after a restart, not a failure.
+  """
+  @spec node_status(term()) ::
+          :ok | {:warming_up, String.t()} | {:unreachable, term()}
+  def node_status(%{"chain" => _}), do: :ok
+  def node_status({:error, %{"code" => -28} = error}), do: {:warming_up, error["message"] || ""}
+  def node_status({:error, reason}), do: {:unreachable, reason}
+  def node_status(other), do: {:unreachable, other}
+
+  @doc """
+  The node URL with its host hidden, for pages: "http://•••:8332".
+  The node's address never appears on the site (this repo and site are public).
+  """
+  @spec masked_node_url(String.t() | nil) :: String.t() | nil
+  def masked_node_url(nil), do: nil
+
+  def masked_node_url(url) when is_binary(url) do
+    case URI.parse(url) do
+      %URI{scheme: scheme, port: port} when is_binary(scheme) ->
+        "#{scheme}://•••" <> if(port, do: ":#{port}", else: "")
+
+      _ ->
+        "•••"
+    end
+  end
 end

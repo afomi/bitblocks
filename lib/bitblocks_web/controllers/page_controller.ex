@@ -82,6 +82,9 @@ defmodule BitblocksWeb.PageController do
         {nil, nil}
       end
 
+    # The sync's coverage, from the shared /syncing snapshot: an ETS read.
+    coverage = Bitblocks.SyncProgress.snapshot().overview
+
     case blockchain_info do
       %{"blocks" => blocks, "headers" => headers} = info when is_map(info) ->
         %{
@@ -114,6 +117,7 @@ defmodule BitblocksWeb.PageController do
             chain: chain,
             blocks: blocks,
             blocks_synced: blocks_synced,
+            coverage: coverage,
             headers: headers,
             verificationprogress: verificationprogress,
             style: %{
@@ -142,6 +146,7 @@ defmodule BitblocksWeb.PageController do
               r: nil,
               blocks: nil,
               blocks_synced: blocks_synced,
+              coverage: coverage,
               transaction_count: transaction_count,
               style: %{
                 style: "width: 0;"
@@ -170,11 +175,10 @@ defmodule BitblocksWeb.PageController do
     # Try to connect if configured
     connection_status =
       if configured do
-        case Bitblocks.RpcCache.get_blockchain_info() do
-          %{"chain" => _} -> :success
-          {:error, _reason} -> :error
-          nil -> :error
-          _ -> :error
+        case Bitblocks.Config.node_status(Bitblocks.RpcCache.get_blockchain_info()) do
+          :ok -> :success
+          {:warming_up, _message} -> :warming_up
+          {:unreachable, _reason} -> :error
         end
       else
         :not_configured

@@ -29,7 +29,7 @@
         <code
           class="bg-gray-100 px-2 py-1 rounded"
         >
-          <%= @bitcoin_url || "Not set" %>
+          <%= Bitblocks.Config.masked_node_url(@bitcoin_url) || "Not set" %>
         </code>
       </div>
       <div
@@ -130,6 +130,23 @@
           </div>
         </div>
       </div>
+    </div>
+  <% end %>
+
+  <%= if @connection_status == :warming_up do %>
+    <div
+      class="bg-amber-50 border border-amber-400 text-amber-900 px-4 py-3 rounded mb-6 dark:bg-amber-950 dark:border-amber-700 dark:text-amber-100"
+      role="status"
+    >
+      <p
+        class="font-bold"
+      >
+        The node is starting up
+      </p>
+      <p>
+        It's reachable and still loading its blocks.
+        It will answer requests once it finishes.
+      </p>
     </div>
   <% end %>
 

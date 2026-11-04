@@ -37,7 +37,26 @@
       </div>
     <% end %>
 
-    <%= if match?({:error, _}, @blockchain_info) do %>
+    <%= with {:warming_up, message} <- Bitblocks.Config.node_status(@blockchain_info) do %>
+      <div
+        class="bg-amber-50 dark:bg-amber-950 border border-amber-400 dark:border-amber-700 text-amber-900 dark:text-amber-100 px-4 py-3 rounded mb-4"
+        role="status"
+      >
+        <p
+          class="font-bold"
+        >
+          The node is starting up
+        </p>
+        <p
+          class="text-sm mt-2"
+        >
+          It's reachable and answering: {message}
+          It will serve requests once it finishes loading.
+        </p>
+      </div>
+    <% end %>
+
+    <%= if match?({:unreachable, _}, Bitblocks.Config.node_status(@blockchain_info)) and match?({:error, _}, @blockchain_info) do %>
       <div
         class="bg-red-100 dark:bg-red-900 border border-red-400 dark:border-red-600 text-red-700 dark:text-red-200 px-4 py-3 rounded mb-4"
         role="alert"
@@ -138,7 +157,7 @@
         Verify network connectivity: <code
           class="bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded text-xs"
         >
-          curl <%= @bitcoin_url || "http://your-node:8332" %>
+          curl http://your-node:8332
         </code>
       </li>
       <li>

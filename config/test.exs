@@ -50,6 +50,12 @@ config :exvcr,
     [
       pattern: System.get_env("BITCOIN_NODE_RPC_PASSWORD") || "rpcpassword",
       placeholder: "REDACTED_PASS"
+    ],
+    # The node's address never goes in a recording: this repo is public.
+    # Requests match on the body, so the host doesn't matter on replay.
+    [
+      pattern: ~S|https?://[^/\s"]+:8332|,
+      placeholder: "http://bitcoin-node.invalid:8332"
     ]
   ]
 
@@ -75,6 +81,9 @@ config :bitblocks, Bitblocks.TxStore, adapter: Bitblocks.TxStore.Local, root: "t
 
 # Chain-scrubber tiles: no boot-time warm (the sandbox owns the connection).
 config :bitblocks, Bitblocks.ChainTiles, warm_on_boot: false
+
+# Sync coordinator: no ticks or header sync in tests; tests call tick/1.
+config :bitblocks, Bitblocks.Sync.Coordinator, auto: false, headers: false
 
 # /syncing snapshot: no timers or boot load in tests; tests call refresh/0 and flush/0.
 config :bitblocks, Bitblocks.SyncProgress, auto_refresh: false

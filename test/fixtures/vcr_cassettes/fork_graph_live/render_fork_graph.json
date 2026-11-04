@@ -12,7 +12,7 @@
         "recv_timeout": 60000,
         "connect_timeout": 60000
       },
-      "url": "http://63.225.188.214:8332"
+      "url": "http://bitcoin-node.invalid:8332"
     },
     "response": {
       "binary": false,
@@ -35,7 +35,7 @@
       ],
       "method": "post",
       "options": [],
-      "url": "http://63.225.188.214:8332",
+      "url": "http://bitcoin-node.invalid:8332",
       "request_body": "{\"jsonrpc\":\"1.0\",\"method\":\"getblockheader\",\"params\":[\"main_50\",1]}"
     },
     "response": {
@@ -61,7 +61,7 @@
       ],
       "method": "post",
       "options": [],
-      "url": "http://63.225.188.214:8332",
+      "url": "http://bitcoin-node.invalid:8332",
       "request_body": "{\"jsonrpc\":\"1.0\",\"method\":\"getblockheader\",\"params\":[\"main_49\",1]}"
     },
     "response": {
@@ -87,7 +87,7 @@
       ],
       "method": "post",
       "options": [],
-      "url": "http://63.225.188.214:8332",
+      "url": "http://bitcoin-node.invalid:8332",
       "request_body": "{\"jsonrpc\":\"1.0\",\"method\":\"getblockheader\",\"params\":[\"main_48\",1]}"
     },
     "response": {
@@ -113,7 +113,7 @@
       ],
       "method": "post",
       "options": [],
-      "url": "http://63.225.188.214:8332",
+      "url": "http://bitcoin-node.invalid:8332",
       "request_body": "{\"jsonrpc\":\"1.0\",\"method\":\"getblockheader\",\"params\":[\"fork_50\",1]}"
     },
     "response": {
@@ -139,7 +139,7 @@
       ],
       "method": "post",
       "options": [],
-      "url": "http://63.225.188.214:8332",
+      "url": "http://bitcoin-node.invalid:8332",
       "request_body": "{\"jsonrpc\":\"1.0\",\"method\":\"getblockheader\",\"params\":[\"fork_49\",1]}"
     },
     "response": {

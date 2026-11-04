@@ -353,6 +353,24 @@ Pick the strongest option that still lets the right callers in:
 Whichever option you choose:
 
 - Use `rpcauth` (a salted hash in `bitcoin.conf`) with a long random password, and rotate any password that has crossed the internet.
+  Generate the line and the password with Python's standard library:
+
+  ```bash
+  python3 - <<'EOF'
+  import secrets, hmac, hashlib
+  user = "bitblocks"
+  pw = secrets.token_urlsafe(32)
+  salt = secrets.token_hex(16)
+  h = hmac.new(salt.encode(), pw.encode(), hashlib.sha256).hexdigest()
+  print(f"rpcauth={user}:{salt}${h}")
+  print(f"PASSWORD: {pw}")
+  EOF
+  ```
+
+  The `rpcauth=` line goes in `bitcoin.conf`.
+  The username and password go in Secrets Manager (`bitblocks/prod`, keys `BITCOIN_NODE_RPC_USERNAME` and `BITCOIN_NODE_RPC_PASSWORD`) with `infra/scripts/app-secret-set.sh`, followed by `app-restart.sh bitblocks`.
+- Production bitblocks reaches the internet through the AWS NAT gateway's fixed Elastic IP (shared with the other apps in that VPC; infra has the address), so that is the address to allow.
+  People with changing IPs use the SSH tunnel instead of an allowlist entry.
 - Set `disablewallet=1` unless something really needs the node's wallet.
 - Narrow `rpcallowip`. Inside Docker the node may see every caller as the bridge gateway (for example `172.17.0.1`), so `rpcallowip` there is a backstop, not the main control.
 - Check who has been knocking: `docker logs $BSV_CONTAINER 2>&1 | grep -i 'incorrect password' | tail`.
