@@ -168,6 +168,12 @@ export default {
 
     this.updateRange()
     this.updateReadoutLevel()
+    // Live: the sync completes blocks all the time, and the tile build folds
+    // them in every 5 minutes. Re-read the manifest each minute while the tab
+    // is visible and refetch only the tiles whose hash moved.
+    this.liveTimer = setInterval(() => {
+      if (document.visibilityState === "visible") this.refreshLive()
+    }, 60_000)
     this.setStatus("Loading tile manifest…")
 
     this.loadManifest().then((ok) => {
@@ -182,6 +188,7 @@ export default {
 
   destroyed() {
     this.alive = false
+    clearInterval(this.liveTimer)
     this.stopPlay()
     if (this.restTimer) clearTimeout(this.restTimer)
     if (this.easeFrame) cancelAnimationFrame(this.easeFrame)
@@ -338,6 +345,17 @@ export default {
   },
 
   // ---------------------------------------------------------------- tiles
+
+  async refreshLive() {
+    if (!this.alive || !this.manifest) return
+    const before = this.manifest
+    if (!(await this.loadManifest())) return
+    const changed = tiles.changedTiles(before, this.manifest)
+    if (!changed.length) return
+    for (const key of changed) this.tileCache.delete(key)
+    this.manifestRefreshed = false
+    this.refreshView()
+  },
 
   async loadManifest() {
     try {

@@ -109,6 +109,21 @@ export function tileUrl(base, manifest, level, idx) {
   return `${b}/${level}/${idx}?v=${encodeURIComponent(hash)}`
 }
 
+// Tiles are content-addressed: a tile whose hash moved between two manifests
+// changed. Returns their tileKeys ("level/idx"), so a live page refetches only
+// those. New tiles (the tip grew) count as changed.
+export function changedTiles(before, after) {
+  if (!before || !after || !Array.isArray(after.levels)) return []
+  const out = []
+  for (const lv of after.levels) {
+    if (!lv || !Array.isArray(lv.tiles)) continue
+    lv.tiles.forEach((hash, idx) => {
+      if (tileHash(before, lv.level, idx) !== hash) out.push(tileKey(lv.level, idx))
+    })
+  }
+  return out
+}
+
 export function tileKey(level, idx) {
   return `${level}/${idx}`
 }

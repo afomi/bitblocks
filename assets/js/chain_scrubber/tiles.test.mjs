@@ -643,3 +643,22 @@ describe("clampView", () => {
     assert.deepEqual(clampView(0, 1e9, 200_000, 16), { h0: 0, h1: 200_000 })
   })
 })
+
+describe("changedTiles", () => {
+  const m = (levels) => ({ version: 1, levels: levels.map(([level, tiles]) => ({ level, tiles })) })
+
+  test("names the tiles whose hash moved, and new tiles, across levels", () => {
+    const before = m([[0, ["a", "b", "c"]], [1, ["x"]]])
+    const after = m([[0, ["a", "B", "c", "d"]], [1, ["X"]]])
+    assert.deepEqual(tiles.changedTiles(before, after).sort(), ["0/1", "0/3", "1/0"])
+  })
+
+  test("nothing changed, nothing to refetch", () => {
+    const same = m([[0, ["a"]]])
+    assert.deepEqual(tiles.changedTiles(same, same), [])
+  })
+
+  test("no earlier manifest: nothing to compare", () => {
+    assert.deepEqual(tiles.changedTiles(null, m([[0, ["a"]]])), [])
+  })
+})
