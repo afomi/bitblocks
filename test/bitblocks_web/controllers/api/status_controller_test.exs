@@ -17,6 +17,9 @@ defmodule BitblocksWeb.Api.StatusControllerTest do
   test "names the running release", %{conn: conn} do
     body = conn |> get("/api/v1/status") |> json_response(200)
     assert Map.has_key?(body["release"], "sha")
+    # A node id, never the node name with its private IP.
+    assert body["release"]["node"] =~ ~r/^node-[0-9a-f]+$/
+    refute Jason.encode!(body) =~ ~r/\b10\.\d+\.\d+\.\d+\b/
   end
 
   test "coverage answers a curve", %{conn: conn} do

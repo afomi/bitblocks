@@ -104,7 +104,12 @@ defmodule Bitblocks.Ops do
   deploy can be confirmed from the outside.
   """
   def release do
-    %{sha: System.get_env("RELEASE_SHA"), node: to_string(node())}
+    # The node name carries its private IP (bitblocks@10.x.x.x); expose only a
+    # short stable id, enough to tell the two app nodes apart.
+    %{
+      sha: System.get_env("RELEASE_SHA"),
+      node: "node-" <> (node() |> :erlang.phash2() |> Integer.to_string(16) |> String.downcase())
+    }
   end
 
   # Inlined as a literal in the bucket query, so GROUP BY and SELECT match.
