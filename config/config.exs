@@ -143,7 +143,9 @@ config :bitblocks, Oban,
        # when nothing changed, rebuilds only the tiles whose blocks moved
        # otherwise, and does nothing until a person has run a full build
        # (Release.build_chain_tiles/1). Never heavy work on deploy.
-       {"*/5 * * * *", Bitblocks.Workers.ChainTilesWorker, args: %{"mode" => "incremental"}}
+       {"*/5 * * * *", Bitblocks.Workers.ChainTilesWorker, args: %{"mode" => "incremental"}},
+       # Health check: emails when the node is unreachable or the index stalls.
+       {"*/5 * * * *", Bitblocks.Workers.OpsAlertWorker}
      ]}
   ],
   queues: [

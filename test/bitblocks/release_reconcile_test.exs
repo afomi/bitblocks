@@ -83,4 +83,8 @@ defmodule Bitblocks.ReleaseReconcileTest do
     assert {:error, :block_still_stored} = result
     assert io =~ "still a stored block"
   end
+
+  test "with_running_repo runs in place when the app is up (rpc)" do
+    assert Bitblocks.Release.with_running_repo(fn -> :ran end) == :ran
+  end
 end

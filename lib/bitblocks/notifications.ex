@@ -86,4 +86,16 @@ defmodule Bitblocks.Notifications do
     |> text_body(body)
     |> Mailer.deliver()
   end
+
+  @doc "An operations alert from `Bitblocks.Ops.alert/1`: the node or the index needs a look."
+  def ops_alert(subject, body) do
+    from_address = System.get_env("MAILER_FROM", "alerts@bitblocks.app")
+
+    new()
+    |> to(@to)
+    |> from({"Bitblocks", from_address})
+    |> subject(subject)
+    |> text_body(body)
+    |> Mailer.deliver()
+  end
 end

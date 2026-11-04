@@ -62,6 +62,24 @@ defmodule Bitblocks.Release do
     Application.fetch_env!(@app, :ecto_repos)
   end
 
+  # Runs `fun` with the repo up. Under `bin/bitblocks rpc` the app is already
+  # running; under `bin/bitblocks eval` nothing is, so start the repo (and the
+  # HTTP client, for node and WhatsOnChain lookups) just for this call.
+  @doc false
+  def with_running_repo(fun) do
+    if Process.whereis(Bitblocks.Repo) do
+      fun.()
+    else
+      load_app()
+      {:ok, _} = Application.ensure_all_started(:httpoison)
+
+      {:ok, result, _} =
+        Ecto.Migrator.with_repo(Bitblocks.Repo, fn _ -> fun.() end, pool_size: 2)
+
+      result
+    end
+  end
+
   defp load_app do
     # Many platforms require SSL when connecting to the database
     Application.ensure_all_started(:ssl)
@@ -1047,6 +1065,10 @@ defmodule Bitblocks.Release do
       bin/bitblocks rpc 'Bitblocks.Release.reconcile_orphaned_block("<hash>", orphan_count: 1, apply: true)'
   """
   def reconcile_orphaned_block(orphan_hash, opts \\ []) do
+    with_running_repo(fn -> do_reconcile_orphaned_block(orphan_hash, opts) end)
+  end
+
+  defp do_reconcile_orphaned_block(orphan_hash, opts) do
     case Bitblocks.Reorgs.Reconcile.run(orphan_hash, opts) do
       {:ok, report} ->
         print_reconcile(report)

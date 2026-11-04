@@ -142,6 +142,7 @@ defmodule BitblocksWeb.Router do
   scope "/api/v1", BitblocksWeb.Api do
     pipe_through :public_api
 
+    get "/status", StatusController, :show
     get "/price/bsv", PriceController, :show
     get "/support", SupportController, :show
   end
