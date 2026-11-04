@@ -18,6 +18,7 @@ defmodule BitblocksWeb.ForkGraphLive do
         events: events,
         base_height: snapshot[:base_height],
         branch_offsets: snapshot[:branch_offsets] || %{},
+        tracker_unavailable: snapshot[:unavailable] == true,
         last_delta: nil
       )
 

@@ -15,8 +15,11 @@ config :bitblocks, Bitblocks.Repo,
 
 # We don't run a server during test. If one is required,
 # you can enable the server option below.
+# TEST_PORT lets two suites run at once (qart's test server also takes 4002).
+test_port = String.to_integer(System.get_env("TEST_PORT", "4002"))
+
 config :bitblocks, BitblocksWeb.Endpoint,
-  http: [ip: {127, 0, 0, 1}, port: 4002],
+  http: [ip: {127, 0, 0, 1}, port: test_port],
   secret_key_base: "5k/box4ZnbnVs2WVF1YUEGiNX+A6k0Wn26DvHH07BMMcTtyZX1E8wvAVBqkS79rX",
   server: true
 
@@ -98,7 +101,7 @@ config :bitblocks, BitblocksWeb.Plugs.RateLimiter, max_requests: 100_000
 # Wallaby configuration
 config :wallaby,
   otp_app: :bitblocks,
-  base_url: "http://localhost:4002",
+  base_url: "http://localhost:#{test_port}",
   driver: Wallaby.Chrome,
   chrome: [
     headless: System.get_env("HEADLESS", "true") == "true",

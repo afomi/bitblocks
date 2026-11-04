@@ -13,6 +13,14 @@
           Refresh tips
         </button>
       </div>
+      <p
+        :if={@tracker_unavailable}
+        id="fork-tracker-unavailable"
+        class="px-5 pb-3 text-sm text-amber-400"
+      >
+        The fork tracker is busy reading the node, so tips aren't available right now.
+        Try again in a minute.
+      </p>
       <div
         id="fork-graph"
         phx-hook="ForkGraph"

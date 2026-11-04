@@ -20,6 +20,13 @@ defmodule Bitblocks.ForkTracker do
   @default_log_path Path.join(["tmp", "fork_tracker", "fork_tape.log"])
   @topic "fork_tracker"
 
+  # Header RPCs per tip per poll. A fork worth drawing is short; a catching-up
+  # node reports headers-only tips with branchlen in the 100k range
+  # (2026-11-04), which are unvalidated headers, not forks.
+  @max_branch_walk 64
+  @unwalked_statuses [:headers_only, :valid_headers, :unknown]
+  @call_timeout 2_000
+
   defmodule Node do
     @moduledoc false
 
@@ -62,6 +69,7 @@ defmodule Bitblocks.ForkTracker do
               state_path: nil,
               log_path: nil,
               last_poll: nil,
+              polling: nil,
               branch_offsets: %{},
               base_height: nil
   end
@@ -77,9 +85,18 @@ defmodule Bitblocks.ForkTracker do
     PubSub.subscribe(@pubsub, @topic)
   end
 
+  @doc """
+  The current graph. Never blocks on the node: polls run outside the tracker,
+  and if the tracker can't answer within #{@call_timeout} ms this returns an
+  empty graph marked `unavailable: true` instead of exiting the caller.
+  """
   def snapshot do
-    GenServer.call(__MODULE__, :snapshot)
+    GenServer.call(__MODULE__, :snapshot, @call_timeout)
+  catch
+    :exit, _ -> unavailable_snapshot()
   end
+
+  def max_branch_walk, do: @max_branch_walk
 
   @doc """
   Resets the tracker state.
@@ -99,7 +116,9 @@ defmodule Bitblocks.ForkTracker do
   end
 
   def recent_events(limit \\ 20) do
-    GenServer.call(__MODULE__, {:recent_events, limit})
+    GenServer.call(__MODULE__, {:recent_events, limit}, @call_timeout)
+  catch
+    :exit, _ -> []
   end
 
   # GenServer callbacks
@@ -160,7 +179,8 @@ defmodule Bitblocks.ForkTracker do
           base_height: nil,
           branch_offsets: %{},
           poll_ref: nil,
-          last_poll: nil
+          last_poll: nil,
+          polling: nil
       }
       |> assign_branch_offsets()
       |> bump_version()
@@ -207,29 +227,63 @@ defmodule Bitblocks.ForkTracker do
     {:noreply, schedule_poll(%{state | last_poll: DateTime.utc_now()})}
   end
 
+  # Node RPC never runs in this process: a poll walks headers in a separate
+  # process and sends back the next state, so snapshot/0 always answers at
+  # once. One poll at a time; a result is dropped if the state moved on (reset).
   @impl true
-  def handle_info(:poll, state) do
-    new_state =
-      case fetch_chaintips() do
-        {:ok, tips} ->
-          {next_state, delta} =
-            state
-            |> ingest_tips(tips, "bitcoind", DateTime.utc_now())
+  def handle_info(:poll, %State{polling: ref} = state) when is_reference(ref) do
+    {:noreply, schedule_poll(state)}
+  end
 
-          broadcast_delta(delta)
+  def handle_info(:poll, %State{} = state) do
+    tracker = self()
+    ref = make_ref()
 
-          next_state
+    Task.start(fn -> send(tracker, {:poll_result, ref, run_poll(state)}) end)
 
-        {:error, %{"code" => -28, "message" => message}} ->
-          Logger.info("ForkTracker poll skipped: node not ready (#{message})")
-          state
+    {:noreply, schedule_poll(%{state | polling: ref, last_poll: DateTime.utc_now()})}
+  end
 
-        {:error, reason} ->
-          Logger.error("ForkTracker poll failed: #{inspect(reason)}")
-          state
-      end
+  def handle_info({:poll_result, ref, result}, %State{polling: ref} = state) do
+    state = %{state | polling: nil}
 
-    {:noreply, schedule_poll(%{new_state | last_poll: DateTime.utc_now()})}
+    case result do
+      {:ok, %State{} = computed, delta} when computed.version == state.version + 1 ->
+        next_state = %{computed | poll_ref: state.poll_ref, polling: nil}
+        commit(next_state, delta)
+        {:noreply, next_state}
+
+      _stale_or_skipped ->
+        {:noreply, state}
+    end
+  end
+
+  def handle_info({:poll_result, _stale_ref, _result}, state), do: {:noreply, state}
+
+  defp run_poll(state) do
+    case fetch_chaintips() do
+      {:ok, tips} ->
+        {next_state, delta} = compute_ingest(state, tips, "bitcoind", DateTime.utc_now())
+        {:ok, next_state, delta}
+
+      {:error, %{"code" => -28, "message" => message}} ->
+        Logger.info("ForkTracker poll skipped: node not ready (#{message})")
+        :skipped
+
+      {:error, reason} ->
+        Logger.error("ForkTracker poll failed: #{inspect(reason)}")
+        :skipped
+    end
+  rescue
+    e ->
+      Logger.error("ForkTracker poll crashed: #{Exception.message(e)}")
+      :skipped
+  end
+
+  defp commit(state, delta) do
+    persist_state(state)
+    append_tape(delta, state.log_path)
+    broadcast_delta(delta)
   end
 
   @impl true
@@ -247,9 +301,20 @@ defmodule Bitblocks.ForkTracker do
     %{state | poll_ref: Process.send_after(self(), :poll, interval)}
   end
 
-  defp ingest_tips(state, [], _source, _now), do: {state, empty_delta(state)}
+  defp ingest_tips(state, tips, source, now) do
+    {next_state, delta} = compute_ingest(state, tips, source, now)
 
-  defp ingest_tips(%State{} = state, tips, source, now) do
+    if tips != [] do
+      persist_state(next_state)
+      append_tape(delta, next_state.log_path)
+    end
+
+    {next_state, delta}
+  end
+
+  defp compute_ingest(state, [], _source, _now), do: {state, empty_delta(state)}
+
+  defp compute_ingest(%State{} = state, tips, source, now) do
     old_state = state
 
     {nodes_intermediate, tips_map, inserted_nodes} =
@@ -270,9 +335,6 @@ defmodule Bitblocks.ForkTracker do
 
     delta = compute_delta(old_state, updated_state, inserted_nodes, removed_hashes, now)
 
-    persist_state(updated_state)
-    append_tape(delta, updated_state.log_path)
-
     {updated_state, delta}
   end
 
@@ -281,8 +343,15 @@ defmodule Bitblocks.ForkTracker do
     branch_len = tip["branchlen"] || 0
     status = normalize_status(tip["status"])
 
+    # Unvalidated tips (a catching-up node's headers) are recorded, not walked;
+    # a real fork is walked at most @max_branch_walk headers back.
     {nodes_after_branch, new_nodes, branch_root} =
-      build_branch(hash, branch_len, branch_len, nodes, status, source)
+      if status in @unwalked_statuses do
+        {nodes, [], :main}
+      else
+        walk = min(branch_len, @max_branch_walk)
+        build_branch(hash, walk, walk, nodes, status, source)
+      end
 
     existing_node = Map.get(nodes_after_branch, hash)
 
@@ -603,6 +672,17 @@ defmodule Bitblocks.ForkTracker do
         state.tips
         |> Map.values()
         |> Enum.map(&tip_to_event/1)
+    }
+  end
+
+  defp unavailable_snapshot do
+    %{
+      version: 0,
+      base_height: nil,
+      branch_offsets: %{},
+      nodes: [],
+      tips: [],
+      unavailable: true
     }
   end
 
