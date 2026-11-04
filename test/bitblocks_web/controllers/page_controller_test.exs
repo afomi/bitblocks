@@ -27,6 +27,21 @@ defmodule BitblocksWeb.PageControllerTest do
     refute doc |> Floki.find("main a[href='/graph']") |> Enum.any?()
   end
 
+  # #44: /status leads with the same answer as /api/v1/status. Whether the
+  # test node reads up or down depends on RpcCache, so either is accepted;
+  # the wording for each is pinned in health_line_test.exs.
+  test "/status leads with the health sentence and never an empty node card", %{conn: conn} do
+    doc = conn |> get(~p"/status") |> html_response(200) |> Floki.parse_document!()
+    line = doc |> Floki.find("#status-health") |> Floki.text()
+
+    assert line =~ "The sync is" or line =~ "The sync has stalled"
+    assert line =~ "Our node is up" or line =~ "Node unreachable" or line =~ "warming up"
+
+    if line =~ "Node unreachable" do
+      assert doc |> Floki.find("#status-node-down") |> Floki.text() =~ "Node unreachable"
+    end
+  end
+
   test "the homepage names the endpoints a program would call", %{conn: conn} do
     html = conn |> get(~p"/") |> html_response(200)
 

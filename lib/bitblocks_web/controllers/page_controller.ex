@@ -91,6 +91,9 @@ defmodule BitblocksWeb.PageController do
     # The sync's coverage, from the shared /syncing snapshot: an ETS read.
     coverage = Bitblocks.SyncProgress.snapshot().overview
 
+    # The same answer /api/v1/status serves (#44), from cached state.
+    health = Bitblocks.Ops.health()
+
     case blockchain_info do
       %{"blocks" => blocks, "headers" => headers} = info when is_map(info) ->
         %{
@@ -124,6 +127,7 @@ defmodule BitblocksWeb.PageController do
             blocks: blocks,
             blocks_synced: blocks_synced,
             coverage: coverage,
+            health: health,
             headers: headers,
             verificationprogress: verificationprogress,
             style: %{
@@ -153,6 +157,7 @@ defmodule BitblocksWeb.PageController do
               blocks: nil,
               blocks_synced: blocks_synced,
               coverage: coverage,
+              health: health,
               transaction_count: transaction_count,
               style: %{
                 style: "width: 0;"

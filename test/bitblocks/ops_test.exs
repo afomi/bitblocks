@@ -22,6 +22,8 @@ defmodule Bitblocks.OpsTest do
           public_tip: 958_905
         },
         latest_block_at: DateTime.add(@now, -300, :second),
+        last_completed_at: DateTime.add(@now, -60, :second),
+        blocks_in_progress: 0,
         now: @now
       },
       overrides
@@ -69,6 +71,119 @@ defmodule Bitblocks.OpsTest do
     assert h.status == "degraded"
     assert h.lag.index_behind_node == 1_599
     assert "index_stalled" in h.problems
+    assert h.index.stalled == "headers"
+  end
+
+  describe "a node catching up (prod, 2026-11-04)" do
+    # The node's validated blocks trail its headers by 15k; our headers follow
+    # its blocks, so no new header lands for hours while the loop completes
+    # blocks below. That is progress, not a stall.
+    defp catching_up(overrides) do
+      facts(
+        Map.merge(
+          %{
+            node: %{"chain" => "main", "blocks" => 943_900, "headers" => 958_900},
+            overview: %{
+              our_tip: 943_900,
+              complete_through: 162_000,
+              node_tip: 943_900,
+              node_headers: 958_900,
+              public_tip: 958_905
+            },
+            latest_block_at: DateTime.add(@now, -7200, :second)
+          },
+          overrides
+        )
+      )
+    end
+
+    test "completing blocks with no new header is not a stall" do
+      h = Ops.health(catching_up(%{}))
+
+      refute "index_stalled" in h.problems
+      assert h.status == "ok"
+      assert h.lag.index_behind_node == 0
+    end
+
+    test "the node's lag is its validated blocks against the network, not its headers" do
+      h = Ops.health(catching_up(%{}))
+
+      assert h.node.blocks == 943_900
+      assert h.node.headers == 958_900
+      assert h.lag.node_behind_network == 15_005
+      assert h.lag.node_headers_behind_network == 5
+    end
+
+    test "no block completed for an hour, with blocks left to complete, is a stall" do
+      h = Ops.health(catching_up(%{last_completed_at: DateTime.add(@now, -7200, :second)}))
+
+      assert "index_stalled" in h.problems
+      assert h.index.stalled == "blocks"
+      assert h.index.last_completed_at == "2026-11-04T10:00:00Z"
+    end
+
+    test "a long block still being worked, with no failures, is not a stall" do
+      h =
+        Ops.health(
+          catching_up(%{
+            last_completed_at: DateTime.add(@now, -7200, :second),
+            blocks_in_progress: 1
+          })
+        )
+
+      refute "index_stalled" in h.problems
+    end
+
+    test "nothing to complete is not a stall, however long since the last block" do
+      h =
+        Ops.health(
+          catching_up(%{
+            overview: %{
+              our_tip: 943_900,
+              complete_through: 943_900,
+              node_tip: 943_900,
+              node_headers: 958_900,
+              public_tip: 958_905
+            },
+            last_completed_at: DateTime.add(@now, -86_400, :second)
+          })
+        )
+
+      refute "index_stalled" in h.problems
+    end
+
+    test "a paused sync is not a stall: it says paused, and emails nothing" do
+      Ops.reset_alerts()
+
+      h =
+        Ops.health(
+          catching_up(%{last_completed_at: DateTime.add(@now, -7200, :second), paused: true})
+        )
+
+      assert h.problems == ["sync_paused"]
+      assert h.status == "degraded"
+      assert h.index.paused == true
+      assert h.index.stalled == nil
+      assert Ops.alert(h) == []
+    end
+
+    test "a node loading its block index says so, with no lag it can't know" do
+      h =
+        Ops.health(
+          catching_up(%{
+            node: {:error, %{"code" => -28, "message" => "Loading block index..."}},
+            overview: %{our_tip: 943_900, complete_through: 162_000, public_tip: 958_905}
+          })
+        )
+
+      assert h.problems == ["node_warming_up"]
+      assert h.status == "degraded"
+      assert h.node.state == "warming_up"
+      assert h.node.message == "Loading block index..."
+      assert h.node.blocks == nil
+      assert h.lag.node_behind_network == nil
+      assert h.lag.index_behind_node == nil
+    end
   end
 
   test "health never carries the node's address" do
@@ -106,7 +221,31 @@ defmodule Bitblocks.OpsTest do
         })
 
       Ops.alert(Ops.health(stalled))
-      assert_email_sent(subject: "Bitblocks: index stalled behind the node")
+
+      assert_email_sent(fn email ->
+        assert email.subject == "Bitblocks: index stalled"
+        assert email.text_body =~ "Our headers are 1599 blocks behind the node"
+      end)
+    end
+
+    test "a stall in completing blocks says which block it is stuck above" do
+      stalled =
+        facts(%{
+          overview: %{our_tip: 958_900, complete_through: 162_000, public_tip: 958_905},
+          last_completed_at: DateTime.add(@now, -7200, :second)
+        })
+
+      Ops.alert(Ops.health(stalled))
+
+      assert_email_sent(fn email ->
+        assert email.subject == "Bitblocks: index stalled"
+        assert email.text_body =~ "No block has completed since 2026-11-04T10:00:00Z"
+        assert email.text_body =~ "Complete through block 162000 of 958900 known"
+      end)
+    end
+
+    test "health from live state reads the snapshot without failing" do
+      assert %{status: _, index: %{stalled: _}} = Ops.health()
     end
 
     test "a healthy check sends nothing" do

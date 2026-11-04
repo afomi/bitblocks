@@ -193,6 +193,40 @@ defmodule Bitblocks.Sync do
     {:ok, applied}
   end
 
+  @doc """
+  True while an operator has paused the loop: the coordinator dispatches no
+  new block jobs, and blocks already dispatched finish. Persisted in
+  `sync_settings`, so it holds across restarts, deploys and leader changes.
+  """
+  @spec paused?() :: boolean()
+  def paused? do
+    match?(%Settings{paused: true}, Repo.get(Settings, 1))
+  end
+
+  @doc """
+  Pauses or resumes the loop, keeping the concurrency choice, and tells the
+  coordinator. Returns `{:ok, paused}`.
+  """
+  @spec set_paused(boolean()) :: {:ok, boolean()}
+  def set_paused(paused) when is_boolean(paused) do
+    now = NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second)
+
+    Repo.insert!(
+      %Settings{
+        id: 1,
+        concurrency: concurrency(),
+        paused: paused,
+        inserted_at: now,
+        updated_at: now
+      },
+      on_conflict: [set: [paused: paused, updated_at: now]],
+      conflict_target: :id
+    )
+
+    Phoenix.PubSub.broadcast(Bitblocks.PubSub, @control_topic, {:paused, paused})
+    {:ok, paused}
+  end
+
   @doc "The PubSub topic the coordinator listens on for control changes."
   def control_topic, do: @control_topic
 
@@ -397,6 +431,7 @@ defmodule Bitblocks.Sync do
       complete_through: through,
       target: target,
       concurrency: concurrency(),
+      paused: paused?(),
       max_concurrency: max,
       limit_reason: reason,
       in_use: length(live),

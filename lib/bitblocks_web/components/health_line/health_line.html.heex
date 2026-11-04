@@ -1,0 +1,24 @@
+<%!-- One plain answer: complete through, freshness, node, failures, progress. --%>
+<p
+  id={@id}
+  class={@class}
+>
+  <%= if complete?(@health) do %>
+    Complete through block {number(@health.index.complete_through)} of {number(@health.index.tip)} known<%= if behind_node(@health) do %>, {number(behind_node(@health))} behind our node<% end %>.
+  <% else %>
+    Not complete from genesis yet.
+  <% end %>
+  <%= if minutes = minutes_ago(@health.index.last_completed_at, @health.as_of) do %>
+    The last block completed {minutes} min ago.
+  <% end %>
+  <%= case @health.node.state do %>
+    <% "ok" -> %>
+      Our node is up at block {number(@health.node.blocks)}<%= if is_integer(@health.lag.node_behind_network) and @health.lag.node_behind_network > 0 do %>, {number(@health.lag.node_behind_network)} behind the network<% end %>.
+    <% "warming_up" -> %>
+      Our node is warming up: {@health.node.message}
+    <% _ -> %>
+      Node unreachable.
+  <% end %>
+  {failed_text(@health.index.failed)}
+  {progress_text(@health)}
+</p>

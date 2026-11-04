@@ -416,6 +416,62 @@ defmodule Bitblocks.SyncTest do
     end
   end
 
+  # #44: stop stays stopped. The pause is persisted with the settings, so a
+  # restart, a deploy or a new leader honours it, and blocks already
+  # dispatched finish rather than being cut off.
+  describe "pause" do
+    test "a paused loop dispatches nothing, across a restart, and running blocks keep their jobs" do
+      Application.put_env(:bitblocks, :sync_workers, 1)
+      {:ok, leader} = Agent.start_link(fn -> :node_a end)
+      a = start_node(:node_a, leader)
+      Ecto.Adapters.SQL.Sandbox.allow(Repo, self(), a)
+
+      for h <- 0..2, do: block_at(h, "header_only")
+
+      Coordinator.tick(a)
+      assert dispatched_hashes() == ["block_0"]
+
+      assert {:ok, true} = Sync.set_paused(true)
+      assert Sync.paused?()
+      assert %{paused: true, in_use: 1} = Sync.overview()
+
+      # The running block finishes; its slot isn't refilled.
+      Repo.update_all(Oban.Job, set: [state: "completed"])
+
+      Repo.update_all(from(b in Chain.Block, where: b.height == 0),
+        set: [sync_state: "completed"]
+      )
+
+      Coordinator.tick(a)
+      assert all_enqueued(worker: FetchTransactionsWorker) == []
+
+      # A restarted coordinator (a deploy, or a new leader) reads the same row.
+      stop_supervised!(:node_a)
+      a = start_node(:node_a, leader)
+      Ecto.Adapters.SQL.Sandbox.allow(Repo, self(), a)
+      Coordinator.tick(a)
+      assert all_enqueued(worker: FetchTransactionsWorker) == []
+
+      assert {:ok, false} = Sync.set_paused(false)
+      Coordinator.tick(a)
+
+      assert [%{args: %{"block_hash" => "block_1"}}] =
+               all_enqueued(worker: FetchTransactionsWorker)
+    end
+
+    test "pausing keeps the concurrency choice, and choosing a concurrency keeps the pause" do
+      assert {:ok, 1} = Sync.set_concurrency(1)
+      assert {:ok, true} = Sync.set_paused(true)
+      assert Sync.concurrency() == 1
+      assert {:ok, 1} = Sync.set_concurrency(1)
+      assert Sync.paused?()
+    end
+
+    test "is off until someone pauses it" do
+      refute Sync.paused?()
+    end
+  end
+
   describe "concurrency" do
     test "is clamped to the computed limit, and the reason is named" do
       Application.put_env(:bitblocks, :sync_rpc_limit, 2)

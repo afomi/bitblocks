@@ -13,6 +13,10 @@ defmodule BitblocksWeb.SyncLive do
         scope_type: "range",
         form_errors: [],
         chain_tip: nil,
+        health: Bitblocks.Ops.health(),
+        paused: Bitblocks.Sync.paused?(),
+        still_finishing: 0,
+        failed_blocks: [],
         blocks_count: 0,
         transactions_count: 0,
         block_states: %{},
@@ -36,16 +40,15 @@ defmodule BitblocksWeb.SyncLive do
     {:ok, socket}
   end
 
+  # The node card's facts, in the shape ChainStatusComponent reads.
   defp get_chain_tip do
     case Bitblocks.RpcCache.get_blockchain_info() do
       %{"blocks" => blocks, "headers" => headers} = info ->
-        verification_progress = Map.get(info, "verificationprogress", 1.0)
-
         %{
+          chain: info["chain"],
           blocks: blocks,
           headers: headers,
-          synced: blocks == headers,
-          verification_progress: verification_progress
+          verificationprogress: Map.get(info, "verificationprogress", 1.0)
         }
 
       _ ->
@@ -100,21 +103,35 @@ defmodule BitblocksWeb.SyncLive do
     end
   end
 
+  # Header range jobs from "Sync a Range" only; the loop's own block jobs
+  # are paused with "Pause the sync". Oban.cancel_all_jobs also stops an
+  # executing job, which a SQL update would leave running.
   @impl true
   def handle_event("stop_sync", _params, socket) do
     import Ecto.Query
 
-    {cancelled, _} =
-      from(j in Oban.Job,
-        where: j.worker == "Bitblocks.Workers.SyncHeadersWorker",
-        where: j.state in ["available", "scheduled", "executing"]
-      )
-      |> Bitblocks.Repo.update_all(set: [state: "cancelled", cancelled_at: DateTime.utc_now()])
+    {:ok, cancelled} =
+      from(j in Oban.Job, where: j.worker == "Bitblocks.Workers.SyncHeadersWorker")
+      |> Oban.cancel_all_jobs()
 
     {:noreply,
      socket
-     |> put_flash(:info, "Cancelled #{cancelled} sync job(s)")
+     |> put_flash(:info, "Cancelled #{cancelled} header range job(s)")
      |> refresh_status()}
+  end
+
+  # A durable pause (#44): no new block jobs while paused, across restarts and
+  # deploys; blocks already dispatched finish.
+  @impl true
+  def handle_event("set_paused", %{"paused" => value}, socket) do
+    {:ok, paused} = Bitblocks.Sync.set_paused(value == "true")
+
+    message =
+      if paused,
+        do: "Paused: no new blocks are dispatched; blocks in progress finish.",
+        else: "Resumed: the loop dispatches the lowest incomplete blocks again."
+
+    {:noreply, socket |> put_flash(:info, message) |> refresh_status()}
   end
 
   # Admins only (the :admin live_session). Clamped server-side to the
@@ -158,22 +175,6 @@ defmodule BitblocksWeb.SyncLive do
      socket
      |> put_flash(:info, "Deleted #{count} transactions")
      |> assign(blocks_count: blocks_count, transactions_count: transactions_count)}
-  end
-
-  @impl true
-  def handle_event("start_backfill", _params, socket) do
-    chain_tip = get_chain_tip()
-    to = if chain_tip, do: chain_tip.blocks, else: 0
-
-    case %{"mode" => "range", "from" => 0, "to" => to}
-         |> Bitblocks.Workers.SyncHeadersWorker.new()
-         |> Oban.insert() do
-      {:ok, _job} ->
-        {:noreply, put_flash(socket, :info, "Backfill queued: blocks 0..#{to}")}
-
-      {:error, _reason} ->
-        {:noreply, put_flash(socket, :info, "Backfill already running.")}
-    end
   end
 
   # Completeness audit: stored tx rows vs num_tx per block, any sync_state.
@@ -267,6 +268,10 @@ defmodule BitblocksWeb.SyncLive do
 
     assign(socket,
       chain_tip: get_chain_tip(),
+      health: Bitblocks.Ops.health(),
+      paused: Bitblocks.Sync.paused?(),
+      still_finishing: length(Bitblocks.Sync.live_jobs()),
+      failed_blocks: get_failed_blocks(),
       blocks_count: blocks_count,
       transactions_count: transactions_count,
       block_states: get_block_states(),
@@ -322,6 +327,49 @@ defmodule BitblocksWeb.SyncLive do
       <h1 class="text-4xl font-bold mb-6 text-gray-900 dark:text-white">
         Blockchain Sync
       </h1>
+
+      <BitblocksWeb.HealthLine.health_line
+        health={@health}
+        id="sync-health"
+      />
+
+      <section
+        id="sync-pause"
+        aria-labelledby="sync-pause-heading"
+        class="bg-white dark:bg-gray-800 shadow-md rounded-lg p-6 mb-6"
+      >
+        <h2
+          id="sync-pause-heading"
+          class="text-lg font-semibold mb-2 text-gray-900 dark:text-white"
+        >
+          Sync loop
+        </h2>
+        <p
+          id="sync-pause-state"
+          class="text-sm text-gray-700 dark:text-gray-300 mb-3"
+        >
+          <%= if @paused do %>
+            Paused.
+            No new blocks are dispatched, and the pause holds across restarts and deploys.
+            <%= if @still_finishing > 0 do %>
+              {@still_finishing} block job(s) already dispatched are still finishing.
+            <% else %>
+              Nothing is still running.
+            <% end %>
+          <% else %>
+            Running.
+            The loop dispatches the lowest incomplete blocks to free worker slots.
+          <% end %>
+        </p>
+        <button
+          type="button"
+          phx-click="set_paused"
+          phx-value-paused={if @paused, do: "false", else: "true"}
+          class="px-3 py-1 text-sm bg-blue-700 text-white rounded hover:bg-blue-800"
+        >
+          <%= if @paused, do: "Resume the sync", else: "Pause the sync" %>
+        </button>
+      </section>
 
       <BitblocksWeb.SyncTable.sync_table
         sync={@sync}
@@ -393,7 +441,9 @@ defmodule BitblocksWeb.SyncLive do
 
       <%!-- Chain Status --%>
       <BitblocksWeb.ChainStatusComponent.chain_status
-        chain_tip={@chain_tip}
+        blockchain_info={@chain_tip}
+        node={@health.node}
+        complete_through={@health.index.complete_through}
         blocks_count={@blocks_count}
         transactions_count={@transactions_count}
       />
@@ -432,6 +482,44 @@ defmodule BitblocksWeb.SyncLive do
             </div>
           </div>
         </div>
+        <div
+          :if={@failed_blocks != []}
+          id="sync-failed-blocks"
+          class="mt-4"
+        >
+          <h3 class="text-sm font-semibold mb-1 text-gray-900 dark:text-white">
+            Failed blocks, lowest first
+          </h3>
+          <p class="text-xs text-gray-600 dark:text-gray-300 mb-2">
+            Each keeps retrying with backoff, capped at an hour; none is parked or skipped.
+          </p>
+          <table class="w-full text-xs">
+            <thead class="text-left text-gray-600 dark:text-gray-300">
+              <tr>
+                <th class="py-1 pr-4">Height</th>
+                <th class="py-1 pr-4">Failures</th>
+                <th class="py-1">Last error</th>
+              </tr>
+            </thead>
+            <tbody class="text-gray-900 dark:text-gray-100">
+              <tr
+                :for={b <- @failed_blocks}
+                class="border-t border-gray-100 dark:border-gray-700 align-top"
+              >
+                <td class="py-1 pr-4 font-mono">
+                  <.link
+                    navigate={~p"/blocks/#{b.height}"}
+                    class="text-blue-700 underline dark:text-blue-300"
+                  >
+                    {format_number(b.height)}
+                  </.link>
+                </td>
+                <td class="py-1 pr-4">{b.attempts || 0} in a row</td>
+                <td class="py-1 break-all">{b.error}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </div>
 
       <%!-- Completeness Audit --%>
@@ -444,6 +532,7 @@ defmodule BitblocksWeb.SyncLive do
             <button
               phx-click="run_audit"
               disabled={@audit_running}
+              data-confirm="The audit scans the whole transactions table and counts rows per block; on a large database it runs for minutes. Run it?"
               class="px-3 py-1 text-xs bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300 rounded hover:bg-blue-200 disabled:opacity-50"
             >
               <%= if @audit_running, do: "Running…", else: "Run Audit" %>
@@ -674,8 +763,8 @@ defmodule BitblocksWeb.SyncLive do
           Sync a Range
         </h2>
         <p class="text-sm text-gray-500 dark:text-gray-400 mb-4">
-          Fetches headers for missing blocks and queues transaction downloads.
-          Safe to re-run — skips what's already synced.
+          Stores the headers missing in a range; the sync loop then fetches their transactions in height order.
+          Safe to re-run: headers already stored are skipped.
         </p>
 
         <%= if @form_errors != [] do %>
@@ -793,7 +882,7 @@ defmodule BitblocksWeb.SyncLive do
             phx-click="stop_sync"
             class="px-3 py-1.5 bg-gray-600 text-white rounded hover:bg-gray-700 text-sm"
           >
-            Cancel All Jobs
+            Cancel header range jobs
           </button>
         </div>
       </div>
@@ -822,6 +911,20 @@ defmodule BitblocksWeb.SyncLive do
     )
     |> Bitblocks.Repo.all()
     |> Map.new()
+  end
+
+  # The lowest failed blocks, for the Failed count. Served by
+  # blocks_sync_state_height_index.
+  defp get_failed_blocks do
+    import Ecto.Query
+
+    from(b in Bitblocks.Chain.Block,
+      where: b.sync_state == "failed",
+      order_by: [asc: b.height],
+      limit: 20,
+      select: %{height: b.height, attempts: b.tx_sync_attempts, error: b.tx_sync_error}
+    )
+    |> Bitblocks.Repo.all()
   end
 
   defp get_oban_summary do

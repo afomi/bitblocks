@@ -11,7 +11,8 @@ defmodule BitblocksWeb.ChainStatusComponent do
             <div class="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">
               Our BSV node
             </div>
-            <%= if @blockchain_info.blocks == @blockchain_info.headers do %>
+            <%!-- Our index, not the node: complete through the node's tip (#44). --%>
+            <%= if fully_synced?(assigns[:complete_through], @blockchain_info.blocks) do %>
               <span class="text-xs text-green-700 dark:text-green-400 font-semibold">
                 ✓ Fully Synced
               </span>
@@ -51,6 +52,23 @@ defmodule BitblocksWeb.ChainStatusComponent do
               </span>
             </div>
           </div>
+        </div>
+      <% else %>
+        <div
+          :if={assigns[:node]}
+          id="chain-status-node-down"
+          class="bg-white dark:bg-gray-800 shadow-md rounded-lg p-4"
+        >
+          <div class="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">
+            Our BSV node
+          </div>
+          <p class="text-sm font-semibold text-gray-900 dark:text-white">
+            <%= if @node.state == "warming_up" do %>
+              Warming up: {@node.message}
+            <% else %>
+              Node unreachable
+            <% end %>
+          </p>
         </div>
       <% end %>
 
@@ -111,6 +129,13 @@ defmodule BitblocksWeb.ChainStatusComponent do
     </div>
     """
   end
+
+  @doc "True when our index is complete through the node's validated tip."
+  def fully_synced?(through, node_blocks)
+      when is_integer(through) and is_integer(node_blocks),
+      do: through >= node_blocks
+
+  def fully_synced?(_, _), do: false
 
   defp format_number(number) when is_integer(number) do
     number
