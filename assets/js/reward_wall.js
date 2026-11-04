@@ -185,15 +185,15 @@ function renderTopAddressesList(entries) {
 
   entries.forEach((entry) => {
     const row = document.createElement('div');
-    row.className = 'grid grid-cols-[auto,1fr,auto,auto] gap-2 items-center text-xs text-zinc-300';
+    row.className = 'grid grid-cols-[auto,1fr,auto,auto] gap-2 items-center text-xs text-gray-700 dark:text-gray-300';
     const rank = Number(entry.rank || 0);
     const btc = Number(entry.btc ?? (entry.satoshis || 0) / 100_000_000);
     const percent = Number(entry.percentage || 0);
     row.innerHTML = `
-      <span class="text-zinc-500 mr-2">#${rank}</span>
+      <span class="text-gray-600 dark:text-gray-400 mr-2">#${rank}</span>
       <span class="truncate w-40">${entry.address}</span>
       <span class="ml-2">${btc.toFixed(4)} BTC</span>
-      <span class="ml-2 text-zinc-500">(${percent.toFixed(3)}%)</span>
+      <span class="ml-2 text-gray-600 dark:text-gray-400">(${percent.toFixed(3)}%)</span>
     `;
     existingList.appendChild(row);
   });

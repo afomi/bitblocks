@@ -29,6 +29,6 @@ defmodule BitblocksWeb.EcosystemLiveTest do
     rendered = render(view)
     assert rendered =~ "Services:"
     # Static nodes include at least BSV, Bitcom, MAP, etc.
-    refute rendered =~ "Services: <strong class=\"text-neutral-200\">0</strong>"
+    refute rendered =~ ~r{Services: <strong[^>]*>0</strong>}
   end
 end

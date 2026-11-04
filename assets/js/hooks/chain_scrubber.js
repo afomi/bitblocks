@@ -36,6 +36,9 @@ const COLORS = {
   current: new THREE.Color(0xf59e0b),
   reorg: new THREE.Color(0x8b5cf6),
   loss: new THREE.Color(0xef4444),
+  // The scene stays near-black in light and dark mode: it is the one dark
+  // region on the page, framed by site-style chrome (DESIGN.md). Keep it in
+  // step with #chain-scrubber's bg-[#050608] in chain_scrubber_live.html.heex.
   background: 0x050608,
   ground: 0x111827
 }
@@ -986,19 +989,19 @@ export default {
         break
       case "unavailable":
         el.innerHTML = `<p
-  class="text-sm text-slate-400"
+  class="text-sm text-gray-600 dark:text-gray-400"
 >Transaction sample unavailable (${escapeHtml(payload.reason || "no reason given")}).</p>`
         break
       default:
         el.innerHTML = `<p
-  class="text-sm text-slate-400"
+  class="text-sm text-gray-600 dark:text-gray-400"
 >Unknown detail kind ${escapeHtml(payload.kind)}.</p>`
     }
   },
 
   gapHtml(p) {
     return `<p
-  class="text-sm text-red-300"
+  class="text-sm text-red-700 dark:text-red-300"
 >Block ${fmtInt(p.height)} is not completed (${escapeHtml(p.state || "unknown")}).
 Its transactions are not indexed yet.</p>`
   },
@@ -1031,7 +1034,7 @@ Its transactions are not indexed yet.</p>`
         ? `Showing sample of ${fmtInt(sample)} of ${fmtInt(total)} transactions in block ${fmtInt(p.height)}.`
         : `All ${fmtInt(total)} transactions in block ${fmtInt(p.height)}.`
     return `<p
-  class="text-sm text-slate-300"
+  class="text-sm text-gray-700 dark:text-gray-300"
 >${header}
 One square per transaction, sized by log10(satoshis + 1); gold = coinbase, green = protocol, grey = plain transfer.</p>
 <div
@@ -1050,7 +1053,7 @@ One square per transaction, sized by log10(satoshis + 1); gold = coinbase, green
     const w = labelW + cellW * cols
     const h = Math.max(rowH, rows.length * rowH)
     return `<p
-  class="text-sm text-slate-300"
+  class="text-sm text-gray-700 dark:text-gray-300"
 >Block ${fmtInt(p.height)} has ${fmtInt(total)} transactions; density from a sample of ${fmtInt(sample)} of ${fmtInt(total)} txs.
 Rows: tx class by protocol (coinbase, plain transfer, protocol); columns: log2 of output value in satoshis, bins 0..${cols - 1}.
 The grid is a fixed ${rows.length} × ${cols}; its size does not depend on the block's tx count.</p>

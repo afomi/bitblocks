@@ -56,6 +56,8 @@ export default {
     const height = this.el.clientHeight || window.innerHeight
 
     this.scene = new THREE.Scene()
+    // Near-black in light and dark mode, framed by site-style chrome
+    // (DESIGN.md); keep in step with #ecosystem-graph's bg-[#050608].
     this.scene.background = new THREE.Color(0x050608)
 
     this.camera = new THREE.PerspectiveCamera(60, width / height, 0.1, 5000)
@@ -371,11 +373,11 @@ export default {
 
       if (node && this.tooltip) {
         const statusBadge = node.status === "deprecated"
-          ? '<span class="text-neutral-500">(deprecated)</span>'
-          : '<span class="text-green-400">(active)</span>'
+          ? '<span class="text-gray-600 dark:text-gray-400">(deprecated)</span>'
+          : '<span class="text-green-700 dark:text-green-400">(active)</span>'
         this.tooltip.innerHTML = `
           <div class="font-semibold mb-1">${node.name} ${statusBadge}</div>
-          <div class="text-neutral-400 mb-1">${node.category}</div>
+          <div class="text-gray-600 dark:text-gray-400 mb-1">${node.category}</div>
           <div>${node.description}</div>
         `
         this.tooltip.style.left = event.clientX + 12 + "px"

@@ -14,6 +14,9 @@ const COLORS = {
   outbound: 0x60a5fa,
   arc: 0xf97316,
   home: 0xfacc15,
+  // The globe stays near-black in light and dark mode: it is the one dark
+  // region on the page, framed by site-style chrome (DESIGN.md). Keep it in
+  // step with #peer-map's bg-[#030712] in peer_map_live.html.heex.
   background: 0x030712
 }
 
@@ -419,8 +422,8 @@ export default {
           <div>${location}</div>
           <div>${peer.inbound ? "Inbound" : "Outbound"} &middot; Ping: ${ping}</div>
           <div>Sent: ${sent} &middot; Recv: ${recv}</div>
-          <div class="text-neutral-400 mt-1">${(peer.subver || "").replace(/\//g, "")}</div>
-          ${peer.isp ? `<div class="text-neutral-500">${peer.isp}</div>` : ""}
+          <div class="text-gray-600 dark:text-gray-400 mt-1">${(peer.subver || "").replace(/\//g, "")}</div>
+          ${peer.isp ? `<div class="text-gray-600 dark:text-gray-400">${peer.isp}</div>` : ""}
         `
         this.tooltip.style.left = event.clientX + 12 + "px"
         this.tooltip.style.top = event.clientY - 10 + "px"

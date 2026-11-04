@@ -1,7 +1,11 @@
+<%!-- Only the three.js scene is dark: #reward-wall-container matches scene.background (0x000000) in assets/js/reward_wall.js, and its controls are site-style chrome (see DESIGN.md). --%>
 <div
   id="reward-wall-container"
-  class="w-full h-screen bg-black text-white"
+  class="w-full h-screen bg-black"
 >
+  <h1 class="sr-only">
+    Reward wall
+  </h1>
   <canvas
     id="reward-wall-canvas"
     class="w-full h-full"
@@ -10,18 +14,18 @@
 
   <div
     id="reward-wall-controls"
-    class="absolute top-4 left-4 bg-zinc-900/80 backdrop-blur-sm border border-zinc-700 rounded-lg p-4 text-sm font-mono space-y-3"
+    class="absolute top-4 left-4 bg-white/95 dark:bg-gray-800/95 backdrop-blur-sm border border-gray-200 dark:border-gray-700 shadow-sm rounded-lg p-4 text-sm font-mono text-gray-900 dark:text-gray-100 space-y-3"
   >
     <div class="flex flex-col space-y-2">
       <label
-        class="uppercase tracking-wider text-xs text-zinc-400"
+        class="uppercase tracking-wider text-xs text-gray-600 dark:text-gray-400"
         for="reward-wall-mode"
       >
         Mode
       </label>
       <select
         id="reward-wall-mode"
-        class="bg-zinc-900 border border-zinc-600 rounded px-2 py-1"
+        class="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
       >
         <option value="reward">
           Block Reward Schedule
@@ -34,14 +38,14 @@
 
     <div class="flex flex-col space-y-2">
       <label
-        class="uppercase tracking-wider text-xs text-zinc-400"
+        class="uppercase tracking-wider text-xs text-gray-600 dark:text-gray-400"
         for="reward-wall-phase"
       >
         Phase
       </label>
       <select
         id="reward-wall-phase"
-        class="bg-zinc-900 border border-zinc-600 rounded px-2 py-1"
+        class="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
       >
         <%= for {phase_key, {_start, finish}} <- @phases do %>
           <option value={phase_key}>
@@ -51,7 +55,7 @@
       </select>
     </div>
 
-    <div class="border-t border-zinc-700 pt-2 space-y-1 text-xs text-zinc-300">
+    <div class="border-t border-gray-200 dark:border-gray-700 pt-2 space-y-1 text-xs text-gray-700 dark:text-gray-300">
       <div>
         Points Loaded:
         <span id="reward-wall-loaded">
@@ -74,7 +78,7 @@
 
     <div
       id="reward-wall-top-addresses"
-      class="border-t border-zinc-700 pt-2 space-y-1 max-h-52 overflow-y-auto pr-1"
+      class="border-t border-gray-200 dark:border-gray-700 pt-2 space-y-1 max-h-52 overflow-y-auto pr-1"
     >
     </div>
   </div>

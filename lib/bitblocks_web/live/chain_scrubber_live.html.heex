@@ -1,22 +1,23 @@
+<%!-- Site-style chrome around a three.js scene: only #chain-scrubber is dark (see DESIGN.md). --%>
 <div
-  class="fixed inset-0 bg-neutral-950 text-neutral-200 flex flex-col"
+  class="fixed inset-0 flex flex-col bg-white text-gray-900 dark:bg-gray-900 dark:text-gray-100"
 >
   <header
-    class="flex flex-wrap items-center gap-4 px-4 py-2 bg-neutral-900 border-b border-neutral-800 z-10"
+    class="flex flex-wrap items-center gap-4 px-4 py-2 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 z-10"
   >
     <a
       href="/admin"
-      class="text-neutral-400 hover:text-neutral-200 text-sm"
+      class="text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white text-sm"
     >
       &larr; Admin
     </a>
     <h1
-      class="text-lg font-semibold text-neutral-100"
+      class="text-lg font-semibold text-gray-900 dark:text-white"
     >
       Chain scrubber
     </h1>
     <p
-      class="text-xs text-neutral-400"
+      class="text-xs text-gray-600 dark:text-gray-400"
     >
       Height is the axis.
       Columns are log10 of tx count.
@@ -29,7 +30,7 @@
     >
       <label
         for="chain-scrubber-jump"
-        class="text-xs text-neutral-400"
+        class="text-xs text-gray-600 dark:text-gray-400"
       >
         Jump to height
       </label>
@@ -39,11 +40,11 @@
         name="height"
         inputmode="numeric"
         value={@height}
-        class="w-28 px-2 py-1 text-sm bg-neutral-800 border border-neutral-700 rounded text-neutral-200 focus:outline-none focus:ring-1 focus:ring-amber-500"
+        class="w-28 px-2 py-1 text-sm bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-amber-500"
       />
       <button
         type="submit"
-        class="px-3 py-1 text-sm rounded bg-amber-600 text-white hover:bg-amber-700"
+        class="px-3 py-1 text-sm rounded bg-amber-700 text-white hover:bg-amber-800"
       >
         Go
       </button>
@@ -51,7 +52,7 @@
         :if={@jump_error}
         id="chain-scrubber-jump-error"
         role="alert"
-        class="text-xs text-red-400"
+        class="text-xs text-red-700 dark:text-red-400"
       >
         {@jump_error}
       </span>
@@ -61,7 +62,7 @@
   <div
     :if={!@built?}
     id="chain-scrubber-not-built"
-    class="px-4 py-3 bg-amber-950 text-amber-200 text-sm"
+    class="px-4 py-3 bg-amber-50 border-b border-amber-200 text-amber-900 text-sm dark:bg-amber-900/30 dark:border-amber-800 dark:text-amber-200"
   >
     Tiles are not built yet.
     Run <code>bin/bitblocks rpc 'Bitblocks.Release.build_chain_tiles()'</code> once; the cron keeps them current after that.
@@ -77,8 +78,9 @@
     data-height={@height}
     data-view-from={@view_from}
     data-view-to={@view_to}
-    class="relative flex-1 min-h-0"
+    class="relative flex-1 min-h-0 bg-[#050608]"
   >
+    <%!-- Dark in both modes, matching COLORS.background in assets/js/hooks/chain_scrubber.js --%>
     <canvas
       id="chain-scrubber-canvas"
       class="block w-full h-full"
@@ -88,7 +90,7 @@
     <div
       id="chain-scrubber-readout"
       aria-live="polite"
-      class="absolute top-2 left-4 flex flex-wrap gap-x-4 gap-y-1 text-xs font-mono text-neutral-300 pointer-events-none"
+      class="absolute top-2 left-4 right-4 w-fit flex flex-wrap gap-x-4 gap-y-1 px-2 py-1 rounded border border-gray-200 dark:border-gray-700 bg-white/95 dark:bg-gray-800/95 text-xs font-mono text-gray-800 dark:text-gray-200 shadow-sm pointer-events-none"
     >
       <span
         data-readout="height"
@@ -122,19 +124,18 @@
 
     <div
       id="chain-scrubber-detail"
-      class="absolute bottom-16 left-4 right-4 max-h-64 overflow-auto text-xs text-neutral-300"
-    >
-    </div>
+      class="absolute bottom-16 left-4 right-4 max-h-64 overflow-auto p-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white/95 dark:bg-gray-800/95 text-xs text-gray-800 dark:text-gray-200 shadow-sm empty:hidden"
+    ></div>
 
     <div
       id="chain-scrubber-controls"
-      class="absolute bottom-2 left-4 right-4 flex items-center gap-2"
+      class="absolute bottom-2 left-4 right-4 flex items-center gap-2 px-2 py-1 rounded-lg border border-gray-200 dark:border-gray-700 bg-white/95 dark:bg-gray-800/95 shadow-sm"
     >
       <button
         type="button"
         data-scrubber-action="step-back"
         aria-label="Step back one block"
-        class="px-2 py-1 rounded bg-neutral-800 hover:bg-neutral-700"
+        class="px-2 py-1 text-sm rounded bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600"
       >
         &larr;
       </button>
@@ -142,7 +143,7 @@
         type="button"
         data-scrubber-action="play"
         aria-label="Play"
-        class="px-2 py-1 rounded bg-neutral-800 hover:bg-neutral-700"
+        class="px-2 py-1 text-sm rounded bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600"
       >
         Play
       </button>
@@ -150,7 +151,7 @@
         type="button"
         data-scrubber-action="pause"
         aria-label="Pause"
-        class="px-2 py-1 rounded bg-neutral-800 hover:bg-neutral-700"
+        class="px-2 py-1 text-sm rounded bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600"
       >
         Pause
       </button>
@@ -158,7 +159,7 @@
         type="button"
         data-scrubber-action="step-forward"
         aria-label="Step forward one block"
-        class="px-2 py-1 rounded bg-neutral-800 hover:bg-neutral-700"
+        class="px-2 py-1 text-sm rounded bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600"
       >
         &rarr;
       </button>
@@ -170,13 +171,13 @@
         step="1"
         value={@height}
         aria-label="Block height"
-        class="flex-1 accent-amber-500"
+        class="flex-1 accent-amber-700 dark:accent-amber-500"
       />
     </div>
   </div>
 
   <footer
-    class="flex flex-wrap items-center gap-4 px-4 py-1 bg-neutral-900 border-t border-neutral-800 text-xs text-neutral-400"
+    class="flex flex-wrap items-center gap-4 px-4 py-1 bg-gray-50 dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 text-xs text-gray-600 dark:text-gray-400"
   >
     <span
       id="chain-scrubber-tip"

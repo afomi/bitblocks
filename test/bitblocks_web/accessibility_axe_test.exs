@@ -100,6 +100,55 @@ defmodule BitblocksWeb.AccessibilityAxeTest do
       |> assert_no_violations()
     end
 
+    # Toggle to dark and switch off transitions first, so axe reads each
+    # colour after the flip rather than part way through a transition-colors fade.
+    @dark_mode_script """
+    const style = document.createElement('style');
+    style.textContent = '*, *::before, *::after { transition: none !important; }';
+    document.head.appendChild(style);
+    document.documentElement.classList.remove('light');
+    document.documentElement.classList.add('dark');
+    """
+
+    # Pages restyled to the site style (DESIGN.md). Each runs in light mode
+    # and again with the theme toggled to dark. The three.js pages keep their
+    # canvas dark in both modes; only the chrome around it changes, and that
+    # chrome is what axe checks here.
+    #
+    # The test Chrome runs with --disable-gpu --disable-software-rasterizer,
+    # so three.js cannot create a WebGL context and throws on mount. For those
+    # pages only, Wallaby's js_errors is off for the test, so the chrome can be
+    # scanned without the scene.
+    for {path, ready, webgl?} <- [
+          {"/tx-graph", "#tx-graph-txid", false},
+          {"/shape-layers", "svg[viewBox='0 0 400 300']", false},
+          {"/chain-scrubber", "#chain-scrubber-controls", true},
+          {"/peers", "#peer-map", true},
+          {"/ecosystem", "#ecosystem-graph", true},
+          {"/wall", "#wall-info", true},
+          {"/reward_wall", "#reward-wall-controls", true}
+        ] do
+      test "#{path} is accessible in light mode", %{session: session} do
+        if unquote(webgl?), do: ignore_js_errors()
+
+        session
+        |> visit(unquote(path))
+        |> assert_has(css(unquote(ready)))
+        |> assert_no_violations()
+      end
+
+      test "#{path} is accessible in dark mode", %{session: session} do
+        if unquote(webgl?), do: ignore_js_errors()
+
+        session
+        |> visit(unquote(path))
+        |> execute_script(@dark_mode_script)
+        |> assert_has(css("html.dark"))
+        |> assert_has(css(unquote(ready)))
+        |> assert_no_violations()
+      end
+    end
+
     test "reorgs page is accessible with no reorgs recorded", %{session: session} do
       session
       |> visit("/reorgs")
@@ -127,6 +176,13 @@ defmodule BitblocksWeb.AccessibilityAxeTest do
       |> assert_has(css("#reorg-notice"))
       |> assert_no_violations()
     end
+  end
+
+  # This module is async: false, so the env change is restored before the next test.
+  defp ignore_js_errors do
+    previous = Application.get_env(:wallaby, :js_errors, true)
+    Application.put_env(:wallaby, :js_errors, false)
+    on_exit(fn -> Application.put_env(:wallaby, :js_errors, previous) end)
   end
 
   # One fresh reorg per outcome, so the banner and both timeline labels render.

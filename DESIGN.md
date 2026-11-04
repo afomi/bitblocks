@@ -3,6 +3,7 @@
 These are the rules every page follows.
 They describe what the site already does; when a page and this doc disagree, fix the page or fix the doc, so the two match.
 References for the look: `lib/bitblocks_web/components/layouts/root.html.heex`, `lib/bitblocks_web/components/nav_component.ex`, the home page (`lib/bitblocks_web/controllers/page_html/home.html.heex`), `/admin` (`lib/bitblocks_web/live/admin_live*`) and `/metanet`.
+For chrome around a three.js scene, see `/block-graph` and `/chain-scrubber`.
 
 ## Light by default, dark by the toggle
 
@@ -19,7 +20,11 @@ A full-bleed scene may use `fixed inset-0`, but only the canvas region is dark, 
 The chrome around it (header, filters, stats strips, playback bars, legends, tooltips) follows the site style in light and dark mode, as `/block-graph` does.
 Keep the canvas container's background class equal to the scene's clear colour in the hook, so the page does not flash a different shade before three.js draws.
 Floating chrome over a canvas uses a near-opaque surface (`bg-white/95 dark:bg-gray-800/95`) with a border, so its text keeps its contrast over any scene.
+A floating panel that a hook fills later may carry `empty:hidden`, written as `<div ...></div>` with nothing between the tags, so it does not show as an empty box before then.
+Markup a hook writes (tooltips, readouts, detail panels) uses the same class pairs as the templates; Tailwind scans `assets/js`, so `dark:` variants there are built.
 SVG diagrams, lists of nodes and data tables are not three.js scenes, and use the site style.
+Colour SVG marks with Tailwind's `fill-*` and `stroke-*` utilities and their `dark:` variants rather than hex attributes, so they follow the theme (see `/shape-layers`).
+A mark that carries meaning needs 3:1 against its background in both modes; a 600 shade on `bg-gray-50` and a 400 shade on `dark:bg-gray-900` both clear it.
 
 ## Surfaces, borders and text
 
@@ -65,3 +70,6 @@ Both keep diffs to the line that changed.
 
 `test/bitblocks_web/accessibility_axe_test.exs` runs axe-core against pages in a real browser.
 A restyled page gets an axe test in light mode and, where its colours differ, in dark mode too (see the `/metanet` and `/reorgs` tests).
+A three.js page is scanned for its chrome only: the test Chrome has no WebGL, so those tests turn off Wallaby's `js_errors` for the test (see the `/chain-scrubber` and `/peers` tests).
+The dark-mode tests switch off CSS transitions before toggling the theme, so axe never reads a colour part way through a `transition-colors` fade.
+A full-screen scene with no visible title still needs an `<h1>`; use `sr-only` (see `/wall`).

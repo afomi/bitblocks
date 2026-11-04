@@ -1,18 +1,19 @@
-<div class="min-h-screen bg-neutral-950 text-neutral-200">
+<%!-- SVG diagrams are not three.js scenes: site style in light and dark mode (see DESIGN.md). --%>
+<div class="text-gray-900 dark:text-gray-100">
   <div class="max-w-4xl mx-auto px-4 py-8">
     <div class="flex items-center gap-4 mb-6">
       <a
         href="/"
-        class="text-neutral-400 hover:text-neutral-200 text-sm"
+        class="text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white text-sm"
       >
         &larr; Back
       </a>
-      <h1 class="text-2xl font-bold">
+      <h1 class="text-2xl font-bold text-gray-900 dark:text-white">
         Shape Layer NFTs
       </h1>
     </div>
 
-    <p class="text-neutral-400 text-sm mb-8">
+    <p class="text-gray-600 dark:text-gray-400 text-sm mb-8">
       GeoJSON geometry objects stored on-chain with bounds, center, and metadata.
     </p>
 
@@ -22,7 +23,8 @@
         <button
           phx-click="select_shape"
           phx-value-index={i}
-          class={"px-4 py-2 rounded-lg text-sm transition-colors " <> if(i == @selected_index, do: "bg-blue-600 text-white", else: "bg-neutral-800 text-neutral-300 hover:bg-neutral-700")}
+          aria-pressed={to_string(i == @selected_index)}
+          class={"px-4 py-2 rounded-lg text-sm transition-colors " <> if(i == @selected_index, do: "bg-blue-600 text-white", else: "bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600")}
         >
           <%= shape.description %>
         </button>
@@ -34,13 +36,13 @@
     <%= if shape do %>
       <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
         <%!-- SVG map rendering --%>
-        <div class="bg-neutral-900 border border-neutral-800 rounded-xl p-4">
-          <h2 class="text-sm font-semibold text-neutral-400 mb-3">
+        <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
+          <h2 class="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">
             Geometry
           </h2>
           <svg
             viewBox="0 0 400 300"
-            class="w-full bg-neutral-950 rounded-lg"
+            class="w-full bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg"
             xmlns="http://www.w3.org/2000/svg"
           >
             <% svg = geometry_to_svg(shape) %>
@@ -50,15 +52,14 @@
                   cx={cx}
                   cy={cy}
                   r="8"
-                  fill="#3b82f6"
-                  stroke="#60a5fa"
+                  class="fill-blue-600 stroke-blue-800 dark:fill-blue-500 dark:stroke-blue-300"
                   stroke-width="2"
                 />
               <% {:polyline, points} -> %>
                 <polyline
                   points={points}
                   fill="none"
-                  stroke="#3b82f6"
+                  class="stroke-blue-600 dark:stroke-blue-400"
                   stroke-width="3"
                   stroke-linecap="round"
                   stroke-linejoin="round"
@@ -66,8 +67,7 @@
               <% {:polygon, points} -> %>
                 <polygon
                   points={points}
-                  fill="#3b82f620"
-                  stroke="#3b82f6"
+                  class="fill-blue-500/20 stroke-blue-600 dark:fill-blue-400/20 dark:stroke-blue-400"
                   stroke-width="2"
                 />
               <% _ -> %>
@@ -75,7 +75,7 @@
                   x="200"
                   y="150"
                   text-anchor="middle"
-                  fill="#6b7280"
+                  class="fill-gray-600 dark:fill-gray-400"
                 >
                   Unsupported geometry
                 </text>
@@ -86,55 +86,57 @@
               cx={cx}
               cy={cy}
               r="4"
-              fill="#f59e0b"
-              stroke="#fbbf24"
+              class="fill-amber-600 stroke-amber-800 dark:fill-amber-500 dark:stroke-amber-300"
               stroke-width="1"
             />
           </svg>
         </div>
 
         <%!-- Metadata --%>
-        <div class="bg-neutral-900 border border-neutral-800 rounded-xl p-4">
-          <h2 class="text-sm font-semibold text-neutral-400 mb-3">
+        <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
+          <h2 class="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">
             Properties
           </h2>
           <dl class="space-y-3 text-sm">
             <div>
-              <dt class="text-neutral-500">Description</dt>
-              <dd><%= shape.description %></dd>
+              <dt class="text-gray-600 dark:text-gray-400">Description</dt>
+              <dd class="text-gray-900 dark:text-gray-100"><%= shape.description %></dd>
             </div>
             <div>
-              <dt class="text-neutral-500">Geometry Type</dt>
-              <dd><%= shape.geometry["type"] %></dd>
+              <dt class="text-gray-600 dark:text-gray-400">Geometry Type</dt>
+              <dd class="text-gray-900 dark:text-gray-100"><%= shape.geometry["type"] %></dd>
             </div>
             <div>
-              <dt class="text-neutral-500">Center</dt>
-              <dd>
+              <dt class="text-gray-600 dark:text-gray-400">Center</dt>
+              <dd class="text-gray-900 dark:text-gray-100">
                 <%= Float.round(shape.center.lon, 4) %>, <%= Float.round(shape.center.lat, 4) %>
               </dd>
             </div>
             <div>
-              <dt class="text-neutral-500">Bounds</dt>
-              <dd class="font-mono text-xs">
+              <dt class="text-gray-600 dark:text-gray-400">Bounds</dt>
+              <dd class="font-mono text-xs text-gray-900 dark:text-gray-100">
                 [<%= Float.round(shape.bounds.min_lon, 4) %>, <%= Float.round(shape.bounds.min_lat, 4) %>]
                 to
                 [<%= Float.round(shape.bounds.max_lon, 4) %>, <%= Float.round(shape.bounds.max_lat, 4) %>]
               </dd>
             </div>
             <div>
-              <dt class="text-neutral-500">Block Height</dt>
-              <dd><%= shape.block_height || "—" %></dd>
+              <dt class="text-gray-600 dark:text-gray-400">Block Height</dt>
+              <dd class="text-gray-900 dark:text-gray-100"><%= shape.block_height || "—" %></dd>
             </div>
             <div>
-              <dt class="text-neutral-500">Created</dt>
-              <dd><%= DateTime.to_iso8601(shape.created_at) %></dd>
+              <dt class="text-gray-600 dark:text-gray-400">Created</dt>
+              <dd class="text-gray-900 dark:text-gray-100"><%= DateTime.to_iso8601(shape.created_at) %></dd>
             </div>
           </dl>
 
-          <h2 class="text-sm font-semibold text-neutral-400 mt-6 mb-3">
+          <h2 class="text-sm font-semibold text-gray-700 dark:text-gray-300 mt-6 mb-3">
             GeoJSON
           </h2>
-          <pre class="bg-neutral-950 rounded-lg p-3 text-xs text-neutral-400 overflow-x-auto"><%= shape |> Bitblocks.ShapeLayer.to_geojson() |> Jason.encode!(pretty: true) %></pre>
+          <pre
+            tabindex="0"
+            aria-label="GeoJSON"
+            class="bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-3 text-xs text-gray-800 dark:text-gray-200 overflow-x-auto"><%= shape |> Bitblocks.ShapeLayer.to_geojson() |> Jason.encode!(pretty: true) %></pre>
         </div>
       </div>
     <% end %>
