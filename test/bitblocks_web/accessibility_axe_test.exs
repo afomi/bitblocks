@@ -118,13 +118,15 @@ defmodule BitblocksWeb.AccessibilityAxeTest do
     # The test Chrome runs with --disable-gpu --disable-software-rasterizer,
     # so three.js cannot create a WebGL context and throws on mount. For those
     # pages only, Wallaby's js_errors is off for the test, so the chrome can be
-    # scanned without the scene.
+    # scanned without the scene. Wait for chrome, never the canvas container:
+    # it is an empty flex-1 div that only gets a height once WebGL draws, so on
+    # CI (no WebGL) it is never "visible".
     for {path, ready, webgl?} <- [
           {"/tx-graph", "#tx-graph-txid", false},
           {"/shape-layers", "svg[viewBox='0 0 400 300']", false},
           {"/chain-scrubber", "#chain-scrubber-controls", true},
-          {"/peers", "#peer-map", true},
-          {"/ecosystem", "#ecosystem-graph", true},
+          {"/peers", "h1", true},
+          {"/ecosystem", "h1", true},
           {"/wall", "#wall-info", true},
           {"/reward_wall", "#reward-wall-controls", true}
         ] do
