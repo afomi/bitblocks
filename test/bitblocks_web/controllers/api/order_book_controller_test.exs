@@ -59,6 +59,15 @@ defmodule BitblocksWeb.Api.OrderBookControllerTest do
 
   describe "GET /api/v1/order-book/listings" do
     test "returns active listings as JSON", %{conn: conn, protocol: protocol} do
+      # Synced through the tip, with the token tx stored: its outpoint is known unspent.
+      Bitblocks.ChainFixtures.completed_chain_fixture(100)
+
+      Bitblocks.ChainFixtures.transaction_fixture(%{
+        txid: "abc123",
+        block_hash: "chain-50",
+        block_height: 50
+      })
+
       _listing = create_listing(protocol)
 
       conn = get(conn, ~p"/api/v1/order-book/listings")
@@ -95,6 +104,38 @@ defmodule BitblocksWeb.Api.OrderBookControllerTest do
       response = json_response(conn, 200)
       assert response["count"] == 1
       assert hd(response["data"])["token_id"] == @test_token_id
+    end
+
+    test "leaves out a listing whose token outpoint is in the spend index, spent first", %{
+      conn: conn,
+      protocol: protocol
+    } do
+      Bitblocks.Repo.insert!(%Bitblocks.Chain.Spend{
+        txid: "abc123",
+        vout: 0,
+        spending_txid: random_txid(),
+        spending_vin: 0
+      })
+
+      # Indexed after the spend, as a historical backfill would.
+      _listing = create_listing(protocol)
+
+      response = conn |> get(~p"/api/v1/order-book/listings") |> json_response(200)
+
+      assert response["count"] == 0
+      assert response["data"] == []
+    end
+
+    test "says each listing's signature isn't checked, and how far the chain is synced", %{
+      conn: conn,
+      protocol: protocol
+    } do
+      _listing = create_listing(protocol)
+
+      response = conn |> get(~p"/api/v1/order-book/listings") |> json_response(200)
+
+      assert [%{"signature_checked" => false, "status" => "unknown"}] = response["data"]
+      assert %{"indexed_through_height" => -1, "tip_height" => nil} = response["meta"]
     end
 
     test "returns empty list when no listings", %{conn: conn} do

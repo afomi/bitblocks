@@ -72,7 +72,21 @@ defmodule BitblocksWeb.OrderBookLiveTest do
     assert html =~ "Open Order Book"
     assert html =~ @test_token_id
     assert html =~ "5,000"
-    assert html =~ "active"
+    # No chain synced here, so the page can't say the tokens are still for sale.
+    assert html =~ "unknown"
+  end
+
+  test "says the book is unverified: no signature check, status as of the synced height", %{
+    conn: conn,
+    protocol: protocol
+  } do
+    _listing = create_listing(protocol)
+
+    {:ok, _view, html} = live(conn, "/order-book")
+
+    assert html =~ "Seller signatures are not checked yet."
+    assert html =~ "data-role=\"book-coverage\""
+    refute html =~ "Active Listings"
   end
 
   test "displays stats banner", %{conn: conn, protocol: protocol} do
@@ -80,7 +94,7 @@ defmodule BitblocksWeb.OrderBookLiveTest do
 
     {:ok, _view, html} = live(conn, "/order-book")
 
-    assert html =~ "Active Listings"
+    assert html =~ "Open Listings"
     assert html =~ "Trades Completed"
     assert html =~ "Unique Tokens"
   end

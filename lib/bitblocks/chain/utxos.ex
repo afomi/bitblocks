@@ -221,6 +221,57 @@ defmodule Bitblocks.Chain.Utxos do
     end
   end
 
+  @doc """
+  The status of each `{txid, vout}` by the rule above (`:spent`, `:unspent`
+  or `:unknown`), with the coverage it was judged against. Reads no scripts:
+  for outpoints a caller already knows can be spent, such as a listed token
+  UTXO. An outpoint whose tx isn't in a stored block is `:unknown`.
+
+      %{
+        outpoints: %{{"<txid>", 0} => %{status: :unspent, spent_by: nil, spent_by_vin: nil}},
+        indexed_through_height: 900_000,
+        tip_height: 900_000
+      }
+
+  Two queries whatever the count: the txs by `txid`, the spends by
+  `spend_index (txid, vout)`.
+  """
+  @spec outpoints([{String.t(), non_neg_integer()}]) :: map()
+  def outpoints(outpoints) when is_list(outpoints) do
+    coverage = coverage()
+    txids = outpoints |> Enum.map(&elem(&1, 0)) |> Enum.uniq()
+
+    canonical =
+      if txids == [] do
+        MapSet.new()
+      else
+        from(t in Transaction,
+          join: b in Block,
+          on: b.hash == t.block_hash,
+          where: t.txid in ^txids,
+          select: t.txid
+        )
+        |> Repo.all()
+        |> MapSet.new()
+      end
+
+    spends = spends(txids)
+
+    statuses =
+      Map.new(outpoints, fn {txid, _vout} = outpoint ->
+        {status, by, vin} =
+          classify(outpoint, MapSet.member?(canonical, txid), spends, coverage)
+
+        {outpoint, %{status: status, spent_by: by, spent_by_vin: vin}}
+      end)
+
+    %{
+      outpoints: statuses,
+      indexed_through_height: coverage.indexed_through_height,
+      tip_height: coverage.tip_height
+    }
+  end
+
   # -- Internals ----------------------------------------------------------------
 
   defp collect(query, matches?) do

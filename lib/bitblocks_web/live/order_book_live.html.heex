@@ -2,9 +2,32 @@
   <h1 class="text-4xl font-bold mb-2">
     Open Order Book
   </h1>
-  <p class="text-gray-600 mb-8">
+  <p class="text-gray-600 mb-4">
     Permissionless marketplace for BSV-20 Ordinal tokens.
   </p>
+
+  <%!-- What a listing here does and doesn't prove (#40) --%>
+  <div
+    class="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-8 text-sm text-amber-900 dark:bg-amber-900/30 dark:border-amber-800 dark:text-amber-200"
+    data-role="book-coverage"
+  >
+    <p>
+      Each listing is an offer as its seller published it on chain.
+      Seller signatures are not checked yet.
+      A listing reads <span class="font-semibold">active</span>
+      only when its token outpoint is known unspent, with every block through our tip synced; otherwise it reads <span class="font-semibold">unknown</span>.
+    </p>
+    <p class="mt-2">
+      <%= if @tip_height do %>
+        Spends are indexed through block
+        <span class="font-mono tabular-nums"><%= @indexed_through_height %></span>
+        of
+        <span class="font-mono tabular-nums"><%= @tip_height %></span>.
+      <% else %>
+        No blocks are synced yet, so no listing is known to be live.
+      <% end %>
+    </p>
+  </div>
 
   <%!-- Stats Banner --%>
   <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
@@ -13,7 +36,7 @@
         <%= @stats.total_active %>
       </div>
       <div class="text-sm text-gray-500">
-        Active Listings
+        Open Listings
       </div>
     </div>
     <div class="bg-white border border-gray-200 rounded-lg p-4 text-center">
@@ -225,7 +248,7 @@
         <span class="text-green-700">GET</span>
         <span class="text-gray-700">/api/v1/order-book/listings</span>
         <span class="text-gray-500 ml-2">
-          — Active listings (filters: token_id, seller, min_price, max_price)
+          — Open listings, each active or unknown (filters: token_id, seller, min_price, max_price)
         </span>
       </div>
       <div class="bg-white p-3 rounded border">

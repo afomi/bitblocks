@@ -21,11 +21,14 @@ defmodule BitblocksWeb.Api.OrderBookController do
       |> maybe_put(:cursor, params["cursor"])
       |> maybe_put(:limit, parse_int(params["per_page"]) || 50)
 
-    listings = OrderBook.list_active_listings(opts)
+    %{listings: listings} = book = OrderBook.list_book(opts)
 
     json(conn, %{
       data: Enum.map(listings, &listing_to_json/1),
-      count: length(listings)
+      count: length(listings),
+      # How far absence of a spend is trusted: a listing is "active" only
+      # when its token outpoint is known unspent, else "unknown" (#40).
+      meta: Map.take(book, [:indexed_through_height, :tip_height])
     })
   end
 
@@ -143,12 +146,15 @@ defmodule BitblocksWeb.Api.OrderBookController do
       # input from these, so they can settle without the seller online.
       seller_pubkey: listing.seller_pubkey,
       seller_sig: listing.seller_sig,
+      # false until a signature check exists: the offer is as published, unverified.
+      signature_checked: listing.signature_checked,
       sighash_flag: listing.sighash_flag,
       expires_at: listing.expires_at,
       min_quantity: listing.min_quantity,
       status: listing.status,
       quantity_remaining: listing.quantity_remaining,
       fills: listing.fills,
+      spent_txid: listing.spent_txid,
       inserted_at: listing.inserted_at
     }
   end
