@@ -96,15 +96,15 @@ mix assets.deploy           # Build and minify for production
 **After a tx comes in** (authoritative: `docs/TX_PIPELINE.md`):
 
 - `Bitblocks.Chain.TxPipeline.steps/0` is the ordered list of what happens to every stored tx, and the one place to add a step (one module plus one line).
-- Chunk steps run before the insert, in `Chain.TxIngest.store_chunk/2`: `script_analysis`, `sats_out`, `burned`, `sats_in` (previous outputs from stored txs, one query per chunk; nil when one isn't stored), `fee`.
+- Chunk steps run before the insert, in `Chain.TxIngest.store_chunk/2`: `script_analysis`, `sats_out`, `burned`, `sats_in` (previous outputs from stored txs, one query per chunk; nil when one isn't stored), `fee`, `classify_outputs` (every output typed against `priv/data/tx_types/types.json` by `Bitblocks.TxTypes.Classifier`, unmatched as `custom`; the tx's set of types in `transactions.tx_types`, #49).
 - Tx steps run after it: `record_spends`, `index_tokens`, `index_bitcom`.
-- The block step `block_totals` runs once the block is `completed`: `sats_out`, `fees`, `miner_reward`, `subsidy`, `burned`, and `fees_verified` (`miner_reward <= subsidy + fees`).
+- The block steps run once the block is `completed`: `block_totals` (`sats_out`, `fees`, `miner_reward`, `subsidy`, `burned`, and `fees_verified`: `miner_reward <= subsidy + fees`), then `type_counts` (`blocks.type_counts`, txs per type, which `/types` sums through `Bitblocks.TxTypes.Counts`).
 - A failing step is logged and reported (telemetry `[:bitblocks, :tx_pipeline, :step_failed]`) and never loses the stored tx.
 - Read-time facts, never stored: `Chain.output_status/1` (spent, unspent, unknown or unspendable per output; unspent only when the index reaches the tip, see `Bitblocks.Chain.Utxos`) and `Chain.nft_facts/1` (inscription or Run jig, and collection membership).
 - `Release.backfill_tx_tallies(from, to, apply: true)` fills the tally columns for blocks completed before the steps; dry run by default.
 
 - **Derived data** (authoritative: `docs/DERIVED_DATA.md`): everything `Chain.TxPipeline` adds after ingestion carries its provenance.
-  Each step has a `version/0`; rows stamp the version that computed them (`transactions.script_analysis_version`, `transactions.tallies_version`, `blocks.tallies_version`).
+  Each step has a `version/0`; rows stamp the version that computed them (`transactions.script_analysis_version`, `transactions.tallies_version`, `transactions.tx_types_version`, `blocks.tallies_version`, `blocks.type_counts_version`).
   Backfills pick rows below the current version, stamp them, and record each run (dry runs too) in `derivation_runs`; `GET /api/v1/status/derivations` shows the versions and latest runs.
 
 - `Bitblocks.Workers.ChainTilesWorker` — builds chain-scrubber tiles (`Bitblocks.ChainTiles`) on the `:chain_tiles` lane (concurrency 1), reading `blocks` only. Cron every 5 minutes in incremental mode: a no-op until `Release.build_chain_tiles()` has run once, and when no block changed. See `docs/CHAIN_SCRUBBER.md`.
@@ -201,6 +201,7 @@ bin/bitblocks rpc 'Bitblocks.Release.status()'
 bin/bitblocks rpc 'Bitblocks.Release.backfill_tx_tallies(0, 10_000)'
 bin/bitblocks rpc 'Bitblocks.Release.backfill_tx_tallies(0, 10_000, apply: true)'
 bin/bitblocks rpc 'Bitblocks.Release.backfill_script_analysis(0, 10_000)'
+bin/bitblocks rpc 'Bitblocks.Release.backfill_tx_types(0, 10_000)'
 bin/bitblocks rpc 'Bitblocks.Release.derivation_runs()'
 
 # A reorg's orphaned tx rows (#34): dry run first, then add apply: true

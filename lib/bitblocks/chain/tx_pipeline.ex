@@ -33,7 +33,9 @@ defmodule Bitblocks.Chain.TxPipeline do
 
     * `:script_analysis` stamps `transactions.script_analysis_version`;
     * `:tallies` stamps `transactions.tallies_version`;
-    * `:block_totals` stamps `blocks.tallies_version`.
+    * `:block_totals` stamps `blocks.tallies_version`;
+    * `:tx_types` stamps `transactions.tx_types_version`;
+    * `:type_counts` stamps `blocks.type_counts_version`.
 
   A sum, so it reads at a glance ("tallies v4: four steps at v1") and only
   goes up: a bump in any step, or a new step, raises it, and every row
@@ -55,18 +57,23 @@ defmodule Bitblocks.Chain.TxPipeline do
     Steps.Burned,
     Steps.SatsIn,
     Steps.Fee,
+    Steps.ClassifyOutputs,
     # :tx, after the insert
     Steps.RecordSpends,
     Steps.IndexTokens,
     Steps.IndexBitcom,
     # :block, at completion
-    Steps.BlockTotals
+    Steps.BlockTotals,
+    Steps.TypeCounts
   ]
 
   # Derivations: steps whose output a row stamps with one version.
   # ScriptAnalysis stamps its own (TransactionParser.analyze/1 returns it per
-  # row, only for a tx that decodes); run_chunk/2 stamps :tallies, and
-  # Steps.BlockTotals stamps :block_totals.
+  # row, only for a tx that decodes); run_chunk/2 stamps :tallies,
+  # Steps.BlockTotals stamps :block_totals, Steps.ClassifyOutputs stamps
+  # :tx_types per row it types, and Steps.TypeCounts stamps :type_counts. A
+  # block's type counts depend on the classifier too, so :type_counts sums
+  # both steps: a classifier bump marks every block's counts below it.
   @derivations [
     script_analysis: %{
       steps: [Steps.ScriptAnalysis],
@@ -82,6 +89,16 @@ defmodule Bitblocks.Chain.TxPipeline do
       steps: [Steps.BlockTotals],
       stamp: "blocks.tallies_version",
       backfill: "Release.backfill_tx_tallies/3"
+    },
+    tx_types: %{
+      steps: [Steps.ClassifyOutputs],
+      stamp: "transactions.tx_types_version",
+      backfill: "Release.backfill_tx_types/3"
+    },
+    type_counts: %{
+      steps: [Steps.ClassifyOutputs, Steps.TypeCounts],
+      stamp: "blocks.type_counts_version",
+      backfill: "Release.backfill_tx_types/3"
     }
   ]
 
@@ -103,8 +120,8 @@ defmodule Bitblocks.Chain.TxPipeline do
 
   @doc """
   The version of a stage (`:chunk`, `:tx`, `:block`) or a derivation
-  (`:script_analysis`, `:tallies`, `:block_totals`): the sum of its steps'
-  versions. See the moduledoc for why a sum.
+  (`:script_analysis`, `:tallies`, `:block_totals`, `:tx_types`,
+  `:type_counts`): the sum of its steps' versions. See the moduledoc for why a sum.
   """
   @spec version(atom()) :: pos_integer()
   def version(stage) when stage in [:chunk, :tx, :block] do

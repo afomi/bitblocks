@@ -45,6 +45,12 @@ defmodule Bitblocks.Chain.Transaction do
     # Analyze v6: addresses of valid AIP signatures in this tx (GIN-indexed),
     # so "everything signed by X" is one indexed query. See Bitblocks.Aip.
     field :aip_signers, {:array, :string}, default: []
+    # The tx's type (afomi/bitblocks#49): the type ids from types.json its
+    # outputs match, in types.json order (Bitblocks.TxTypes.Classifier), and
+    # TxPipeline.version(:tx_types), the classifier version that typed it.
+    # nil until typed; Release.backfill_tx_types/3 picks those up.
+    field :tx_types, {:array, :string}
+    field :tx_types_version, :integer
     # When raw bytes were written to the blob store and verified (Bitblocks.TxStore).
     field :blob_stored_at, :utc_datetime
     # Where this tx's bytes sit in its block's object in the tx store
@@ -82,7 +88,9 @@ defmodule Bitblocks.Chain.Transaction do
       :script_analysis_version,
       :output_script_hashes,
       :output_template_hashes,
-      :aip_signers
+      :aip_signers,
+      :tx_types,
+      :tx_types_version
     ])
     |> validate_required([:txid, :raw, :version, :block_hash, :inputs, :outputs])
   end

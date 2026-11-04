@@ -65,10 +65,12 @@ defmodule Bitblocks.Chain.TxPipelineTest do
                {:chunk, "burned"},
                {:chunk, "sats_in"},
                {:chunk, "fee"},
+               {:chunk, "classify_outputs"},
                {:tx, "record_spends"},
                {:tx, "index_tokens"},
                {:tx, "index_bitcom"},
-               {:block, "block_totals"}
+               {:block, "block_totals"},
+               {:block, "type_counts"}
              ]
 
       for step <- TxPipeline.steps() do
@@ -95,6 +97,14 @@ defmodule Bitblocks.Chain.TxPipelineTest do
                )
 
       assert TxPipeline.version(:block_totals) == Steps.BlockTotals.version()
+      assert TxPipeline.version(:tx_types) == Steps.ClassifyOutputs.version()
+
+      assert TxPipeline.version(:type_counts) ==
+               Steps.ClassifyOutputs.version() + Steps.TypeCounts.version()
+    end
+
+    test "classification keeps one number: the step's version is the classifier's" do
+      assert Steps.ClassifyOutputs.version() == Bitblocks.TxTypes.Classifier.version()
     end
 
     test "script analysis keeps one number: the step's version is the analyzer's" do
@@ -118,6 +128,63 @@ defmodule Bitblocks.Chain.TxPipelineTest do
       end
 
       assert Chain.get_block!(170).tallies_version == TxPipeline.version(:block_totals)
+    end
+  end
+
+  describe "transaction types (#49)" do
+    test "ingest types each tx, and the completed block tallies its types" do
+      store_block9()
+      block = block170()
+      RpcStub.stub_rest_block(@block170_hash, {:ok, block170_bytes()})
+
+      assert :ok = FetchTransactionsWorker.perform(%Oban.Job{args: %{"block_hash" => block.hash}})
+
+      # 2009: both txs pay to a bare public key (P2PK), which no type in
+      # types.json names yet, so both are custom.
+      for txid <- [@hal_payment, @block170_coinbase] do
+        tx = Chain.get_transaction!(txid)
+        assert tx.tx_types == ["custom"]
+        assert tx.tx_types_version == TxPipeline.version(:tx_types)
+      end
+
+      completed = Chain.get_block!(170)
+      assert completed.type_counts == %{"custom" => 2}
+      assert completed.type_counts_version == TxPipeline.version(:type_counts)
+    end
+
+    test "a tx that doesn't decode stays untyped, and its block's count is unstamped" do
+      block = block_fixture(%{height: 30, sync_state: "completed"})
+      {txid, hex} = tx([funding_outpoint()], [p2pkh(address(), 1_000)])
+      :ok = TxIngest.store(tx_json({txid, hex}), block)
+
+      typed = Chain.get_transaction!(txid)
+      assert typed.tx_types == ["p2pkh"]
+
+      Repo.update_all(Transaction, set: [tx_types: nil, tx_types_version: nil])
+      TxPipeline.run_block(block)
+
+      reloaded = Repo.reload!(block)
+      assert reloaded.type_counts == %{}
+      assert reloaded.type_counts_version == nil
+
+      Repo.update_all(Transaction,
+        set: [tx_types: ["p2pkh"], tx_types_version: TxPipeline.version(:tx_types)]
+      )
+
+      TxPipeline.run_block(block)
+      reloaded = Repo.reload!(block)
+      assert reloaded.type_counts == %{"p2pkh" => 1}
+      assert reloaded.type_counts_version == TxPipeline.version(:type_counts)
+    end
+
+    test "the chunk step leaves a row it can't decode untyped" do
+      block = block_fixture(%{height: 31})
+
+      assert [%{raw: "zz"} = attrs] =
+               Steps.ClassifyOutputs.run_chunk([%{txid: "x", raw: "zz"}], block)
+
+      refute Map.has_key?(attrs, :tx_types)
+      refute Map.has_key?(attrs, :tx_types_version)
     end
   end
 
