@@ -147,6 +147,7 @@ Base: `/api/v1` (see `docs/` and the router).
 | GET | `/api/v1/script/templates/{template_hash}/history` | Txs matching a template. |
 
 The `/script/{scripthash}/history|unspent` pair matches WoC's script endpoints in path shape (scripthash = sha256 of scriptPubKey, reversed hex), though responses are Bitblocks-shaped keyed objects (`{scripthash, history|unspent, source}`), not WoC's bare arrays.
+`/unspent` also carries `unknown`, `status` and `indexed_through_height`: an output is listed as unspent only when every block through our tip is synced.
 The decode + template registry endpoints have no WoC/GorillaPool equivalent — script-first is a Bitblocks differentiator (see `docs/REUSABLE_SCRIPTS.md`).
 
 The divergence to decide on: **WoC has no envelope and uses RPC field names; Bitblocks envelopes everything and uses snake_case.** A client written against WoC cannot drop-in against Bitblocks today.
@@ -183,7 +184,10 @@ Shipped (bare responses, WoC field names, served from local indexed data):
 | GET | `/api/v1/woc/address/{address}/unspent` | Bare array `[{height, tx_pos, tx_hash, value}]`. |
 | GET | `/api/v1/woc/address/{address}/balance` | `{confirmed, unconfirmed}` — `unconfirmed` always 0 (local data is confirmed-only). |
 
-See `BitblocksWeb.Api.WocController`. Reads reflect sync state (local-only), same caveat as the native address endpoints.
+See `BitblocksWeb.Api.WocController`.
+WoC's shapes can't say "unknown", so the two address aliases answer only when the local answer is exact (every block through our tip synced).
+Otherwise they return a 503 with `status` and `indexed_through_height`, never a balance that may be wrong.
+The native `/addresses/{address}/balance|utxos` endpoints carry the same rule in their own fields (`Bitblocks.Chain.Utxos`).
 
 ### Tier 3 — JungleBus-style enriched tx (high value, but it's our differentiator, not a copy)
 

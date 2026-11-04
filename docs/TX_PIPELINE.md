@@ -96,10 +96,11 @@ flowchart TD
 
 These change as later blocks come in, so they are computed when read and never stored.
 
-- `Chain.output_status(txid)`: each output is `:unspent` (a UTXO), `:spent` by a named tx and input, or `:unspendable` (OP_RETURN).
+- `Chain.output_status(txid)`: each output is `:unspent` (a UTXO), `:spent` by a named tx and input, `:unknown`, or `:unspendable` (OP_RETURN).
   A tx is a UTXO when any output is unspent.
-  Unspent means no stored tx spends it, so it holds as of the blocks synced so far.
-  Two indexed queries: the tx by txid, then `spend_index` by txid.
+  Unspent means no stored tx spends it and every block through our tip is synced (`indexed_through_height == tip_height`).
+  Short of that, an output with no recorded spend is `:unknown`, because its spend may sit in a block not synced yet.
+  The rule, shared with the address and script endpoints, is in `Bitblocks.Chain.Utxos`.
 - `Chain.nft_facts(txid)`: whether the tx is an NFT, and whether it is part of a collection.
   An NFT is a 1Sat inscription output (an `OP_FALSE OP_IF "ord"` envelope) or a Run jig (the tx is tagged `Run`).
   A BSV-20/21 inscription is a fungible token, so it doesn't count.

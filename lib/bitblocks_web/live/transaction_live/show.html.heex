@@ -246,6 +246,8 @@
                   </.link>
                 <% :unspent -> %>
                   Unspent (a UTXO)
+                <% :unknown -> %>
+                  Unknown (no settled spend; indexed through block <%= BitblocksWeb.Sats.delimit(@output_status.indexed_through_height) %>)
                 <% :unspendable -> %>
                   Unspendable (data)
               <% end %>

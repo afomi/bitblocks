@@ -61,28 +61,77 @@ defmodule BitblocksWeb.Api.ScriptControllerTest do
   end
 
   describe "GET /api/v1/script/:scripthash/unspent" do
-    test "returns unspent outputs, excluding spent ones", %{conn: conn} do
-      {tx, script_hash, _} = seed_tx_with_script(p2pkh_script(), %{block_height: 600})
+    # A real tx paying the script, stored through the pipeline into block 5
+    # of a chain synced 0..5.
+    defp store_paying_script(sats) do
+      completed_chain_fixture(5)
+      out = %BSV.TxOut{satoshis: sats, script: p2pkh_script()}
 
-      conn1 = get(conn, ~p"/api/v1/script/#{script_hash}/unspent")
+      {txid, hex} =
+        Bitblocks.OrdinalFixtures.tx([Bitblocks.OrdinalFixtures.funding_outpoint()], [out])
 
-      assert %{"unspent" => [utxo]} = json_response(conn1, 200)
-      assert utxo["txid"] == tx.txid
-      assert utxo["vout"] == 0
-      assert utxo["satoshis"] == 50_000_000
+      block = Bitblocks.Repo.get_by!(Bitblocks.Chain.Block, height: 5)
 
-      # Record a spend of that outpoint — it must drop out.
+      :ok =
+        Bitblocks.Chain.TxIngest.store(
+          Bitblocks.Chain.RawBlock.tx_json(txid, Base.decode16!(hex, case: :mixed)),
+          block
+        )
+
+      txid
+    end
+
+    test "is exact through the tip, and drops a spent output", %{conn: conn} do
+      txid = store_paying_script(50_000_001)
+      script_hash = Script.script_hash(p2pkh_script())
+
+      body = json_response(get(conn, ~p"/api/v1/script/#{script_hash}/unspent"), 200)
+
+      assert %{
+               "status" => "exact",
+               "indexed_through_height" => 5,
+               "tip_height" => 5,
+               "unknown" => [],
+               "unspent" => [%{"txid" => ^txid, "vout" => 0, "satoshis" => 50_000_001}]
+             } = body
+
+      # A spend recorded by a tx in a block we store: it drops out.
+      completed_chain_fixture(6)
+
+      spender =
+        transaction_fixture(%{
+          block_hash: "chain-6",
+          block_height: 6,
+          txid: String.duplicate("cd", 32)
+        })
+
       Bitblocks.Repo.insert!(
         Bitblocks.Chain.Spend.changeset(%Bitblocks.Chain.Spend{}, %{
-          txid: tx.txid,
+          txid: txid,
           vout: 0,
-          spending_txid: String.duplicate("cd", 32),
+          spending_txid: spender.txid,
           spending_vin: 0
         })
       )
 
-      conn2 = get(build_conn(), ~p"/api/v1/script/#{script_hash}/unspent")
-      assert %{"unspent" => []} = json_response(conn2, 200)
+      body = json_response(get(build_conn(), ~p"/api/v1/script/#{script_hash}/unspent"), 200)
+      assert %{"status" => "exact", "unspent" => [], "unknown" => []} = body
+    end
+
+    test "says unknown, not unspent, while blocks above the index aren't synced", %{conn: conn} do
+      txid = store_paying_script(1_000)
+      block_fixture(%{height: 6, sync_state: "header_only"})
+      script_hash = Script.script_hash(p2pkh_script())
+
+      body = json_response(get(conn, ~p"/api/v1/script/#{script_hash}/unspent"), 200)
+
+      assert %{
+               "status" => "partial",
+               "indexed_through_height" => 5,
+               "tip_height" => 6,
+               "unspent" => [],
+               "unknown" => [%{"txid" => ^txid, "satoshis" => 1_000}]
+             } = body
     end
   end
 

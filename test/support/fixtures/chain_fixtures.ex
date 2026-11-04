@@ -44,6 +44,45 @@ defmodule Bitblocks.ChainFixtures do
   end
 
   @doc """
+  Fills heights 0..`through` with `completed` block rows, skipping heights
+  already stored, so `Sync.complete_through/0` reaches `through` once the
+  stored ones are completed too. Hashes are `"chain-<height>"`.
+  """
+  def completed_chain_fixture(through) do
+    require Ecto.Query
+
+    stored =
+      Bitblocks.Repo.all(
+        Ecto.Query.from(b in Bitblocks.Chain.Block,
+          where: b.height <= ^through,
+          select: b.height
+        )
+      )
+      |> MapSet.new()
+
+    now = NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second)
+
+    rows =
+      for height <- 0..through//1, not MapSet.member?(stored, height) do
+        %{
+          hash: "chain-#{height}",
+          height: height,
+          num_tx: 1,
+          tx: [],
+          sync_state: "completed",
+          inserted_at: now,
+          updated_at: now
+        }
+      end
+
+    rows
+    |> Enum.chunk_every(1_000)
+    |> Enum.each(&Bitblocks.Repo.insert_all(Bitblocks.Chain.Block, &1))
+
+    :ok
+  end
+
+  @doc """
   Generate a unique transaction txid.
   """
   def unique_transaction_txid, do: "txid#{System.unique_integer([:positive])}"
