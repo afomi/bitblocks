@@ -121,9 +121,10 @@ mix assets.deploy           # Build and minify for production
 - Routes (lib/bitblocks_web/router.ex):
   - `/` and `/status` - Status page
   - `/blocks` - List blocks
-  - `/blocks/:id` - Show block by height or hash
-  - `/transactions` - List transactions
-  - `/transactions/:id` - Show transaction by txid
+  - `/blocks/:id` - Show block by height or hash (sign-in required; txids load 50 per page)
+  - `/transactions` - List transactions (sign-in required)
+  - `/transactions/:id` - Show transaction by txid (sign-in required)
+  - `/sign-in`, `/auth/github`, `/auth/github/callback`, `DELETE /auth/logout` - GitHub sign-in (`BitblocksWeb.UserAuth`, `BitblocksWeb.AuthController`)
   - `/metanet` - Metanet DAG explorer (enter txid, navigate tree)
   - `/order-book` - Open Order Book (browse BSV-20 token listings)
   - `/tokens` and `/tokens/:id` - BSV-20/BSV-21 token index (supply, holders); read-only, minting lives in qart
@@ -132,6 +133,15 @@ mix assets.deploy           # Build and minify for production
   - `/syncing` - public live sync view: blocks fetching on each lane with synced and processed x of y, recent completions, tips and blocks by sync_state, from one shared snapshot (`Bitblocks.SyncProgress`; `docs/SYNCING.md`). `/sync` is the admin operator page
   - `/chain-scrubber` - admin only: scrub the chain genesis to tip in three.js from precomputed tiles (`docs/CHAIN_SCRUBBER.md`); `/chain-scrubber/tiles/manifest` and `/chain-scrubber/tiles/:level/:idx` serve the tiles from ETS with no DB query
   - `/dev/dashboard` - LiveDashboard (dev only)
+
+**Access (`BitblocksWeb.UserAuth`):**
+- Public: home, `/blocks`, the beta features, `/status`, `/reorgs`, `/protocols`, `/about`, the API, `/content`.
+- Signed in with GitHub: block and transaction detail.
+- Admin: everything in the router's `:admin` scope plus the chain-scrubber tiles.
+  An admin is a GitHub login on `ADMIN_GITHUB_LOGINS` (comma-separated, case-insensitive) or valid HTTP basic auth (`ADMIN_USERNAME`/`ADMIN_PASSWORD`, T10 fail-closed in prod).
+- GitHub sign-in needs `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`; unset, the sign-in page says it isn't configured.
+  In prod all three come from the AWS Secrets Manager secret `bitblocks/prod`, which `.github/scripts/deploy.sh` writes to `/opt/bitblocks.env` on every deploy.
+- config/test.exs turns the gate off for the suite; `test/bitblocks_web/user_auth_test.exs` turns it on.
 
 **Request Logging:**
 - `BitblocksWeb.Plugs.RequestLogger` (lib/bitblocks_web/plugs/request_logger.ex) - Logs all requests with metadata

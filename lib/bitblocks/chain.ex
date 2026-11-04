@@ -109,6 +109,73 @@ defmodule Bitblocks.Chain do
     end
   end
 
+  @doc """
+  A block for display, without its txid array, plus how many txids it holds.
+
+  Large blocks carry millions of txids; the detail page reads them a page at
+  a time with `block_txids_page/3` instead. `tx` is nil on the returned
+  block. Raises `Ecto.NoResultsError` (a 404) when no block matches.
+  """
+  @spec get_block_for_display!(String.t() | integer()) :: {Block.t(), non_neg_integer()}
+  def get_block_for_display!(height_or_hash) do
+    fields = Block.__schema__(:fields) -- [:tx]
+
+    query =
+      case block_lookup(height_or_hash) do
+        {:height, height} -> from(b in Block, where: b.height == ^height)
+        {:hash, hash} -> from(b in Block, where: b.hash == ^hash)
+      end
+
+    query
+    |> limit(1)
+    |> select([b], {struct(b, ^fields), fragment("coalesce(cardinality(?), 0)", b.tx)})
+    |> Repo.one()
+    |> case do
+      nil -> raise Ecto.NoResultsError, queryable: Block
+      {block, count} -> {%{block | tx: nil}, count}
+    end
+  end
+
+  defp block_lookup(height) when is_integer(height), do: {:height, height}
+
+  defp block_lookup(height_or_hash) when is_binary(height_or_hash) do
+    case Integer.parse(height_or_hash) do
+      {height, ""} -> {:height, height}
+      _ -> {:hash, height_or_hash}
+    end
+  end
+
+  @doc """
+  One page of a block's txids, sliced in Postgres so the array never leaves
+  the database whole. Pages count from 1.
+  """
+  @spec block_txids_page(integer(), pos_integer(), pos_integer()) :: [String.t()]
+  def block_txids_page(block_id, page, page_size) when page >= 1 and page_size >= 1 do
+    first = (page - 1) * page_size + 1
+    last = page * page_size
+
+    from(b in Block,
+      where: b.id == ^block_id,
+      select: fragment("?[?:?]", b.tx, type(^first, :integer), type(^last, :integer))
+    )
+    |> Repo.one()
+    |> Kernel.||([])
+  end
+
+  @doc """
+  Whether every txid of the block (by hash) has a stored transaction, given
+  how many txids the block lists.
+  """
+  @spec block_transactions_downloaded?(String.t(), non_neg_integer()) :: boolean()
+  def block_transactions_downloaded?(_hash, 0), do: false
+
+  def block_transactions_downloaded?(hash, expected_count) when is_binary(hash) do
+    stored_count =
+      Repo.one(from t in Transaction, where: t.block_hash == ^hash, select: count(t.id))
+
+    stored_count == expected_count
+  end
+
   def get_transaction!(id_or_txid) when is_integer(id_or_txid) do
     # Try finding by ID first, then raise if not found
     Repo.get(Transaction, id_or_txid) || raise Ecto.NoResultsError, queryable: Transaction

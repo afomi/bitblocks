@@ -64,6 +64,8 @@
           Sync Status
         </p>
         <button
+          :if={@admin?}
+          id="download-transactions"
           phx-click="download_transactions"
           class={[
             "px-4 py-2 rounded text-sm font-medium transition-colors",
@@ -121,7 +123,7 @@
         :if={@live_action == :edit}
         id="blocks-modal"
         show
-        on_cancel={JS.patch(~p"/blocks/#{@block}")}
+        on_cancel={JS.navigate(~p"/blocks/#{@block.height}")}
       >
         <.live_component
           module={BitblocksWeb.BlockLive.FormComponent}
@@ -129,7 +131,7 @@
           title={@page_title}
           action={@live_action}
           block={@block}
-          patch={~p"/blocks/#{@blocks}"}
+          patch={~p"/blocks/#{@block.height}"}
         />
       </.modal>
     <% end %>
@@ -245,13 +247,13 @@
         <p class="text-2xl font-semibold text-neutral-50 tabular-nums mb-6">
           <%= @block.num_tx %>
         </p>
-        <div :if={@block.tx && length(@block.tx) > 0}>
-          <% page_size = BitblocksWeb.BlockLive.Show.tx_page_size() %>
-          <% total_txs = length(@block.tx) %>
-          <% total_pages = ceil(total_txs / page_size) %>
-          <% page_txids = Enum.slice(@block.tx, (@tx_page - 1) * page_size, page_size) %>
-          <div class="border-t border-neutral-800">
-            <%= for txid <- page_txids do %>
+        <div :if={@tx_total > 0}>
+          <% total_pages = BitblocksWeb.BlockLive.Show.tx_total_pages(@tx_total) %>
+          <div
+            id="block-txids"
+            class="border-t border-neutral-800"
+          >
+            <%= for txid <- @txids do %>
               <.link
                 navigate={~p"/transactions/#{txid}"}
                 class="block py-2 border-b border-neutral-800 font-mono text-xs text-neutral-400 hover:text-brand transition-colors duration-150 break-all"
@@ -286,7 +288,7 @@
           </div>
         </div>
         <p
-          :if={is_nil(@block.tx) || @block.tx == []}
+          :if={@tx_total == 0}
           class="text-sm text-neutral-500"
         >
           Transaction IDs not yet synced for this block.
@@ -304,7 +306,8 @@
           ← All blocks
         </.link>
         <.link
-          patch={~p"/blocks/#{@block}"}
+          :if={@admin?}
+          href={~p"/blocks/#{@block.height}/show/edit"}
           class="text-sm text-neutral-400 hover:text-neutral-50 transition-colors duration-150"
         >
           Edit

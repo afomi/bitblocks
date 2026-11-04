@@ -1,8 +1,15 @@
 defmodule BitblocksWeb.NavComponent do
   use Phoenix.Component
 
+  attr :current_user, :any, default: nil, doc: "the signed-in Bitblocks.Accounts.User, or nil"
+  attr :current_path, :string, default: nil, doc: "where sign-in should return to"
+
   def nav(assigns) do
-    assigns = assign(assigns, :dev_routes, dev_routes?())
+    assigns =
+      assigns
+      |> assign(:dev_routes, dev_routes?())
+      |> assign(:github_configured?, BitblocksWeb.UserAuth.github_configured?())
+      |> assign(:github_path, BitblocksWeb.UserAuth.github_path(assigns.current_path))
 
     ~H"""
     <!-- Include this script tag or install `@tailwindplus/elements` via npm: -->
@@ -59,6 +66,42 @@ defmodule BitblocksWeb.NavComponent do
               About
             </a>
           </div>
+        </div>
+        <div
+          id="nav-account"
+          class="hidden lg:flex lg:items-center lg:gap-x-4"
+        >
+          <%= if @current_user do %>
+            <span
+              id="nav-user"
+              class="flex items-center gap-x-2 text-sm/6 font-semibold text-gray-900 dark:text-white"
+            >
+              <img
+                :if={@current_user.avatar_url}
+                src={@current_user.avatar_url}
+                alt=""
+                class="size-6 rounded-full"
+              />
+              {@current_user.login}
+            </span>
+            <.link
+              id="nav-sign-out"
+              href="/auth/logout"
+              method="delete"
+              class="text-sm/6 font-semibold text-gray-900 dark:text-white"
+            >
+              Sign out
+            </.link>
+          <% else %>
+            <a
+              :if={@github_configured?}
+              id="nav-sign-in"
+              href={@github_path}
+              class="text-sm/6 font-semibold text-gray-900 dark:text-white"
+            >
+              Sign in with GitHub
+            </a>
+          <% end %>
         </div>
         <div class="flex lg:hidden">
           <button
@@ -160,6 +203,37 @@ defmodule BitblocksWeb.NavComponent do
                 >
                   About
                 </a>
+                <%= if @current_user do %>
+                  <span
+                    id="nav-user-mobile"
+                    class="-mx-3 flex items-center gap-x-2 px-3 py-2 text-base/7 font-semibold text-gray-900 dark:text-white"
+                  >
+                    <img
+                      :if={@current_user.avatar_url}
+                      src={@current_user.avatar_url}
+                      alt=""
+                      class="size-6 rounded-full"
+                    />
+                    {@current_user.login}
+                  </span>
+                  <.link
+                    id="nav-sign-out-mobile"
+                    href="/auth/logout"
+                    method="delete"
+                    class="-mx-3 block rounded-lg px-3 py-2 text-base/7 font-semibold text-gray-900 hover:bg-gray-50 dark:text-white dark:hover:bg-white/5"
+                  >
+                    Sign out
+                  </.link>
+                <% else %>
+                  <a
+                    :if={@github_configured?}
+                    id="nav-sign-in-mobile"
+                    href={@github_path}
+                    class="-mx-3 block rounded-lg px-3 py-2 text-base/7 font-semibold text-gray-900 hover:bg-gray-50 dark:text-white dark:hover:bg-white/5"
+                  >
+                    Sign in with GitHub
+                  </a>
+                <% end %>
               </div>
             </el-dialog-panel>
           </div>

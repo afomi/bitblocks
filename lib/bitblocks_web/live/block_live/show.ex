@@ -7,9 +7,12 @@ defmodule BitblocksWeb.BlockLive.Show do
 
   @tx_page_size 50
 
+  # Assigns hold the block WITHOUT its txid array (`block.tx` is nil) plus
+  # one page of txids (`:txids`) and the array length (`:tx_total`). Large
+  # blocks list millions of txids; a socket must never carry them all.
   @impl true
   def mount(_params, _session, socket) do
-    {:ok, assign(socket, downloading: false, tx_page: 1)}
+    {:ok, assign(socket, downloading: false, tx_page: 1, txids: [], tx_total: 0)}
   end
 
   @impl true
@@ -19,39 +22,36 @@ defmodule BitblocksWeb.BlockLive.Show do
       Phoenix.PubSub.unsubscribe(Bitblocks.PubSub, "block:#{old.hash}")
     end
 
-    case Chain.get_block(id) do
-      nil ->
-        {:noreply,
-         socket
-         |> put_flash(:error, "Block not found: #{id}")
-         |> push_navigate(to: ~p"/blocks")}
+    # A missing block raises Ecto.NoResultsError, which renders a 404.
+    {block, tx_total} = Chain.get_block_for_display!(id)
 
-      block ->
-        if connected?(socket) do
-          Phoenix.PubSub.subscribe(Bitblocks.PubSub, "block:#{block.hash}")
-        end
-
-        transactions_downloaded = Chain.block_transactions_downloaded?(block)
-
-        {:noreply,
-         socket
-         |> assign(:page_title, page_title(socket.assigns.live_action))
-         |> assign(:block, block)
-         |> assign(:transactions_downloaded, transactions_downloaded)
-         |> assign(:tx_page, 1)}
+    if connected?(socket) do
+      Phoenix.PubSub.subscribe(Bitblocks.PubSub, "block:#{block.hash}")
     end
+
+    {:noreply,
+     socket
+     |> assign(:page_title, page_title(socket.assigns.live_action))
+     |> assign_block(block, tx_total)
+     |> assign_tx_page(1)}
   end
 
   @impl true
   def handle_event("tx_page", %{"page" => page}, socket) do
-    {:noreply, assign(socket, :tx_page, String.to_integer(page))}
+    page =
+      case Integer.parse(to_string(page)) do
+        {page, ""} -> page |> max(1) |> min(total_pages(socket.assigns.tx_total))
+        _ -> 1
+      end
+
+    {:noreply, assign_tx_page(socket, page)}
   end
 
-  @impl true
-  def handle_event("download_transactions", _params, socket) do
+  # Admins only: queuing a download costs node calls. The button is hidden
+  # for everyone else, and this clause holds the line on the server.
+  def handle_event("download_transactions", _params, %{assigns: %{admin?: true}} = socket) do
     block = socket.assigns.block
 
-    # Queue the job
     case Chain.queue_transaction_fetch(block) do
       {:ok, _job} ->
         {:noreply,
@@ -66,18 +66,46 @@ defmodule BitblocksWeb.BlockLive.Show do
     end
   end
 
-  @impl true
-  def handle_info({:block_updated, updated_block}, socket) do
-    transactions_downloaded = Chain.block_transactions_downloaded?(updated_block)
-
-    {:noreply,
-     socket
-     |> assign(:block, updated_block)
-     |> assign(:transactions_downloaded, transactions_downloaded)
-     |> assign(:downloading, !transactions_downloaded)}
+  def handle_event("download_transactions", _params, socket) do
+    {:noreply, put_flash(socket, :error, "Downloading transactions is for admins.")}
   end
 
+  @impl true
+  def handle_info({:block_updated, updated_block}, socket) do
+    # The broadcast carries the full row; reload without the txid array.
+    {block, tx_total} = Chain.get_block_for_display!(updated_block.hash)
+
+    socket =
+      socket
+      |> assign_block(block, tx_total)
+      |> assign_tx_page(socket.assigns.tx_page)
+
+    {:noreply, assign(socket, :downloading, !socket.assigns.transactions_downloaded)}
+  end
+
+  defp assign_block(socket, block, tx_total) do
+    socket
+    |> assign(:block, block)
+    |> assign(:tx_total, tx_total)
+    |> assign(
+      :transactions_downloaded,
+      Chain.block_transactions_downloaded?(block.hash, tx_total)
+    )
+  end
+
+  defp assign_tx_page(socket, page) do
+    socket
+    |> assign(:tx_page, page)
+    |> assign(:txids, Chain.block_txids_page(socket.assigns.block.id, page, @tx_page_size))
+  end
+
+  defp total_pages(0), do: 1
+  defp total_pages(total), do: ceil(total / @tx_page_size)
+
   def tx_page_size, do: @tx_page_size
+
+  @doc false
+  def tx_total_pages(total), do: total_pages(total)
 
   defp page_title(:show), do: "Show Block"
   defp page_title(:edit), do: "Edit Block"

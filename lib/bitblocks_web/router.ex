@@ -1,6 +1,16 @@
 defmodule BitblocksWeb.Router do
   use BitblocksWeb, :router
 
+  import BitblocksWeb.UserAuth,
+    only: [
+      fetch_current_user: 2,
+      require_user: 2,
+      require_admin: 2,
+      require_admin_data: 2
+    ]
+
+  alias BitblocksWeb.UserAuth
+
   pipeline :browser do
     plug :accepts, ["html"]
     plug :fetch_session
@@ -9,6 +19,7 @@ defmodule BitblocksWeb.Router do
     plug BitblocksWeb.ReorgNotice
     plug :protect_from_forgery
     plug :put_secure_browser_headers
+    plug :fetch_current_user
   end
 
   pipeline :api do
@@ -154,67 +165,72 @@ defmodule BitblocksWeb.Router do
     plug :accepts, ["text"]
   end
 
+  # Access model (BitblocksWeb.UserAuth): the explorer front is public;
+  # block and transaction detail need a signed-in GitHub user; the operator
+  # surface needs an admin, meaning an ADMIN_GITHUB_LOGINS login OR valid
+  # HTTP basic auth. Either one admits you.
+  #
+  # The gate runs in EVERY env. Enforcement is a runtime toggle
+  # (`config :bitblocks, :admin_auth, enabled: true|false`, default true):
+  # prod keeps the T10 fail-closed behavior (basic auth on default creds is
+  # refused), dev runs with logged dev-default creds, and test disables the
+  # gate in config/test.exs so existing tests can hit /sync, /config, etc.
+  #
+  # Each LiveView route also sits in a live_session whose on_mount hook holds
+  # the same line on the websocket, which these plugs never see.
   pipeline :admin do
     plug :browser
-    plug :basic_auth
+    plug :require_admin
   end
 
-  # Admin data the browser fetches by script: basic auth and nothing else.
-  # :browser runs ReorgNotice, which queries the database on every request;
-  # chain-scrubber tiles must be served without a query (#48).
+  pipeline :signed_in do
+    plug :require_user
+  end
+
+  # Admin data the browser fetches by script: no :browser pipeline.
+  # :browser runs ReorgNotice and loads the current user, both database
+  # queries; chain-scrubber tiles must be served without a query (#48), so
+  # this gate reads only the signed session cookie and basic auth.
   pipeline :admin_data do
-    plug :basic_auth
-  end
-
-  # The operator surface is gated in EVERY env — no more compile-time
-  # dev/test bypass. Enforcement is a runtime toggle
-  # (`config :bitblocks, :admin_auth, enabled: true|false`, default true):
-  # prod keeps the T10 fail-closed behavior (503 on default creds), dev runs
-  # with logged dev-default creds, and test disables the gate in
-  # config/test.exs so existing tests can hit /sync, /config, etc.
-  #
-  # T10: refuse to serve the admin surface with built-in default credentials in
-  # production — a hard 503 beats a trivially-owned admin panel. The decision
-  # lives in BitblocksWeb.AdminAuth (pure + tested).
-  defp basic_auth(conn, _opts) do
-    if BitblocksWeb.AdminAuth.enabled?() do
-      case BitblocksWeb.AdminAuth.decision() do
-        {:ok, username, password} ->
-          Plug.BasicAuth.basic_auth(conn, username: username, password: password)
-
-        {:error, :default_credentials} ->
-          require Logger
-          Logger.error("Admin auth refused: ADMIN_USERNAME/ADMIN_PASSWORD not set in production")
-
-          conn
-          |> Plug.Conn.send_resp(503, "Admin interface not configured")
-          |> Plug.Conn.halt()
-      end
-    else
-      conn
-    end
+    plug :require_admin_data
   end
 
   scope "/", BitblocksWeb do
     pipe_through :browser
 
-    live "/search", SearchLive
-    live "/protocols", ProtocolsLive
-    live "/bitcom", BitcomLive
-    live "/bitcom/compose", BitcomComposeLive
-    live "/bitcom/:address", BitcomLive
-    live "/order-book", OrderBookLive
-    live "/tokens", TokenLive
-    live "/tokens/:id", TokenLive
-    live "/metanet", MetanetLive
-    live "/collections", CollectionLive.Index
-    live "/collections/:id", CollectionLive.Show
-    live "/about", AboutLive
-    live "/pricing", PricingLive
-    live "/guide", GuideLive
-    live "/reorgs", ReorgLive
-    live "/syncing", SyncingLive
-    live "/did", DIDLive
+    get "/sign-in", AuthController, :sign_in
+    get "/auth/github", AuthController, :request
+    get "/auth/github/callback", AuthController, :callback
+    delete "/auth/logout", AuthController, :logout
+  end
+
+  scope "/", BitblocksWeb do
+    pipe_through :browser
+
+    live_session :public,
+      on_mount: [{UserAuth, :mount_current_user}],
+      session: {UserAuth, :live_session_data, []} do
+      live "/search", SearchLive
+      live "/protocols", ProtocolsLive
+      live "/bitcom", BitcomLive
+      live "/bitcom/compose", BitcomComposeLive
+      live "/bitcom/:address", BitcomLive
+      live "/order-book", OrderBookLive
+      live "/tokens", TokenLive
+      live "/tokens/:id", TokenLive
+      live "/metanet", MetanetLive
+      live "/collections", CollectionLive.Index
+      live "/collections/:id", CollectionLive.Show
+      live "/about", AboutLive
+      live "/pricing", PricingLive
+      live "/guide", GuideLive
+      live "/reorgs", ReorgLive
+      live "/syncing", SyncingLive
+      live "/did", DIDLive
+
+      # Public block index. Detail pages need sign-in; mutation pages are admin.
+      live "/blocks", BlockLive.Index, :index
+    end
 
     get "/wall", WallController, :index
     get "/wall/blocks_data", WallController, :blocks_data
@@ -226,49 +242,58 @@ defmodule BitblocksWeb.Router do
     get "/resources", PageController, :resources
     get "/status", PageController, :status
     get "/", PageController, :home
-
-    # Public block index. Detail/mutation routes stay admin-only below.
-    live "/blocks", BlockLive.Index, :index
   end
 
+  # Declared before the signed-in scope so /blocks/new and /transactions/new
+  # aren't captured by /blocks/:id and /transactions/:id.
   scope "/", BitblocksWeb do
-    # Operator surface — always behind :admin (see basic_auth/2 above for the
-    # per-env enablement rules).
+    # Operator surface: admins only (see the access model above).
     pipe_through :admin
 
     get "/config", PageController, :config
     get "/debug", PageController, :debug
 
-    live "/admin", AdminLive
+    live_session :admin,
+      on_mount: [{UserAuth, :require_admin}],
+      session: {UserAuth, :live_session_data, []} do
+      live "/admin", AdminLive
 
-    # Dev-only routes
-    live "/address_repo", AddressRepoLive
-    live "/forks", ForkGraphLive
-    live "/sync", SyncLive
-    live "/reporting", ReportingLive
-    live "/highlights", HighlightsLive
-    live "/graph", GraphLive
-    live "/block-graph", BlockGraphLive
-    live "/rpc_admin", RpcAdminLive
-    live "/peers", PeerMapLive
-    live "/pulse", PulseLive
-    live "/ecosystem", EcosystemLive
-    live "/tx-graph", TxGraphLive
-    live "/shape-layers", ShapeLayerLive
-    live "/chain-scrubber", ChainScrubberLive
+      live "/address_repo", AddressRepoLive
+      live "/forks", ForkGraphLive
+      live "/sync", SyncLive
+      live "/reporting", ReportingLive
+      live "/highlights", HighlightsLive
+      live "/graph", GraphLive
+      live "/block-graph", BlockGraphLive
+      live "/rpc_admin", RpcAdminLive
+      live "/peers", PeerMapLive
+      live "/pulse", PulseLive
+      live "/ecosystem", EcosystemLive
+      live "/tx-graph", TxGraphLive
+      live "/shape-layers", ShapeLayerLive
+      live "/chain-scrubber", ChainScrubberLive
 
-    # Block detail/mutation pages stay dev/admin (index is public, see :browser scope)
-    live "/blocks/new", BlockLive.Index, :new
-    live "/blocks/:id/edit", BlockLive.Index, :edit
-    live "/blocks/:id", BlockLive.Show, :show
-    live "/blocks/:id/show/edit", BlockLive.Show, :edit
+      # Block and transaction mutation pages
+      live "/blocks/new", BlockLive.Index, :new
+      live "/blocks/:id/edit", BlockLive.Index, :edit
+      live "/blocks/:id/show/edit", BlockLive.Show, :edit
+      live "/transactions/new", TransactionLive.Index, :new
+      live "/transactions/:id/edit", TransactionLive.Index, :edit
+      live "/transactions/:id/show/edit", TransactionLive.Show, :edit
+    end
+  end
 
-    # Transaction pages only for dev/admin (too many requests for public access)
-    live "/transactions", TransactionLive.Index, :index
-    live "/transactions/new", TransactionLive.Index, :new
-    live "/transactions/:id", TransactionLive.Show, :show
-    live "/transactions/:id/edit", TransactionLive.Index, :edit
-    live "/transactions/:id/show/edit", TransactionLive.Show, :edit
+  scope "/", BitblocksWeb do
+    # Detail pages: any signed-in GitHub user, or an admin.
+    pipe_through [:browser, :signed_in]
+
+    live_session :signed_in,
+      on_mount: [{UserAuth, :require_user}],
+      session: {UserAuth, :live_session_data, []} do
+      live "/blocks/:id", BlockLive.Show, :show
+      live "/transactions", TransactionLive.Index, :index
+      live "/transactions/:id", TransactionLive.Show, :show
+    end
   end
 
   scope "/chain-scrubber", BitblocksWeb do

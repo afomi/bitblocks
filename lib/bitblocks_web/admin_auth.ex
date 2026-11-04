@@ -95,6 +95,47 @@ defmodule BitblocksWeb.AdminAuth do
 
   defp maybe_warn_dev_defaults(_env, _user, _pass), do: :ok
 
+  @doc """
+  The GitHub logins allowed onto the operator surface, lowercased.
+
+  Set from `ADMIN_GITHUB_LOGINS` (comma-separated) in config/runtime.exs as
+  `config :bitblocks, :admin_github_logins, [...]`. Empty means no GitHub
+  user is an admin; basic auth still works.
+  """
+  @spec github_logins() :: [String.t()]
+  def github_logins do
+    :bitblocks
+    |> Application.get_env(:admin_github_logins, [])
+    |> Enum.map(&(&1 |> String.trim() |> String.downcase()))
+    |> Enum.reject(&(&1 == ""))
+  end
+
+  @doc "Whether this GitHub login is on the admin allowlist (case-insensitive)."
+  @spec admin_login?(String.t() | nil) :: boolean()
+  def admin_login?(login) when is_binary(login) and login != "" do
+    String.downcase(login) in github_logins()
+  end
+
+  def admin_login?(_), do: false
+
+  @doc """
+  Whether the request carries valid admin basic-auth credentials.
+
+  Non-challenging: returns `false` for a missing or wrong header, and for
+  production running on the default credentials (T10), so the caller decides
+  how to respond.
+  """
+  @spec valid_basic_auth?(Plug.Conn.t()) :: boolean()
+  def valid_basic_auth?(conn) do
+    with {given_user, given_pass} <- Plug.BasicAuth.parse_basic_auth(conn),
+         {:ok, user, pass} <- decision() do
+      Plug.Crypto.secure_compare(given_user, user) and
+        Plug.Crypto.secure_compare(given_pass, pass)
+    else
+      _ -> false
+    end
+  end
+
   defp env, do: Application.get_env(:bitblocks, :admin_auth_env, default_env())
 
   # Compile-time Mix.env() is the right default; tests override via config.

@@ -62,6 +62,25 @@ config :bitblocks, Bitblocks.Woc,
       else: parse_env_integer.(System.get_env("WOC_RPS"), 10)
     )
 
+# GitHub sign-in and the admin allowlist (BitblocksWeb.UserAuth).
+# In prod these come from the AWS Secrets Manager secret `bitblocks/prod`,
+# which .github/scripts/deploy.sh writes to /opt/bitblocks.env on every
+# deploy. Test keeps the defaults from config/config.exs so a developer's
+# shell can't change what the suite sees.
+if config_env() != :test do
+  config :ueberauth, Ueberauth.Strategy.Github.OAuth,
+    client_id: System.get_env("GITHUB_CLIENT_ID"),
+    client_secret: System.get_env("GITHUB_CLIENT_SECRET")
+
+  # Comma-separated GitHub logins, matched case-insensitively.
+  config :bitblocks,
+         :admin_github_logins,
+         (System.get_env("ADMIN_GITHUB_LOGINS") || "")
+         |> String.split(",", trim: true)
+         |> Enum.map(&String.trim/1)
+         |> Enum.reject(&(&1 == ""))
+end
+
 # config/runtime.exs is executed for all environments, including
 # during releases. It is executed after compilation and before the
 # system starts, so it is typically used to load production configuration
@@ -182,6 +201,13 @@ if config_env() == :prod do
   port = String.to_integer(System.get_env("PORT") || "4000")
 
   config :bitblocks, :dns_cluster_query, System.get_env("DNS_CLUSTER_QUERY")
+
+  # The GitHub OAuth app's callback URL is https://<PHX_HOST>/auth/github/callback.
+  # Sign-in started on any other host (www.) moves to PHX_HOST first, because
+  # session and OAuth state cookies are per host.
+  config :bitblocks, :github_oauth,
+    callback_url: "https://#{host}/auth/github/callback",
+    canonical_host: host
 
   config :bitblocks, BitblocksWeb.Endpoint,
     url: [host: host, port: 443, scheme: "https"],

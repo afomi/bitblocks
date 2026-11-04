@@ -194,7 +194,10 @@
         </button>
       </div>
     </div>
-    <BitblocksWeb.NavComponent.nav />
+    <BitblocksWeb.NavComponent.nav
+      current_user={assigns[:current_user]}
+      current_path={assigns[:current_path]}
+    />
 
     <main role="main">
       <.flash_group flash={@flash} />

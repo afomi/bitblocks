@@ -1,0 +1,42 @@
+<div
+  id="sign-in"
+  class="max-w-xl mx-auto px-4 py-16"
+>
+  <h1 class="text-3xl font-semibold text-neutral-50 mb-4">
+    Sign in
+  </h1>
+  <p class="text-neutral-400 mb-8">
+    Block and transaction detail pages are open to anyone signed in with GitHub.
+    We read your public GitHub profile and nothing else.
+  </p>
+
+  <%= if @github_configured? do %>
+    <a
+      id="sign-in-github"
+      href={@github_path}
+      class="inline-flex items-center gap-2 rounded bg-neutral-50 px-4 py-2 text-sm font-semibold text-neutral-900 hover:bg-white"
+    >
+      Sign in with GitHub
+    </a>
+  <% else %>
+    <p
+      id="sign-in-unconfigured"
+      class="rounded border border-neutral-800 px-4 py-3 text-sm text-neutral-300"
+    >
+      GitHub sign-in isn't configured on this server yet.
+      It will appear here as soon as it is.
+    </p>
+  <% end %>
+
+  <p class="text-sm text-neutral-500 mt-8">
+    Operators can sign in with their admin credentials at
+    <a
+      href="/admin"
+      class="underline hover:text-neutral-50"
+    >
+      the admin page</a>.
+  </p>
+  <p class="text-sm text-neutral-500 mt-2">
+    The block list, tokens, collections, Bitcom and the API stay open to everyone.
+  </p>
+</div>

@@ -182,6 +182,17 @@ config :bitblocks, Bitblocks.MiningProxy,
 # closed on the defaults, dev logs a warning).
 config :bitblocks, :admin_auth, enabled: true
 
+# GitHub sign-in (BitblocksWeb.AuthController). Ueberauth is run per request
+# with runtime options, so no providers are listed here. The client id and
+# secret come from GITHUB_CLIENT_ID / GITHUB_CLIENT_SECRET in
+# config/runtime.exs; unset means the sign-in page says it isn't configured.
+config :ueberauth, Ueberauth, base_path: "/auth"
+config :ueberauth, Ueberauth.Strategy.Github.OAuth, client_id: nil, client_secret: nil
+
+# Admin GitHub logins (ADMIN_GITHUB_LOGINS in config/runtime.exs).
+config :bitblocks, :admin_github_logins, []
+config :bitblocks, :github_oauth, []
+
 # Sponsorship (Bitblocks.Support). The ask lives off-site (sponsor_url);
 # bitblocks serves the live numbers at GET /api/v1/support for that page.
 #   monthly_costs: [{"Bitcoin SV full node", 1000}, …]  # USD per month
