@@ -268,7 +268,9 @@ defmodule Bitblocks.Sync do
   `:sync_run_small_txs` txs, one job takes up to `:sync_run_max_blocks` of
   them (and at most `:sync_run_max_txs` txs in all), in height order, so the
   hand-off between jobs is paid once per run instead of once per block. The
-  early chain is almost all one-tx blocks.
+  run's time is bounded by `:tx_fetch_run_ms` like any job, and its blocks are
+  worked one at a time, so the limits keep runs short, not memory low.
+  Near height 157,000 the median block has 31 txs and the largest 379.
   """
   @spec dispatch(pos_integer()) :: non_neg_integer()
   def dispatch(n \\ concurrency()) do
@@ -335,8 +337,8 @@ defmodule Bitblocks.Sync do
   def run_limits do
     %{
       max_blocks: Application.get_env(:bitblocks, :sync_run_max_blocks, 50),
-      max_txs: Application.get_env(:bitblocks, :sync_run_max_txs, 2_000),
-      small_txs: Application.get_env(:bitblocks, :sync_run_small_txs, 100)
+      max_txs: Application.get_env(:bitblocks, :sync_run_max_txs, 20_000),
+      small_txs: Application.get_env(:bitblocks, :sync_run_small_txs, 1_000)
     }
   end
 

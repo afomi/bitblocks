@@ -30,11 +30,12 @@ A header gap below it is found by an index-only count of heights, and only searc
    Each block belongs to one `FetchTransactionsWorker` job on the `:sync_blocks` queue, unique on the block hash across queued, running and backing-off states, so two processes never hold the same block.
    The job walks the block's transactions in chunks of 100, in order, one request in flight.
    **Small blocks go in runs.**
-   When the next blocks for a slot each have at most `:sync_run_small_txs` (100) txs, one job takes up to `:sync_run_max_blocks` (50) of them, at most `:sync_run_max_txs` (2,000) txs in all, and walks them in height order within one bounded run.
+   When the next blocks for a slot each have at most `:sync_run_small_txs` (1,000) txs, one job takes up to `:sync_run_max_blocks` (50) of them, at most `:sync_run_max_txs` (20,000) txs in all, and walks them in height order within one bounded run.
    Dispatch holds every block of a run, so none goes to another slot; `/syncing` and `/blocks` show the run at the block it is on now.
    A larger block, or one with no known tx count, is a job of its own.
    Why: a small block's own work takes about 8 ms, but the hand-off between jobs (completion broadcast, the coordinator's next tick, dispatch, Oban pick-up) took about a second locally and about 9 s per slot on prod.
    Over the same 200 one-tx blocks from local `.bin` files, one slot went from 201 s to 5.3 s.
+   On prod, the first limit (100 txs) roughly tripled the rate, 13.3 to 38.4 blocks/min near height 157,000, where 1 block in 10 has more than 100 txs and ended a run; the limit is now 1,000.
 4. **One request per block.**
    A block up to 32 MB is fetched once as raw bytes (`Chain.RawBlock`): the node's REST interface first (`/rest/block/<hash>.bin`, needs `rest=1`), `getblock(hash, 0)` when REST answers anything but 200.
    The txs are split out locally; each txid is the double SHA-256 of its own bytes, and the ordered txids must rebuild the header's merkleroot.

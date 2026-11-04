@@ -83,7 +83,7 @@ mix assets.deploy           # Build and minify for production
 **The sync loop** (authoritative: `docs/SYNCING.md`):
 
 - Bitblocks is accurate as of the last-known block, and says which one: `Bitblocks.Sync.complete_through/0` is the highest H such that every block 0..H is `completed` (merkleroot rebuilt, every tx stored).
-- Work goes strictly upward from `complete_through + 1`, one owner per block, never skipped. Small blocks (at most 100 txs each) go in runs of up to 50 blocks or 2,000 txs per job, so the hand-off between jobs is paid once per run.
+- Work goes strictly upward from `complete_through + 1`, one owner per block, never skipped. Small blocks (at most 1,000 txs each) go in runs of up to 50 blocks or 20,000 txs per job, so the hand-off between jobs is paid once per run.
 - `Bitblocks.Sync.Coordinator` leads, on the Oban leader node only: header sync to the node's tip with reorgs (every minute), dispatch of the lowest incomplete blocks to worker slots, the concurrency setting, and the `{:sync_overview, _}` broadcast that `SyncProgress` shares with /syncing and /sync.
 - `Bitblocks.Workers.SyncWorker` (cron, every minute) only keeps the coordinator alive.
 - `Bitblocks.Workers.FetchTransactionsWorker` is the block job: queue `:sync_blocks`, unique on the block hash, one worker slot; a run job (`args.run`, from `Sync.dispatch/1`) walks its small blocks in height order.

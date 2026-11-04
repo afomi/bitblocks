@@ -65,10 +65,10 @@ defmodule Bitblocks.StatsCache do
     # Subscribe to block updates so counts refresh when blocks complete
     Phoenix.PubSub.subscribe(Bitblocks.PubSub, "blocks")
 
-    # Async refresh will fill in real values
-    schedule_refresh(0)
-
-    {:ok, %{refresh_pending: false}}
+    # Async refresh will fill in real values. One periodic timer, kept in
+    # state; a burst of block updates gets one debounced refresh of its own and
+    # never touches the periodic timer (each used to start another loop).
+    {:ok, %{periodic: Process.send_after(self(), :refresh, 0), debounce: nil}}
   end
 
   @impl true
@@ -80,31 +80,26 @@ defmodule Bitblocks.StatsCache do
   @impl true
   def handle_info(:refresh, state) do
     do_refresh()
-    schedule_refresh(@refresh_interval)
-    {:noreply, %{state | refresh_pending: false}}
+    {:noreply, %{state | periodic: Process.send_after(self(), :refresh, @refresh_interval)}}
   end
 
-  @impl true
-  def handle_info({:block_updated, _block}, %{refresh_pending: true} = state) do
-    {:noreply, state}
+  def handle_info(:debounced_refresh, state) do
+    do_refresh()
+    {:noreply, %{state | debounce: nil}}
   end
 
-  def handle_info({:block_updated, _block}, state) do
+  def handle_info({:block_updated, _block}, %{debounce: nil} = state) do
     # Debounce: wait 2 seconds so a burst of block updates triggers one refresh
-    schedule_refresh(2_000)
-    {:noreply, %{state | refresh_pending: true}}
+    {:noreply, %{state | debounce: Process.send_after(self(), :debounced_refresh, 2_000)}}
   end
 
-  @impl true
+  def handle_info({:block_updated, _block}, state), do: {:noreply, state}
+
   def handle_info(_msg, state) do
     {:noreply, state}
   end
 
   # Private functions
-
-  defp schedule_refresh(delay) do
-    Process.send_after(self(), :refresh, delay)
-  end
 
   defp do_refresh do
     Logger.debug("StatsCache: refreshing counts")
