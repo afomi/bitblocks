@@ -37,6 +37,10 @@ Each concept maps to its source (personas or stories in PLAN.md) and its data mo
 | **Application** | A named product that uses one or more filters (and an optional map). Distinct from a Protocol (wire format). Keyed by content hash of the definition. | Application Operator, Protocol Author, App User | USE_CASES | proposed `apps` registry |
 | **Hydration cursor** | Resume token `(height, txid)` plus snapshot height and definition hash. First-time hydrate, catch-up, and follow all advance it. | Application Operator | USE_CASES | consumer-side; Bitblocks serves pages |
 | **Identity (key-scoped)** | A key, address, paymail, AIP signature, or DID. Cross-app sameness is "this key signed", not a Bitblocks account. | App User, Explorer | USE_CASES, ACCOUNT_MODEL | derived; no user table |
+| **Merkle Proof** | Proof that a transaction is in a block, checked against the block header's merkle root without trusting Bitblocks. | Transactor, Wallet Builder | US-why-own-tx, US-why-wallet-hydrate | none stored; asked of the node (`gettxoutproof`) |
+| **Coverage** | How far Bitblocks is complete: every transaction stored through block X of N known (`Sync.complete_through/0`). | Transactor, Developer, every persona | US-why-own-tx, US-why-transparency | derived from `blocks.sync_state` |
+| **Scripthash** | Electrum-style id of a locking script (sha256 of the scriptPubKey, reversed hex); how a wallet asks for its history. | Wallet Builder, Developer | US-why-wallet-hydrate | `transactions.output_script_hashes[]` |
+| **API Key** | A keyed caller's credential (`bbk_…`) with its own request budget. | Developer | US-why-stream | `api_keys` |
 
 ---
 

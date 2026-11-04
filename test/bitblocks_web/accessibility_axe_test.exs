@@ -122,6 +122,8 @@ defmodule BitblocksWeb.AccessibilityAxeTest do
     # it is an empty flex-1 div that only gets a height once WebGL draws, so on
     # CI (no WebGL) it is never "visible".
     for {path, ready, webgl?} <- [
+          {"/", "#home-search-form", false},
+          {"/about", "#how-it-is-built", false},
           {"/tx-graph", "#tx-flow-range", true},
           {"/shape-layers", "svg[viewBox='0 0 400 300']", false},
           {"/chain-scrubber", "#chain-scrubber-controls", true},

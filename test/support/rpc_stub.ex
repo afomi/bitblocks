@@ -69,6 +69,10 @@ defmodule BitblocksWeb.RpcStub do
     put({:getblockheader, hash}, response || fixture!("getblock_verbosity_1.json"))
   end
 
+  @doc "Stubs `gettxoutproof(txids, blockhash)`: the proof hex, or `{:error, reason}`."
+  def stub_gettxoutproof(txids, blockhash, response),
+    do: put({:gettxoutproof, txids, blockhash}, response)
+
   def stub_getrawtransaction(txid, verbose \\ 1, response \\ nil) do
     put({:getrawtransaction, txid, verbose}, response || fixture!("getrawtransaction.json"))
   end

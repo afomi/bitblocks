@@ -16,11 +16,17 @@ defmodule BitblocksWeb.PageController do
         canonical_path: "/"
       )
 
-    # Recent blocks for the activity feed. Node and sync status live on
-    # /status and /syncing, not here.
+    # Recent blocks for the activity feed. The coverage line reads the shared
+    # sync snapshot from ETS (Bitblocks.SyncProgress), so it costs no query;
+    # the detail lives on /syncing.
     recent_blocks = Bitblocks.Chain.list_blocks(per_page: 7)
+    coverage = Bitblocks.SyncProgress.snapshot().overview
 
-    render(conn, :home, Map.put(seo, :recent_blocks, recent_blocks))
+    render(
+      conn,
+      :home,
+      Map.merge(seo, %{recent_blocks: recent_blocks, coverage: coverage})
+    )
   end
 
   def applications(conn, _params) do

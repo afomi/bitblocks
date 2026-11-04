@@ -32,55 +32,55 @@ defmodule BitblocksWeb.RecentBlocksComponent do
     assigns = assign(assigns, :blocks_with_deltas, blocks_with_deltas)
 
     ~H"""
-    <div>
-      <p class="font-mono text-xs text-neutral-500 uppercase tracking-wider mb-4">
-        Recent Blocks
-      </p>
-      <div class="border-t border-neutral-800">
-        <%= for {block, delta} <- @blocks_with_deltas do %>
-          <a
-            href={"/blocks/#{block.height}"}
-            class="flex items-center justify-between py-3 border-b border-neutral-800 group"
-          >
-            <div class="flex items-center gap-4">
-              <span class="font-mono text-sm text-neutral-50 tabular-nums group-hover:text-brand transition-colors duration-150">
-                {block.height}
-              </span>
-              <span class="text-xs text-neutral-500 tabular-nums">
-                {format_block_time(block.time)}
-              </span>
-            </div>
-            <div class="flex items-center gap-4">
-              <span
-                :if={block.num_tx}
-                class="font-mono text-xs text-neutral-500 tabular-nums"
-              >
-                {format_count(block.num_tx)} tx
-              </span>
-              <span
-                class="hidden sm:inline font-mono text-xs text-neutral-500 tabular-nums"
-                title="Fees paid to the miner, and the miner's reward (subsidy plus fees)"
-              >
-                fees {BitblocksWeb.Sats.block_sats(block, :fees)}
-                · reward {BitblocksWeb.Sats.block_bsv(block, :miner_reward)}
-              </span>
-              <span
-                :if={delta}
-                class={"font-mono text-xs tabular-nums #{interval_color(delta)}"}
-              >
-                +{format_interval(delta)}
-              </span>
-            </div>
-          </a>
-        <% end %>
+    <section aria-labelledby="recent-blocks-heading">
+      <h2
+        id="recent-blocks-heading"
+        class="text-lg font-semibold text-gray-900 dark:text-white mb-2"
+      >
+        Recent blocks
+      </h2>
+      <div class="border-t border-gray-200 dark:border-gray-700">
+        <a
+          :for={{block, delta} <- @blocks_with_deltas}
+          href={"/blocks/#{block.height}"}
+          class="group flex items-center justify-between gap-4 border-b border-gray-200 py-3 dark:border-gray-700"
+        >
+          <span class="flex items-center gap-4">
+            <span class="font-mono text-sm tabular-nums text-gray-900 group-hover:text-brand-strong dark:text-white dark:group-hover:text-brand">
+              {block.height}
+            </span>
+            <span class="text-xs tabular-nums text-gray-600 dark:text-gray-400">
+              {format_block_time(block.time)}
+            </span>
+          </span>
+          <span class="flex items-center gap-4 font-mono text-xs tabular-nums text-gray-600 dark:text-gray-400">
+            <span :if={block.num_tx}>
+              {format_count(block.num_tx)} tx
+            </span>
+            <span
+              class="hidden sm:inline"
+              title="Fees paid to the miner, and the miner's reward (subsidy plus fees)"
+            >
+              fees {BitblocksWeb.Sats.block_sats(block, :fees)}
+              · reward {BitblocksWeb.Sats.block_bsv(block, :miner_reward)}
+            </span>
+            <span
+              :if={delta}
+              class={interval_color(delta)}
+              title="Time since the block before it"
+            >
+              +{format_interval(delta)}
+            </span>
+          </span>
+        </a>
       </div>
       <a
         href="/blocks"
-        class="block mt-4 font-mono text-xs text-neutral-500 hover:text-brand-strong dark:hover:text-brand transition-colors duration-150"
+        class="mt-3 inline-block text-sm text-blue-700 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
       >
-        View all blocks →
+        All blocks
       </a>
-    </div>
+    </section>
     """
   end
 
@@ -95,10 +95,11 @@ defmodule BitblocksWeb.RecentBlocksComponent do
   defp format_interval(seconds) when seconds < 3600, do: "#{div(seconds, 60)}m"
   defp format_interval(seconds), do: "#{div(seconds, 3600)}h #{div(rem(seconds, 3600), 60)}m"
 
-  # Color based on how long the interval was — gives a visual sense of cadence
-  defp interval_color(seconds) when seconds <= 600, do: "text-green-500"
-  defp interval_color(seconds) when seconds <= 1800, do: "text-neutral-500"
-  defp interval_color(_seconds), do: "text-amber-400"
+  # Color by how long the interval was, for a sense of cadence. 700 shades
+  # clear 4.5:1 on white, 400 shades on gray-900 (DESIGN.md).
+  defp interval_color(seconds) when seconds <= 600, do: "text-green-700 dark:text-green-400"
+  defp interval_color(seconds) when seconds <= 1800, do: nil
+  defp interval_color(_seconds), do: "text-amber-700 dark:text-amber-400"
 
   # 23363 -> "23,363"
   defp format_count(n) when is_integer(n) do

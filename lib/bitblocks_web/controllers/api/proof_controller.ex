@@ -36,10 +36,12 @@ defmodule BitblocksWeb.Api.ProofController do
   end
 
   defp fetch_proof(txid, block_hash) do
-    case BitcoinsvCli.gettxoutproof([txid], block_hash) do
+    case cli().gettxoutproof([txid], block_hash) do
       hex when is_binary(hex) -> {:ok, hex}
       {:error, reason} -> {:error, reason}
       _ -> {:error, :proof_unavailable}
     end
   end
+
+  defp cli, do: Application.get_env(:bitblocks, :bitcoinsv_cli, BitcoinsvCli)
 end

@@ -28,7 +28,7 @@ Partly built: #21 export (snapshot anchoring needs a bitblocks-owned address) ·
 
 ## Needs decision
 
-#9 seeded protocols vs. on-chain proof (/bitcom already derives tiers from proof; decide whether /protocols follows) · #12 API-SURFACE · #13 EDGE-RATE · #16 brand-orange contrast.
+#9 seeded protocols vs. on-chain proof (/bitcom already derives tiers from proof; decide whether /protocols follows) · #12 API-SURFACE · #13 EDGE-RATE.
 
 ## Next
 

@@ -1,15 +1,50 @@
 # Personas
 
-Three distinct users of Bitblocks, each with a different relationship to the data.
+The people who use Bitblocks, each with a different relationship to the data.
+
+## What Bitblocks is to all of them
+
+Bitblocks is transparency and simplicity: a thin, fast web layer over a node, database records and command-line tools.
+Every number on a page is a record the API also serves, and every operation is a command with a result you can read (`/about`).
+Each persona below meets that promise from a different side.
+
+## Why people come here
+
+| Reason | Persona | Starts at | Stories |
+| --- | --- | --- | --- |
+| Look up one transaction of their own | Transactor | homepage search | US-why-own-tx |
+| Look up somebody else's transaction | Explorer | a shared link, or homepage search | US-why-others-tx |
+| Need a stream of chain data, as a developer, researcher or institution | Developer | homepage "Use the data", `/pricing` | US-why-stream |
+| Hydrate a wallet that has its keys but not its transactions, proofs and metadata | Wallet Builder | `/about`, `/api/v1/script/*` | US-why-wallet-hydrate |
+| Trust what they read | every persona | `/about` | US-why-transparency |
+
+---
+
+## Transactor
+
+**Role:** Someone who sent or received a payment and wants to see it on chain. No account, no code.
+
+**Responsibilities:**
+- None organizational; it is their own money or data.
+
+**Goals:**
+- Paste a txid and see that it is confirmed, and in which block.
+- Know whether Bitblocks has every transaction for that block yet.
+- Take away proof of inclusion they can show someone else.
+
+**Context:**
+- Arrives with a txid copied from a wallet, an exchange or a receipt.
+- Uses homepage search, then the transaction or block page; opening a transaction's inputs and outputs needs GitHub sign-in.
+- Wants an answer in one step, without learning the explorer first.
 
 ---
 
 ## Explorer
 
-**Role:** Curious person reading the blockchain — no account, no code.
+**Role:** Curious person reading somebody else's activity on the chain: a payment, a token, an inscription. No account, no code.
 
 **Responsibilities:**
-- None organizational; uses Bitblocks for personal understanding or research.
+- None organizational; uses Bitblocks for personal understanding, journalism or research.
 
 **Goals:**
 - Understand what a specific transaction contains and what it means.
@@ -18,7 +53,7 @@ Three distinct users of Bitblocks, each with a different relationship to the dat
 
 **Context:**
 - Arrives via a shared link to a txid or block height, or from general curiosity.
-- Uses the web UI exclusively: `/blocks`, `/transactions/:id`, `/metanet`, `/order-book`.
+- Uses the web UI: `/blocks`, `/transactions/:id`, `/types`, `/bitcom`, `/collections`, `/metanet`.
 - Non-technical — wants human-readable labels, not raw hex or opcodes.
 - May be encountering Bitcoin for the first time.
 
@@ -26,7 +61,8 @@ Three distinct users of Bitblocks, each with a different relationship to the dat
 
 ## Developer
 
-**Role:** Builds applications on top of BSV; treats Bitblocks as infrastructure.
+**Role:** A data customer: a developer, researcher or institution that reads the chain from a program and needs a reliable stream of it.
+Builds applications on top of BSV, or studies the chain; treats Bitblocks as infrastructure.
 
 **Responsibilities:**
 - Parses protocol data (Twetch, Metanet, OrderBook, BCat, etc.) for their own product.
@@ -44,6 +80,7 @@ Three distinct users of Bitblocks, each with a different relationship to the dat
 - Reads `docs/ORDER_BOOK_PROTOCOL.md`, `docs/SYNCING.md`, and similar specs.
 - May run Bitblocks locally against a testnet node during development.
 - Cares about schema stability, pagination, and error codes.
+- An institution or researcher wants a key with its own budget, a stated coverage ("complete through block X") and records it can re-verify.
 
 ---
 
@@ -127,3 +164,24 @@ Three distinct users of Bitblocks, each with a different relationship to the dat
 - Session is the wallet (BRC-100 / similar).
 - Bitblocks is an identity *index* and optional "viewing as" chrome, not SSO.
 - Default explorer UX is key-scoped, not clustered-person-scoped.
+
+---
+
+## Wallet Builder
+
+**Role:** Builds or runs a wallet that holds the user's keys and has to fill itself with what those keys own.
+
+**Responsibilities:**
+- Restores a wallet from keys: every transaction for its scripts, the outputs still unspent, a merkle proof for each, and what each output is (plain coin, token, inscription).
+- Keeps that state current as new blocks arrive.
+
+**Goals:**
+- Hydrate a wallet from keys alone, without running a node.
+- Verify each transaction against a block header itself, not trust Bitblocks.
+- Avoid spending an output that carries a token or an ordinal by mistake.
+
+**Context:**
+- Until wallets keep their own transactions, proofs and metadata, they need a service to hydrate them: a file explorer for a wallet.
+- Uses `GET /api/v1/script/:scripthash/history` and `/unspent`, `GET /api/v1/txs/:txid/proof`, and `GET /api/v1/outpoints/:txid/:vout`.
+- Related to the App User, who holds the keys; the Wallet Builder is the software and its maintainer acting for them.
+- Today it is one call per script and one per proof; a batch, BEEF-shaped answer (#17) is the natural next step.

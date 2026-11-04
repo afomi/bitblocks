@@ -9,6 +9,136 @@ Concepts defined in `CONCEPT_INVENTORY.md`.
 
 ---
 
+## Why people come here
+
+The reasons people arrive, from `PERSONAS.md`, each as a story with the tests that hold it.
+
+### US-why-own-tx: Find my own transaction
+
+**Status: Built.**
+
+As a **Transactor**,
+I want to paste my txid and see its block,
+so that I know my payment landed and can prove it.
+
+**Acceptance Criteria:**
+
+Given I am on the homepage,
+When I paste a txid and press Enter or Search,
+Then I reach `/search?query=<txid>` without JavaScript.
+
+Given the transaction is stored,
+When I search for it,
+Then I see the transaction and the block it is in.
+
+Given the sync snapshot has run,
+When I open the homepage,
+Then it says through which block every transaction is stored, linked to that block.
+
+Given the transaction is stored and the node can prove it,
+When I ask for `GET /api/v1/txs/:txid/proof`,
+Then I receive the proof with the block hash, height and merkle root to check it against.
+
+*Tests:* `test/bitblocks_web/controllers/page_controller_test.exs` (search form), `test/bitblocks_web/live/search_live_test.exs`, `test/bitblocks_web/live/about_live_test.exs` (homepage coverage line), `test/bitblocks_web/controllers/api/proof_controller_test.exs`.
+
+---
+
+### US-why-others-tx: Look up somebody else's transaction
+
+**Status: Built.**
+
+As an **Explorer**,
+I want to open a txid or block someone shared with me,
+so that I can see what happened without an account.
+
+**Acceptance Criteria:**
+
+Given a txid or block height,
+When I search for it,
+Then I find it, or I am told it is not stored.
+
+Given I am not signed in,
+When I open a transaction's detail page,
+Then I am asked to sign in with GitHub, and blocks stay public.
+
+*Tests:* `test/bitblocks_web/live/search_live_test.exs`, `test/bitblocks_web/user_auth_test.exs`.
+
+---
+
+### US-why-stream: Follow the chain from a program
+
+**Status: Built.**
+
+As a **Developer** (a developer, researcher or institution),
+I want to see which endpoints serve the records and follow new blocks as a stream,
+so that I can build on Bitblocks without running a node.
+
+**Acceptance Criteria:**
+
+Given I am on the homepage,
+When I read "Use the data",
+Then it names the endpoints for a proof, a script's history and the block stream, and links to keys and limits.
+
+Given a client connects to `GET /api/v1/stream/blocks`,
+When a block arrives,
+Then it is sent as a server-sent event.
+
+Given I send a valid API key,
+When I call the API,
+Then my key's own budget applies, and an unknown or revoked key is a 401.
+
+*Tests:* `test/bitblocks_web/controllers/page_controller_test.exs` (use the data), `test/bitblocks_web/controllers/api/stream_controller_test.exs`, `test/bitblocks_web/plugs/rate_limiter/api_key_test.exs`.
+
+---
+
+### US-why-wallet-hydrate: Hydrate a wallet from its keys
+
+**Status: Built, one call at a time.** A batch, BEEF-shaped answer is #17.
+
+As a **Wallet Builder**,
+I want every transaction, unspent output and merkle proof for my scripts, and what each output is,
+so that a wallet restored from keys alone knows what it owns and can verify it.
+
+**Acceptance Criteria:**
+
+Given a scripthash,
+When I call `GET /api/v1/script/:scripthash/history` and `/unspent`,
+Then I receive the transactions carrying the script and the outputs still unspent.
+
+Given one of those transactions,
+When I call `GET /api/v1/txs/:txid/proof`,
+Then I receive a merkle proof anchored to its block header.
+
+Given an unspent output,
+When I call `GET /api/v1/outpoints/:txid/:vout`,
+Then I am told whether it is an ordinal or token (yes, no or unknown), and spend it as plain coin only on "no".
+
+*Tests:* `test/bitblocks_web/controllers/api/script_controller_test.exs`, `test/bitblocks_web/controllers/api/proof_controller_test.exs`, `test/bitblocks_web/controllers/api/outpoint_controller_test.exs`.
+
+---
+
+### US-why-transparency: See what stands behind a page
+
+**Status: Built.**
+
+As any visitor (**Transactor**, **Explorer**, **Developer**, **Wallet Builder**),
+I want to see how Bitblocks is built and what each page reads from,
+so that I can trust a number, or check it myself.
+
+**Acceptance Criteria:**
+
+Given I open `/about`,
+When the sync snapshot has run,
+Then each layer (node, records, sync, commands, pages and API) shows the live number it stands behind, and it updates without a reload.
+
+Given I open `/about`,
+When I read "Behind the pages",
+Then each page names its API endpoint and the operator's command.
+
+*Tests:* `test/bitblocks_web/live/about_live_test.exs`.
+
+---
+
 ## Progressive Transaction Metadata
 
 ### US-13-3: Spend Depth

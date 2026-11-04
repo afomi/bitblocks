@@ -30,7 +30,7 @@ defmodule BitblocksWeb.NavComponent do
               viewBox="0 0 24 24"
               stroke-width="1.5"
               stroke="currentColor"
-              class="size-10 text-orange-500"
+              class="size-10 text-brand"
             >
               <path
                 stroke-linecap="round"
@@ -144,7 +144,7 @@ defmodule BitblocksWeb.NavComponent do
                     viewBox="0 0 24 24"
                     stroke-width="1.5"
                     stroke="currentColor"
-                    class="size-10 text-orange-500"
+                    class="size-10 text-brand"
                   >
                     <path
                       stroke-linecap="round"

@@ -1,0 +1,214 @@
+<div class="mx-auto max-w-3xl px-4 py-10">
+  <section
+    id="about-lede"
+    class="mb-10"
+  >
+    <h1 class="text-3xl font-semibold tracking-tight text-gray-900 dark:text-white mb-3">
+      About Bitblocks
+    </h1>
+    <p class="text-lg leading-relaxed text-gray-700 dark:text-gray-300">
+      Bitblocks is a thin web layer over a Bitcoin SV node, a Postgres database and command-line tools.
+      Every number on a page is a record you can fetch from the API, and every operation is a command you can read the result of.
+      The code is open.
+    </p>
+  </section>
+
+  <%!-- The layers, bottom up, each with the live fact it stands behind --%>
+  <section
+    id="how-it-is-built"
+    aria-labelledby="how-it-is-built-heading"
+    class="mb-10"
+  >
+    <h2
+      id="how-it-is-built-heading"
+      class="text-xl font-semibold text-gray-900 dark:text-white mb-3"
+    >
+      How it is built
+    </h2>
+    <ol class="divide-y divide-gray-200 border-y border-gray-200 dark:divide-gray-700 dark:border-gray-700">
+      <li
+        :for={layer <- layers(@coverage)}
+        id={layer.id}
+        class="flex flex-col gap-1 py-4 sm:flex-row sm:gap-6"
+      >
+        <span class="w-32 shrink-0 font-semibold text-gray-900 dark:text-white">
+          {layer.name}
+        </span>
+        <span class="flex-1 text-sm leading-relaxed text-gray-700 dark:text-gray-300">
+          {layer.body}
+          <span
+            :if={layer.fact}
+            class="mt-1 block text-gray-600 dark:text-gray-400"
+          >
+            {elem(layer.fact, 0)}
+            <span class="font-mono tabular-nums text-gray-900 dark:text-white">
+              {elem(layer.fact, 1)}
+            </span>
+          </span>
+        </span>
+      </li>
+    </ol>
+  </section>
+
+  <%!-- Why people come, and where each one starts --%>
+  <section
+    id="what-you-can-do"
+    aria-labelledby="what-you-can-do-heading"
+    class="mb-10"
+  >
+    <h2
+      id="what-you-can-do-heading"
+      class="text-xl font-semibold text-gray-900 dark:text-white mb-3"
+    >
+      What you can do here
+    </h2>
+    <dl class="space-y-4 text-sm leading-relaxed">
+      <div>
+        <dt class="font-semibold text-gray-900 dark:text-white">
+          Find a transaction, yours or anyone's
+        </dt>
+        <dd class="text-gray-700 dark:text-gray-300">
+          Paste a txid into
+          <a
+            href="/"
+            class="underline text-blue-700 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
+          >search</a>
+          to find it and its block.
+          Sign in with GitHub to open its inputs and outputs.
+        </dd>
+      </div>
+      <div>
+        <dt class="font-semibold text-gray-900 dark:text-white">
+          Follow the chain from a program
+        </dt>
+        <dd class="text-gray-700 dark:text-gray-300">
+          Developers, researchers and institutions read the same records over the API, and follow new blocks as a stream.
+          <a
+            href="/pricing"
+            class="underline text-blue-700 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
+          >Keys and limits</a>
+        </dd>
+      </div>
+      <div>
+        <dt class="font-semibold text-gray-900 dark:text-white">
+          Hydrate a wallet
+        </dt>
+        <dd class="text-gray-700 dark:text-gray-300">
+          A wallet that holds its keys still needs its transactions, their merkle proofs and what each output is.
+          Ask for a script's history and unspent outputs, then a proof per transaction.
+        </dd>
+      </div>
+    </dl>
+  </section>
+
+  <%!-- Every page names what sits behind it --%>
+  <section
+    id="behind-the-pages"
+    aria-labelledby="behind-the-pages-heading"
+    class="mb-10"
+  >
+    <h2
+      id="behind-the-pages-heading"
+      class="text-xl font-semibold text-gray-900 dark:text-white mb-2"
+    >
+      Behind the pages
+    </h2>
+    <p class="text-sm text-gray-600 dark:text-gray-400 mb-3">
+      Each page has an endpoint for programs and a command for the operator, run as
+      <code class="font-mono text-xs">bin/bitblocks rpc '…'</code>.
+    </p>
+    <div class="overflow-x-auto">
+      <table class="w-full text-left text-sm">
+        <thead class="border-b border-gray-200 text-gray-600 dark:border-gray-700 dark:text-gray-400">
+          <tr>
+            <th
+              scope="col"
+              class="py-2 pr-4 font-medium"
+            >
+              Page
+            </th>
+            <th
+              scope="col"
+              class="py-2 pr-4 font-medium"
+            >
+              Endpoint
+            </th>
+            <th
+              scope="col"
+              class="py-2 font-medium"
+            >
+              Command
+            </th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-200 font-mono text-xs text-gray-700 dark:divide-gray-700 dark:text-gray-300">
+          <tr :for={{page, endpoint, command} <- sources()}>
+            <td class="py-2 pr-4 whitespace-nowrap">
+              <a
+                :if={page}
+                href={page}
+                class="text-blue-700 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
+              >
+                {page}
+              </a>
+              <span
+                :if={!page}
+                class="text-gray-600 dark:text-gray-400"
+              >
+                none
+              </span>
+            </td>
+            <td class="py-2 pr-4 whitespace-nowrap">
+              {endpoint || "none"}
+            </td>
+            <td class="py-2 whitespace-nowrap">
+              {command}
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section
+    id="learn-more"
+    aria-labelledby="learn-more-heading"
+  >
+    <h2
+      id="learn-more-heading"
+      class="text-xl font-semibold text-gray-900 dark:text-white mb-3"
+    >
+      Learn more
+    </h2>
+    <ul class="space-y-2 text-sm">
+      <li>
+        <a
+          href="https://github.com/afomi/bitblocks"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="text-blue-700 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
+        >
+          Bitblocks on GitHub
+        </a>
+      </li>
+      <li>
+        <a
+          href="/guide"
+          class="text-blue-700 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
+        >
+          How a blockchain works
+        </a>
+      </li>
+      <li>
+        <a
+          href="https://wiki.bitcoinsv.io/"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="text-blue-700 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
+        >
+          Bitcoin SV Wiki
+        </a>
+      </li>
+    </ul>
+  </section>
+</div>

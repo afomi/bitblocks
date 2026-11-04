@@ -43,6 +43,8 @@ Use these pairs; each meets WCAG AA (4.5:1 for text) in both modes.
 | Primary button | `bg-blue-600 text-white hover:bg-blue-700` | same |
 | Error | `bg-red-50 border-red-200 text-red-800` | `dark:bg-red-900/30 dark:border-red-800 dark:text-red-200` |
 
+A link inside a sentence is underlined, because its colour alone is too close to the text around it (axe asks for 3:1 or an underline).
+A link that stands on its own line, a nav item or a card needs no underline.
 `text-gray-500` is the lightest gray for text on white, and only for text on `bg-white`; on `bg-gray-50` or tinted surfaces use `text-gray-600`.
 White text needs a 700 shade under it for amber and green (`bg-amber-700`, `bg-green-700`); 600 is too light for AA.
 Every form control has a label, visible or `sr-only`.
@@ -51,6 +53,21 @@ Hover borders on cards may use the brand orange (`hover:border-orange-400`), as 
 Some pages use the themed tokens in `assets/css/app.css` instead: `bg-surface-base`, `bg-surface-raised`, `bg-surface-overlay` and `neutral-50`/`400`/`500`/`700`/`800`, which flip with the `light` class.
 Those are fine to keep, but only those five `neutral` shades are themed; `neutral-200`, `300`, `600`, `900` and `950` are fixed Tailwind colours and stay dark in light mode.
 New work uses the gray pairs above.
+
+## Each colour has one job
+
+Bitblocks is a thin web layer over a node, a database and command-line tools, so a page shows records plainly and says where they come from.
+Colour carries meaning, never decoration:
+
+- Brand orange is the chain itself: the logo, a block's height on hover, card hover borders, progress.
+  Text in orange uses `text-brand-strong dark:text-brand`.
+- Blue is a link or an action.
+- Amber is beta or provisional.
+- Green and amber 700 (400 in dark mode) mark good and slow, as the block intervals on the homepage do.
+- Everything else is gray.
+
+Chain data (heights, hashes, txids, sats, endpoints, commands) is `font-mono tabular-nums`; sentences are the sans face.
+Where a page shows a number, name the record or endpoint it comes from when you can, as `/about` does.
 
 ## The beta badge
 

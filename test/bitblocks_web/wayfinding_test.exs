@@ -51,7 +51,7 @@ defmodule BitblocksWeb.WayfindingTest do
              "missing #{id} -> #{href}"
     end
 
-    {recent, _} = :binary.match(html, "Recent Blocks")
+    {recent, _} = :binary.match(html, ~s(id="recent-blocks-heading"))
     {beta, _} = :binary.match(html, ~s(id="beta-features"))
     assert beta > recent, "beta features should sit below the recent blocks"
   end
