@@ -49,6 +49,8 @@ Phase 2 classifies every output against `priv/data/tx_types/output_types_v1.json
 #48 SCRUBBER: admin three.js scrub from genesis to tip, and the first surface for accounting for misspends and burns.
 Built in the working tree (2026-11-03): tile pyramid, incremental builds, `/chain-scrubber`, reorg and classified-loss layers ([docs/CHAIN_SCRUBBER.md](docs/CHAIN_SCRUBBER.md)).
 Needs on prod, after deploy: `Release.build_chain_tiles()` once; a browser pass on the WebGL scene.
+Shipped (2026-11-04): `/tx-graph` is the transaction flow space (every input an arc, scrubbed by a playhead), and `/annotations` places events on the chain, with an admin API ([docs/TX_FLOW.md](docs/TX_FLOW.md)).
+Next: binary flow tiles for ranges past 50,000 txs, and growing the scene as new blocks complete.
 
 
 ## Deferred

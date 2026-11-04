@@ -39,6 +39,7 @@ defmodule BitblocksWeb.ChainScrubberLive do
 
     socket =
       if connected?(socket) do
+        Phoenix.PubSub.subscribe(Bitblocks.PubSub, Bitblocks.Annotations.topic())
         push_event(socket, "annotations", %{items: annotations})
       else
         socket
@@ -77,6 +78,17 @@ defmodule BitblocksWeb.ChainScrubberLive do
          |> assign(height: height, rest: payload)
          |> push_event("rest_data", payload)}
     end
+  end
+
+  # An admin added, changed or removed a chain annotation: redraw the markers.
+  @impl true
+  def handle_info(:annotations_changed, socket) do
+    annotations = ChainScrubber.annotations()
+
+    {:noreply,
+     socket
+     |> assign(annotations: annotations)
+     |> push_event("annotations", %{items: annotations})}
   end
 
   @doc """

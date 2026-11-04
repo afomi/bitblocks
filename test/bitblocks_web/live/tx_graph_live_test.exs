@@ -1,122 +1,55 @@
 defmodule BitblocksWeb.TxGraphLiveTest do
-  use BitblocksWeb.ConnCase
+  use BitblocksWeb.ConnCase, async: false
 
   import Phoenix.LiveViewTest
+  import Bitblocks.FirstSpendFixtures
 
-  alias Bitblocks.Repo
-  alias Bitblocks.Chain.{Block, Transaction}
+  alias BitblocksWeb.TxGraphLive
 
-  setup do
-    block_hash = String.duplicate("a", 64)
-
-    %Block{}
-    |> Block.changeset(%{
-      hash: block_hash,
-      height: 100,
-      time: 1_231_006_505,
-      num_tx: 3,
-      tx: ["tx_a", "tx_b", "tx_c"],
-      size: 500,
-      version: 1,
-      merkleroot: String.duplicate("b", 64),
-      bits: "1d00ffff",
-      nonce: 1,
-      difficulty: "1.0",
-      sync_state: "completed"
-    })
-    |> Repo.insert!()
-
-    # Coinbase tx (no inputs referencing other txids)
-    %Transaction{}
-    |> Transaction.changeset(%{
-      txid: "tx_a",
-      raw: "01000000",
-      version: "1",
-      block_hash: block_hash,
-      block_height: 100,
-      inputs: [~s({"coinbase":"04ffff001d"})],
-      outputs: [~s({"value":50,"address":"1A1zP1"})],
-      input_count: 0,
-      output_count: 1,
-      total_output_satoshis: 5_000_000_000
-    })
-    |> Repo.insert!()
-
-    # tx_b spends tx_a
-    %Transaction{}
-    |> Transaction.changeset(%{
-      txid: "tx_b",
-      raw: "01000000",
-      version: "1",
-      block_hash: block_hash,
-      block_height: 100,
-      inputs: [~s({"txid":"tx_a","vout":0})],
-      input_txids: ["tx_a"],
-      outputs: [~s({"value":49,"address":"1B2xyz"})],
-      input_count: 1,
-      output_count: 1,
-      total_output_satoshis: 4_900_000_000
-    })
-    |> Repo.insert!()
-
-    # tx_c spends tx_b
-    %Transaction{}
-    |> Transaction.changeset(%{
-      txid: "tx_c",
-      raw: "01000000",
-      version: "1",
-      block_hash: block_hash,
-      block_height: 100,
-      inputs: [~s({"txid":"tx_b","vout":0})],
-      input_txids: ["tx_b"],
-      outputs: [~s({"value":48,"address":"1C3abc"})],
-      input_count: 1,
-      output_count: 1,
-      total_output_satoshis: 4_800_000_000
-    })
-    |> Repo.insert!()
-
-    %{block_hash: block_hash}
+  test "opens on the first 1,000 blocks, with the scene and its controls", %{conn: conn} do
+    {:ok, view, html} = live(conn, "/tx-graph")
+    assert html =~ "Transaction flow"
+    assert has_element?(view, ~s(#tx-flow[phx-hook="TxFlow"][data-from="0"][data-to="999"]))
+    assert has_element?(view, "#tx-flow-play[type=range]")
+    assert has_element?(view, "#tx-flow-minimap")
+    assert has_element?(view, ~s(label[for="tx-flow-from"]))
   end
 
-  test "renders tx graph page with search form", %{conn: conn} do
-    {:ok, _view, html} = live(conn, "/tx-graph")
-
-    assert html =~ "Transaction Call Graph"
-    assert html =~ "Enter a txid"
+  test "a range in the query opens that range", %{conn: conn} do
+    {:ok, view, _html} = live(conn, "/tx-graph?from=100&to=300")
+    assert has_element?(view, ~s(#tx-flow[data-from="100"][data-to="300"]))
   end
 
-  test "traces a transaction chain forward and backward", %{conn: conn} do
-    {:ok, view, _html} = live(conn, "/tx-graph?txid=tx_b")
+  test "a txid opens the blocks around it", %{conn: conn} do
+    insert_first_spend()
+    {:ok, view, _html} = live(conn, "/tx-graph?txid=#{first_spend()}")
 
-    # Wait for async load
-    rendered = render(view)
-
-    # Should show tx_b as root
-    assert rendered =~ "tx_b"
-    assert rendered =~ "(root)"
-
-    # Should find tx_a (parent) and tx_c (child)
-    assert rendered =~ "tx_a"
-    assert rendered =~ "tx_c"
+    assert has_element?(
+             view,
+             ~s(#tx-flow[data-from="70"][data-to="270"][data-txid="#{first_spend()}"])
+           )
   end
 
-  test "shows error for unknown txid", %{conn: conn} do
-    {:ok, view, _html} = live(conn, "/tx-graph?txid=nonexistent_tx")
-
-    rendered = render(view)
-    assert rendered =~ "not found"
+  test "a txid we don't hold says so and opens the default range", %{conn: conn} do
+    {:ok, view, _html} = live(conn, "/tx-graph?txid=#{String.duplicate("e", 64)}")
+    assert has_element?(view, "#tx-flow-error", "isn't stored")
   end
 
-  test "submit form traces a new txid", %{conn: conn} do
+  test "range/2 caps a range at the block limit" do
+    {from, to, nil} = TxGraphLive.range(%{"from" => "0", "to" => "99999999"}, "")
+    assert {from, to} == {0, Bitblocks.ChainFlow.max_blocks() - 1}
+  end
+
+  test "annotation changes are pushed to the scene", %{conn: conn} do
     {:ok, view, _html} = live(conn, "/tx-graph")
+    # The mount push first: reorgs and classified losses, no events yet.
+    assert_push_event(view, "annotations", %{items: at_mount})
+    refute Enum.any?(at_mount, &(&1.kind == "event"))
 
-    view
-    |> form("form", %{"txid" => "tx_a"})
-    |> render_submit()
+    {:ok, _} =
+      Bitblocks.Annotations.create(%{kind: "milestone", title: "First spend", height: 170})
 
-    rendered = render(view)
-    assert rendered =~ "tx_a"
-    assert rendered =~ "coinbase"
+    assert_push_event(view, "annotations", %{items: items})
+    assert Enum.any?(items, &(&1.label == "First spend" and &1.kind == "event"))
   end
 end

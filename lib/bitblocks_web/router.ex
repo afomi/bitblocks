@@ -202,6 +202,14 @@ defmodule BitblocksWeb.Router do
     plug :require_admin_data
   end
 
+  # Admin JSON writes: the admin_data gate, plus JSON-only bodies as the
+  # CSRF guard (BitblocksWeb.Plugs.RequireJsonBody).
+  pipeline :admin_json do
+    plug :accepts, ["json"]
+    plug :require_admin_data
+    plug BitblocksWeb.Plugs.RequireJsonBody
+  end
+
   scope "/", BitblocksWeb do
     pipe_through :browser
 
@@ -281,6 +289,7 @@ defmodule BitblocksWeb.Router do
       live "/tx-graph", TxGraphLive
       live "/shape-layers", ShapeLayerLive
       live "/chain-scrubber", ChainScrubberLive
+      live "/annotations", AnnotationLive
 
       # Block and transaction mutation pages
       live "/blocks/new", BlockLive.Index, :new
@@ -312,11 +321,19 @@ defmodule BitblocksWeb.Router do
     post "/blocks/:height", BlockImportController, :create
   end
 
+  # Chain annotations (forks, upgrades, mintings, world events): admin CRUD.
+  scope "/api/v1", BitblocksWeb.Api do
+    pipe_through :admin_json
+
+    resources "/annotations", AnnotationController, except: [:new, :edit]
+  end
+
   scope "/chain-scrubber", BitblocksWeb do
     pipe_through :admin_data
 
     get "/tiles/manifest", ChainTileController, :manifest
     get "/tiles/:level/:idx", ChainTileController, :tile
+    get "/flow", ChainFlowController, :show
   end
 
   scope "/" do

@@ -1,6 +1,6 @@
 {
   "scripts": {
-    "test": "node --test 'js/chain_scrubber/*.test.mjs' 'js/block_graph/*.test.mjs'"
+    "test": "node --test 'js/chain_scrubber/*.test.mjs' 'js/block_graph/*.test.mjs' 'js/tx_flow/*.test.mjs'"
   },
   "dependencies": {
     "chart.js": "^4.5.0",

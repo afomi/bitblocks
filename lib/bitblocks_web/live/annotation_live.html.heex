@@ -1,0 +1,401 @@
+<div class="max-w-6xl mx-auto px-4 py-8 text-gray-900 dark:text-gray-100">
+  <div class="flex flex-wrap items-baseline justify-between gap-4 mb-2">
+    <h1 class="text-2xl font-bold text-gray-900 dark:text-white">
+      Chain annotations
+    </h1>
+    <div class="flex gap-4 text-sm">
+      <a
+        href="/chain-scrubber"
+        class="text-blue-700 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
+      >
+        Chain scrubber
+      </a>
+      <a
+        href="/tx-graph"
+        class="text-blue-700 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
+      >
+        Transaction flow
+      </a>
+      <a
+        href="/api/v1/annotations"
+        class="text-blue-700 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
+      >
+        JSON
+      </a>
+    </div>
+  </div>
+  <p class="text-sm text-gray-600 dark:text-gray-400 mb-6">
+    Forks, upgrades, halvings, mintings, milestones and world events, placed on the chain by a block height, a txid or a date.
+    A txid we hold wins, then the height, then the first block mined on or after the date.
+    They draw on the chain scrubber and the transaction flow.
+  </p>
+
+  <div
+    :if={@notice}
+    id="annotation-notice"
+    role="status"
+    class="mb-6 rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-800 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
+  >
+    <%= @notice %>
+  </div>
+
+  <div class="grid gap-6 lg:grid-cols-[22rem_1fr]">
+    <%!-- Form: new or edit --%>
+    <section
+      aria-labelledby="annotation-form-title"
+      class="self-start rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800"
+    >
+      <h2
+        id="annotation-form-title"
+        class="text-base font-semibold text-gray-900 dark:text-white mb-3"
+      >
+        <%= if @editing.id, do: "Edit annotation", else: "New annotation" %>
+      </h2>
+      <.form
+        for={@form}
+        id="annotation-form"
+        phx-change="validate"
+        phx-submit="save"
+        class="space-y-3 text-sm"
+      >
+        <div>
+          <label
+            for="annotation-kind"
+            class="block font-medium text-gray-700 dark:text-gray-300"
+          >
+            Kind
+          </label>
+          <select
+            id="annotation-kind"
+            name={@form[:kind].name}
+            class="mt-1 block w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-gray-900 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
+          >
+            <%= Phoenix.HTML.Form.options_for_select(
+              Bitblocks.Annotations.kinds(),
+              @form[:kind].value || "milestone"
+            ) %>
+          </select>
+        </div>
+
+        <div>
+          <label
+            for="annotation-title"
+            class="block font-medium text-gray-700 dark:text-gray-300"
+          >
+            Title
+          </label>
+          <input
+            id="annotation-title"
+            type="text"
+            name={@form[:title].name}
+            value={@form[:title].value}
+            class="mt-1 block w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-gray-900 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
+          />
+          <.error :for={err <- @form[:title].errors}>
+            <%= translate_error(err) %>
+          </.error>
+        </div>
+
+        <fieldset class="space-y-3 rounded-lg border border-gray-200 p-3 dark:border-gray-700">
+          <legend class="px-1 font-medium text-gray-700 dark:text-gray-300">
+            Anchor (at least one)
+          </legend>
+          <div>
+            <label
+              for="annotation-height"
+              class="block text-gray-600 dark:text-gray-400"
+            >
+              Block height
+            </label>
+            <input
+              id="annotation-height"
+              type="number"
+              min="0"
+              name={@form[:height].name}
+              value={@form[:height].value}
+              class="mt-1 block w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-gray-900 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
+            />
+            <.error :for={err <- @form[:height].errors}>
+              <%= translate_error(err) %>
+            </.error>
+          </div>
+          <div>
+            <label
+              for="annotation-txid"
+              class="block text-gray-600 dark:text-gray-400"
+            >
+              Transaction id
+            </label>
+            <input
+              id="annotation-txid"
+              type="text"
+              name={@form[:txid].name}
+              value={@form[:txid].value}
+              spellcheck="false"
+              class="mt-1 block w-full rounded-lg border border-gray-300 bg-white px-3 py-2 font-mono text-xs text-gray-900 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
+            />
+            <.error :for={err <- @form[:txid].errors}>
+              <%= translate_error(err) %>
+            </.error>
+          </div>
+          <div>
+            <label
+              for="annotation-when"
+              class="block text-gray-600 dark:text-gray-400"
+            >
+              Date (2010-05-22) or time (2009-01-03T18:15:05Z)
+            </label>
+            <input
+              id="annotation-when"
+              type="text"
+              name="annotation[when]"
+              value={@when_text}
+              class="mt-1 block w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-gray-900 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
+            />
+            <.error :for={err <- @form[:occurred_at].errors}>
+              <%= translate_error(err) %>
+            </.error>
+          </div>
+        </fieldset>
+
+        <div>
+          <label
+            for="annotation-body"
+            class="block font-medium text-gray-700 dark:text-gray-300"
+          >
+            Notes
+          </label>
+          <textarea
+            id="annotation-body"
+            name={@form[:body].name}
+            rows="3"
+            class="mt-1 block w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-gray-900 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
+          ><%= @form[:body].value %></textarea>
+        </div>
+
+        <div>
+          <label
+            for="annotation-source"
+            class="block font-medium text-gray-700 dark:text-gray-300"
+          >
+            Source URL
+          </label>
+          <input
+            id="annotation-source"
+            type="url"
+            name={@form[:source_url].name}
+            value={@form[:source_url].value}
+            class="mt-1 block w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-gray-900 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
+          />
+          <.error :for={err <- @form[:source_url].errors}>
+            <%= translate_error(err) %>
+          </.error>
+        </div>
+
+        <div class="flex gap-2 pt-1">
+          <button
+            type="submit"
+            class="rounded-lg bg-blue-600 px-4 py-2 text-white hover:bg-blue-700"
+          >
+            <%= if @editing.id, do: "Save changes", else: "Add annotation" %>
+          </button>
+          <button
+            :if={@editing.id}
+            type="button"
+            phx-click="cancel"
+            class="rounded-lg border border-gray-300 px-4 py-2 text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700"
+          >
+            Cancel
+          </button>
+        </div>
+      </.form>
+    </section>
+
+    <%!-- List --%>
+    <section aria-labelledby="annotation-list-title">
+      <div class="flex flex-wrap items-center justify-between gap-3 mb-3">
+        <h2
+          id="annotation-list-title"
+          class="text-base font-semibold text-gray-900 dark:text-white"
+        >
+          <%= @total %> annotations
+          <span
+            :if={@unplaced > 0}
+            class="font-normal text-gray-600 dark:text-gray-400"
+          >
+            (<%= @unplaced %> not on the chain yet)
+          </span>
+        </h2>
+        <div class="flex flex-wrap items-center gap-2 text-sm">
+          <form
+            id="annotation-filter"
+            phx-change="filter"
+          >
+            <label
+              for="annotation-filter-kind"
+              class="sr-only"
+            >
+              Filter by kind
+            </label>
+            <select
+              id="annotation-filter-kind"
+              name="kind"
+              class="rounded-lg border border-gray-300 bg-white px-2 py-1 text-gray-900 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
+            >
+              <%= Phoenix.HTML.Form.options_for_select(
+                [{"Every kind", ""} | Enum.map(Bitblocks.Annotations.kinds(), &{&1, &1})],
+                @kind_filter
+              ) %>
+            </select>
+          </form>
+          <button
+            type="button"
+            phx-click="resolve_all"
+            class="rounded-lg border border-gray-300 px-3 py-1 text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700"
+          >
+            Place again
+          </button>
+          <button
+            type="button"
+            phx-click="seed"
+            class="rounded-lg border border-gray-300 px-3 py-1 text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700"
+          >
+            Add curated events
+          </button>
+        </div>
+      </div>
+
+      <p
+        :if={@items == []}
+        class="rounded-lg border border-gray-200 bg-gray-50 px-4 py-6 text-sm text-gray-600 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400"
+      >
+        No annotations yet.
+        "Add curated events" brings in the genesis block, the first spend, the forks and the halvings.
+      </p>
+
+      <div
+        :if={@items != []}
+        class="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700"
+      >
+        <table
+          id="annotations"
+          class="min-w-full divide-y divide-gray-200 text-sm dark:divide-gray-700"
+        >
+          <thead class="bg-gray-50 text-left text-gray-600 dark:bg-gray-800 dark:text-gray-400">
+            <tr>
+              <th
+                scope="col"
+                class="px-3 py-2 font-medium"
+              >
+                Block
+              </th>
+              <th
+                scope="col"
+                class="px-3 py-2 font-medium"
+              >
+                Kind
+              </th>
+              <th
+                scope="col"
+                class="px-3 py-2 font-medium"
+              >
+                Event
+              </th>
+              <th
+                scope="col"
+                class="px-3 py-2 font-medium"
+              >
+                Date
+              </th>
+              <th
+                scope="col"
+                class="px-3 py-2 font-medium"
+              >
+                <span class="sr-only">
+                  Actions
+                </span>
+              </th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-gray-200 bg-white dark:divide-gray-700 dark:bg-gray-900">
+            <tr
+              :for={a <- @items}
+              id={"annotation-#{a.id}"}
+              class="align-top"
+            >
+              <td class="px-3 py-2 whitespace-nowrap font-mono">
+                <%= if a.resolved_height do %>
+                  <a
+                    href={"/chain-scrubber?height=#{a.resolved_height}"}
+                    class="text-blue-700 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
+                  >
+                    <%= a.resolved_height %>
+                  </a>
+                <% else %>
+                  <span class="text-gray-600 dark:text-gray-400">
+                    <%= placed_text(a) %>
+                  </span>
+                <% end %>
+              </td>
+              <td class="px-3 py-2">
+                <span class={"rounded-full px-2.5 py-0.5 text-xs font-semibold " <> kind_class(a.kind)}>
+                  <%= a.kind %>
+                </span>
+              </td>
+              <td class="px-3 py-2">
+                <div class="font-medium text-gray-900 dark:text-white">
+                  <%= a.title %>
+                </div>
+                <div
+                  :if={a.body}
+                  class="mt-0.5 text-gray-700 dark:text-gray-300"
+                >
+                  <%= a.body %>
+                </div>
+                <div class="mt-1 flex flex-wrap gap-3 text-xs">
+                  <a
+                    :if={a.txid}
+                    href={"/transactions/#{a.txid}"}
+                    class="font-mono text-blue-700 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
+                  >
+                    tx <%= String.slice(a.txid, 0, 12) %>…
+                  </a>
+                  <a
+                    :if={a.source_url}
+                    href={a.source_url}
+                    rel="noopener noreferrer"
+                    class="text-blue-700 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
+                  >
+                    Source
+                  </a>
+                </div>
+              </td>
+              <td class="px-3 py-2 whitespace-nowrap text-gray-600 dark:text-gray-400">
+                <%= a.occurred_at && Calendar.strftime(a.occurred_at, "%Y-%m-%d") %>
+              </td>
+              <td class="px-3 py-2 whitespace-nowrap text-right">
+                <button
+                  type="button"
+                  phx-click="edit"
+                  phx-value-id={a.id}
+                  class="text-blue-700 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
+                >
+                  Edit
+                </button>
+                <button
+                  type="button"
+                  phx-click="delete"
+                  phx-value-id={a.id}
+                  data-confirm={"Delete \"#{a.title}\"?"}
+                  class="ml-3 text-red-700 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300"
+                >
+                  Delete
+                </button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+</div>

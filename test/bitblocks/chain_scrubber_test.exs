@@ -196,6 +196,33 @@ defmodule Bitblocks.ChainScrubberTest do
       assert annotations == Enum.sort_by(annotations, & &1.height)
     end
 
+    test "a placed chain annotation is an event marker with its kind; an unplaced one is not" do
+      {:ok, _} =
+        Bitblocks.Annotations.create(%{
+          kind: "fork",
+          title: "Bitcoin SV splits from Bitcoin Cash",
+          height: 556_767,
+          source_url: "https://en.wikipedia.org/wiki/Bitcoin_SV"
+        })
+
+      {:ok, _} =
+        Bitblocks.Annotations.create(%{
+          kind: "mint",
+          title: "Not here yet",
+          txid: String.duplicate("ab", 32)
+        })
+
+      events = Enum.filter(ChainScrubber.annotations(), &(&1.kind == "event"))
+
+      assert [
+               %{
+                 event_kind: "fork",
+                 height: 556_767,
+                 evidence_url: "https://en.wikipedia.org/wiki/Bitcoin_SV"
+               }
+             ] = events
+    end
+
     test "only classified losses appear; tracing doubts stay off the layer" do
       note_data =
         "docs/field-notes/data/rexxies-spent-outside-run-2026-11-02.json"

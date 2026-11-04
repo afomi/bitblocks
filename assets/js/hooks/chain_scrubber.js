@@ -36,11 +36,30 @@ const COLORS = {
   current: new THREE.Color(0xf59e0b),
   reorg: new THREE.Color(0x8b5cf6),
   loss: new THREE.Color(0xef4444),
+  event: new THREE.Color(0xffffff),
   // The scene stays near-black in light and dark mode: it is the one dark
   // region on the page, framed by site-style chrome (DESIGN.md). Keep it in
   // step with #chain-scrubber's bg-[#050608] in chain_scrubber_live.html.heex.
   background: 0x050608,
   ground: 0x111827
+}
+
+// Chain annotations (Bitblocks.Annotations), coloured per kind; the same
+// hues as the kind pills on /annotations.
+const EVENT_COLORS = {
+  fork: new THREE.Color(0xa78bfa),
+  upgrade: new THREE.Color(0x38bdf8),
+  halving: new THREE.Color(0xfbbf24),
+  milestone: new THREE.Color(0x34d399),
+  mint: new THREE.Color(0xf472b6),
+  world: new THREE.Color(0xe5e7eb),
+  note: new THREE.Color(0x60a5fa)
+}
+
+const MARKER_KINDS = ["reorg", "loss", "event"]
+
+function markerKind(kind) {
+  return kind === "reorg" || kind === "loss" ? kind : "event"
 }
 
 const MARK_COLORS = {
@@ -116,7 +135,7 @@ export default {
     this.queue = []
     this.inFlight = 0
     this.annotations = []
-    this.markerRefs = {reorg: [], loss: []}
+    this.markerRefs = {reorg: [], loss: [], event: []}
     this.instanceHeights = [] // instance index -> record height
     this.instanceBaseColors = [] // instance index -> THREE.Color
     this.highlightedInstance = -1
@@ -216,6 +235,7 @@ export default {
     if (this.markers) {
       this.disposeInstanced(this.markers.reorg)
       this.disposeInstanced(this.markers.loss)
+      this.disposeInstanced(this.markers.event)
     }
     if (this.cursor) {
       this.cursor.geometry.dispose()
@@ -269,7 +289,8 @@ export default {
     const diamond = new THREE.OctahedronGeometry(1, 0)
     this.markers = {
       reorg: new THREE.InstancedMesh(diamond, new THREE.MeshLambertMaterial({color: COLORS.reorg}), 1),
-      loss: new THREE.InstancedMesh(diamond.clone(), new THREE.MeshLambertMaterial({color: COLORS.loss}), 1)
+      loss: new THREE.InstancedMesh(diamond.clone(), new THREE.MeshLambertMaterial({color: COLORS.loss}), 1),
+      event: new THREE.InstancedMesh(diamond.clone(), new THREE.MeshLambertMaterial({color: COLORS.event}), 1)
     }
     for (const m of Object.values(this.markers)) {
       m.count = 0
@@ -685,8 +706,8 @@ export default {
   setAnnotations(items) {
     this.annotations = items
       .filter((a) => a && Number.isFinite(a.height))
-      .map((a) => ({...a, kind: a.kind === "reorg" ? "reorg" : "loss"}))
-    for (const kind of ["reorg", "loss"]) {
+      .map((a) => ({...a, kind: markerKind(a.kind)}))
+    for (const kind of MARKER_KINDS) {
       const needed = Math.max(1, this.annotations.filter((a) => a.kind === kind).length)
       const old = this.markers[kind]
       if (old.instanceMatrix.count < needed) {
@@ -708,8 +729,8 @@ export default {
     const span = tiles.spanOf(this.level)
     const unit = WIDTH / (h1 - h0 + 1)
     const size = Math.min(Math.max(unit * span * 0.6, 0.5), 1.4)
-    const counts = {reorg: 0, loss: 0}
-    this.markerRefs = {reorg: [], loss: []}
+    const counts = {reorg: 0, loss: 0, event: 0}
+    this.markerRefs = {reorg: [], loss: [], event: []}
     for (const a of this.annotations) {
       if (a.height < h0 || a.height > h1) continue
       const mesh = this.markers[a.kind]
@@ -721,13 +742,15 @@ export default {
       this.tmpScale.set(size, size * 1.4, size)
       this.tmpMatrix.compose(this.tmpPos, this.tmpQuat.identity(), this.tmpScale)
       mesh.setMatrixAt(i, this.tmpMatrix)
+      if (a.kind === "event") mesh.setColorAt(i, EVENT_COLORS[a.event_kind] || EVENT_COLORS.note)
       this.markerRefs[a.kind][i] = a
       counts[a.kind]++
     }
-    for (const kind of ["reorg", "loss"]) {
+    for (const kind of MARKER_KINDS) {
       const mesh = this.markers[kind]
       mesh.count = counts[kind]
       mesh.instanceMatrix.needsUpdate = true
+      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true
       if (mesh.count > 0) mesh.computeBoundingSphere()
     }
   },
@@ -736,7 +759,7 @@ export default {
     const rect = this.els.canvas.getBoundingClientRect()
     this.pointerNdc.set(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1)
     this.raycaster.setFromCamera(this.pointerNdc, this.camera)
-    for (const kind of ["reorg", "loss"]) {
+    for (const kind of MARKER_KINDS) {
       const mesh = this.markers[kind]
       if (mesh.count === 0) continue
       const hits = this.raycaster.intersectObject(mesh, false)

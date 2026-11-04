@@ -143,6 +143,8 @@ mix assets.deploy           # Build and minify for production
   - `/bitcom` and `/bitcom/:address` - live Bitcom registry (unwriter's Bitcom): namespaces, on-chain ownership proof, files, routes, usage
   - `/syncing` - public live sync view: blocks fetching on each lane with synced and processed x of y, recent completions, tips and blocks by sync_state, from one shared snapshot (`Bitblocks.SyncProgress`; `docs/SYNCING.md`). `/sync` is the admin operator page
   - `/chain-scrubber` - admin only: scrub the chain genesis to tip in three.js from precomputed tiles (`docs/CHAIN_SCRUBBER.md`); `/chain-scrubber/tiles/manifest` and `/chain-scrubber/tiles/:level/:idx` serve the tiles from ETS with no DB query
+  - `/tx-graph` - admin only: the transaction flow space, a block range in three.js with every input as an arc to the output it spends, scrubbed by a playhead (`docs/TX_FLOW.md`); data from `/chain-scrubber/flow?from=&to=` (`Bitblocks.ChainFlow`)
+  - `/annotations` - admin only: CRUD for chain annotations (forks, upgrades, halvings, mintings, milestones, world events), placed by height, txid or date (`Bitblocks.Annotations`); drawn on both scenes
   - `/dev/dashboard` - LiveDashboard (dev only)
 
 **Access (`BitblocksWeb.UserAuth`):**
@@ -247,6 +249,7 @@ GET /api/v1/tokens/stats        — token aggregate statistics
 GET /api/v1/stream/tokens       — SSE stream of new tokens / transfers
 GET /api/v1/addresses/:address/tokens — unspent BSV-20/21 outputs held by an address (?standard=bsv-21, ?token_id=)
 GET /api/v1/types               — transaction types, each with its page URL (CORS *)
+GET|POST|PATCH|DELETE /api/v1/annotations[/:id] — admin only: chain annotations (?from=&to=, ?kind=); writes must be application/json
 GET /api/v1/types/:id           — one type with its latest examples from the index (status ok | coming | unavailable)
 GET /api/v1/bitcom              — Bitcom registry export, every namespace with re-verifiable txids (also at /bitcom.json)
 GET /api/v1/bitcom/:address     — one Bitcom namespace: tier, proof, files, routes

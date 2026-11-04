@@ -17,6 +17,7 @@ defmodule Bitblocks.ChainScrubber do
 
   import Ecto.Query
 
+  alias Bitblocks.Annotations
   alias Bitblocks.Chain.{Block, Transaction}
   alias Bitblocks.ChainScrubber.Losses
   alias Bitblocks.Reorgs
@@ -203,8 +204,10 @@ defmodule Bitblocks.ChainScrubber do
   # -- Annotations -------------------------------------------------------------
 
   @doc """
-  Marks for what the chain doesn't announce: recorded reorgs and classified
-  losses, each with the height it happened at and a link to its evidence.
+  Marks for what the chain doesn't announce: recorded reorgs, classified
+  losses and the chain annotations an admin placed (`Bitblocks.Annotations`:
+  `kind: "event"`, with the annotation's own kind in `event_kind`), each with
+  the height it happened at and a link to its evidence.
   """
   @spec annotations() :: [map()]
   def annotations do
@@ -231,6 +234,22 @@ defmodule Bitblocks.ChainScrubber do
         }
       end)
 
-    Enum.sort_by(reorgs ++ losses, & &1.height)
+    events =
+      for a <- Annotations.list(), is_integer(a.resolved_height) do
+        %{
+          kind: "event",
+          event_kind: a.kind,
+          height: a.resolved_height,
+          label: a.title,
+          detail: a.body,
+          evidence_url: event_evidence(a)
+        }
+      end
+
+    Enum.sort_by(reorgs ++ losses ++ events, & &1.height)
   end
+
+  defp event_evidence(%{source_url: url}) when is_binary(url), do: url
+  defp event_evidence(%{txid: txid}) when is_binary(txid), do: "/transactions/#{txid}"
+  defp event_evidence(_), do: "/annotations"
 end

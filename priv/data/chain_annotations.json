@@ -1,0 +1,113 @@
+{
+  "about": "Curated events for Bitblocks.Annotations.seed/0. Each has a source; seed adds only what isn't there (kind + title). Edit them at /annotations afterwards.",
+  "annotations": [
+    {
+      "kind": "world",
+      "title": "Bitcoin whitepaper published",
+      "body": "Satoshi Nakamoto posts \"Bitcoin: A Peer-to-Peer Electronic Cash System\" to the cryptography mailing list. Before the genesis block, so it stays off the chain.",
+      "occurred_at": "2008-10-31T00:00:00Z",
+      "source_url": "https://bitcoin.org/bitcoin.pdf"
+    },
+    {
+      "kind": "milestone",
+      "title": "Genesis block",
+      "body": "Its coinbase carries The Times headline of 3 January 2009: \"Chancellor on brink of second bailout for banks\". Its 50-coin output can never be spent.",
+      "height": 0,
+      "occurred_at": "2009-01-03T18:15:05Z",
+      "source_url": "https://en.bitcoin.it/wiki/Genesis_block"
+    },
+    {
+      "kind": "milestone",
+      "title": "First spend: Satoshi sends 10 coins to Hal Finney",
+      "body": "The first transaction that is not a coinbase. It spends the coinbase of block 9.",
+      "txid": "f4184fc596403b9d638783cf57adfe4c75c605f6356fbc91338530e9831e9e16",
+      "height": 170,
+      "occurred_at": "2009-01-12T03:30:25Z",
+      "source_url": "https://en.bitcoin.it/wiki/Block_170"
+    },
+    {
+      "kind": "milestone",
+      "title": "Bitcoin Pizza Day",
+      "body": "Laszlo Hanyecz pays 10,000 coins for two pizzas, the first widely known purchase of goods.",
+      "txid": "a1075db55d416d3ca199f55b6084e2115b9345e16c5cf302fc80e9d5fbf5d48d",
+      "height": 57043,
+      "occurred_at": "2010-05-22T00:00:00Z",
+      "source_url": "https://en.bitcoin.it/wiki/Laszlo_Hanyecz"
+    },
+    {
+      "kind": "fork",
+      "title": "Value overflow incident",
+      "body": "A transaction creates 184 billion coins through an integer overflow. A patched client and a new chain replace the block within hours.",
+      "height": 74638,
+      "occurred_at": "2010-08-15T00:00:00Z",
+      "source_url": "https://en.bitcoin.it/wiki/Value_overflow_incident"
+    },
+    {
+      "kind": "halving",
+      "title": "First halving: 50 to 25",
+      "height": 210000,
+      "source_url": "https://en.bitcoin.it/wiki/Controlled_supply"
+    },
+    {
+      "kind": "fork",
+      "title": "March 2013 chain fork (BIP 50)",
+      "body": "Version 0.8 nodes accept a block that 0.7 nodes reject, and the chain splits for a few hours until miners return to the 0.7 side.",
+      "height": 225430,
+      "source_url": "https://github.com/bitcoin/bips/blob/master/bip-0050.mediawiki"
+    },
+    {
+      "kind": "world",
+      "title": "Mt. Gox halts withdrawals",
+      "occurred_at": "2014-02-07T00:00:00Z",
+      "source_url": "https://en.wikipedia.org/wiki/Mt._Gox"
+    },
+    {
+      "kind": "halving",
+      "title": "Second halving: 25 to 12.5",
+      "height": 420000,
+      "source_url": "https://en.bitcoin.it/wiki/Controlled_supply"
+    },
+    {
+      "kind": "fork",
+      "title": "Bitcoin Cash splits from BTC",
+      "body": "The first Bitcoin Cash block, after the last block the two chains share (478,558). This chain follows Bitcoin Cash.",
+      "height": 478559,
+      "occurred_at": "2017-08-01T00:00:00Z",
+      "source_url": "https://en.wikipedia.org/wiki/Bitcoin_Cash"
+    },
+    {
+      "kind": "fork",
+      "title": "Bitcoin SV splits from Bitcoin Cash",
+      "body": "The hash war of November 2018 divides Bitcoin Cash into BSV and ABC. This chain follows BSV.",
+      "height": 556767,
+      "occurred_at": "2018-11-15T00:00:00Z",
+      "source_url": "https://en.wikipedia.org/wiki/Bitcoin_SV"
+    },
+    {
+      "kind": "upgrade",
+      "title": "Genesis upgrade",
+      "body": "BSV restores the original protocol: the default block size cap is lifted and most script limits are removed.",
+      "height": 620538,
+      "occurred_at": "2020-02-04T00:00:00Z",
+      "source_url": "https://en.wikipedia.org/wiki/Bitcoin_SV"
+    },
+    {
+      "kind": "world",
+      "title": "WHO declares COVID-19 a pandemic",
+      "occurred_at": "2020-03-11T00:00:00Z",
+      "source_url": "https://en.wikipedia.org/wiki/COVID-19_pandemic"
+    },
+    {
+      "kind": "halving",
+      "title": "Third halving: 12.5 to 6.25",
+      "height": 630000,
+      "source_url": "https://en.bitcoin.it/wiki/Controlled_supply"
+    },
+    {
+      "kind": "halving",
+      "title": "Fourth halving: 6.25 to 3.125",
+      "height": 840000,
+      "source_url": "https://en.bitcoin.it/wiki/Controlled_supply"
+    }
+  ]
+}

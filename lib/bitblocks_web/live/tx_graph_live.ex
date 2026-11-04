@@ -1,32 +1,49 @@
 defmodule BitblocksWeb.TxGraphLive do
+  @moduledoc """
+  The transaction flow space: a range of blocks in three.js, every tx a point
+  on its block's disc along the height spine, every input an arc back to the
+  output it spends, scrubbed with a playhead (the `TxFlow` hook).
+
+      /tx-graph                    blocks 0..999
+      /tx-graph?from=0&to=5000     a range (at most ChainFlow.max_blocks/0 blocks)
+      /tx-graph?txid=<txid>        the 200 blocks around a tx, with its lineage lit
+
+  The graph is read by the hook from `/chain-scrubber/flow`
+  (`Bitblocks.ChainFlow`); this LiveView owns the range form and the
+  annotation layer (`Bitblocks.ChainScrubber.annotations/0`).
+  """
+
   use BitblocksWeb, :live_view
 
-  alias Bitblocks.Repo
-  alias Bitblocks.Chain.Transaction
   import Ecto.Query
 
-  @max_depth 3
-  @max_nodes 50
+  alias Bitblocks.{ChainFlow, ChainScrubber, Repo}
+  alias Bitblocks.Chain.Transaction
+
+  @default_span 1_000
+  @focus_margin 100
 
   @impl true
   def mount(params, _session, socket) do
-    txid = Map.get(params, "txid", "")
+    txid = params |> Map.get("txid", "") |> String.trim() |> String.downcase()
+    {from, to, error} = range(params, txid)
+    annotations = ChainScrubber.annotations()
 
     socket =
       assign(socket,
-        page_title: "Transaction Graph",
+        page_title: "Transaction flow",
+        from: from,
+        to: to,
         txid: txid,
-        graph: %{nodes: [], edges: []},
-        node_count: 0,
-        edge_count: 0,
-        loading: false,
-        error: nil
+        error: error,
+        max_blocks: ChainFlow.max_blocks(),
+        annotation_count: Enum.count(annotations, &(&1.height >= from and &1.height <= to))
       )
 
     socket =
-      if connected?(socket) and txid != "" do
-        send(self(), {:trace_graph, txid})
-        assign(socket, loading: true)
+      if connected?(socket) do
+        Phoenix.PubSub.subscribe(Bitblocks.PubSub, Bitblocks.Annotations.topic())
+        push_event(socket, "annotations", %{items: annotations})
       else
         socket
       end
@@ -35,147 +52,61 @@ defmodule BitblocksWeb.TxGraphLive do
   end
 
   @impl true
-  def handle_event("trace", %{"txid" => txid}, socket) do
-    txid = String.trim(txid)
+  def handle_info(:annotations_changed, socket) do
+    annotations = ChainScrubber.annotations()
+    {from, to} = {socket.assigns.from, socket.assigns.to}
 
-    if txid != "" do
-      send(self(), {:trace_graph, txid})
-      {:noreply, assign(socket, txid: txid, loading: true, error: nil)}
-    else
-      {:noreply, assign(socket, error: "Enter a transaction ID")}
+    {:noreply,
+     socket
+     |> assign(
+       annotation_count: Enum.count(annotations, &(&1.height >= from and &1.height <= to))
+     )
+     |> push_event("annotations", %{items: annotations})}
+  end
+
+  @doc """
+  The range to open: `?from=&to=` when both are heights with `from <= to`
+  (cut to the block cap), else the blocks around `txid` when we hold it, else
+  blocks 0..999. The third element explains a txid we couldn't place.
+  """
+  def range(params, txid) do
+    from = int(params["from"])
+    to = int(params["to"])
+
+    cond do
+      is_integer(from) and is_integer(to) and from >= 0 and to >= from ->
+        {from, min(to, from + ChainFlow.max_blocks() - 1), nil}
+
+      txid != "" ->
+        case tx_height(txid) do
+          nil ->
+            {0, @default_span - 1,
+             "Transaction #{String.slice(txid, 0, 16)}… isn't stored, so it can't be placed."}
+
+          h ->
+            {max(0, h - @focus_margin), h + @focus_margin, nil}
+        end
+
+      true ->
+        {0, @default_span - 1, nil}
     end
   end
 
-  @impl true
-  def handle_info({:trace_graph, txid}, socket) do
-    case build_call_graph(txid) do
-      {:ok, graph} ->
-        socket =
-          socket
-          |> assign(
-            graph: graph,
-            node_count: length(graph.nodes),
-            edge_count: length(graph.edges),
-            loading: false
-          )
-          |> push_event("tx_graph_data", graph)
-
-        {:noreply, socket}
-
-      {:error, reason} ->
-        {:noreply, assign(socket, loading: false, error: reason)}
-    end
-  end
-
-  defp build_call_graph(root_txid) do
-    case Repo.one(from t in Transaction, where: t.txid == ^root_txid, limit: 1) do
-      nil ->
-        {:error, "Transaction #{String.slice(root_txid, 0, 16)}... not found"}
-
-      root_tx ->
-        {nodes, edges} = trace_references(root_tx, %{}, [], 0)
-
-        {:ok,
-         %{
-           nodes: Map.values(nodes),
-           edges: edges,
-           root_txid: root_txid
-         }}
-    end
-  end
-
-  defp trace_references(tx, visited, edges, depth)
-       when depth < @max_depth and map_size(visited) < @max_nodes do
-    if Map.has_key?(visited, tx.txid) do
-      {visited, edges}
-    else
-      node = %{
-        id: tx.txid,
-        block_height: tx.block_height,
-        input_count: tx.input_count || 0,
-        output_count: tx.output_count || 0,
-        total_out: tx.total_output_satoshis,
-        depth: depth,
-        is_coinbase: (tx.input_count || 0) == 0
-      }
-
-      visited = Map.put(visited, tx.txid, node)
-
-      # Trace backward: find parent txids from inputs
-      parent_txids = extract_parent_txids(tx.inputs || [])
-
-      # Trace forward: find children that spend this tx's outputs
-      child_txs = find_spending_txs(tx.txid)
-
-      # Build edges
-      parent_edges =
-        Enum.map(parent_txids, fn parent_txid ->
-          %{from: parent_txid, to: tx.txid, type: "spends"}
-        end)
-
-      child_edges =
-        Enum.map(child_txs, fn child ->
-          %{from: tx.txid, to: child.txid, type: "spent_by"}
-        end)
-
-      new_edges = edges ++ parent_edges ++ child_edges
-
-      # Recursively trace parents
-      parent_txs =
-        parent_txids
-        |> Enum.reject(&Map.has_key?(visited, &1))
-        |> Enum.take(10)
-        |> Enum.map(fn txid ->
-          Repo.one(from t in Transaction, where: t.txid == ^txid, limit: 1)
-        end)
-        |> Enum.reject(&is_nil/1)
-
-      {visited, new_edges} =
-        Enum.reduce(parent_txs, {visited, new_edges}, fn parent_tx, {v, e} ->
-          trace_references(parent_tx, v, e, depth + 1)
-        end)
-
-      # Recursively trace children
-      unvisited_children =
-        child_txs
-        |> Enum.reject(fn c -> Map.has_key?(visited, c.txid) end)
-        |> Enum.take(10)
-
-      Enum.reduce(unvisited_children, {visited, new_edges}, fn child_tx, {v, e} ->
-        trace_references(child_tx, v, e, depth + 1)
-      end)
-    end
-  end
-
-  defp trace_references(_tx, visited, edges, _depth), do: {visited, edges}
-
-  defp extract_parent_txids(inputs) do
-    inputs
-    |> Enum.flat_map(fn input_str ->
-      case Jason.decode(input_str) do
-        {:ok, %{"txid" => txid}} when is_binary(txid) and txid != "" ->
-          # Skip coinbase null txid
-          if String.match?(txid, ~r/^0+$/) do
-            []
-          else
-            [txid]
-          end
-
-        _ ->
-          []
-      end
-    end)
-    |> Enum.uniq()
-  end
-
-  defp find_spending_txs(txid) do
-    # input_txids is a GIN-indexed array of parent txids extracted at write time.
-    # Containment (@>) is what the GIN index serves; `x = ANY(col)` is not, and
-    # seq-scans the whole table (see Bitblocks.ArrayIndexQueriesTest).
-    from(t in Transaction,
-      where: fragment("? @> ARRAY[?]::varchar[]", t.input_txids, ^txid),
-      limit: 20
+  defp tx_height(txid) do
+    Repo.one(
+      from t in Transaction,
+        where: t.txid == ^txid and not is_nil(t.block_height),
+        select: t.block_height,
+        limit: 1
     )
-    |> Repo.all()
+  end
+
+  defp int(nil), do: nil
+
+  defp int(text) when is_binary(text) do
+    case text |> String.trim() |> String.replace(~r/[,_]/, "") |> Integer.parse() do
+      {n, ""} -> n
+      _ -> nil
+    end
   end
 end
