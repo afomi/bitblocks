@@ -1,7 +1,24 @@
-# See https://www.robotstxt.org/robotstxt.html for documentation on how to use the robots.txt file
-#
-# To ban all spiders from the entire site uncomment the next two lines:
-# User-agent: *
-# Disallow: /
+# Indexers are welcome on the guides and public pages.
+# The chain itself is here for people and for the API: crawling it would add nothing to an index.
+User-agent: *
+Disallow: /api/
+Disallow: /blocks
+Disallow: /transactions
+Disallow: /tx
+Disallow: /content/
+Disallow: /bit/
+Disallow: /search
+Disallow: /order-book
+Disallow: /metanet
+Disallow: /tokens/
+Disallow: /bitcom/
+Disallow: /bitcom.json
+Disallow: /wall
+Disallow: /reward_wall
+Disallow: /chain-scrubber
+Disallow: /annotations
+Disallow: /sync
+Disallow: /sign-in
+Disallow: /auth/
 
 Sitemap: https://bitblocks.app/sitemap.xml

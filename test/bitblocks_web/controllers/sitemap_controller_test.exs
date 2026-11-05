@@ -37,4 +37,16 @@ defmodule BitblocksWeb.SitemapControllerTest do
     robots = File.read!(Application.app_dir(:bitblocks, "priv/static/robots.txt"))
     assert robots =~ "Sitemap: https://bitblocks.app/sitemap.xml"
   end
+
+  test "lists nothing robots.txt keeps indexers off" do
+    disallowed =
+      for "Disallow: " <> rule <- String.split(File.read!("priv/static/robots.txt"), "\n"),
+          do: rule
+
+    assert "/blocks" in disallowed
+
+    for path <- BitblocksWeb.SitemapController.public_paths(), rule <- disallowed do
+      refute String.starts_with?(path, rule), "#{path} is in the sitemap but robots.txt blocks it"
+    end
+  end
 end

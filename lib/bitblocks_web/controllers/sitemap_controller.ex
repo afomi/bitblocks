@@ -3,30 +3,25 @@ defmodule BitblocksWeb.SitemapController do
   Serves `/sitemap.xml` for search engines.
 
   Lists only the public, indexable pages from the router's browser scope.
-  Operator routes behind `:admin` and per-record pages (blocks, txs, tokens)
-  are deliberately left out.
+  Operator routes behind `:admin` and the chain data (blocks, txs, tokens,
+  searches over them) are deliberately left out, and `robots.txt` keeps
+  indexers off them.
   """
   use BitblocksWeb, :controller
 
   @public_paths [
     {"/", "daily", "1.0"},
-    {"/blocks", "always", "0.9"},
-    {"/search", "monthly", "0.8"},
     {"/status", "hourly", "0.7"},
     {"/reorgs", "daily", "0.6"},
     {"/tokens", "daily", "0.7"},
-    {"/order-book", "daily", "0.7"},
     {"/protocols", "weekly", "0.6"},
     {"/bitcom", "daily", "0.6"},
-    {"/metanet", "weekly", "0.6"},
     {"/guide", "monthly", "0.6"},
     {"/about", "monthly", "0.5"},
     {"/pricing", "monthly", "0.5"},
     {"/apps", "monthly", "0.5"},
     {"/resources", "monthly", "0.5"},
     {"/did", "monthly", "0.4"},
-    {"/wall", "daily", "0.4"},
-    {"/reward_wall", "daily", "0.4"},
     {"/collections", "weekly", "0.5"},
     {"/collections/grand-tardinians", "weekly", "0.3"},
     {"/collections/rexxies", "monthly", "0.3"},
