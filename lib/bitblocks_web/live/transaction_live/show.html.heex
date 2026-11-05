@@ -413,108 +413,101 @@
       </div>
     <% end %>
 
-    <%!-- Inputs --%>
-    <div class="bg-white shadow-md rounded-lg p-6 mb-6">
-      <div class="flex items-center justify-between mb-4">
-        <h2 class="text-xl font-semibold">
-          Inputs (<%= length(tx.inputs) %>)
-        </h2>
-        <div class="text-xs text-gray-500">
-          Where the value comes from
+    <%!-- Inputs on the left, outputs on the right, from the lg breakpoint --%>
+    <div
+      id="tx-inputs-outputs"
+      class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6 items-start"
+    >
+      <section
+        id="tx-inputs"
+        class="min-w-0 bg-white shadow-md rounded-lg p-4"
+      >
+        <div class="flex items-baseline justify-between mb-2">
+          <h2 class="text-base font-semibold">
+            Inputs (<%= length(tx.inputs) %>)
+          </h2>
+          <div class="text-xs text-gray-500">
+            Where the value comes from
+          </div>
         </div>
-      </div>
 
-      <div class="space-y-4">
-        <%= for {input, idx} <- Enum.with_index(tx.inputs) do %>
-          <% input_txid = BSV.OutPoint.get_txid(input.outpoint) %>
-          <% input_sats = Map.get(@input_satoshis, {input_txid, input.outpoint.vout}) %>
-          <div class="border border-gray-200 rounded-lg p-4">
-            <div class="flex items-center justify-between mb-3">
-              <span class="text-sm font-semibold text-gray-700">
-                Input #<%= idx %>
-              </span>
-              <div class="flex items-center gap-2">
+        <div class="divide-y divide-gray-200">
+          <%= for {input, idx} <- Enum.with_index(tx.inputs) do %>
+            <% input_txid = BSV.OutPoint.get_txid(input.outpoint) %>
+            <% input_sats = Map.get(@input_satoshis, {input_txid, input.outpoint.vout}) %>
+            <div class="py-2 first:pt-0 last:pb-0">
+              <div class="flex flex-wrap items-center justify-between gap-x-2 mb-1">
+                <div class="flex items-center gap-1.5">
+                  <span class="text-xs font-semibold text-gray-700">
+                    Input #<%= idx %>
+                  </span>
+                  <%= if input.script.coinbase do %>
+                    <span class="px-1.5 bg-yellow-100 text-yellow-800 text-xs font-semibold rounded">
+                      Coinbase
+                    </span>
+                  <% end %>
+                </div>
                 <%= if input_sats do %>
-                  <span class="px-3 py-1 bg-blue-100 text-blue-800 text-sm font-semibold rounded">
+                  <span class="font-mono text-xs font-semibold text-blue-800">
                     <%= format_satoshis(input_sats) %>
                   </span>
                 <% end %>
-                <%= if input.script.coinbase do %>
-                  <span class="px-2 py-1 bg-yellow-100 text-yellow-800 text-xs font-semibold rounded">
-                    Coinbase
-                  </span>
-                <% end %>
               </div>
+
+              <BitblocksWeb.ScriptComponents.script_field
+                label="Spends:"
+                title="The previous output this input spends"
+              >
+                <.link
+                  navigate={~p"/transactions/#{input_txid}"}
+                  class="text-blue-600 hover:underline"
+                >
+                  <%= input_txid %>
+                </.link>:<%= input.outpoint.vout %>
+              </BitblocksWeb.ScriptComponents.script_field>
+
+              <BitblocksWeb.ScriptComponents.script_field
+                label="ScriptSig:"
+                title="Unlocking script: proves ownership and authorizes spending the output"
+              >
+                <%= BSV.Script.to_asm(input.script) |> String.slice(0, 100) %><%= if String.length(BSV.Script.to_asm(input.script)) > 100, do: "..." %>
+              </BitblocksWeb.ScriptComponents.script_field>
+
+              <BitblocksWeb.ScriptComponents.script_field label="Sequence:">
+                <%= input.sequence %>
+              </BitblocksWeb.ScriptComponents.script_field>
             </div>
+          <% end %>
+        </div>
+      </section>
 
-            <div class="space-y-2 text-sm">
-              <div>
-                <span class="text-gray-600">
-                  Previous Output (UTXO being spent):
-                </span>
-                <div class="font-mono text-xs bg-gray-50 p-2 rounded mt-1 break-all">
-                  <.link
-                    navigate={~p"/transactions/#{input_txid}"}
-                    class="text-blue-600 hover:underline"
-                  >
-                    <%= input_txid %>
-                  </.link>:<%= input.outpoint.vout %>
-                </div>
-                <div class="text-xs text-gray-400 mt-1">
-                  References output #<%= input.outpoint.vout %> from a previous transaction
-                </div>
-              </div>
+      <section
+        id="tx-outputs"
+        class="min-w-0 bg-white shadow-md rounded-lg p-4"
+      >
+        <div class="flex items-baseline justify-between mb-2">
+          <h2 class="text-base font-semibold">
+            Outputs (<%= length(tx.outputs) %>)
+          </h2>
+          <a
+            href="/guide#scripts"
+            class="text-xs text-gray-500 hover:text-blue-500 transition-colors"
+          >
+            What is a locking script? →
+          </a>
+        </div>
 
-              <div>
-                <span class="text-gray-600">
-                  Unlocking Script (ScriptSig):
-                </span>
-                <div class="font-mono text-xs bg-gray-50 p-2 rounded mt-1 break-all">
-                  <%= BSV.Script.to_asm(input.script) |> String.slice(0, 100) %><%= if String.length(BSV.Script.to_asm(input.script)) > 100, do: "..." %>
-                </div>
-                <div class="text-xs text-gray-400 mt-1">
-                  Proves ownership and authorizes spending of the UTXO
-                </div>
-              </div>
-
-              <div>
-                <span class="text-gray-600">
-                  Sequence:
-                </span>
-                <span class="font-mono text-xs">
-                  <%= input.sequence %>
-                </span>
-              </div>
-            </div>
-          </div>
-        <% end %>
-      </div>
-    </div>
-
-    <%!-- Outputs --%>
-    <div class="bg-white shadow-md rounded-lg p-6 mb-6">
-      <div class="flex items-center justify-between mb-4">
-        <h2 class="text-xl font-semibold">
-          Outputs (<%= length(tx.outputs) %>)
-        </h2>
-        <a
-          href="/guide#scripts"
-          class="text-xs text-gray-400 hover:text-blue-500 transition-colors"
-        >
-          What is a locking script? →
-        </a>
-      </div>
-
-      <div class="space-y-4">
-        <%= for descriptor <- @output_descriptors do %>
-          <BitblocksWeb.ScriptComponents.script_card
-            descriptor={descriptor}
-            template={Map.get(@script_templates, descriptor.template_hash)}
-            protocols={Map.get(@output_protocols, descriptor.vout, [])}
-            txid={@transaction.txid}
-          />
-        <% end %>
-      </div>
+        <div class="divide-y divide-gray-200">
+          <%= for descriptor <- @output_descriptors do %>
+            <BitblocksWeb.ScriptComponents.script_card
+              descriptor={descriptor}
+              template={Map.get(@script_templates, descriptor.template_hash)}
+              protocols={Map.get(@output_protocols, descriptor.vout, [])}
+              txid={@transaction.txid}
+            />
+          <% end %>
+        </div>
+      </section>
     </div>
   <% else %>
     <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-6">

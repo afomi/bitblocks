@@ -31,40 +31,63 @@ defmodule BitblocksWeb.ScriptComponents do
 
   def script_card(assigns) do
     ~H"""
-    <div class="border border-gray-200 rounded-lg p-4">
-      <div class="flex items-center justify-between mb-3">
-        <div class="flex items-center gap-2">
-          <span class="text-sm font-semibold text-gray-700">
+    <div class="py-2 first:pt-0 last:pb-0">
+      <div class="flex flex-wrap items-center justify-between gap-x-2 mb-1">
+        <div class="flex flex-wrap items-center gap-1.5">
+          <span class="text-xs font-semibold text-gray-700">
             Output #<%= @descriptor.vout %>
           </span>
-          <span class="px-2 py-0.5 bg-gray-100 text-gray-700 text-xs font-mono rounded">
+          <span class="px-1.5 bg-gray-100 text-gray-700 text-xs font-mono rounded">
             <%= type_label(@descriptor.type) %>
           </span>
           <%= if @descriptor.type == :unknown && @template do %>
-            <span class="px-2 py-0.5 bg-purple-100 text-purple-800 rounded-full text-xs font-semibold">
+            <span class="px-1.5 bg-purple-100 text-purple-800 rounded-full text-xs font-semibold">
               Template: <%= @template.name %>
             </span>
           <% end %>
           <%= for protocol <- @protocols do %>
-            <span class="px-2 py-0.5 bg-blue-100 text-blue-800 rounded-full text-xs font-semibold">
+            <span class="px-1.5 bg-blue-100 text-blue-800 rounded-full text-xs font-semibold">
               <%= protocol %>
             </span>
           <% end %>
         </div>
-        <span class="px-3 py-1 bg-green-100 text-green-800 text-sm font-semibold rounded">
+        <span class="font-mono text-xs font-semibold text-green-800">
           <%= format_satoshis(@descriptor.satoshis) %>
         </span>
       </div>
 
-      <div class="space-y-2 text-sm">
-        <.card_body descriptor={@descriptor} />
+      <.card_body descriptor={@descriptor} />
 
-        <%= if @txid do %>
-          <div class="font-mono text-xs text-gray-400">
-            <%= @txid %>_<%= @descriptor.vout %>
-          </div>
-        <% end %>
-      </div>
+      <%= if @txid do %>
+        <.script_field label="Outpoint:">
+          <%= @txid %>_<%= @descriptor.vout %>
+        </.script_field>
+      <% end %>
+    </div>
+    """
+  end
+
+  @doc """
+  One labelled line of an input or output on the transaction page: the label
+  in a narrow column, the value in mono beside it. `title` carries the
+  explanation a reader can ask for by hovering.
+  """
+  attr :label, :string, required: true
+  attr :title, :string, default: nil
+  slot :inner_block, required: true
+
+  def script_field(assigns) do
+    ~H"""
+    <div class="flex gap-2 text-xs leading-snug">
+      <span
+        class="w-24 shrink-0 text-gray-600"
+        title={@title}
+      >
+        <%= @label %>
+      </span>
+      <span class="min-w-0 font-mono break-all">
+        <%= render_slot(@inner_block) %>
+      </span>
     </div>
     """
   end
@@ -73,99 +96,71 @@ defmodule BitblocksWeb.ScriptComponents do
 
   defp card_body(%{descriptor: %{type: :p2pkh}} = assigns) do
     ~H"""
-    <div>
-      <span class="text-gray-600">
-        Public Key Hash:
-      </span>
-      <div class="font-mono text-xs bg-gray-50 p-2 rounded mt-1 break-all">
-        <%= @descriptor.fields.pubkey_hash %>
-      </div>
-      <div class="text-xs text-gray-400 mt-1">
-        Pay to Public Key Hash — spendable by the owner of the matching key
-      </div>
-    </div>
+    <.script_field
+      label="Public Key Hash:"
+      title="Pay to Public Key Hash: spendable by the owner of the matching key"
+    >
+      <%= @descriptor.fields.pubkey_hash %>
+    </.script_field>
     """
   end
 
   defp card_body(%{descriptor: %{type: :p2sh}} = assigns) do
     ~H"""
-    <div>
-      <span class="text-gray-600">
-        Script Hash:
-      </span>
-      <div class="font-mono text-xs bg-gray-50 p-2 rounded mt-1 break-all">
-        <%= @descriptor.fields.script_hash %>
-      </div>
-      <div class="text-xs text-gray-400 mt-1">
-        Pay to Script Hash — the redeem script is revealed when spent
-      </div>
-    </div>
+    <.script_field
+      label="Script Hash:"
+      title="Pay to Script Hash: the redeem script is revealed when spent"
+    >
+      <%= @descriptor.fields.script_hash %>
+    </.script_field>
     """
   end
 
   defp card_body(%{descriptor: %{type: :p2pk}} = assigns) do
     ~H"""
-    <div>
-      <span class="text-gray-600">
-        Public Key:
-      </span>
-      <div class="font-mono text-xs bg-gray-50 p-2 rounded mt-1 break-all">
-        <%= @descriptor.fields.pubkey %>
-      </div>
-      <div class="text-xs text-gray-400 mt-1">
-        Pay to Public Key — spendable by the holder of this key
-      </div>
-    </div>
+    <.script_field
+      label="Public Key:"
+      title="Pay to Public Key: spendable by the holder of this key"
+    >
+      <%= @descriptor.fields.pubkey %>
+    </.script_field>
     """
   end
 
   defp card_body(%{descriptor: %{type: :multisig}} = assigns) do
     ~H"""
-    <div>
-      <span class="text-gray-600">
-        <%= @descriptor.fields.m %>-of-<%= @descriptor.fields.n %> multisig
-      </span>
-      <div class="mt-1 space-y-1">
-        <%= for pubkey <- @descriptor.fields.pubkeys do %>
-          <div class="font-mono text-xs bg-gray-50 p-2 rounded break-all">
-            <%= pubkey %>
-          </div>
-        <% end %>
-      </div>
-      <div class="text-xs text-gray-400 mt-1">
-        Requires <%= @descriptor.fields.m %> of the <%= @descriptor.fields.n %> keys above to spend
-      </div>
-    </div>
+    <.script_field
+      :for={{pubkey, i} <- Enum.with_index(@descriptor.fields.pubkeys)}
+      label={if i == 0, do: "#{@descriptor.fields.m}-of-#{@descriptor.fields.n} multisig", else: ""}
+      title={"Requires #{@descriptor.fields.m} of the #{@descriptor.fields.n} keys to spend"}
+    >
+      <%= pubkey %>
+    </.script_field>
     """
   end
 
   defp card_body(%{descriptor: %{type: :op_return}} = assigns) do
     ~H"""
-    <div>
-      <span class="text-gray-600">
-        OP_RETURN (<%= length(@descriptor.fields.data) %> chunks)
-      </span>
-      <div class="text-xs text-gray-400 mt-1">
-        Data output — see the OP_RETURN Data section below for the full chunk breakdown
-      </div>
+    <div class="text-xs leading-snug text-gray-600">
+      OP_RETURN (<%= length(@descriptor.fields.data) %> chunks), in the OP_RETURN Data section below.
     </div>
     """
   end
 
   defp card_body(%{descriptor: %{type: :unknown}} = assigns) do
     ~H"""
-    <div>
+    <div class="text-xs leading-snug">
       <span class="text-gray-600">
         Locking Script (ASM):
       </span>
-      <div class="font-mono text-xs bg-gray-50 p-2 rounded mt-1 break-all max-h-48 overflow-y-auto">
+      <div class="font-mono break-all max-h-32 overflow-y-auto">
         <%= @descriptor.asm %>
       </div>
-      <details class="mt-2">
-        <summary class="text-xs text-gray-500 cursor-pointer">
+      <details>
+        <summary class="text-gray-600 cursor-pointer">
           Script hashes
         </summary>
-        <div class="mt-1 space-y-1 text-xs text-gray-500 font-mono break-all">
+        <div class="font-mono break-all text-gray-600">
           <div>
             script_hash: <%= @descriptor.script_hash %>
           </div>

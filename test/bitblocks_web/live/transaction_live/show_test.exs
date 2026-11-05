@@ -76,6 +76,15 @@ defmodule BitblocksWeb.TransactionLive.ShowTest do
       refute html =~ "Template:"
     end
 
+    test "sets inputs left and outputs right on desktop", %{conn: conn} do
+      insert_tx(@genesis_raw, @genesis_txid)
+
+      {:ok, view, _html} = live(conn, ~p"/transactions/#{@genesis_txid}")
+
+      assert has_element?(view, "#tx-inputs-outputs.lg\\:grid-cols-2 > #tx-inputs", "Input #0")
+      assert has_element?(view, "#tx-inputs-outputs.lg\\:grid-cols-2 > #tx-outputs", "Output #0")
+    end
+
     test "renders an unknown-script output with its full ASM without crashing", %{conn: conn} do
       script = %BSV.Script{chunks: [:OP_ADD, :OP_EQUAL]}
       raw = raw_hex_with_output(script, 1_000)
