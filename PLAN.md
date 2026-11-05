@@ -8,6 +8,12 @@ Completed-work history (pre-Issues): `product-cycle/BACKLOG.md`.
 
 ## Now
 
+**Budget mode (Ryan, 2026-11-05): pause the growth, not the project.**
+Bitblocks stays live on a paused sync and a smaller database while a deal lands, and says how far it is complete.
+Finish the backfills that make stored data correct (script analysis, `tx_steps`, tallies), then pause the sync.
+Held until funded: the size backfill and `tx-size-index`, block objects, more worker slots, CloudFront.
+First funded goal: hold the whole chain within budget; the header totals say what that costs.
+
 **#18 BITCOM**: be a live, maximally useful Bitcom registry (unwriter's Bitcom), then keep reviving the rest of his stack (#25).
 Current system doc: `docs/BITCOM.md`.
 
