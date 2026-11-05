@@ -10,6 +10,8 @@ What is built, and what infra still has to do, is in [Built](#built-steps-1-and-
 On 2026-11-04 the bitblocks database was 65 GB for about 10.6 million txs, growing about 11 GB a day, on a shared burstable instance that ran out of CPU credits.
 It is moving to its own instance (`bitblocks-db`, db.m7g.large, gp3 autoscaling to 1 TB), which buys time, not a shape that holds the chain.
 The chain has 7,524,524,627 txs (`sum(num_tx)` over 973,549 headers, 2026-11-05).
+Its raw block files are 12.95 TB on our node (`blk*.dat`, 2026-11-05), a close upper bound that includes framing and stale blocks.
+Don't read the tx count from the node's log: `nChainTx` is an `unsigned int`, so its 3.22B has wrapped past 2^32.
 A `transactions` row averaged 3,125 bytes in a 0.2% sample of the rows stored so far: `raw` 943, `outputs` 893, `inputs` 690, `input_txids` 136.
 So `raw`, `inputs` and `outputs` are about 80% of a row, and rows like these for every tx would be about 24 TB before indexes.
 Measured on stored early-chain rows (height below 200,000), a `transactions` row holds the same tx about twice:
