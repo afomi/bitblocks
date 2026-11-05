@@ -26,7 +26,8 @@ Hex doubles the bytes; the decoded JSON repeats the scripts the raw bytes alread
 The sync already fetches each block of up to 32 MB as one verified raw block (`Chain.RawBlock`).
 That file is written to S3 as it is, one object per block: `blocks/<height>-<hash>.bin`, immutable.
 Each tx row records where its bytes sit: `raw_offset` and `raw_length` within its block's object.
-Blocks over 32 MB are written as a series of chunk objects, with the same offset scheme.
+A tx in a block over 32 MB is handled as it comes (Ryan, 2026-11-05): the sync stores it in its row through the per-tx path, and it stays there until its bytes are in the store.
+Nothing is built ahead of those blocks; chunk objects remain an option if they turn out to need one.
 One upload per block costs about $5 for every million blocks; one upload per tx would cost about $5,000 for every billion txs.
 
 **2. One URL per tx, served once and cached forever.**
@@ -77,7 +78,7 @@ When the block job (`FetchTransactionsWorker`) completes a block it fetched whol
 The write is then read back: the object's size must equal the block's, and its first 80 bytes (a ranged read) must hash to the block hash.
 Only then, in one transaction, does each of the block's tx rows get `raw_offset` and `raw_length`, and the block get `raw_object_stored_at` (with `updated_at`).
 A failed or unverified write is logged and leaves the stamp nil; the block stays `completed` and the sync moves on.
-Blocks over 32 MB take the per-tx path and get no object yet; the chunk objects above are still to build.
+Blocks over 32 MB take the per-tx path and get no object; their txs keep `raw` in the row.
 
 **Finding what's missing.**
 `Release.store_block_objects(from, to)` counts completed blocks without an object; with `apply: true` it refetches each from the node (REST, else `getblock(hash, 0)`), writes and verifies it.
