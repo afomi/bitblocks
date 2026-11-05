@@ -230,7 +230,12 @@ defmodule BitblocksWeb.UserAuthTest do
       user = github_user("afomi", 4001)
       {:ok, _} = Accounts.set_admin("afomi", true)
 
-      assert admin_paths_status(sign_in(conn, user)) == %{sync: 200, scrubber: 200, tiles: 404}
+      status = admin_paths_status(sign_in(conn, user))
+      assert %{sync: 200, scrubber: 200} = status
+
+      # 404 with no manifest built, 200 when another test left tiles in the
+      # shared ETS cache; either way the gate let the admin through.
+      assert status.tiles in [200, 404]
     end
 
     test "a signed-in user who isn't marked admin is refused", %{conn: conn} do

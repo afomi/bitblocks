@@ -24,6 +24,16 @@ defmodule Bitblocks.TransactionParser do
 
   def script_analysis_version, do: @script_analysis_version
 
+  # The last version that changed `protocols` tags or what gets indexed from
+  # them (v6: Bitcom detection). A row at this version or later carries the
+  # current tags, so readers that trust tags (Tokens) compare against this,
+  # not against script_analysis_version: v7 only renamed template-hash
+  # opcodes, and must not leave every older input "not known yet".
+  # Bump it with any change to protocol detection.
+  @protocol_tags_version 6
+
+  def protocol_tags_version, do: @protocol_tags_version
+
   @doc """
   Derives deterministic cached metadata from a raw transaction hex string.
   Pure function of `raw` — identical input always produces identical output.

@@ -1460,7 +1460,7 @@ defmodule Bitblocks.Release do
 
       # Each invalid row with what it spends, so a verdict that rests on an
       # input stored before BSV20 tagging (old analysis version, no tag) shows.
-      analysis_now = Bitblocks.TransactionParser.script_analysis_version()
+      analysis_now = Bitblocks.TransactionParser.protocol_tags_version()
 
       for r <- report.invalid_rows do
         IO.puts("  INVALID #{r.txid}:#{r.vout} at #{inspect(r.block_height)}: #{r.reason}")

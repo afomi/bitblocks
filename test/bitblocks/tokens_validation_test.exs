@@ -111,6 +111,20 @@ defmodule Bitblocks.TokensValidationTest do
     assert Tokens.balance_of(token_id, bob) == 0
   end
 
+  test "an input analysed before a bump that left protocol tags alone is still known",
+       %{block: block, alice: alice, bob: bob} do
+    token_id = mint(block, alice)
+    funding = ingest(tx([funding_outpoint()], [p2pkh(bob, 10_000)]), block)
+
+    # v7 renamed opcode aliases in template hashes; tags are as v6 left them.
+    Repo.update_all(from(t in Bitblocks.Chain.Transaction, where: t.txid == ^funding),
+      set: [script_analysis_version: Bitblocks.TransactionParser.protocol_tags_version()]
+    )
+
+    copy = ingest(tx(["#{funding}_0"], [transfer_out(token_id, "500", bob)]), block)
+    assert status(copy, 0) == "invalid"
+  end
+
   test "a transfer whose outputs exceed its inputs is invalid and counted",
        %{block: block, alice: alice, bob: bob} do
     token_id = mint(block, alice)

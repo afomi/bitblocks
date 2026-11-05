@@ -465,7 +465,7 @@ defmodule Bitblocks.Tokens do
       |> Repo.all()
       |> Map.new()
 
-    analysis_now = Bitblocks.TransactionParser.script_analysis_version()
+    analysis_now = Bitblocks.TransactionParser.protocol_tags_version()
 
     Enum.reduce(inputs, {[], []}, fn outpoint, {found, unknown} ->
       {txid, _} = outpoint
@@ -475,7 +475,7 @@ defmodule Bitblocks.Tokens do
         row = by_outpoint[outpoint] ->
           {[row | found], unknown}
 
-        # Stored and analysed by the current analyzer, so its token rows (if
+        # Stored and analysed with the current protocol tags, so its token rows (if
         # any) went in with it, unless it is tagged BSV20 and has none yet
         # (stored before token indexing ran). A row analysed by an older
         # version may carry a token its tags don't show: not yet known, so
