@@ -41,9 +41,11 @@ Inputs keep the outpoint they spend (`input_txids`, plus `spend_index`); outputs
 Not kept: the scriptSig and script hex and asm inside `inputs` and `outputs`, which are parsed from the raw bytes when a page needs them (`Chain.RawTx`).
 
 **4. Raw bytes in Postgres only when small.**
-`raw` stays in the row for txs up to `:raw_in_db_max_bytes`, proposed **100 KB**.
+`raw` stays in the row for txs up to `:raw_in_db_max_bytes`, **5 MB** (Ryan, 2026-11-05).
 Above that the row keeps its metadata and an empty `raw`, and every reader gets the bytes through `TxStore.raw/1`, which already falls back from the database to the store.
-Why 100 KB rather than 2 MB: payments, tokens and most inscriptions are under a few KB; the large txs are data carriers (images, files), which are exactly what the CDN is for.
+Why 5 MB for now: a 1% sample of prod (116,571 rows) has p99 at 3.6 KB, with 0.08% of rows over 100 KB holding 58% of raw bytes, and 0.008% over 2 MB holding 26%.
+Big txs cluster by block, so the number is revisited after a sample of blocks 900,000 and up.
+The cap takes effect with step 5 below; until then every row keeps its `raw`.
 A raw body is never dropped from a row before its block object is written and verified (`blob_stored_at` set and the bytes re-read).
 Stored as bytes (`bytea`), not hex, when the column is next touched: half the size for what stays.
 
@@ -113,6 +115,6 @@ This is the origin CloudFront sits in front of: `https://cdn.bitblocks.app/tx/<t
 
 ## Open choices
 
-- The threshold: 100 KB proposed; 2 MB keeps more in the database, and less traffic goes to the store.
+- Whether the 5 MB cap moves after the sample of blocks 900,000 and up.
 - Whether small txs also drop `raw` once the CDN holds them (the most space, but every parse then reads S3 or the edge).
 - Whether the decoded JSON goes entirely, or a compact per-input and per-output summary stays (proposed: a compact summary stays).
