@@ -41,10 +41,11 @@ Inputs keep the outpoint they spend (`input_txids`, plus `spend_index`); outputs
 Not kept: the scriptSig and script hex and asm inside `inputs` and `outputs`, which are parsed from the raw bytes when a page needs them (`Chain.RawTx`).
 
 **4. Raw bytes in Postgres only when small.**
-`raw` stays in the row for txs up to `:raw_in_db_max_bytes`, **5 MB** (Ryan, 2026-11-05).
+`raw` stays in the row for txs up to `:raw_in_db_max_bytes`, **200 KB** (Ryan, 2026-11-05).
 Above that the row keeps its metadata and an empty `raw`, and every reader gets the bytes through `TxStore.raw/1`, which already falls back from the database to the store.
-Why 5 MB for now: a 1% sample of prod (116,571 rows) has p99 at 3.6 KB, with 0.08% of rows over 100 KB holding 58% of raw bytes, and 0.008% over 2 MB holding 26%.
-Big txs cluster by block, so the number is revisited after a sample of blocks 900,000 and up.
+Why 200 KB: a 5% sample of blocks 900,000 and up (197,573 rows) has p99 at 4.3 KB and p99.9 at 370 KB, and big txs hold most of the bytes: 0.19% of rows over 100 KB hold 77% of raw bytes, and 0.02% over 1 MB hold 36%.
+So 200 KB keeps almost every tx in its row, and the data carriers, which are what the CDN is for, move out.
+The sample covers only what was stored at those heights, so check the number again when the sync gets there.
 The cap takes effect with step 5 below; until then every row keeps its `raw`.
 A raw body is never dropped from a row before its block object is written and verified (`blob_stored_at` set and the bytes re-read).
 Stored as bytes (`bytea`), not hex, when the column is next touched: half the size for what stays.
@@ -115,6 +116,5 @@ This is the origin CloudFront sits in front of: `https://cdn.bitblocks.app/tx/<t
 
 ## Open choices
 
-- Whether the 5 MB cap moves after the sample of blocks 900,000 and up.
 - Whether small txs also drop `raw` once the CDN holds them (the most space, but every parse then reads S3 or the edge).
 - Whether the decoded JSON goes entirely, or a compact per-input and per-output summary stays (proposed: a compact summary stays).
