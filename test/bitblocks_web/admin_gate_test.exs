@@ -24,8 +24,8 @@ defmodule BitblocksWeb.AdminGateTest do
   end
 
   describe "operator surface with admin_auth enabled" do
-    test "GET /sync with no session is refused", %{conn: conn} do
-      conn = get(conn, ~p"/sync")
+    test "GET /config with no session is refused", %{conn: conn} do
+      conn = get(conn, ~p"/config")
 
       refute conn.status == 200
       assert conn.halted
@@ -40,7 +40,7 @@ defmodule BitblocksWeb.AdminGateTest do
 
     test "a non-admin user is refused", %{conn: conn} do
       user = Bitblocks.Repo.insert!(%Bitblocks.Accounts.User{github_id: 7_001, login: "reader"})
-      conn = conn |> init_test_session(%{"user_id" => user.id}) |> get(~p"/sync")
+      conn = conn |> init_test_session(%{"user_id" => user.id}) |> get(~p"/config")
 
       assert conn.status == 403
     end
@@ -53,17 +53,17 @@ defmodule BitblocksWeb.AdminGateTest do
           admin: true
         })
 
-      conn = conn |> init_test_session(%{"user_id" => user.id}) |> get(~p"/sync")
+      conn = conn |> init_test_session(%{"user_id" => user.id}) |> get(~p"/config")
 
       assert conn.status == 200
     end
   end
 
   describe "operator surface with admin_auth disabled (test default)" do
-    test "GET /sync without credentials renders", %{conn: conn} do
+    test "GET /config without credentials renders", %{conn: conn} do
       Application.put_env(:bitblocks, :admin_auth, enabled: false)
 
-      conn = get(conn, ~p"/sync")
+      conn = get(conn, ~p"/config")
 
       assert conn.status == 200
     end

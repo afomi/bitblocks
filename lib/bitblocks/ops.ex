@@ -344,7 +344,7 @@ defmodule Bitblocks.Ops do
     """
     Our headers are #{h.lag.index_behind_node} blocks behind the node, and no new header has landed since #{h.index.latest_block_at}.
     The node has validated #{h.node.blocks} blocks; our newest header is #{h.index.tip}.
-    See /sync for the coordinator and job state.
+    See /syncing for the coordinator.
     """
   end
 
@@ -352,7 +352,7 @@ defmodule Bitblocks.Ops do
     """
     No block has completed since #{h.index.last_completed_at || h.index.latest_block_at}, and no block job is working without failures.
     Complete through block #{h.index.complete_through} of #{h.index.tip} known; the node is #{h.node.state}.
-    See /sync for the coordinator and job state.
+    See /syncing for the coordinator.
     """
   end
 end

@@ -59,35 +59,9 @@
 
     <%!-- Sync State --%>
     <section class="border-b border-neutral-800 py-6">
-      <div class="flex items-center justify-between mb-4">
-        <p class="font-mono text-xs text-neutral-500 uppercase tracking-wider">
-          Sync Status
-        </p>
-        <button
-          :if={@admin?}
-          id="download-transactions"
-          phx-click="download_transactions"
-          class={[
-            "px-4 py-2 rounded text-sm font-medium transition-colors",
-            if(@downloading || @transactions_downloaded,
-              do: "bg-surface-raised text-neutral-500 border border-neutral-800 cursor-not-allowed",
-              else: "bg-brand-strong text-white hover:opacity-90"
-            )
-          ]}
-          disabled={@downloading || @transactions_downloaded}
-        >
-          <%= cond do %>
-            <% @transactions_downloaded -> %>
-              ✓ Downloaded
-            <% @downloading -> %>
-              Queuing…
-            <% @block.sync_state == "header_only" -> %>
-              Upgrade & Download Txs
-            <% true -> %>
-              Download Txs
-          <% end %>
-        </button>
-      </div>
+      <p class="font-mono text-xs text-neutral-500 uppercase tracking-wider mb-4">
+        Sync Status
+      </p>
 
       <div class="flex items-center gap-1">
         <% steps = ["header_only", "header_synced", "txs_queued", "txs_syncing", "completed"] %>

@@ -12,7 +12,7 @@ defmodule BitblocksWeb.BlockLive.Show do
   # blocks list millions of txids; a socket must never carry them all.
   @impl true
   def mount(_params, _session, socket) do
-    {:ok, assign(socket, downloading: false, tx_page: 1, txids: [], tx_total: 0)}
+    {:ok, assign(socket, tx_page: 1, txids: [], tx_total: 0)}
   end
 
   @impl true
@@ -47,40 +47,15 @@ defmodule BitblocksWeb.BlockLive.Show do
     {:noreply, assign_tx_page(socket, page)}
   end
 
-  # Admins only: queuing a download costs node calls. The button is hidden
-  # for everyone else, and this clause holds the line on the server.
-  def handle_event("download_transactions", _params, %{assigns: %{admin?: true}} = socket) do
-    block = socket.assigns.block
-
-    case Chain.queue_transaction_fetch(block) do
-      {:ok, _job} ->
-        {:noreply,
-         socket
-         |> assign(:downloading, true)
-         |> put_flash(:info, "Transaction download job queued for block #{block.height}")}
-
-      {:error, reason} ->
-        {:noreply,
-         socket
-         |> put_flash(:error, "Failed to queue job: #{inspect(reason)}")}
-    end
-  end
-
-  def handle_event("download_transactions", _params, socket) do
-    {:noreply, put_flash(socket, :error, "Downloading transactions is for admins.")}
-  end
-
   @impl true
   def handle_info({:block_updated, updated_block}, socket) do
     # The broadcast carries the full row; reload without the txid array.
     {block, tx_total} = Chain.get_block_for_display!(updated_block.hash)
 
-    socket =
-      socket
-      |> assign_block(block, tx_total)
-      |> assign_tx_page(socket.assigns.tx_page)
-
-    {:noreply, assign(socket, :downloading, !socket.assigns.transactions_downloaded)}
+    {:noreply,
+     socket
+     |> assign_block(block, tx_total)
+     |> assign_tx_page(socket.assigns.tx_page)}
   end
 
   defp assign_block(socket, block, tx_total) do
@@ -91,10 +66,6 @@ defmodule BitblocksWeb.BlockLive.Show do
     socket
     |> assign(:block, block)
     |> assign(:tx_total, tx_total)
-    |> assign(
-      :transactions_downloaded,
-      Chain.block_transactions_downloaded?(block.hash, tx_total)
-    )
   end
 
   defp assign_tx_page(socket, page) do

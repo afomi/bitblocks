@@ -1,28 +1,70 @@
 <div class="mx-auto max-w-4xl px-4 py-4 text-gray-700 dark:text-gray-300">
-  <h1 class="mb-2 text-xl font-bold text-gray-900 dark:text-white">
+  <h1 class="mb-4 text-3xl font-bold text-gray-900 dark:text-white">
     Syncing
   </h1>
-  <p class="mb-2 leading-relaxed">
-    Bitblocks fetches every transaction in every block and checks each one against its block.
-  </p>
-  <p class="mb-2 leading-relaxed">
-    <strong class="text-gray-900 dark:text-white">Synced</strong>
-    counts the transactions stored so far.
-  </p>
-  <p class="mb-2 leading-relaxed">
-    <strong class="text-gray-900 dark:text-white">Processed</strong>
-    counts the ones analyzed for Bitblocks metadata (scripts, protocols, tokens), at analyzer version {@snapshot.analyzer_version}.
-  </p>
-  <p class="mb-8 leading-relaxed">
-    This page updates live, at most once a second.
-  </p>
+  <BitblocksWeb.HealthLine.health_line
+    :if={@admin?}
+    health={@health}
+    id="sync-health"
+  />
 
-  <p class="mb-6 leading-relaxed">
-    Every block from genesis through the one named below has all of its transactions stored and checked against its header.
-    One coordinator hands each worker the lowest block not yet complete, and each worker owns one block at a time.
-    A block that fails is retried with backoff and keeps its place.
-  </p>
   <BitblocksWeb.SyncTable.sync_table sync={@snapshot.sync} />
+
+  <%!-- Blocks being synced right now, lowest first --%>
+  <section
+    id="syncing-now"
+    aria-labelledby="syncing-now-heading"
+    class="mb-5"
+  >
+    <h2
+      id="syncing-now-heading"
+      class="mb-1 text-xl font-semibold text-gray-900 dark:text-white"
+    >
+      Syncing now
+    </h2>
+    <p class="mb-2 text-xs text-gray-600 dark:text-gray-400">
+      Lowest block first.
+      A finished block stays a minute, marked verified, then fades out.
+    </p>
+    <%= if @board == [] do %>
+      <p
+        id="syncing-empty"
+        class="text-gray-900 dark:text-gray-100"
+      >
+        <%= if @snapshot.sync && @snapshot.sync[:paused] do %>
+          The sync is paused, so no block is fetching transactions.
+        <% else %>
+          No block is fetching transactions right now.
+        <% end %>
+      </p>
+    <% else %>
+      <ul
+        role="list"
+        class="space-y-2"
+      >
+        <.block_card
+          :for={entry <- @board}
+          entry={entry}
+          prefix="syncing"
+          target={@snapshot.overview.target}
+          pending_text={if entry.finished, do: "Not counted", else: "Starting"}
+        />
+      </ul>
+    <% end %>
+  </section>
+
+  <.operator_panel
+    :if={@admin?}
+    paused={@paused}
+    still_finishing={@still_finishing}
+    concurrency={@concurrency}
+    limit_max={@limit_max}
+    limit_reason={@limit_reason}
+    node_load={@snapshot.node_load}
+    failed_blocks={@failed_blocks}
+    audit={@audit}
+    audit_running={@audit_running}
+  />
 
   <%!-- The overall picture --%>
   <section
@@ -142,42 +184,36 @@
     <% end %>
   </section>
 
-  <%!-- Blocks being synced right now, lowest first --%>
   <section
-    id="syncing-now"
-    aria-labelledby="syncing-now-heading"
+    id="sync-about"
+    aria-labelledby="sync-about-heading"
     class="mb-5"
   >
     <h2
-      id="syncing-now-heading"
-      class="mb-1 text-xl font-semibold text-gray-900 dark:text-white"
+      id="sync-about-heading"
+      class="mb-2 text-xl font-semibold text-gray-900 dark:text-white"
     >
-      Syncing now
+      How this works
     </h2>
-    <p class="mb-2 text-xs text-gray-600 dark:text-gray-400">
-      Lowest block first.
-      A finished block stays a minute, marked verified, then fades out.
+    <p class="mb-2 leading-relaxed">
+      Bitblocks fetches every transaction in every block and checks each one against its block.
     </p>
-    <%= if @board == [] do %>
-      <p
-        id="syncing-empty"
-        class="text-gray-900 dark:text-gray-100"
-      >
-        No block is fetching transactions right now.
-      </p>
-    <% else %>
-      <ul
-        role="list"
-        class="space-y-2"
-      >
-        <.block_card
-          :for={entry <- @board}
-          entry={entry}
-          prefix="syncing"
-          target={@snapshot.overview.target}
-          pending_text={if entry.finished, do: "Not counted", else: "Starting"}
-        />
-      </ul>
-    <% end %>
+    <p class="mb-2 leading-relaxed">
+      <strong class="text-gray-900 dark:text-white">Synced</strong>
+      counts the transactions stored so far.
+    </p>
+    <p class="mb-2 leading-relaxed">
+      <strong class="text-gray-900 dark:text-white">Processed</strong>
+      counts the ones analyzed for Bitblocks metadata (scripts, protocols, tokens), at analyzer version {@snapshot.analyzer_version}.
+    </p>
+    <p class="mb-2 leading-relaxed">
+      This page updates live, at most once a second.
+    </p>
+
+    <p class="mb-2 leading-relaxed">
+      Every block from genesis through the one named below has all of its transactions stored and checked against its header.
+      One coordinator hands each worker the lowest block not yet complete, and each worker owns one block at a time.
+      A block that fails is retried with backoff and keeps its place.
+    </p>
   </section>
 </div>

@@ -32,7 +32,6 @@ For admins: a GitHub user marked admin; the gate runs in every env and is off on
 | `/blocks/:id` | Block detail by height or hash |
 | `/transactions` | Transaction list (paginated) |
 | `/transactions/:id` | Transaction detail by txid |
-| `/sync` | Sync controls — start/stop SyncWorker, Pipeline, TipSync |
 | `/config` | Application configuration viewer |
 | `/debug` | Debug info |
 | `/graph` | Transaction graph visualization |

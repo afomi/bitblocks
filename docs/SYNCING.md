@@ -68,7 +68,7 @@ Workers are Oban jobs rather than tasks under the coordinator: a deploy or crash
 
 ## Concurrency
 
-Worker slots are set by an admin on /sync, persisted in the one-row `sync_settings` table, and applied by the coordinator within seconds.
+Worker slots are set by an admin on /syncing, persisted in the one-row `sync_settings` table, and applied by the coordinator within seconds.
 Growing adds slots; shrinking lets blocks in progress finish and doesn't refill their slots.
 The setting is clamped to `Sync.concurrency_limit/0`, the smallest of:
 
@@ -76,26 +76,26 @@ The setting is clamped to `Sync.concurrency_limit/0`, the smallest of:
 - the Repo `pool_size` minus `:sync_pool_reserve` (5, kept for web requests, header sync and the other queues);
 - the node's RPC threads, `:sync_rpc_limit` (env `SYNC_RPC_LIMIT`, default 4, bitcoind's default `rpcthreads`).
 
-/sync names the binding limit, e.g. "Max 2 — CPU cores".
+/syncing names the binding limit, e.g. "Max 2 — CPU cores".
 Without a saved choice the default is `:sync_workers`: 1 in dev and test, 2 in prod (a t3.medium has 2 vCPUs; POOL_SIZE 10 leaves 5; the RPC limit is 4).
 The coordinator scales the `:sync_blocks` queue on every node to the setting; dispatch is what bounds the cluster to it.
 
 ## Pausing
 
-An admin can pause the loop on /sync ("Pause the sync"), and resume it there.
+An admin can pause the loop on /syncing ("Pause the sync"), and resume it there.
 The flag is the `paused` column of the same `sync_settings` row (`Sync.set_paused/1`, `Sync.paused?/0`), so it holds across restarts, deploys and a change of leader.
 While paused the coordinator dispatches no new block jobs; header sync keeps running, and blocks already dispatched finish, including the rest of a small-block run.
-/sync says "Paused" and how many block jobs are still finishing; `/api/v1/status` reports `sync_paused` instead of `index_stalled`.
+/syncing says "Paused" and how many block jobs are still finishing; `/api/v1/status` reports `sync_paused` instead of `index_stalled`.
 The per-minute cron only keeps the coordinator alive, so it never undoes a pause.
 
 Lowering the concurrency drains the same way: dispatch fills only free slots, so live blocks finish and nothing new starts until the count is below the new setting.
 
 ## Watching it
 
-/syncing is public and /sync is for admins.
-Both show "Complete through block X of N known", the slots in use and the limit, and a table of blocks in height order: the `complete_through` block, the blocks with live jobs, and the next five waiting.
+/syncing is the one sync page, for signed-in readers; /sync redirects to it, and admins also get the operator panel there.
+It shows "Complete through block X of N known", the slots in use and the limit, and a table of blocks in height order: the `complete_through` block, the blocks with live jobs, and the next five waiting.
 Each row shows its stages as text and icon: header stored and checked, tx count known, txs fetched x of y, verified; plus its worker slot and retry state.
-/sync also shows the load on our node: raw blocks fetched over the last ten minutes, blocks a minute and MB a second, and the latest fetch's size, time and source.
+/syncing also shows, for admins, the load on our node: raw blocks fetched over the last ten minutes, blocks a minute and MB a second, and the latest fetch's size, time and source.
 
 It costs the same for one viewer or a thousand.
 The coordinator broadcasts `Sync.overview/0` at most once a second; block jobs report progress per chunk (`SyncProgress.Tracker`) and each raw fetch's bytes and time.

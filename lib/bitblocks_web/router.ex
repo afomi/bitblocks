@@ -278,7 +278,6 @@ defmodule BitblocksWeb.Router do
 
       live "/address_repo", AddressRepoLive
       live "/forks", ForkGraphLive
-      live "/sync", SyncLive
       live "/reporting", ReportingLive
       live "/highlights", HighlightsLive
       live "/graph", GraphLive
@@ -307,6 +306,7 @@ defmodule BitblocksWeb.Router do
     pipe_through [:browser, :signed_in]
 
     get "/status", PageController, :status
+    get "/sync", PageController, :sync
 
     live_session :signed_in,
       on_mount: [{UserAuth, :require_user}] do

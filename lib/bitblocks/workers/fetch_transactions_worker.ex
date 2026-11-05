@@ -199,7 +199,7 @@ defmodule Bitblocks.Workers.FetchTransactionsWorker do
     with {:ok, txids, block} <- TxidSource.txids(block), do: {:ok, txids, block, nil}
   end
 
-  # Bytes and time per raw block, for the node-load numbers on /sync; the
+  # Bytes and time per raw block, for the node-load numbers on /syncing; the
   # size is kept on the row so the size cap can use it next time.
   defp record_fetch(block, stats) do
     Phoenix.PubSub.broadcast(

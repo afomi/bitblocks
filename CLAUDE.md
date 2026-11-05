@@ -84,14 +84,14 @@ mix assets.deploy           # Build and minify for production
 
 - Bitblocks is accurate as of the last-known block, and says which one: `Bitblocks.Sync.complete_through/0` is the highest H such that every block 0..H is `completed` (merkleroot rebuilt, every tx stored).
 - Work goes strictly upward from `complete_through + 1`, one owner per block, never skipped. Small blocks (at most 1,000 txs each) go in runs of up to 50 blocks or 20,000 txs per job, so the hand-off between jobs is paid once per run.
-- `Bitblocks.Sync.Coordinator` leads, on the Oban leader node only: header sync to the node's tip with reorgs (every minute), dispatch of the lowest incomplete blocks to worker slots, the concurrency setting, and the `{:sync_overview, _}` broadcast that `SyncProgress` shares with /syncing and /sync.
+- `Bitblocks.Sync.Coordinator` leads, on the Oban leader node only: header sync to the node's tip with reorgs (every minute), dispatch of the lowest incomplete blocks to worker slots, the concurrency setting, and the `{:sync_overview, _}` broadcast that `SyncProgress` shares with /syncing.
 - `Bitblocks.Workers.SyncWorker` (cron, every minute) only keeps the coordinator alive.
 - `Bitblocks.Workers.FetchTransactionsWorker` is the block job: queue `:sync_blocks`, unique on the block hash, one worker slot; a run job (`args.run`, from `Sync.dispatch/1`) walks its small blocks in height order.
   - Blocks up to 32 MB are fetched once as raw bytes (`Chain.RawBlock`: node REST `/rest/block/<hash>.bin`, else `getblock(hash, 0)`) and parsed locally; txids derived from the bytes must rebuild the header's merkleroot. Larger blocks use the txid list (`Chain.TxidSource`) and per-chunk bodies (`Chain.TxSources`).
   - Sequential within a block; bounded runs (`:tx_fetch_run_ms`, 30 s) that snooze and resume from the offset saved in the job's meta.
   - A failure marks the block `failed` and backs off 1, 2, 4 … minutes, capped at an hour; never gives up. The seventh failure in a row (over an hour) sends one `Notifications.sync_stall_alert/3`.
-- Concurrency: admin-set on /sync, persisted in `sync_settings`, clamped to `Sync.concurrency_limit/0` (CPU cores, `pool_size` minus `:sync_pool_reserve`, `:sync_rpc_limit` / `SYNC_RPC_LIMIT`). Default `:sync_workers`: 1 in dev and test, 2 in prod.
-- Pause: admin-set on /sync, the `paused` column of `sync_settings` (`Sync.set_paused/1`); the coordinator dispatches nothing new while it is set, across restarts and deploys, and blocks already dispatched finish.
+- Concurrency: admin-set on /syncing, persisted in `sync_settings`, clamped to `Sync.concurrency_limit/0` (CPU cores, `pool_size` minus `:sync_pool_reserve`, `:sync_rpc_limit` / `SYNC_RPC_LIMIT`). Default `:sync_workers`: 1 in dev and test, 2 in prod.
+- Pause: admin-set on /syncing, the `paused` column of `sync_settings` (`Sync.set_paused/1`); the coordinator dispatches nothing new while it is set, across restarts and deploys, and blocks already dispatched finish.
 - `Bitblocks.Workers.SyncHeadersWorker` holds the header logic (`sync_tip/0`, `sync_range/2`, reorg handling) and still runs a manual range job.
 
 **After a tx comes in** (authoritative: `docs/TX_PIPELINE.md`):
@@ -143,7 +143,7 @@ mix assets.deploy           # Build and minify for production
   - `/collections` and `/collections/:id` - BSV NFT collections index and show (`:id` is a slug or origin outpoint; one view for every collection)
   - `/types` and `/types/:id` - transaction types glossary (#49): pattern, spend, spec and real examples per type, from `priv/data/tx_types/types.json` (`Bitblocks.TxTypes`); `/types` shows each type's tx count and first block, summed from `blocks.type_counts` over the blocks verified complete and typed, and says which range that is (`Bitblocks.TxTypes.Counts`, refreshed every 10 minutes)
   - `/bitcom` and `/bitcom/:address` - live Bitcom registry (unwriter's Bitcom): namespaces, on-chain ownership proof, files, routes, usage
-  - `/syncing` - signed-in live sync view: blocks fetching on each lane with synced and processed x of y, recent completions, tips and blocks by sync_state, from one shared snapshot (`Bitblocks.SyncProgress`; `docs/SYNCING.md`). `/sync` is the admin operator page
+  - `/syncing` - signed-in live sync view: blocks fetching on each lane with synced and processed x of y, recent completions, tips and blocks by sync_state, from one shared snapshot (`Bitblocks.SyncProgress`; `docs/SYNCING.md`); admins also get the operator panel there: pause, worker slots, node load, failed blocks, the audit. `/sync` redirects to it
   - `/chain-scrubber` - admin only: scrub the chain genesis to tip in three.js from precomputed tiles (`docs/CHAIN_SCRUBBER.md`); `/chain-scrubber/tiles/manifest` and `/chain-scrubber/tiles/:level/:idx` serve the tiles from ETS with no DB query
   - `/tx-graph` - admin only: the transaction flow space, a block range in three.js with every input as an arc to the output it spends, scrubbed by a playhead (`docs/TX_FLOW.md`); data from `/chain-scrubber/flow?from=&to=` (`Bitblocks.ChainFlow`)
   - `/annotations` - admin only: CRUD for chain annotations (forks, upgrades, halvings, mintings, milestones, world events), placed by height, txid or date (`Bitblocks.Annotations`); drawn on both scenes
@@ -237,7 +237,7 @@ bin/bitblocks rpc 'Bitblocks.Release.chain_tiles_status()'
 bin/bitblocks rpc 'Bitblocks.Release.tx_store_reconcile(0, 9_999)'
 ```
 
-`/syncing` shows the loop live; `/sync` adds the worker-slot control and the load on our node.
+`/syncing` shows the loop live; admins also get the worker-slot control and the load on our node there.
 
 ### API
 

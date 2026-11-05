@@ -13,7 +13,6 @@ defmodule BitblocksWeb.UserAuthTest do
   import Bitblocks.ChainFixtures
 
   alias Bitblocks.Accounts
-  alias Bitblocks.Chain
 
   setup do
     previous_gate = Application.get_env(:bitblocks, :admin_auth)
@@ -64,7 +63,7 @@ defmodule BitblocksWeb.UserAuthTest do
 
   defp admin_paths_status(conn) do
     %{
-      sync: get(conn, "/sync").status,
+      config: get(conn, "/config").status,
       scrubber: get(conn, "/chain-scrubber").status,
       tiles: get(conn, "/chain-scrubber/tiles/manifest").status
     }
@@ -132,14 +131,14 @@ defmodule BitblocksWeb.UserAuthTest do
 
       on_exit(fn -> Application.delete_env(:ueberauth, Ueberauth.Strategy.Github.OAuth) end)
 
-      assert redirected_to(get(conn, "/sync")) =~ "/sign-in?return_to="
+      assert redirected_to(get(conn, "/config")) =~ "/sign-in?return_to="
     end
 
     test "gets no basic auth challenge, and credentials open nothing", %{conn: conn} do
       conn =
         conn
         |> put_req_header("authorization", "Basic " <> Base.encode64("admin:secret"))
-        |> get("/sync")
+        |> get("/config")
 
       refute conn.status == 200
       assert get_resp_header(conn, "www-authenticate") == []
@@ -183,6 +182,29 @@ defmodule BitblocksWeb.UserAuthTest do
       assert html =~ ~s(id="tx-raw-download")
     end
 
+    test "sees /syncing without the operator panel, and can't fire its events", %{conn: conn} do
+      block_fixture(%{height: 810_020, sync_state: "failed", tx_sync_error: "secret detail"})
+
+      {:ok, view, html} = live(conn, "/syncing")
+
+      refute has_element?(view, "#sync-operator")
+      refute has_element?(view, "#sync-health")
+      refute html =~ "secret detail"
+
+      render_hook(view, "set_paused", %{"paused" => "true"})
+      render_hook(view, "set_concurrency", %{"concurrency" => "3"})
+      render_hook(view, "run_audit", %{})
+      render_hook(view, "repair_incomplete", %{})
+
+      refute Bitblocks.Sync.paused?()
+      assert Bitblocks.Sync.concurrency() != 3
+      refute has_element?(view, "#sync-operator")
+    end
+
+    test "/sync goes to /syncing", %{conn: conn} do
+      assert redirected_to(get(conn, "/sync")) == "/syncing"
+    end
+
     test "opens /status and /syncing, with the links shown", %{conn: conn} do
       assert html_response(get(conn, "/status"), 200)
       {:ok, _view, _html} = live(conn, "/syncing")
@@ -191,19 +213,8 @@ defmodule BitblocksWeb.UserAuthTest do
       assert home =~ ~s(href="/status")
     end
 
-    test "does not see or trigger the transaction download", %{conn: conn, block: block} do
-      {:ok, view, html} = live(conn, "/blocks/#{block.height}")
-
-      refute html =~ ~s(phx-click="download_transactions")
-
-      render_hook(view, "download_transactions", %{})
-
-      assert Chain.get_block(block.height).sync_state == block.sync_state
-      refute_enqueued(worker: Bitblocks.Workers.FetchTransactionsWorker)
-    end
-
     test "is refused on /sync and /chain-scrubber", %{conn: conn} do
-      assert get(conn, "/sync").status == 403
+      assert get(conn, "/config").status == 403
       assert get(conn, "/chain-scrubber").status == 403
       assert get(conn, "/chain-scrubber/tiles/manifest").status == 403
     end
@@ -238,29 +249,29 @@ defmodule BitblocksWeb.UserAuthTest do
     test "opens the operator surface, tiles included", %{conn: conn} do
       status = admin_paths_status(conn)
 
-      assert status.sync == 200
+      assert status.config == 200
       assert status.scrubber == 200
       refute status.tiles in [401, 403]
-    end
-
-    test "sees and triggers the transaction download", %{conn: conn, block: block} do
-      {:ok, view, html} = live(conn, "/blocks/#{block.height}")
-      assert html =~ ~s(phx-click="download_transactions")
-
-      render_click(view, "download_transactions", %{})
-
-      assert Chain.get_block(block.height).sync_state == "txs_queued"
-      assert_enqueued(worker: Bitblocks.Workers.FetchTransactionsWorker)
     end
   end
 
   describe "the admin flag" do
+    test "an admin gets the operator panel on /syncing", %{conn: conn} do
+      user = github_user("afomi", 4003)
+      {:ok, _} = Accounts.set_admin("afomi", true)
+
+      {:ok, view, _html} = live(sign_in(conn, user), "/syncing")
+
+      assert has_element?(view, "#sync-operator")
+      assert has_element?(view, "#sync-health")
+    end
+
     test "a GitHub user marked admin opens the operator surface", %{conn: conn} do
       user = github_user("afomi", 4001)
       {:ok, _} = Accounts.set_admin("afomi", true)
 
       status = admin_paths_status(sign_in(conn, user))
-      assert %{sync: 200, scrubber: 200} = status
+      assert %{config: 200, scrubber: 200} = status
 
       # 404 with no manifest built, 200 when another test left tiles in the
       # shared ETS cache; either way the gate let the admin through.
@@ -270,26 +281,26 @@ defmodule BitblocksWeb.UserAuthTest do
     test "a signed-in user who isn't marked admin is refused", %{conn: conn} do
       conn = sign_in(conn, github_user("someone", 4002))
 
-      assert admin_paths_status(conn) == %{sync: 403, scrubber: 403, tiles: 403}
+      assert admin_paths_status(conn) == %{config: 403, scrubber: 403, tiles: 403}
     end
 
     test "granting takes effect on the next request, and revoking too, with no new sign-in",
          %{conn: conn} do
       user = github_user("afomi", 4003)
       conn = sign_in(conn, user)
-      assert get(conn, "/sync").status == 403
+      assert get(conn, "/config").status == 403
 
       {:ok, _} = Accounts.set_admin("afomi", true)
-      assert get(conn, "/sync").status == 200
+      assert get(conn, "/config").status == 200
 
       {:ok, _} = Accounts.set_admin("afomi", false)
-      assert admin_paths_status(conn) == %{sync: 403, scrubber: 403, tiles: 403}
+      assert admin_paths_status(conn) == %{config: 403, scrubber: 403, tiles: 403}
     end
 
     test "the GitHub callback can't make anyone an admin", %{conn: conn} do
       conn = complete_sign_in(conn, github_auth("afomi", 4004))
 
-      assert admin_paths_status(conn) == %{sync: 403, scrubber: 403, tiles: 403}
+      assert admin_paths_status(conn) == %{config: 403, scrubber: 403, tiles: 403}
       refute Accounts.get_user_by_github_id(4004).admin
     end
 
@@ -297,7 +308,7 @@ defmodule BitblocksWeb.UserAuthTest do
       user = github_user("afomi", 4005)
       {:ok, _} = Accounts.set_admin("afomi", true)
 
-      assert {:ok, _view, _html} = live(sign_in(conn, user), "/sync")
+      assert {:ok, _view, _html} = live(sign_in(conn, user), "/admin")
     end
   end
 

@@ -1,6 +1,6 @@
 defmodule BitblocksWeb.HealthLine do
   @moduledoc """
-  The one answer /sync and /status lead with (#44): how far our index is
+  The one answer /syncing and /status lead with (#44): how far our index is
   complete and how fresh it is, our node's state and lag, failed blocks, and
   whether the sync is moving, paused or stalled.
 

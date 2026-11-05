@@ -1,0 +1,233 @@
+<%!-- Admins only: the template and the handlers each check. --%>
+<section
+  id="sync-operator"
+  aria-label="Operator controls"
+>
+  <section
+    id="sync-pause"
+    aria-labelledby="sync-pause-heading"
+    class="bg-white dark:bg-gray-800 shadow-md rounded-lg p-6 mb-6"
+  >
+    <h2
+      id="sync-pause-heading"
+      class="text-lg font-semibold mb-2 text-gray-900 dark:text-white"
+    >
+      Sync loop
+    </h2>
+    <p
+      id="sync-pause-state"
+      class="text-sm text-gray-700 dark:text-gray-300 mb-3"
+    >
+      <%= if @paused do %>
+        Paused.
+        No new blocks are dispatched, and the pause holds across restarts and deploys.
+        <%= if @still_finishing > 0 do %>
+          {@still_finishing} block job(s) already dispatched are still finishing.
+        <% else %>
+          Nothing is still running.
+        <% end %>
+      <% else %>
+        Running.
+        The loop dispatches the lowest incomplete blocks to free worker slots.
+      <% end %>
+    </p>
+    <button
+      type="button"
+      phx-click="set_paused"
+      phx-value-paused={if @paused, do: "false", else: "true"}
+      class="px-3 py-1 text-sm bg-blue-700 text-white rounded hover:bg-blue-800"
+    >
+      <%= if @paused, do: "Resume the sync", else: "Pause the sync" %>
+    </button>
+  </section>
+
+  <form
+    id="sync-concurrency-form"
+    phx-submit="set_concurrency"
+    class="bg-white dark:bg-gray-800 shadow-md rounded-lg p-6 mb-6"
+  >
+    <label
+      for="sync-concurrency"
+      class="block text-lg font-semibold mb-2 text-gray-900 dark:text-white"
+    >
+      Worker slots
+    </label>
+    <p
+      id="sync-concurrency-limit"
+      class="text-sm text-gray-700 dark:text-gray-300 mb-3"
+    >
+      Max {@limit_max} — {@limit_reason}.
+      Growing takes effect within seconds; shrinking lets blocks in progress finish.
+    </p>
+    <div class="flex items-center gap-3">
+      <input
+        id="sync-concurrency"
+        name="concurrency"
+        type="number"
+        min="1"
+        max={@limit_max}
+        step="1"
+        value={@concurrency}
+        aria-describedby="sync-concurrency-limit"
+        class="w-24 rounded border border-gray-400 px-2 py-1 text-gray-900 dark:border-gray-500 dark:bg-gray-900 dark:text-white"
+      />
+      <button
+        type="submit"
+        class="px-3 py-1 text-sm bg-blue-700 text-white rounded hover:bg-blue-800"
+      >
+        Apply
+      </button>
+    </div>
+  </form>
+
+  <section
+    id="sync-node-load"
+    aria-labelledby="sync-node-load-heading"
+    class="bg-white dark:bg-gray-800 shadow-md rounded-lg p-6 mb-6"
+  >
+    <h2
+      id="sync-node-load-heading"
+      class="text-lg font-semibold mb-2 text-gray-900 dark:text-white"
+    >
+      Load on our node
+    </h2>
+    <p class="text-sm text-gray-700 dark:text-gray-300">
+      Each block is one request for its raw bytes, at most one per worker slot at a time.
+      Over the last {@node_load.window_minutes} minutes this node's workers fetched {@node_load.blocks} blocks: {@node_load.blocks_per_minute} blocks a minute, {@node_load.mb_per_second} MB a second on average.
+    </p>
+    <p
+      :if={@node_load.last}
+      id="sync-node-load-last"
+      class="text-sm text-gray-700 dark:text-gray-300 mt-1"
+    >
+      Latest: block {@node_load.last.height}, {Float.round(@node_load.last.bytes / 1_000_000, 2)} MB in {Float.round(@node_load.last.ms / 1000, 2)} s over {@node_load.last.source}.
+    </p>
+  </section>
+
+  <div
+    :if={@failed_blocks != []}
+    id="sync-failed-blocks"
+    class="mb-6"
+  >
+    <h3 class="text-sm font-semibold mb-1 text-gray-900 dark:text-white">
+      Failed blocks, lowest first
+    </h3>
+    <p class="text-xs text-gray-600 dark:text-gray-300 mb-2">
+      Each keeps retrying with backoff, capped at an hour; none is parked or skipped.
+    </p>
+    <table class="w-full text-xs">
+      <thead class="text-left text-gray-600 dark:text-gray-300">
+        <tr>
+          <th class="py-1 pr-4">Height</th>
+          <th class="py-1 pr-4">Failures</th>
+          <th class="py-1">Last error</th>
+        </tr>
+      </thead>
+      <tbody class="text-gray-900 dark:text-gray-100">
+        <tr
+          :for={b <- @failed_blocks}
+          class="border-t border-gray-100 dark:border-gray-700 align-top"
+        >
+          <td class="py-1 pr-4 font-mono">
+            <.link
+              navigate={~p"/blocks/#{b.height}"}
+              class="text-blue-700 underline dark:text-blue-300"
+            >
+              {number(b.height)}
+            </.link>
+          </td>
+          <td class="py-1 pr-4">{b.attempts || 0} in a row</td>
+          <td class="py-1 break-all">{b.error}</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  <details
+    id="sync-diagnostics"
+    class="bg-white dark:bg-gray-800 shadow-md rounded-lg p-6 mb-6"
+  >
+    <summary class="cursor-pointer text-lg font-semibold text-gray-900 dark:text-white">
+      Completeness Audit
+    </summary>
+    <div class="flex items-center justify-end mt-2 mb-2">
+      <div class="flex items-center gap-2">
+        <button
+          phx-click="run_audit"
+          disabled={@audit_running}
+          data-confirm="The audit scans the whole transactions table and counts rows per block; on a large database it runs for minutes. Run it?"
+          class="px-3 py-1 text-xs bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300 rounded hover:bg-blue-200 disabled:opacity-50"
+        >
+          <%= if @audit_running, do: "Running…", else: "Run Audit" %>
+        </button>
+        <button
+          :if={@audit && @audit.count > 0}
+          phx-click="repair_incomplete"
+          disabled={@audit_running}
+          data-confirm="Reopen flagged completed blocks for the sync loop to refill?"
+          class="px-3 py-1 text-xs bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300 rounded hover:bg-amber-200 disabled:opacity-50"
+        >
+          Repair
+        </button>
+      </div>
+    </div>
+    <p class="text-sm text-gray-500 dark:text-gray-400 mb-3">
+      Compares stored transaction rows to each block's num_tx — catches blocks marked completed with missing transactions.
+      Repair reopens flagged completed blocks; the sync loop refills only what they're missing, in order.
+    </p>
+    <%= cond do %>
+      <% @audit == nil -> %>
+        <p class="text-sm text-gray-600 dark:text-gray-400">
+          Not run yet.
+        </p>
+      <% @audit.count == 0 -> %>
+        <p class="text-sm text-green-600 font-semibold">
+          ✓ No deficits — every block's transactions are fully stored.
+        </p>
+      <% true -> %>
+        <div>
+          <p class="text-sm text-red-600 font-semibold mb-2">
+            <%= @audit.count %> block(s) with missing transactions
+            <span
+              :if={@audit.count >= 50}
+              class="text-gray-500 font-normal"
+            >
+              (showing first 50 — there may be more)
+            </span>
+          </p>
+          <div class="max-h-64 overflow-y-auto">
+            <table class="w-full text-xs font-mono">
+              <thead class="text-left text-gray-500 dark:text-gray-400">
+                <tr>
+                  <th class="py-1 pr-4">Height</th>
+                  <th class="py-1 pr-4">State</th>
+                  <th class="py-1 pr-4">Stored</th>
+                  <th class="py-1 pr-4">Expected</th>
+                  <th class="py-1">Missing</th>
+                </tr>
+              </thead>
+              <tbody class="text-gray-900 dark:text-gray-100">
+                <tr
+                  :for={d <- @audit.deficits}
+                  class="border-t border-gray-100 dark:border-gray-700"
+                >
+                  <td class="py-1 pr-4">
+                    <.link
+                      navigate={~p"/blocks/#{d.height}"}
+                      class="text-blue-600 hover:underline"
+                    >
+                      <%= d.height %>
+                    </.link>
+                  </td>
+                  <td class="py-1 pr-4"><%= d.sync_state %></td>
+                  <td class="py-1 pr-4"><%= number(d.stored) %></td>
+                  <td class="py-1 pr-4"><%= number(d.num_tx) %></td>
+                  <td class="py-1 text-red-600"><%= number(d.missing) %></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+    <% end %>
+  </details>
+
+</section>

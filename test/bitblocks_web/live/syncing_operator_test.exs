@@ -1,4 +1,7 @@
-defmodule BitblocksWeb.SyncLiveTest do
+defmodule BitblocksWeb.SyncingOperatorTest do
+  # The operator panel on /syncing. config/test.exs turns the gate off, so the
+  # viewer here is an admin; test/bitblocks_web/user_auth_test.exs covers a
+  # reader with the gate on.
   use BitblocksWeb.ConnCase
 
   import Phoenix.LiveViewTest
@@ -9,7 +12,7 @@ defmodule BitblocksWeb.SyncLiveTest do
 
   describe "completeness audit" do
     test "renders the audit card, not yet run", %{conn: conn} do
-      {:ok, _view, html} = live(conn, ~p"/sync")
+      {:ok, _view, html} = live(conn, ~p"/syncing")
 
       assert html =~ "Completeness Audit"
       assert html =~ "Not run yet"
@@ -26,7 +29,7 @@ defmodule BitblocksWeb.SyncLiveTest do
 
       transaction_fixture(%{block_hash: block.hash})
 
-      {:ok, view, _html} = live(conn, ~p"/sync")
+      {:ok, view, _html} = live(conn, ~p"/syncing")
 
       view |> element("button", "Run Audit") |> render_click()
       html = render_async(view)
@@ -47,7 +50,7 @@ defmodule BitblocksWeb.SyncLiveTest do
 
       transaction_fixture(%{block_hash: block.hash})
 
-      {:ok, view, _html} = live(conn, ~p"/sync")
+      {:ok, view, _html} = live(conn, ~p"/syncing")
 
       view |> element("button", "Run Audit") |> render_click()
       html = render_async(view)
@@ -64,7 +67,7 @@ defmodule BitblocksWeb.SyncLiveTest do
           sync_state: "completed"
         })
 
-      {:ok, view, _html} = live(conn, ~p"/sync")
+      {:ok, view, _html} = live(conn, ~p"/syncing")
 
       view |> element("button", "Run Audit") |> render_click()
       render_async(view)
@@ -79,7 +82,7 @@ defmodule BitblocksWeb.SyncLiveTest do
   # #44: the page says what the loop and the buttons actually do.
   describe "matches what it does" do
     test "leads with the health sentence", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/sync")
+      {:ok, view, _html} = live(conn, ~p"/syncing")
       assert has_element?(view, "#sync-health")
     end
 
@@ -91,7 +94,7 @@ defmodule BitblocksWeb.SyncLiveTest do
         tx_sync_error: "merkle mismatch"
       })
 
-      {:ok, view, _html} = live(conn, ~p"/sync")
+      {:ok, view, _html} = live(conn, ~p"/syncing")
 
       assert has_element?(view, "#sync-failed-blocks a[href='/blocks/810010']")
       assert has_element?(view, "#sync-failed-blocks", "merkle mismatch")
@@ -99,24 +102,20 @@ defmodule BitblocksWeb.SyncLiveTest do
     end
 
     test "the audit's confirm says it scans transactions", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/sync")
+      {:ok, view, _html} = live(conn, ~p"/syncing")
       assert has_element?(view, "button[data-confirm*='scans the whole transactions table']")
     end
 
-    test "a block being fetched shows how long it has been working", %{conn: conn} do
-      block_fixture(%{
-        height: 810_011,
-        num_tx: 10,
-        sync_state: "txs_syncing",
-        tx_sync_started_at: DateTime.add(DateTime.utc_now(), -300, :second)
-      })
+    test "keeps failures in view and the audit closed", %{conn: conn} do
+      {:ok, view, html} = live(conn, ~p"/syncing")
 
-      {:ok, view, _html} = live(conn, ~p"/sync")
-      assert has_element?(view, "#block-sync-810011-elapsed", "Started 5 min ago")
+      refute html =~ "Sync a Range"
+      refute has_element?(view, "form[phx-submit='start_sync']")
+      assert has_element?(view, "details#sync-diagnostics:not([open])")
     end
 
     test "pause stops new dispatch and says so; resume starts it again", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/sync")
+      {:ok, view, _html} = live(conn, ~p"/syncing")
       assert has_element?(view, "#sync-pause-state", "Running")
 
       view |> element("#sync-pause button", "Pause the sync") |> render_click()
@@ -129,19 +128,6 @@ defmodule BitblocksWeb.SyncLiveTest do
 
       refute Bitblocks.Sync.paused?()
       assert has_element?(view, "#sync-pause-state", "Running")
-    end
-
-    test "cancelling header range jobs cancels them, the executing one included", %{conn: conn} do
-      {:ok, job} =
-        %{"mode" => "range", "from" => 0, "to" => 10}
-        |> Bitblocks.Workers.SyncHeadersWorker.new()
-        |> Oban.insert()
-
-      {:ok, view, _html} = live(conn, ~p"/sync")
-      view |> element("button", "Cancel header range jobs") |> render_click()
-
-      assert Repo.reload!(job).state == "cancelled"
-      refute render(view) =~ "Cancel All Jobs"
     end
   end
 
@@ -156,7 +142,7 @@ defmodule BitblocksWeb.SyncLiveTest do
         Application.delete_env(:bitblocks, :sync_run_max_blocks)
       end)
 
-      {:ok, view, _html} = live(conn, ~p"/sync")
+      {:ok, view, _html} = live(conn, ~p"/syncing")
       assert has_element?(view, "#sync-concurrency-limit", "Max 2 — node RPC threads")
       assert has_element?(view, "#sync-concurrency[value='1']")
 

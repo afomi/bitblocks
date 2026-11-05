@@ -90,7 +90,7 @@
 │  └───────────────────────────────────┘  └────────────────────────────┘  │
 │   Two separate concurrency-1 lanes: tip never starved, backfill never    │
 │   competes. Completeness audit: Release.audit_completeness/1 +           │
-│   repair_incomplete_blocks/1 (also on /sync).                            │
+│   repair_incomplete_blocks/1 (also on /syncing).                            │
 └─────────────────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────────────────┐
@@ -115,7 +115,7 @@
 │  │  LiveViews       │  │  API Controllers │  │  SSE Streams         │  │
 │  │                  │  │  /api/v1/*       │  │  /api/v1/stream/*    │  │
 │  │  /blocks         │  │                  │  │                      │  │
-│  │  /sync           │  │  BlockController │  │  blocks              │  │
+│  │  /syncing        │  │  BlockController │  │  blocks              │  │
 │  │  /metanet        │  │  TxController    │  │  order-book          │  │
 │  │  /order-book     │  │  PriceController │  │                      │  │
 │  │  /ecosystem      │  │  MetanetCtrl     │  │                      │  │
@@ -161,4 +161,4 @@ txs_syncing       ← raw transactions being fetched
     └──(error)────▶ failed
 ```
 
-The `/sync` page shows a breakdown by `sync_state` so you can see exactly where blocks are in the pipeline.
+The `/syncing` page shows a breakdown by `sync_state` so you can see exactly where blocks are in the pipeline.

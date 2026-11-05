@@ -40,7 +40,7 @@ Audit of all async work in Bitblocks: what runs, how it's managed, and what shou
 
 ### Oban workers (job queue)
 
-Retryable, persistent, visible on `/sync`.
+Retryable, persistent, visible on `/syncing`.
 
 | Worker | Queue | Trigger | Retries |
 |---|---|---|---|
@@ -51,7 +51,7 @@ Queue concurrency (prod): `transactions: 4, blocks: 1, default: 10`
 
 ### GenServers (supervised processes)
 
-Always running, periodic or on-demand. Visible on `/sync` under "Background Services."
+Always running, periodic or on-demand. Visible through `/api/v1/status`.
 
 | Service | Interval | What it does |
 |---|---|---|

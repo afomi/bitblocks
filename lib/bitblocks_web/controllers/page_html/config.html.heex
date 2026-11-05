@@ -79,57 +79,14 @@
         Your node is properly configured and responding.
       </p>
 
-      <div
-        class="bg-white border border-green-300 rounded-lg p-4 mb-4"
-      >
-        <h3
-          class="text-lg font-semibold text-gray-800 mb-3"
+      <p>
+        The sync runs by itself; watch it on
+        <a
+          href="/syncing"
+          class="underline"
         >
-          Choose Sync Scope:
-        </h3>
-
-        <div
-          class="space-y-3"
-        >
-          <div>
-            <a
-              href="/sync?scope=all"
-              class="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 font-semibold"
-            >
-              Sync All Blocks
-              <span
-                class="ml-2 text-xs bg-blue-700 px-2 py-1 rounded"
-              >
-                (Genesis to current tip)
-              </span>
-            </a>
-            <p
-              class="text-sm text-gray-600 mt-1 ml-1"
-            >
-              Download the entire blockchain from block 0 to the current chain tip
-            </p>
-          </div>
-
-          <div>
-            <a
-              href="/sync?scope=range"
-              class="inline-flex items-center px-4 py-2 bg-purple-600 text-white rounded hover:bg-purple-700 font-semibold"
-            >
-              Sync Block Range
-              <span
-                class="ml-2 text-xs bg-purple-700 px-2 py-1 rounded"
-              >
-                (Specify start & end)
-              </span>
-            </a>
-            <p
-              class="text-sm text-gray-600 mt-1 ml-1"
-            >
-              Download a specific range of blocks (e.g., blocks 100000-218000)
-            </p>
-          </div>
-        </div>
-      </div>
+          /syncing</a>.
+      </p>
     </div>
   <% end %>
 

@@ -7,6 +7,9 @@ defmodule BitblocksWeb.PageController do
     render(conn, :index)
   end
 
+  @doc "`/sync` became `/syncing`, with an operator panel for admins."
+  def sync(conn, _params), do: redirect(conn, to: ~p"/syncing")
+
   def home(conn, _params) do
     seo =
       Seo.public_page(

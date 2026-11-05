@@ -48,7 +48,7 @@ defmodule BitblocksWeb.AccessibilityAxeTest do
 
     test "sync page is accessible", %{session: session} do
       session
-      |> visit("/sync")
+      |> visit("/syncing")
       |> assert_no_violations()
     end
 
@@ -154,10 +154,10 @@ defmodule BitblocksWeb.AccessibilityAxeTest do
       end
     end
 
-    # The sync's block table (stages as text and icon), on the public and
-    # operator pages, with a completed, a failing and a waiting block.
+    # The sync's block table (stages as text and icon), with a completed, a
+    # failing and a waiting block.
     for dark? <- [false, true],
-        {path, table} <- [{"/syncing", "sync-table"}, {"/sync", "sync-loop"}] do
+        {path, table} <- [{"/syncing", "sync-table"}] do
       test "#{path} block table is accessible in #{if dark?, do: "dark", else: "light"} mode", %{
         session: session
       } do

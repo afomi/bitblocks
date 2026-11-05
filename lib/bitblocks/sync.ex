@@ -193,6 +193,18 @@ defmodule Bitblocks.Sync do
     {:ok, applied}
   end
 
+  @doc "The lowest failed blocks, with their error. Served by blocks_sync_state_height_index."
+  @spec failed_blocks(pos_integer()) :: [map()]
+  def failed_blocks(limit \\ 20) do
+    from(b in Block,
+      where: b.sync_state == "failed",
+      order_by: [asc: b.height],
+      limit: ^limit,
+      select: %{height: b.height, attempts: b.tx_sync_attempts, error: b.tx_sync_error}
+    )
+    |> Repo.all()
+  end
+
   @doc """
   True while an operator has paused the loop: the coordinator dispatches no
   new block jobs, and blocks already dispatched finish. Persisted in
