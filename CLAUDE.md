@@ -97,15 +97,15 @@ mix assets.deploy           # Build and minify for production
 **After a tx comes in** (authoritative: `docs/TX_PIPELINE.md`):
 
 - `Bitblocks.Chain.TxPipeline.steps/0` is the ordered list of what happens to every stored tx, and the one place to add a step (one module plus one line).
-- Chunk steps run before the insert, in `Chain.TxIngest.store_chunk/2`: `script_analysis`, `sats_out`, `burned`, `sats_in` (previous outputs from stored txs, one query per chunk; nil when one isn't stored), `fee`.
+- Chunk steps run before the insert, in `Chain.TxIngest.store_chunk/2`: `script_analysis`, `sats_out`, `burned`, `sats_in` (previous outputs from stored txs, one query per chunk; nil when one isn't stored), `fee`, `classify_outputs` (every output typed against `priv/data/tx_types/types.json` by `Bitblocks.TxTypes.Classifier`, unmatched as `custom`; the tx's set of types in `transactions.tx_types`, #49).
 - Tx steps run after it: `record_spends`, `index_tokens`, `index_bitcom`.
-- The block step `block_totals` runs once the block is `completed`: `sats_out`, `fees`, `miner_reward`, `subsidy`, `burned`, and `fees_verified` (`miner_reward <= subsidy + fees`).
+- The block steps run once the block is `completed`: `block_totals` (`sats_out`, `fees`, `miner_reward`, `subsidy`, `burned`, and `fees_verified`: `miner_reward <= subsidy + fees`), then `type_counts` (`blocks.type_counts`, txs per type, which `/types` sums through `Bitblocks.TxTypes.Counts`).
 - A failing step is logged and reported (telemetry `[:bitblocks, :tx_pipeline, :step_failed]`) and never loses the stored tx.
 - Read-time facts, never stored: `Chain.output_status/1` (spent, unspent, unknown or unspendable per output; unspent only when the index reaches the tip, see `Bitblocks.Chain.Utxos`) and `Chain.nft_facts/1` (inscription or Run jig, and collection membership).
 - `Release.backfill_tx_tallies(from, to, apply: true)` fills the tally columns for blocks completed before the steps; dry run by default.
 
 - **Derived data** (authoritative: `docs/DERIVED_DATA.md`): everything `Chain.TxPipeline` adds after ingestion carries its provenance.
-  Each step has a `version/0`; rows stamp the version that computed them (`transactions.script_analysis_version`, `transactions.tallies_version`, `blocks.tallies_version`).
+  Each step has a `version/0`; rows stamp the version that computed them (`transactions.script_analysis_version`, `transactions.tallies_version`, `transactions.tx_types_version`, `blocks.tallies_version`, `blocks.type_counts_version`).
   Backfills pick rows below the current version, stamp them, and record each run (dry runs too) in `derivation_runs`; `GET /api/v1/status/derivations` shows the versions and latest runs.
 
 - `Bitblocks.Workers.ChainTilesWorker` — builds chain-scrubber tiles (`Bitblocks.ChainTiles`) on the `:chain_tiles` lane (concurrency 1), reading `blocks` only. Cron every 5 minutes in incremental mode: a no-op until `Release.build_chain_tiles()` has run once, and when no block changed. See `docs/CHAIN_SCRUBBER.md`.
@@ -140,7 +140,7 @@ mix assets.deploy           # Build and minify for production
   - `/order-book` - Open Order Book (browse BSV-20 token listings)
   - `/tokens` and `/tokens/:id` - BSV-20/BSV-21 token index (supply, holders); read-only, minting lives in qart
   - `/collections` and `/collections/:id` - BSV NFT collections index and show (`:id` is a slug or origin outpoint; one view for every collection)
-  - `/types` and `/types/:id` - transaction types glossary (#49): pattern, spend, spec and real examples per type, from `priv/data/tx_types/types.json` (`Bitblocks.TxTypes`)
+  - `/types` and `/types/:id` - transaction types glossary (#49): pattern, spend, spec and real examples per type, from `priv/data/tx_types/types.json` (`Bitblocks.TxTypes`); `/types` shows each type's tx count and first block, summed from `blocks.type_counts` over the blocks verified complete and typed, and says which range that is (`Bitblocks.TxTypes.Counts`, refreshed every 10 minutes)
   - `/bitcom` and `/bitcom/:address` - live Bitcom registry (unwriter's Bitcom): namespaces, on-chain ownership proof, files, routes, usage
   - `/syncing` - public live sync view: blocks fetching on each lane with synced and processed x of y, recent completions, tips and blocks by sync_state, from one shared snapshot (`Bitblocks.SyncProgress`; `docs/SYNCING.md`). `/sync` is the admin operator page
   - `/chain-scrubber` - admin only: scrub the chain genesis to tip in three.js from precomputed tiles (`docs/CHAIN_SCRUBBER.md`); `/chain-scrubber/tiles/manifest` and `/chain-scrubber/tiles/:level/:idx` serve the tiles from ETS with no DB query
@@ -202,6 +202,7 @@ bin/bitblocks rpc 'Bitblocks.Release.status()'
 bin/bitblocks rpc 'Bitblocks.Release.backfill_tx_tallies(0, 10_000)'
 bin/bitblocks rpc 'Bitblocks.Release.backfill_tx_tallies(0, 10_000, apply: true)'
 bin/bitblocks rpc 'Bitblocks.Release.backfill_script_analysis(0, 10_000)'
+bin/bitblocks rpc 'Bitblocks.Release.backfill_tx_types(0, 10_000)'
 bin/bitblocks rpc 'Bitblocks.Release.derivation_runs()'
 
 # A reorg's orphaned tx rows (#34): dry run first, then add apply: true
@@ -263,7 +264,7 @@ GET /api/v1/addresses/:address/utxos — data: known-unspent outputs only (empty
 GET /api/v1/utxo/:txid/:vout/owner — address, spent (true | false | null), status, source: local | whatsonchain (local first; WoC only when local is unknown or the tx isn't stored)
 GET /api/v1/woc/address/:address/balance|unspent — WoC shapes, served only when exact; otherwise a 503 with status and indexed_through_height
 GET /api/v1/addresses/:address/tokens — unspent BSV-20/21 outputs held by an address (?standard=bsv-21, ?token_id=)
-GET /api/v1/types               — transaction types, each with its page URL (CORS *)
+GET /api/v1/types               — transaction types, each with its page URL and counts (txs, first_seen_height); top-level counts names the range they cover (CORS *)
 GET|POST|PATCH|DELETE /api/v1/annotations[/:id] — admin only: chain annotations (?from=&to=, ?kind=); writes must be application/json
 GET /api/v1/types/:id           — one type with its latest examples from the index (status ok | coming | unavailable)
 GET /api/v1/bitcom              — Bitcom registry export, every namespace with re-verifiable txids (also at /bitcom.json)

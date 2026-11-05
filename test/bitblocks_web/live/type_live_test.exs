@@ -7,6 +7,15 @@ defmodule BitblocksWeb.TypeLiveTest do
 
   alias Bitblocks.TxTypes
 
+  # An element's text, tags dropped and whitespace collapsed.
+  defp text(view, selector) do
+    view
+    |> element(selector)
+    |> render()
+    |> String.replace(~r/<[^>]+>/, " ")
+    |> String.replace(~r/\s+/, " ")
+  end
+
   defp txid(n), do: n |> Integer.to_string(16) |> String.pad_leading(64, "0") |> String.downcase()
 
   describe "index" do
@@ -21,6 +30,42 @@ defmodule BitblocksWeb.TypeLiveTest do
                  ~s(#group-#{type.group} a#type-#{type.id}[href="/types/#{type.id}"])
                )
       end
+    end
+  end
+
+  describe "index counts (#49)" do
+    test "each type shows its tx count and first block, custom included", %{conn: conn} do
+      typed_block_fixture(0, %{"custom" => 1})
+      typed_block_fixture(1, %{"custom" => 1_233, "p2pkh" => 2})
+      Bitblocks.TxTypes.Counts.refresh()
+
+      {:ok, view, _html} = live(conn, ~p"/types")
+
+      assert text(view, "#type-custom-count") =~ "1,234 txs since block 0"
+      assert text(view, "#type-p2pkh-count") =~ "2 txs since block 1"
+      assert text(view, "#type-bsv-21-count") =~ "none yet"
+    end
+
+    test "says which range of the chain the counts cover", %{conn: conn} do
+      typed_block_fixture(0, %{"custom" => 1})
+      typed_block_fixture(1, %{"p2pkh" => 1})
+      block_fixture(%{height: 2, sync_state: "header_only"})
+      Bitblocks.TxTypes.Counts.refresh()
+
+      {:ok, view, _html} = live(conn, ~p"/types")
+      coverage = text(view, "#type-counts-coverage")
+
+      assert coverage =~ "Counts cover blocks 0 to 1 of 2 known."
+      assert coverage =~ "once under each"
+    end
+
+    test "before the first count, says counts are on their way", %{conn: conn} do
+      :ets.delete(Bitblocks.TxTypes.Counts, :summary)
+
+      {:ok, view, _html} = live(conn, ~p"/types")
+
+      assert text(view, "#type-counts-coverage") =~ "being computed"
+      refute has_element?(view, "#type-custom-count")
     end
   end
 

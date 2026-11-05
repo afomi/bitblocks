@@ -20,7 +20,7 @@ Better code gives better answers, so derived data can change while the chain doe
 
 So every derived value carries its provenance: what computed it, at which version, and when.
 That is what lets a research claim stand up.
-"Type X first appeared at block H" is only reproducible as "first seen at block H, computed by script analysis v6, over blocks verified complete through H".
+"Type X first appeared at block H" is only reproducible as "first seen at block H, computed by script analysis v7, over blocks verified complete through H".
 A reader can then check the claim, rerun it, or see that a later version changes it.
 
 ## Versions
@@ -37,34 +37,45 @@ Removing a step would lower it, so a removal also bumps a remaining step of the 
 
 | Step | Stage | Version | Derivation | Writes |
 | --- | --- | --- | --- | --- |
-| `script_analysis` | chunk | 6 | `script_analysis` | `output_types`, `protocols`, `coinbase`, `output_script_hashes`, `output_template_hashes`, `aip_signers` |
+| `script_analysis` | chunk | 7 | `script_analysis` | `output_types`, `protocols`, `coinbase`, `output_script_hashes`, `output_template_hashes`, `aip_signers` |
 | `sats_out` | chunk | 1 | `tallies` | `total_output_satoshis` |
 | `burned` | chunk | 1 | `tallies` | `burned_satoshis` |
 | `sats_in` | chunk | 1 | `tallies` | `total_input_satoshis` |
 | `fee` | chunk | 1 | `tallies` | `fee_satoshis` |
+| `classify_outputs` | chunk | 1 | `tx_types`, `type_counts` | `tx_types` |
 | `record_spends` | tx | 1 | none | `spend_index` rows |
 | `index_tokens` | tx | 2 | none | `protocol_instances`, the token index, with each BSV-21 transfer's validation status |
 | `index_bitcom` | tx | 1 | none | `bitcom_commands` |
 | `block_totals` | block | 1 | `block_totals` | `blocks.sats_out`, `fees`, `miner_reward`, `subsidy`, `burned`, `fees_verified` |
+| `type_counts` | block | 1 | `type_counts` | `blocks.type_counts` |
 
-The `script_analysis` step's version is `TransactionParser.script_analysis_version/0`: one number, kept beside the analyzer it versions.
+The `script_analysis` step's version is `TransactionParser.script_analysis_version/0`, and `classify_outputs`'s is `TxTypes.Classifier.version/0`: one number each, kept beside the code it versions.
+v7 (#49) names each opcode byte once in `output_template_hashes` (`Bitblocks.Script.opcode_name/1`: `OP_1`, `OP_NOP2`, `OP_NOP3`).
+Before it, a shape holding byte 81, 177 or 178 got whichever name `BSV.OpCode` picked at boot, so one shape could carry two hashes.
+On the dev DB, 1,186 of 7,641 decodable txs hold such a shape (13 shapes), and 65 of them were stamped with a hash v7 no longer produces.
+Until the v7 backfill has run, `TxTypes.template_hash_variants/1` still matches both names.
 
 ### Derivations
 
 | Derivation | Steps | Version | Stamped in | Backfill |
 | --- | --- | --- | --- | --- |
-| `script_analysis` | `script_analysis` | 6 | `transactions.script_analysis_version` | `Release.backfill_script_analysis/3` |
+| `script_analysis` | `script_analysis` | 7 | `transactions.script_analysis_version` | `Release.backfill_script_analysis/3` |
 | `tallies` | `sats_out`, `burned`, `sats_in`, `fee` | 4 | `transactions.tallies_version` | `Release.backfill_tx_tallies/3` |
 | `block_totals` | `block_totals` | 1 | `blocks.tallies_version` | `Release.backfill_tx_tallies/3` |
+| `tx_types` | `classify_outputs` | 1 | `transactions.tx_types_version` | `Release.backfill_tx_types/3` |
+| `type_counts` | `classify_outputs`, `type_counts` | 2 | `blocks.type_counts_version` | `Release.backfill_tx_types/3` |
 
-Stage versions today: chunk 10, tx 4, block 1.
+Stage versions today: chunk 12, tx 4, block 2.
 `GET /api/v1/status/derivations` answers all of these live.
+
+`type_counts` sums the classifier's version with its own, because a block's counts change when the classifier does: a classifier bump marks every block's counts below the version too, and the one backfill re-types the txs and rewrites the counts.
+A block is stamped only when every one of its txs is typed at the current version, so `/types` can say exactly which blocks its counts cover.
 
 ### Where the stamps are written
 
-- **At ingest** (`Chain.TxIngest.store_chunk/2`): `script_analysis` stamps each tx that decodes, and the pipeline stamps `tallies_version` on every row once all four tally steps ran.
+- **At ingest** (`Chain.TxIngest.store_chunk/2`): `script_analysis` and `classify_outputs` stamp each tx that decodes, and the pipeline stamps `tallies_version` on every row once all four tally steps ran.
   A tally step that raises leaves the chunk's rows unstamped, so the backfill picks them up.
-- **At completion**: `block_totals` stamps `blocks.tallies_version` in the same update that writes the totals.
+- **At completion**: `block_totals` stamps `blocks.tallies_version` in the same update that writes the totals, and `type_counts` stamps `blocks.type_counts_version` when every tx of the block is typed.
 - **By a backfill**: every row it picks gets the current version in the same statement that writes its values.
 
 A row with a nil stamp (computed before versions existed, or not computed) or an older one is what a backfill picks up.
@@ -74,7 +85,7 @@ A row with a nil stamp (computed before versions existed, or not computed) or an
 A tx's tallies date is the row's `updated_at`: set when it was stored, and when the tallies backfill stamps it.
 The script analysis backfill never sets `updated_at`.
 Moving a tx off an orphaned block after a reorg also sets it (#34), so read the date as "computed on or before".
-The tx page shows "Tallies v4 · computed 2026-11-05 · Script analysis v6"; the block page shows "Totals v1".
+The tx page shows "Tallies v4 · computed 2026-11-05 · Script analysis v7"; the block page shows "Totals v1".
 
 A backfill run is dated exactly, in `derivation_runs`.
 
@@ -88,11 +99,13 @@ A backfill run is dated exactly, in `derivation_runs`.
 | `transactions.output_script_hashes` | `script_analysis` | raw bytes | `script_analysis_version` | CPU: a SHA-256 per output | `Release.backfill_script_analysis/3` |
 | `transactions.output_template_hashes` | `script_analysis` | raw bytes | `script_analysis_version` | CPU: a skeleton hash per output | `Release.backfill_script_analysis/3` |
 | `transactions.aip_signers` | `script_analysis` | raw bytes | `script_analysis_version` | CPU: signature checks on AIP-tagged txs only | `Release.backfill_script_analysis/3` |
+| `transactions.tx_types` | `classify_outputs` | raw bytes, against `types.json` | `tx_types_version` | CPU: one tolerant decode, a pattern match per output | `Release.backfill_tx_types/3` |
 | `transactions.total_output_satoshis` | `sats_out` | raw bytes | `tallies_version` | CPU: a byte walk | `Release.backfill_tx_tallies/3` |
 | `transactions.burned_satoshis` | `burned` | raw bytes | `tallies_version` | CPU: a byte walk | `Release.backfill_tx_tallies/3` |
 | `transactions.total_input_satoshis` | `sats_in` | each input's previous output, stored | `tallies_version` | one indexed lookup per page of txs | `Release.backfill_tx_tallies/3` |
 | `transactions.fee_satoshis` | `fee` | sats in and sats out | `tallies_version` | CPU only | `Release.backfill_tx_tallies/3` |
 | `blocks.sats_out`, `fees`, `miner_reward`, `subsidy`, `burned`, `fees_verified` | `block_totals` | the block's tx rows | `blocks.tallies_version` | one aggregate on the `block_hash` index | `Release.backfill_tx_tallies/3` |
+| `blocks.type_counts` | `type_counts` | the block's `tx_types` | `blocks.type_counts_version` | one aggregate on the `block_hash` index | `Release.backfill_tx_types/3` |
 | `spend_index` rows | `record_spends` | the tx's inputs | none yet | one insert per input | none: written at ingest only |
 | `protocol_instances` (tokens) | `index_tokens` | BSV-20/21 inscriptions; for a transfer, the token rows its spent outpoints hold | none yet | none for untagged txs; a few indexed lookups per transfer | transfer statuses: `Release.revalidate_token_transfers/1` |
 | `bitcom_commands` | `index_bitcom` | Bitcom `$` commands | none yet | none for untagged txs | re-indexed by `Release.backfill_script_analysis/3` |
@@ -128,6 +141,10 @@ bin/bitblocks rpc 'Bitblocks.Release.backfill_tx_tallies(0, 10_000, apply: true)
 bin/bitblocks rpc 'Bitblocks.Release.backfill_script_analysis(0, 10_000)'
 bin/bitblocks rpc 'Bitblocks.Release.backfill_script_analysis(0, 10_000, apply: true)'
 
+# Transaction types of completed blocks, and their per-block counts (#49)
+bin/bitblocks rpc 'Bitblocks.Release.backfill_tx_types(0, 10_000)'
+bin/bitblocks rpc 'Bitblocks.Release.backfill_tx_types(0, 10_000, apply: true)'
+
 # The runs, newest first
 bin/bitblocks rpc 'Bitblocks.Release.derivation_runs()'
 ```
@@ -137,6 +154,7 @@ bin/bitblocks rpc 'Bitblocks.Release.derivation_runs()'
 ### Bounded batches
 
 - The tallies backfill walks completed blocks in height order, `block_batch` (100) at a time, and each block's txs by id, `tx_batch` (1,000) at a time.
+- The tx types backfill walks completed blocks the same way, `block_batch` (100) at a time, each block's txs by id, `tx_batch` (1,000) at a time.
 - The script analysis backfill walks `block_height` windows of `height_batch` (1,000), each paged by id, `batch_size` (500) at a time.
 - Each page is one short transaction under `SET LOCAL statement_timeout` (`statement_timeout_ms`, default 60,000).
 - After each page it writes, it sleeps `pause_ms` (default 50, `config :bitblocks, :derivation_pause_ms`).
@@ -148,6 +166,7 @@ bin/bitblocks rpc 'Bitblocks.Release.derivation_runs()'
 The tallies backfill reads every tx row in its range once, for the block sums, but reads raw bytes only for the rows it picks.
 So a rerun over a finished range costs one index scan per block and no raw reads.
 The script analysis backfill reads only the rows below the version, on the `script_analysis_version` and `block_height` indexes.
+The tx types backfill reads every tx row's stamp in its range, and raw bytes only for the rows below the version; on the dev DB, typing all 7,647 txs (412 MB of hex) takes 2.7 s of CPU.
 Neither needs a new index on `transactions`.
 
 ## `derivation_runs`
@@ -156,7 +175,7 @@ Every backfill run writes one row, dry runs included (`Bitblocks.Derivations.Run
 
 | Column | Meaning |
 | --- | --- |
-| `derivation` | `tallies` or `script_analysis` |
+| `derivation` | `tallies`, `script_analysis` or `tx_types` |
 | `version` | the version the run brought rows up to |
 | `from_height`, `to_height` | the inclusive height range; nil for a run over every stored tx |
 | `applied` | false for a dry run |
@@ -164,7 +183,7 @@ Every backfill run writes one row, dry runs included (`Bitblocks.Derivations.Run
 | `rows_changed` | rows it stamped, or in a dry run would stamp |
 | `rows_below_version` | rows in the range still below the version when it finished: 0 for a complete applied run |
 | `blocks_examined` | blocks it walked (tallies) |
-| `details` | per-derivation counts: `values_changed`, `sats_in_unknown`, `blocks_changed`, `blocks_below_version`, `unverified`; `undecodable` for script analysis |
+| `details` | per-derivation counts: `values_changed`, `sats_in_unknown`, `blocks_changed`, `blocks_below_version`, `unverified`; `undecodable` for script analysis; `types_changed`, `undecodable`, `blocks_changed`, `blocks_below_version` for tx types |
 | `outcome` | `running`, `ok`, `partial` or `failed` |
 | `error` | what stopped a partial or failed run |
 | `command` | the command as typed |

@@ -62,6 +62,19 @@ defmodule Bitblocks.TxTypesTest do
     end
   end
 
+  test "a template source lists the canonical hash first, the one new rows are stamped with" do
+    for %{examples: %{kind: "template"} = examples} = type <- TxTypes.all() do
+      script =
+        @vectors
+        |> Map.fetch!(examples.vector)
+        |> Map.fetch!("script_hex")
+        |> BSV.Script.from_binary!(encoding: :hex)
+
+      assert hd(examples.template_hashes) == Bitblocks.Script.template_hash(script),
+             "#{type.id}: the first template hash is not the canonical one"
+    end
+  end
+
   test "an aliased opcode gives a hash for each of its names" do
     op_true = %BSV.Script{chunks: [:OP_TRUE]}
     op_1 = %BSV.Script{chunks: [:OP_1]}

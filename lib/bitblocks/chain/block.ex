@@ -60,6 +60,12 @@ defmodule Bitblocks.Chain.Block do
     # (TxPipeline.version(:block_totals)); nil before versions existed, which
     # Release.backfill_tx_tallies/3 picks up. docs/DERIVED_DATA.md.
     field :tallies_version, :integer
+    # Transaction types (docs/TX_PIPELINE.md, type_counts): type id => how many
+    # of the block's txs have that type. type_counts_version is
+    # TxPipeline.version(:type_counts), set only when every tx of the block was
+    # typed at the current version; Release.backfill_tx_types/3 picks up the rest.
+    field :type_counts, :map
+    field :type_counts_version, :integer
     # When the block's exact bytes were written to the tx store as one object
     # and verified (Bitblocks.TxStore.BlockObject); nil for blocks over 32 MB.
     field :raw_object_stored_at, :utc_datetime

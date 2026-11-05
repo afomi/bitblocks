@@ -1,9 +1,54 @@
 defmodule BitblocksWeb.Api.TypeControllerTest do
-  use BitblocksWeb.ConnCase, async: true
+  # Not async: the type counts are one shared cache (Bitblocks.TxTypes.Counts).
+  use BitblocksWeb.ConnCase, async: false
 
   import Bitblocks.ChainFixtures
 
+  alias Bitblocks.Chain.TxPipeline
   alias Bitblocks.TxTypes
+  alias Bitblocks.TxTypes.Counts
+
+  describe "counts" do
+    test "each type carries its tx count and first height, with the range they cover", %{
+      conn: conn
+    } do
+      typed_block_fixture(0, %{"custom" => 1})
+      typed_block_fixture(1, %{"custom" => 2, "p2pkh" => 3})
+      Counts.refresh()
+
+      body = conn |> get(~p"/api/v1/types") |> json_response(200)
+
+      assert %{
+               "status" => "ok",
+               "through_height" => 1,
+               "complete_through" => 1,
+               "tip_height" => 1,
+               "version" => version,
+               "computed_at" => _,
+               "note" => note
+             } = body["counts"]
+
+      assert version == TxPipeline.version(:type_counts)
+      assert note =~ "blocks 0 to 1"
+
+      by_id = Map.new(body["data"], &{&1["id"], &1["counts"]})
+      assert by_id["custom"] == %{"txs" => 3, "first_seen_height" => 0}
+      assert by_id["p2pkh"] == %{"txs" => 3, "first_seen_height" => 1}
+      assert by_id["bsv-21"] == %{"txs" => 0, "first_seen_height" => nil}
+
+      show = conn |> get(~p"/api/v1/types/custom") |> json_response(200)
+      assert show["data"]["counts"] == %{"txs" => 3, "first_seen_height" => 0}
+    end
+
+    test "before the first refresh, counts are pending and null", %{conn: conn} do
+      :ets.delete(Counts, :summary)
+
+      body = conn |> get(~p"/api/v1/types") |> json_response(200)
+
+      assert body["counts"]["status"] == "pending"
+      assert Enum.all?(body["data"], &is_nil(&1["counts"]))
+    end
+  end
 
   test "GET /api/v1/types lists every type with its page URL", %{conn: conn} do
     body = conn |> get(~p"/api/v1/types") |> json_response(200)

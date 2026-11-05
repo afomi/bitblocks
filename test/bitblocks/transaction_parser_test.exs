@@ -208,8 +208,8 @@ defmodule Bitblocks.TransactionParserTest do
   end
 
   describe "script_analysis_version/0" do
-    test "returns version 6 (adds aip_signers)" do
-      assert TransactionParser.script_analysis_version() == 6
+    test "returns version 7 (template hashes name each opcode byte once)" do
+      assert TransactionParser.script_analysis_version() == 7
     end
   end
 

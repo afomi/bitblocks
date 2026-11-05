@@ -173,9 +173,25 @@ defmodule Bitblocks.Chain.RawTx do
   # A truncated PUSHDATA: keep the remainder as one binary.
   defp chunks(bytes, acc), do: Enum.reverse([bytes | acc])
 
+  # Every byte's opcode name, looked up once at compile time:
+  # `BSV.OpCode.to_atom!/1` scans the library's opcode map on every call,
+  # which dominated decoding a large script. A byte with two names gets the
+  # one the library picks; `Bitblocks.Script.opcode_name/1` reads either.
+  @opcodes for byte <- 0..255,
+               atom =
+                 (try do
+                    BSV.OpCode.to_atom!(byte)
+                  rescue
+                    _ -> nil
+                  end),
+               atom != nil,
+               into: %{},
+               do: {byte, atom}
+
   defp opcode(byte) do
-    {:ok, BSV.OpCode.to_atom!(byte)}
-  rescue
-    _ -> :error
+    case @opcodes do
+      %{^byte => atom} -> {:ok, atom}
+      _ -> :error
+    end
   end
 end

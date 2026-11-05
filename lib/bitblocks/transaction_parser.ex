@@ -17,7 +17,10 @@ defmodule Bitblocks.TransactionParser do
   # v5: adds output_script_hashes + output_template_hashes (script-first indexing).
   # v6: adds aip_signers (verified AIP signing addresses); "Bitcom" is detected
   # by a `$` command segment instead of the substring "bitcom".
-  @script_analysis_version 6
+  # v7: output_template_hashes name each opcode byte once (OP_1, OP_NOP2,
+  # OP_NOP3), so a shape no longer gets a second hash from the opcode alias
+  # the decoder picked at boot (afomi/bitblocks#49).
+  @script_analysis_version 7
 
   def script_analysis_version, do: @script_analysis_version
 

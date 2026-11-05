@@ -115,6 +115,6 @@ defmodule Bitblocks.TxTypes.ExamplesTest do
 
     assert result.status == :coming
     assert result.items == []
-    assert result.source =~ "next phase"
+    assert result.source =~ "comes next"
   end
 end

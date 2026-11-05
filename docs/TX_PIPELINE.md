@@ -3,7 +3,7 @@
 What happens after a transaction comes in.
 This doc depicts `Bitblocks.Chain.TxPipeline`; the list in `TxPipeline.steps/0` is the source of truth, and `test/bitblocks/chain/tx_pipeline_doc_test.exs` fails when this doc lists anything else.
 
-Related: `docs/SYNCING.md` (how blocks and their txs arrive), `docs/TYPING_PIPELINE.md` (the typing steps still to come), `docs/DERIVED_DATA.md` (each step's version, the stamps on each row, and the backfills).
+Related: `docs/SYNCING.md` (how blocks and their txs arrive), `docs/TYPING_PIPELINE.md` (typing: what is built and what comes next), `docs/DERIVED_DATA.md` (each step's version, the stamps on each row, and the backfills).
 
 ## Where it runs
 
@@ -39,20 +39,22 @@ So sats in costs no node call.
 | 3 | `burned` | the raw tx | `burned_satoshis`: sats in outputs starting `OP_RETURN` or `OP_FALSE OP_RETURN`; 0 when none | CPU: a byte walk |
 | 4 | `sats_in` | each input's previous output: from the chunk itself, else stored `transactions.outputs` | `total_input_satoshis`: 0 for a coinbase; nil when any previous output isn't stored | one query per chunk: an index lookup per previous tx, returning one output element per input (Postgres still detoasts that tx's whole `outputs` array to take it) |
 | 5 | `fee` | sats in and sats out | `fee_satoshis`: in minus out; 0 for a coinbase; nil when sats in is unknown | CPU only |
+| 6 | `classify_outputs` | the raw tx | `tx_types`: the type ids from `types.json` its outputs match (unmatched is `custom`), in `types.json` order; `tx_types_version` | CPU: one tolerant decode (`Chain.RawTx`) and a pattern match per output |
 
 ### Tx steps (after the insert)
 
 | # | Step | Reads | Writes | Cost |
 | --- | --- | --- | --- | --- |
-| 6 | `record_spends` | the tx's inputs | `spend_index`, one row per input; fills order-book listings their inputs settle (once per fill txid; a listing indexed later settles against the row, #40) | one insert per input |
-| 7 | `index_tokens` | BSV-20/21 inscriptions, only on txs tagged `BSV20` | `protocol_instances`, the token index | none for untagged txs |
-| 8 | `index_bitcom` | Bitcom `$` commands, only on txs tagged `Bitcom` | `bitcom_commands`, with ownership proofs | none for untagged txs |
+| 7 | `record_spends` | the tx's inputs | `spend_index`, one row per input; fills order-book listings their inputs settle (once per fill txid; a listing indexed later settles against the row, #40) | one insert per input |
+| 8 | `index_tokens` | BSV-20/21 inscriptions, only on txs tagged `BSV20` | `protocol_instances`, the token index | none for untagged txs |
+| 9 | `index_bitcom` | Bitcom `$` commands, only on txs tagged `Bitcom` | `bitcom_commands`, with ownership proofs | none for untagged txs |
 
 ### Block steps (when the block becomes `completed`)
 
 | # | Step | Reads | Writes | Cost |
 | --- | --- | --- | --- | --- |
-| 9 | `block_totals` | the block's tx rows | `blocks.sats_out`, `fees`, `miner_reward`, `subsidy`, `burned`, `fees_verified` | one aggregate on the `block_hash` index, one row update |
+| 10 | `block_totals` | the block's tx rows | `blocks.sats_out`, `fees`, `miner_reward`, `subsidy`, `burned`, `fees_verified` | one aggregate on the `block_hash` index, one row update |
+| 11 | `type_counts` | the block's tx rows | `blocks.type_counts`: type id => txs of that type; `type_counts_version`, only when every tx is typed at the current version | one aggregate on the `block_hash` index, one row update |
 
 `block_totals`:
 
@@ -65,10 +67,22 @@ So sats in costs no node call.
   A larger one means our data is wrong, and is logged at error level.
   It is nil while fees are unknown.
 
-> **Planned, not built: `classify_outputs`** (#49 phase 2).
-> A block step that gives every output a type and every transaction a composite type when the block completes, with anything unmatched as `custom` by its normalized template hash.
-> See `docs/TYPING_PIPELINE.md`.
-> It joins the list above when it is built.
+### Transaction types
+
+`classify_outputs` (#49 phase 2) runs `Bitblocks.TxTypes.Classifier` on each tx: every output gets one type id from `priv/data/tx_types/types.json`, and the tx's type is the set of them.
+An output's type is the first rule that matches:
+
+1. A data output (`OP_RETURN …` or `OP_FALSE OP_RETURN …`) takes the protocol of its first segment: `b`, `map`, `aip`, `sigma`, `metanet`, `run`, else `op-return`.
+2. An inscription envelope makes it `bsv-21` or `bsv-20` (a valid token operation), `inscription-map` (a MAP record after the envelope), else `1sat-inscription`.
+3. A lock: P2PKH (`1sat-output` when it holds exactly 1 sat), cosign, bare multisig, `OP_1` alone (`anyone-can-spend`), or a shape a type lists by template hash (`ordlock`, `timelock`).
+4. Anything else is `custom`, so the `custom` count measures what is left to type.
+
+The tx's type also takes the known protocols after a pipe in its data outputs (B then MAP is `b` and `map`).
+Inputs matter in one place: a Metanet node that names a parent counts only when an input is signed with a key, since only the parent's key can add a child; otherwise its output is `op-return`.
+Whether that key is the parent's needs the parent tx, so `Bitblocks.Metanet` checks it when it reads the tree, and this step does not.
+Each type in `types.json` lists the shared vectors it claims (`vectors`), and `test/bitblocks/tx_types/classifier_test.exs` runs every vector in `output_types_v1.json` through the classifier.
+
+`type_counts` sums the types per block, so `/types` adds up block rows (`Bitblocks.TxTypes.Counts`, cached) instead of counting `transactions`.
 
 ```mermaid
 flowchart TD
@@ -76,19 +90,19 @@ flowchart TD
   gate -- no --> rejected["Rejected: the block can't complete"]
   gate -- yes --> s1["1 script_analysis"]
   subgraph chunk["Chunk steps, before the insert"]
-    s1 --> s2["2 sats_out"] --> s3["3 burned"] --> s4["4 sats_in"] --> s5["5 fee"]
+    s1 --> s2["2 sats_out"] --> s3["3 burned"] --> s4["4 sats_in"] --> s5["5 fee"] --> s6["6 classify_outputs"]
   end
-  s5 --> insert[("Insert the rows into transactions")]
-  insert --> s6
+  s6 --> insert[("Insert the rows into transactions")]
+  insert --> s7
   subgraph tx["Tx steps, per stored tx"]
-    s6["6 record_spends"] --> s7["7 index_tokens"] --> s8["8 index_bitcom"]
+    s7["7 record_spends"] --> s8["8 index_tokens"] --> s9["9 index_bitcom"]
   end
-  s8 --> check{"Every tx stored and merkleroot rebuilt?"}
+  s9 --> check{"Every tx stored and merkleroot rebuilt?"}
   check -- no --> retry["Block retries with backoff"]
   check -- yes --> done["Block is completed"]
-  done --> s9
+  done --> s10
   subgraph block["Block steps, at completion"]
-    s9["9 block_totals"] -.-> s10["planned: classify_outputs, #49"]
+    s10["10 block_totals"] --> s11["11 type_counts"]
   end
 ```
 
@@ -112,10 +126,10 @@ The block page and the homepage's recent blocks show fees and miner reward, and 
 
 ## Filling in older blocks
 
-Every step has a version, and each row records which version computed it: `transactions.script_analysis_version`, `transactions.tallies_version` and `blocks.tallies_version`.
+Every step has a version, and each row records which version computed it: `transactions.script_analysis_version`, `transactions.tallies_version`, `transactions.tx_types_version`, `blocks.tallies_version` and `blocks.type_counts_version`.
 Rows from before a step existed, or computed by an older version, are below the current version.
-`Release.backfill_tx_tallies(from_height, to_height, opts)` and `Release.backfill_script_analysis(from_height, to_height, opts)` run the same step modules over just those rows, in bounded batches in height order, stamp them, and record each run in `derivation_runs`.
-Both are dry runs by default; `apply: true` writes.
+`Release.backfill_tx_tallies(from_height, to_height, opts)`, `Release.backfill_script_analysis(from_height, to_height, opts)` and `Release.backfill_tx_types(from_height, to_height, opts)` run the same step modules over just those rows, in bounded batches in height order, stamp them, and record each run in `derivation_runs`.
+All three are dry runs by default; `apply: true` writes.
 `docs/DERIVED_DATA.md` is authoritative for versions, stamps and backfills.
 
 ## Adding a step

@@ -1,7 +1,7 @@
 # Full coverage, strong typing, and first seen
 
-Status: plan (2026-11-04).
-Step 1 is built; the rest is tracked in #49 (types), #50 (operator MCP) and #51 (first seen and candidates).
+Status: plan (2026-11-04), part built.
+Step 1 of the order and the first two typing steps are built; the rest is tracked in #49 (types), #50 (operator MCP) and #51 (first seen and candidates).
 
 Two goals, in order:
 
@@ -46,12 +46,12 @@ Write tools come after, behind `ops_write`, dry-run by default and recorded as c
 
 ## The typing pipeline
 
-1. **Stable template hashes first.** `Script.template_hash/1` names some opcodes (bytes 81, 177, 178) by map order, so one shape can get two hashes (#49).
-   Canonical names, then re-stamp the affected rows; otherwise "first seen" splits in two.
-   Re-stamping is a version bump and a backfill, recorded in `derivation_runs` (`docs/DERIVED_DATA.md`).
-2. **Classify at completion.** When a block becomes `completed`, every output gets a type and every transaction a composite type (for example inscription + OrdLock = listing).
-   Anything unmatched is `custom`, keyed by its normalized template hash.
-   It will be a block step in `Chain.TxPipeline`, after `block_totals`; `docs/TX_PIPELINE.md` holds its placeholder.
+1. **Stable template hashes first. Built.** `Script.template_hash/1` names each opcode byte once (`Script.opcode_name/1`: `OP_FALSE`, `OP_1`, `OP_NOP2`, `OP_NOP3`), so a shape gets one hash whichever alias the decoder picked (#49).
+   Re-stamping the rows hashed under the other names is script analysis v7 and its backfill, recorded in `derivation_runs` (`docs/DERIVED_DATA.md`).
+2. **Classify at ingest. Built.** The chunk step `classify_outputs` gives every output a type from `types.json` and every transaction the set of them (`transactions.tx_types`); anything unmatched is `custom`.
+   The block step `type_counts` tallies them per block when the block completes, and `/types` sums the blocks verified complete (`Bitblocks.TxTypes.Counts`).
+   The rules are in `docs/TX_PIPELINE.md`, "Transaction types".
+   Still to come: named compositions (inscription + OrdLock = listing), and keying `custom` outputs by their template hash for the candidate queue.
 3. **First seen and adoption.** Per type and per unmatched shape: first height, txid and block time, and counts per 10,000-block bucket.
    Cheap to keep, because blocks complete in order.
 4. **Candidate types.** The signal is an unmatched shape that starts recurring.
@@ -84,6 +84,6 @@ Every count also names the version that computed it, and the backfill runs that 
 
 1. Release sha and coverage in the status API. **Done.**
 2. Operator MCP, read tools.
-3. #49 phase 2: stable template hashes, classify at completion.
+3. #49 phase 2: stable template hashes, classify at ingest, counts on `/types`. **Done.**
 4. First seen, adoption, and the candidate queue with review tools.
 5. The research export.

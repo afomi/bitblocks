@@ -28,7 +28,7 @@ defmodule Bitblocks.TxTypes do
     @atom_keys ~w(id title short group summary description history spec label url pattern
                   parts token note spendable spend related explore href examples kind vector
                   template_hashes shape standard protocols collections reason concepts term text
-                  attribution license license_url source_url share_alike)
+                  attribution license license_url source_url share_alike vectors)
 
     def atomize(map) when is_map(map) do
       Map.new(map, fn {key, value} ->
@@ -93,9 +93,11 @@ defmodule Bitblocks.TxTypes do
     do: type |> Map.get(:related, []) |> Enum.map(&get/1) |> Enum.reject(&is_nil/1)
 
   # Opcode bytes with two names in the BSV library. `BSV.OpCode.to_atom/1`
-  # picks one by map iteration order, which differs between boots, so
-  # `Bitblocks.Script.template_hash/1` can stamp either name (afomi/bitblocks#49).
-  # Byte 0 is pinned to OP_FALSE by the library and is not listed.
+  # picks one by map iteration order, which differs between boots, so rows
+  # stamped before script analysis v7 may carry either name. Since v7
+  # `Bitblocks.Script.template_hash/1` names each byte once (OP_1, OP_NOP2,
+  # OP_NOP3), and the variants matter only until the v7 backfill has run
+  # (afomi/bitblocks#49). Byte 0 is pinned to OP_FALSE by the library.
   @opcode_aliases %{
     81 => ["OP_1", "OP_TRUE"],
     177 => ["OP_CHECKLOCKTIMEVERIFY", "OP_NOP2"],
@@ -103,10 +105,12 @@ defmodule Bitblocks.TxTypes do
   }
 
   @doc """
-  Every template hash `Bitblocks.Script.template_hash/1` can give `script`,
-  one per choice of name for each aliased opcode it contains (OP_1/OP_TRUE,
+  Every template hash a stored row may carry for `script`, one per choice of
+  name for each aliased opcode it contains (OP_1/OP_TRUE,
   OP_NOP2/OP_CHECKLOCKTIMEVERIFY, OP_NOP3/OP_CHECKSEQUENCEVERIFY), sorted.
-  A script with no aliased opcode has exactly one.
+  One of them is the canonical `Bitblocks.Script.template_hash/1`; the others
+  are on rows stamped before script analysis v7. A script with no aliased
+  opcode has exactly one.
   """
   @spec template_hash_variants(BSV.Script.t()) :: [String.t()]
   def template_hash_variants(%BSV.Script{chunks: chunks}) do

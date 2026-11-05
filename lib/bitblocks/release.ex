@@ -625,6 +625,73 @@ defmodule Bitblocks.Release do
   end
 
   @doc """
+  Brings transaction types (afomi/bitblocks#49) of completed blocks from
+  `from_height` to `to_height` up to `TxPipeline.version(:tx_types)`, then
+  rewrites those blocks' `type_counts`, which `/types` sums. Picks only rows
+  whose stamp is nil or older, in bounded batches in height order, so a
+  rerun after a full apply finds nothing. Records the run in
+  `derivation_runs`. See `Bitblocks.Chain.TxPipeline.TxTypesBackfill`.
+
+  **Dry run by default**; `apply: true` writes.
+
+  ## Options
+    - apply: true to write (default false)
+    - force: true to re-type every row in the range
+    - block_batch: blocks per batch (default 100)
+    - tx_batch: txs per page within a block (default 1,000)
+    - pause_ms, statement_timeout_ms: as `backfill_tx_tallies/3`
+
+  ## Usage
+
+      bin/bitblocks rpc 'Bitblocks.Release.backfill_tx_types(0, 10_000)'
+      bin/bitblocks rpc 'Bitblocks.Release.backfill_tx_types(0, 10_000, apply: true)'
+  """
+  def backfill_tx_types(from_height, to_height, opts \\ [])
+      when is_integer(from_height) and is_integer(to_height) do
+    command = command("backfill_tx_types", [from_height, to_height], opts)
+
+    with_running_repo(fn ->
+      report =
+        Bitblocks.Chain.TxPipeline.TxTypesBackfill.run(
+          from_height,
+          to_height,
+          opts
+          |> Keyword.put_new(:on_batch, &print_progress/1)
+          |> Keyword.put(:command, command)
+        )
+
+      print_tx_types_backfill(report)
+      report
+    end)
+  end
+
+  defp print_tx_types_backfill(r) do
+    print_run_header(r, "tx types for completed blocks")
+    d = r.details
+
+    IO.puts("  #{r.blocks_examined} block(s), #{r.rows_examined} transaction(s) scanned")
+
+    IO.puts(
+      "  #{r.rows_changed} transaction(s) #{if r.applied, do: "stamped", else: "to stamp"}" <>
+        " v#{r.version}, #{d.types_changed} with types that change"
+    )
+
+    IO.puts("  #{d.undecodable} transaction(s) don't decode and stay untyped")
+
+    IO.puts(
+      "  #{d.blocks_changed} block type count(s) #{if r.applied, do: "written", else: "to write"}" <>
+        " v#{d.type_counts_version}"
+    )
+
+    IO.puts(
+      "  #{r.rows_below_version} transaction(s) and #{d.blocks_below_version} block(s)" <>
+        " below the version in the range"
+    )
+
+    print_run_footer(r)
+  end
+
+  @doc """
   Brings script analysis of every stored transaction up to the current
   version, applying as it goes: `backfill_script_analysis/3` over all rows,
   heights or not (paged by id), recorded in `derivation_runs`.

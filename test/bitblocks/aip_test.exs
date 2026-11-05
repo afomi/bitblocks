@@ -82,7 +82,7 @@ defmodule Bitblocks.AipTest do
       out = %BSV.TxOut{script: BSV.Script.from_binary!(@one_sat_signed_script, encoding: :hex)}
       raw = BSV.Tx.to_binary(%BSV.Tx{inputs: [], outputs: [out]}, encoding: :hex)
 
-      assert {:ok, %{aip_signers: [@one_sat_signer], script_analysis_version: 6} = meta} =
+      assert {:ok, %{aip_signers: [@one_sat_signer], script_analysis_version: 7} = meta} =
                Bitblocks.TransactionParser.analyze(raw)
 
       assert "AIP" in meta.protocols

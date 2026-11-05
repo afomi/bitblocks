@@ -110,6 +110,9 @@ config :bitblocks, BitblocksWeb.Plugs.RateLimiter, max_requests: 100_000
 # Derived-data backfills (docs/DERIVED_DATA.md): no pause between pages.
 config :bitblocks, :derivation_pause_ms, 0
 
+# Tests refresh the /types counts themselves (Bitblocks.TxTypes.Counts.refresh/0).
+config :bitblocks, :tx_type_counts_refresh, false
+
 # Wallaby configuration
 config :wallaby,
   otp_app: :bitblocks,

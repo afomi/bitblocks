@@ -1,12 +1,17 @@
 defmodule BitblocksWeb.TypeLive.Index do
   @moduledoc """
-  `/types`: every transaction type, grouped, each linked to its page.
-  The definitions come from `Bitblocks.TxTypes`.
+  `/types`: every transaction type, grouped, each linked to its page, with
+  how many transactions have it and the first block it was seen in.
+  The definitions come from `Bitblocks.TxTypes`; the counts from the cache
+  in `Bitblocks.TxTypes.Counts`, so a page view runs no query.
   """
   use BitblocksWeb, :live_view
 
   alias Bitblocks.TxTypes
+  alias Bitblocks.TxTypes.Counts
   alias BitblocksWeb.Seo
+
+  import BitblocksWeb.Sats, only: [delimit: 1]
 
   @impl true
   def mount(_params, _session, socket) do
@@ -20,6 +25,12 @@ defmodule BitblocksWeb.TypeLive.Index do
          canonical_path: "/types"
        )
      )
-     |> assign(:groups, TxTypes.groups())}
+     |> assign(:groups, TxTypes.groups())
+     |> assign(:counts, Counts.get())}
   end
+
+  defp count(counts, type), do: Counts.count(counts, type.id)
+
+  defp txs(1), do: "1 tx"
+  defp txs(n), do: "#{delimit(n)} txs"
 end

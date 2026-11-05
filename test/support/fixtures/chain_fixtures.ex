@@ -83,6 +83,27 @@ defmodule Bitblocks.ChainFixtures do
   end
 
   @doc """
+  A `completed` block at `height` whose transactions are typed: its
+  `type_counts` (type id => txs) stamped at the current version, as the
+  `type_counts` pipeline step leaves it (#49).
+  """
+  def typed_block_fixture(height, counts) do
+    require Ecto.Query
+
+    block = block_fixture(%{height: height, sync_state: "completed"})
+
+    Bitblocks.Repo.update_all(
+      Ecto.Query.from(b in Bitblocks.Chain.Block, where: b.id == ^block.id),
+      set: [
+        type_counts: counts,
+        type_counts_version: Bitblocks.Chain.TxPipeline.version(:type_counts)
+      ]
+    )
+
+    block
+  end
+
+  @doc """
   Generate a unique transaction txid.
   """
   def unique_transaction_txid, do: "txid#{System.unique_integer([:positive])}"
