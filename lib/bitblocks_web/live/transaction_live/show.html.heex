@@ -684,13 +684,34 @@
   <% end %>
 
   <%!-- Raw Transaction --%>
-  <div class="bg-white shadow-md rounded-lg p-6">
-    <h2 class="text-xl font-semibold mb-4">
-      Raw Transaction
-    </h2>
+  <% {raw_shown, raw_bytes} = BitblocksWeb.TransactionLive.Show.raw_preview(@transaction.raw) %>
+  <div
+    id="tx-raw"
+    class="bg-white shadow-md rounded-lg p-6"
+  >
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="text-xl font-semibold">
+        Raw Transaction
+      </h2>
+      <a
+        :if={@current_user || @admin?}
+        id="tx-raw-download"
+        href={Bitblocks.TxStore.download_url(@transaction.txid)}
+        download={"#{@transaction.txid}.bin"}
+        class="text-sm text-blue-600 hover:underline"
+      >
+        Download raw transaction
+      </a>
+    </div>
 
     <div class="font-mono text-xs bg-gray-50 p-4 rounded break-all max-h-48 overflow-y-auto">
-      <%= @transaction.raw %>
+      <%= raw_shown %>
     </div>
+    <p
+      :if={byte_size(raw_shown) < byte_size(@transaction.raw || "")}
+      class="text-xs text-gray-600 mt-2"
+    >
+      Showing the first <%= BitblocksWeb.Sats.delimit(div(byte_size(raw_shown), 2)) %> of <%= BitblocksWeb.Sats.delimit(raw_bytes) %> bytes.
+    </p>
   </div>
 </div>

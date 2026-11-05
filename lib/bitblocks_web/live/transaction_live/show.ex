@@ -142,6 +142,19 @@ defmodule BitblocksWeb.TransactionLive.Show do
   @doc false
   def status_rows, do: @status_rows
 
+  # Raw hex shown on the page: 1,000 bytes. The rest is a download away.
+  @raw_preview_chars 2_000
+
+  @doc """
+  The start of a tx's raw hex for the page, and the tx's size in bytes.
+  Hex is ASCII, so the cut is by bytes.
+  """
+  def raw_preview(nil), do: {"", 0}
+
+  def raw_preview(raw) do
+    {binary_part(raw, 0, min(byte_size(raw), @raw_preview_chars)), div(byte_size(raw), 2)}
+  end
+
   # Map of template_hash => registered %Bitblocks.Script.Template{} for the
   # unknown-script outputs of this transaction. Hashes without a registered
   # template are omitted.

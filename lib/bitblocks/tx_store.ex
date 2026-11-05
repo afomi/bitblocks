@@ -154,6 +154,22 @@ defmodule Bitblocks.TxStore do
     )
   end
 
+  @doc """
+  Where to download a tx's exact bytes: `TX_CDN_BASE_URL/tx/<txid>` once
+  that's set, because CloudFront serves the path; until then the origin,
+  `/api/v1/txs/<txid>/raw`, which answers for every tx we hold or can reach.
+  """
+  @spec download_url(String.t()) :: String.t()
+  def download_url(txid) do
+    case System.get_env("TX_CDN_BASE_URL") do
+      base when is_binary(base) and base != "" ->
+        String.trim_trailing(base, "/") <> "/tx/" <> txid
+
+      _ ->
+        "/api/v1/txs/" <> txid <> "/raw"
+    end
+  end
+
   @doc "The public (CDN) URL for a stored tx, or nil when there's no CDN or it isn't stored."
   def url(%{txid: txid, blob_stored_at: %DateTime{}}), do: adapter().public_url(key(txid))
   def url(_), do: nil

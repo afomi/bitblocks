@@ -121,6 +121,7 @@ This is the origin CloudFront sits in front of: `https://cdn.bitblocks.app/tx/<t
 - CloudFront for `cdn.bitblocks.app`: the app as origin for `/tx/*`, with a path rewrite (a CloudFront Function) from `/tx/<txid>` to `/api/v1/txs/<txid>/raw`, honouring the origin's `cache-control`, not forwarding cookies or query strings.
 - The rate limiter keys on the last `X-Forwarded-For` entry (the one the ALB adds, `BitblocksWeb.Utils.IpHelper`); behind CloudFront that is a CloudFront edge address, so every miss would count against a few edge IPs.
   Give CloudFront an API key with its own budget instead (`Authorization: Bearer bbk_…` as an origin custom header; `Release.create_api_key/2`).
+- Set `TX_CDN_BASE_URL` to `https://cdn.bitblocks.app` once CloudFront serves `/tx/*`: the transaction page's download link (`TxStore.download_url/1`, signed-in readers) moves from the origin to the CDN.
 - `TxStore.url/1` (the `cdn_url` in the tx API) still links only txs with their own object, `CDN_BASE_URL/raw/<txid>`; pointing it at `/tx/<txid>` for every tx is a small change to make once CloudFront serves that path.
 
 ## Open choices

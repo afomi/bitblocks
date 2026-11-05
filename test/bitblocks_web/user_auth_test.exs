@@ -160,6 +160,7 @@ defmodule BitblocksWeb.UserAuthTest do
 
       {:ok, _view, html} = live(conn, "/transactions/#{txid(1)}")
       assert html =~ txid(1)
+      assert html =~ ~s(id="tx-raw-download")
     end
 
     test "does not see or trigger the transaction download", %{conn: conn, block: block} do
