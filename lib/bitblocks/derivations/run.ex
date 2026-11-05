@@ -11,8 +11,8 @@ defmodule Bitblocks.Derivations.Run do
     * `partial`: an error stopped it after at least one batch; those
       batches stay applied, and `error` says what stopped it;
     * `failed`: an error stopped it before any batch finished;
-    * `abandoned`: it was `running` when its process died, and an operator
-      closed it (`Bitblocks.Derivations.close_abandoned/2`).
+    * `abandoned`: it was `running` when its process died, and an operator or
+      the chain's next job closed it (`Bitblocks.Derivations.close_abandoned/2`).
 
   `rows_below_version` is the explicit success check: rows in the range
   still below `version` when the run finished. 0 for a complete applied
@@ -46,6 +46,8 @@ defmodule Bitblocks.Derivations.Run do
     field :error, :string
     # The command as typed.
     field :command, :string
+    # The Bitblocks.BackfillChains chain that ran this range; nil by hand.
+    field :chain_id, :integer
     field :started_at, :utc_datetime_usec
     field :finished_at, :utc_datetime_usec
 

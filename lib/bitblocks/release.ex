@@ -760,6 +760,134 @@ defmodule Bitblocks.Release do
     end)
   end
 
+  @doc """
+  Starts a backfill as a chain of Oban jobs, one range at a time
+  (`Bitblocks.BackfillChains`): it needs no open connection and carries on
+  across a deploy. `derivation` is `"script_analysis"`, `"tx_steps"`,
+  `"tallies"` or `"tx_types"` over heights `from..to`.
+
+  **Dry run by default**; `apply: true` writes. `step:` sets the range one job
+  takes (10,000); the other options are the backfill's own.
+
+      bin/bitblocks rpc 'Bitblocks.Release.start_backfill("tx_steps", 0, 180_830)'
+      bin/bitblocks rpc 'Bitblocks.Release.start_backfill("tx_steps", 0, 180_830, apply: true)'
+      bin/bitblocks rpc 'Bitblocks.Release.backfill_status()'
+      bin/bitblocks rpc 'Bitblocks.Release.backfill_status(1)'
+      bin/bitblocks rpc 'Bitblocks.Release.pause_backfill(1)'
+      bin/bitblocks rpc 'Bitblocks.Release.resume_backfill(1)'
+      bin/bitblocks rpc 'Bitblocks.Release.cancel_backfill(1)'
+  """
+  def start_backfill(derivation, from, to, opts \\ []) do
+    with_running_repo(fn ->
+      derivation
+      |> Bitblocks.BackfillChains.start(from, to, opts)
+      |> print_chain_result("started")
+    end)
+  end
+
+  @doc """
+  `start_backfill/4` for `backfill_tx_sizes/1`: every stored tx, by id.
+
+      bin/bitblocks rpc 'Bitblocks.Release.start_tx_sizes_backfill()'
+      bin/bitblocks rpc 'Bitblocks.Release.start_tx_sizes_backfill(apply: true)'
+  """
+  def start_tx_sizes_backfill(opts \\ []) do
+    with_running_repo(fn ->
+      {from, to} = Bitblocks.BackfillChains.tx_id_range()
+
+      "tx_size"
+      |> Bitblocks.BackfillChains.start(from, to, opts)
+      |> print_chain_result("started")
+    end)
+  end
+
+  @doc "Stops a backfill chain once the range in flight finishes."
+  def pause_backfill(id) do
+    with_running_repo(fn ->
+      id |> Bitblocks.BackfillChains.pause() |> print_chain_result("paused")
+    end)
+  end
+
+  @doc "Carries a paused or failed backfill chain on from where it stopped."
+  def resume_backfill(id) do
+    with_running_repo(fn ->
+      id |> Bitblocks.BackfillChains.resume() |> print_chain_result("resumed")
+    end)
+  end
+
+  @doc "Ends a backfill chain once the range in flight finishes."
+  def cancel_backfill(id) do
+    with_running_repo(fn ->
+      id |> Bitblocks.BackfillChains.cancel() |> print_chain_result("cancelled")
+    end)
+  end
+
+  @doc """
+  One backfill chain's report: where it has got to and the counts summed over
+  its finished ranges. With no id, one line for each of the latest chains.
+  """
+  def backfill_status do
+    with_running_repo(fn ->
+      chains = Bitblocks.BackfillChains.list()
+      if chains == [], do: IO.puts("No backfill chains yet.")
+      Enum.each(chains, &IO.puts(chain_line(&1)))
+      chains
+    end)
+  end
+
+  def backfill_status(id) do
+    with_running_repo(fn ->
+      case Bitblocks.BackfillChains.status(id) do
+        nil ->
+          IO.puts("No backfill chain ##{id}.")
+          nil
+
+        status ->
+          print_chain_status(status)
+          status
+      end
+    end)
+  end
+
+  defp print_chain_result({:ok, chain}, verb) do
+    IO.puts("#{String.upcase(verb)}: #{chain_line(chain)}")
+    {:ok, chain}
+  end
+
+  defp print_chain_result({:error, reason} = error, verb) do
+    IO.puts("NOT #{String.upcase(verb)}: #{inspect(reason)}")
+    error
+  end
+
+  defp chain_line(c) do
+    "##{c.id} #{c.derivation} #{c.range_from}..#{c.range_to} " <>
+      "#{if c.applied, do: "APPLY", else: "DRY RUN"}: #{c.status}, next #{c.next_from}"
+  end
+
+  defp print_chain_status(s) do
+    IO.puts(chain_line(s.chain))
+
+    IO.puts(
+      "  #{s.ranges_done} of #{s.ranges_total} range(s) finished" <>
+        if(s.current, do: ", working #{s.current.command}", else: "") <>
+        if(s.chain.status == "running" and not s.alive and is_nil(s.current),
+          do: ", queued",
+          else: ""
+        )
+    )
+
+    IO.puts("  #{s.blocks_examined} block(s), #{s.rows_examined} row(s) examined")
+    IO.puts("  #{s.rows_changed} row(s) #{if s.chain.applied, do: "changed", else: "to change"}")
+    IO.puts("  #{s.rows_below_version} row(s) below the version in those ranges")
+
+    for {key, value} <- Enum.sort(s.details), do: IO.puts("  #{key}: #{value}")
+
+    if s.not_ok > 0,
+      do: IO.puts("  #{s.not_ok} run(s) cut or failed; their ranges were retried")
+
+    if s.chain.error, do: IO.puts("  error: #{s.chain.error}")
+  end
+
   defp print_tx_types_backfill(r) do
     print_run_header(r, "tx types for completed blocks")
     d = r.details

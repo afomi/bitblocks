@@ -178,7 +178,7 @@ Every backfill run writes one row, dry runs included (`Bitblocks.Derivations.Run
 
 | Column | Meaning |
 | --- | --- |
-| `derivation` | `tallies`, `script_analysis` or `tx_types` |
+| `derivation` | `tallies`, `script_analysis`, `tx_types`, `tx_steps` or `tx_size` |
 | `version` | the version the run brought rows up to |
 | `from_height`, `to_height` | the inclusive height range; nil for a run over every stored tx |
 | `applied` | false for a dry run |
@@ -190,6 +190,7 @@ Every backfill run writes one row, dry runs included (`Bitblocks.Derivations.Run
 | `outcome` | `running`, `ok`, `partial`, `failed` or `abandoned` |
 | `error` | what stopped a partial or failed run |
 | `command` | the command as typed |
+| `chain_id` | the backfill chain that ran this range; nil for a run started by hand |
 | `started_at`, `finished_at` | when it ran |
 
 `running` means in flight, or the process died before finishing.
@@ -201,6 +202,44 @@ A block that completes over rows stored by an earlier sync gets a catch-up job (
 Close such runs by id, dry run first, with `bin/bitblocks rpc 'Bitblocks.Release.close_abandoned_derivation_runs(ids: [1, 2])'`, then `bin/bitblocks rpc 'Bitblocks.Release.close_abandoned_derivation_runs([ids: [1, 2]], apply: true)'`; `started_before: ~U[2026-11-05 00:00:00Z]` names them by start time instead.
 
 Read them with `Release.derivation_runs/1`, or `GET /api/v1/status/derivations` (the latest 20, with each error cut to its first line and any URL or IP address removed).
+
+## Backfill chains
+
+A backfill can run as a chain of Oban jobs, one range at a time, so it needs no open connection and carries on across a deploy (`Bitblocks.BackfillChains`, `Workers.BackfillChainWorker`, queue `:backfills`).
+Each range is an ordinary backfill run with its own `derivation_runs` row, so the checks below read the same.
+
+```bash
+# Dry run first; the counts stay in derivation_runs, so they survive a restart
+bin/bitblocks rpc 'Bitblocks.Release.start_backfill("tx_steps", 0, 180_830)'
+bin/bitblocks rpc 'Bitblocks.Release.backfill_status(1)'
+bin/bitblocks rpc 'Bitblocks.Release.start_backfill("tx_steps", 0, 180_830, apply: true)'
+
+# Every stored tx, by id
+bin/bitblocks rpc 'Bitblocks.Release.start_tx_sizes_backfill(apply: true)'
+
+bin/bitblocks rpc 'Bitblocks.Release.backfill_status()'
+bin/bitblocks rpc 'Bitblocks.Release.pause_backfill(1)'
+bin/bitblocks rpc 'Bitblocks.Release.resume_backfill(1)'
+bin/bitblocks rpc 'Bitblocks.Release.cancel_backfill(1)'
+```
+
+One job takes `step:` of the range: 10,000 heights or 1,000,000 ids.
+A pause or cancel lands when the range in flight finishes.
+Each derivation has one active chain at a time, so a second start is refused.
+
+**Across a restart.**
+A deploy kills the job mid-range and Lifeline rescues it within 30 minutes.
+The rerun closes the run the dead job left `running` as `abandoned`, then picks up the rows still below the version.
+So the wait after a deploy is up to 30 minutes, with no operator action.
+
+**A range longer than 30 minutes.**
+Lifeline also rescues a job that is still alive, so each batch beats `heartbeat_at` on the chain.
+A rescued copy that finds a beat under 15 minutes old snoozes, and stops once `next_from` has moved on.
+
+**When a range keeps failing.**
+A range that errors is retried with a growing wait, up to 20 attempts, which restarts also spend.
+Then the chain reads `failed`, with the error, and `resume_backfill/1` carries on from the same range.
+`rows_changed` in the status sums finished ranges only; `rows_below_version` is the check.
 
 ## Verifying a backfill
 

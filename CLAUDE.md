@@ -206,6 +206,16 @@ bin/bitblocks rpc 'Bitblocks.Release.backfill_script_analysis(0, 10_000)'
 bin/bitblocks rpc 'Bitblocks.Release.backfill_tx_types(0, 10_000)'
 bin/bitblocks rpc 'Bitblocks.Release.derivation_runs()'
 
+# The same backfills as Oban jobs, one range at a time: no open connection, carries on across a deploy
+bin/bitblocks rpc 'Bitblocks.Release.start_backfill("tx_steps", 0, 10_000)'
+bin/bitblocks rpc 'Bitblocks.Release.start_backfill("tx_steps", 0, 10_000, apply: true)'
+bin/bitblocks rpc 'Bitblocks.Release.start_tx_sizes_backfill(apply: true)'
+bin/bitblocks rpc 'Bitblocks.Release.backfill_status()'
+bin/bitblocks rpc 'Bitblocks.Release.backfill_status(1)'
+bin/bitblocks rpc 'Bitblocks.Release.pause_backfill(1)'
+bin/bitblocks rpc 'Bitblocks.Release.resume_backfill(1)'
+bin/bitblocks rpc 'Bitblocks.Release.cancel_backfill(1)'
+
 # Each tx's size_bytes and raw_in_db on older rows (docs/TX_STORAGE.md): dry run first
 bin/bitblocks rpc 'Bitblocks.Release.backfill_tx_sizes()'
 bin/bitblocks rpc 'Bitblocks.Release.backfill_tx_sizes(apply: true)'

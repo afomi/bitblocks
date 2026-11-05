@@ -158,6 +158,8 @@ config :bitblocks, Oban,
     # A completed block's older rows brought up to version (TxPipeline.CatchUp):
     # one at a time, so a block full of them never holds a sync slot.
     derived: 1,
+    # Backfills run as a chain of jobs, one range at a time (BackfillChains).
+    backfills: 1,
     # Projection webhook deliveries (#29 step 4); off the tx lanes so a slow
     # tenant endpoint never delays sync.
     webhooks: 5,

@@ -23,14 +23,16 @@ defmodule Bitblocks.Chain.TxSizeBackfill do
   Runs over every stored tx and returns the `Derivations` report; `details`
   holds `over_threshold` (rows above `Transaction.raw_in_db_max_bytes/0`) and
   `no_raw`. Options: `apply: true` to write (default false); `id_window`
-  (5,000); and the `Bitblocks.Derivations` options.
+  (5,000); `from_id` and `to_id` (inclusive, default every row; a chain's
+  range, `Bitblocks.BackfillChains`); and the `Bitblocks.Derivations` options.
   """
   @spec run(keyword()) :: Derivations.report()
   def run(opts \\ []) do
     ctx = %{
       applied: Keyword.get(opts, :apply, false),
       window: Keyword.get(opts, :id_window, 5_000),
-      last_id: Repo.aggregate(Transaction, :max, :id) || 0,
+      last_id:
+        Keyword.get_lazy(opts, :to_id, fn -> Repo.aggregate(Transaction, :max, :id) || 0 end),
       opts: opts
     }
 
@@ -40,7 +42,7 @@ defmodule Bitblocks.Chain.TxSizeBackfill do
         version: 1,
         from_height: nil,
         to_height: nil,
-        cursor: 0,
+        cursor: Keyword.get(opts, :from_id, 1) - 1,
         details: %{over_threshold: 0, no_raw: 0},
         next: &next(&1, &2, ctx)
       },
@@ -51,7 +53,7 @@ defmodule Bitblocks.Chain.TxSizeBackfill do
   defp next(after_id, _report, %{last_id: last}) when after_id >= last, do: :done
 
   defp next(after_id, report, ctx) do
-    upto = after_id + ctx.window
+    upto = min(after_id + ctx.window, ctx.last_id)
 
     {found, over, no_raw} =
       Derivations.bounded(ctx.opts, fn ->

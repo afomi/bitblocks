@@ -21,8 +21,9 @@ defmodule Bitblocks.Derivations do
   (default `config :bitblocks, :derivation_pause_ms`, 50),
   `statement_timeout_ms:` (default `:derivation_statement_timeout_ms`,
   60,000), `command:` (the command as typed, for the record), `on_batch:`
-  (given the report after each batch) and `record:` (default true; false
-  skips the `derivation_runs` row, for the one-block runs of
+  (given the report after each batch), `chain_id:` (the
+  `Bitblocks.BackfillChains` chain running this range) and `record:` (default
+  true; false skips the `derivation_runs` row, for the one-block runs of
   `TxPipeline.CatchUp`, which would bury the operators' runs).
   """
 
@@ -82,6 +83,7 @@ defmodule Bitblocks.Derivations do
           from_height: spec.from_height,
           to_height: spec.to_height,
           applied: applied,
+          chain_id: opts[:chain_id],
           command: opts[:command],
           details: spec.details,
           outcome: "running",
@@ -257,7 +259,7 @@ defmodule Bitblocks.Derivations do
       |> Repo.update_all(
         set: [
           outcome: "abandoned",
-          error: "abandoned: the process ended before the run finished (closed by an operator)",
+          error: "abandoned: the process ended before the run finished",
           finished_at: DateTime.utc_now(),
           updated_at: NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second)
         ]
@@ -307,6 +309,7 @@ defmodule Bitblocks.Derivations do
       id: r.id,
       derivation: r.derivation,
       version: r.version,
+      chain_id: r.chain_id,
       from_height: r.from_height,
       to_height: r.to_height,
       applied: r.applied,

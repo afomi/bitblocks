@@ -30,6 +30,7 @@ config :bitblocks, Oban,
     sync: 1,
     sync_blocks: 1,
     derived: 1,
+    backfills: 1,
     blocks: 1,
     webhooks: 5,
     collections: 1
