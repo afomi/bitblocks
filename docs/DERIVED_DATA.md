@@ -196,7 +196,8 @@ Every backfill run writes one row, dry runs included (`Bitblocks.Derivations.Run
 `partial` means an error stopped it after at least one batch: those batches stay applied, and a rerun picks up the rest.
 `failed` means it stopped before finishing any batch.
 `abandoned` means it was `running` when its process died (a deploy restart, say) and an operator closed it: its applied batches stay applied, and a rerun of the range picks up the rest.
-A block that completes over rows stored by an earlier sync gets a catch-up job (`Chain.TxPipeline.CatchUp`, queue `:derived`): the sync skips a stored txid, so those rows never meet the chunk steps, and the job runs the three backfills over that one block, with no run record.
+A block that completes over rows stored by an earlier sync gets a catch-up job (`Chain.TxPipeline.CatchUp`, queue `:derived`): the sync skips a stored txid, so those rows never meet the chunk steps, and the job runs the backfills over that one block, with no run record.
+`Release.backfill_tx_steps/3` does the same for the `:tx` steps over a range, on rows that never recorded a spend (derivation `tx_steps`, stamped by no column; run script analysis over the range first).
 Close such runs by id, dry run first, with `bin/bitblocks rpc 'Bitblocks.Release.close_abandoned_derivation_runs(ids: [1, 2])'`, then `bin/bitblocks rpc 'Bitblocks.Release.close_abandoned_derivation_runs([ids: [1, 2]], apply: true)'`; `started_before: ~U[2026-11-05 00:00:00Z]` names them by start time instead.
 
 Read them with `Release.derivation_runs/1`, or `GET /api/v1/status/derivations` (the latest 20, with each error cut to its first line and any URL or IP address removed).

@@ -672,6 +672,56 @@ defmodule Bitblocks.Release do
     end)
   end
 
+  @doc """
+  Runs the `:tx` steps (`record_spends`, `index_tokens`, `index_bitcom`) for
+  the txs of stored blocks from `from_height` to `to_height` that never met
+  them: rows an earlier sync stored, which the sync skips. Run
+  `backfill_script_analysis/3` over the range first. Records the run in
+  `derivation_runs`. See `Bitblocks.Chain.TxPipeline.TxStepsBackfill`.
+
+  **Dry run by default**; `apply: true` writes.
+
+      bin/bitblocks rpc 'Bitblocks.Release.backfill_tx_steps(0, 10_000)'
+      bin/bitblocks rpc 'Bitblocks.Release.backfill_tx_steps(0, 10_000, apply: true)'
+  """
+  def backfill_tx_steps(from_height, to_height, opts \\ [])
+      when is_integer(from_height) and is_integer(to_height) do
+    command = command("backfill_tx_steps", [from_height, to_height], opts)
+
+    with_running_repo(fn ->
+      report =
+        Bitblocks.Chain.TxPipeline.TxStepsBackfill.run(
+          from_height,
+          to_height,
+          opts
+          |> Keyword.put_new(:on_batch, &print_progress/1)
+          |> Keyword.put(:command, command)
+        )
+
+      print_tx_steps_backfill(report)
+      report
+    end)
+  end
+
+  defp print_tx_steps_backfill(r) do
+    print_run_header(r, "tx steps for stored blocks")
+    IO.puts("  #{r.blocks_examined} block(s) walked")
+
+    IO.puts(
+      "  #{r.rows_changed} transaction(s) with no spends #{if r.applied, do: "run", else: "to run"}"
+    )
+
+    if r.details.not_analysed > 0 do
+      IO.puts(
+        "  #{r.details.not_analysed} transaction(s) NOT ANALYSED, left out: " <>
+          "run backfill_script_analysis over the range, then this again"
+      )
+    end
+
+    IO.puts("  #{r.rows_below_version} transaction(s) without spends in the range")
+    print_run_footer(r)
+  end
+
   defp print_tx_types_backfill(r) do
     print_run_header(r, "tx types for completed blocks")
     d = r.details

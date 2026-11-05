@@ -25,7 +25,8 @@ defmodule Bitblocks.Derivations.Run do
   @type t :: %__MODULE__{}
 
   schema "derivation_runs" do
-    # A TxPipeline derivation: "tallies", "script_analysis" or "tx_types".
+    # A TxPipeline derivation: "tallies", "script_analysis" or "tx_types", or
+    # "tx_steps" (Chain.TxPipeline.TxStepsBackfill; no per-row stamp).
     field :derivation, :string
     # The derivation's version the run brought rows up to.
     field :version, :integer

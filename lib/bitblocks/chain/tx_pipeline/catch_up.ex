@@ -9,15 +9,14 @@ defmodule Bitblocks.Chain.TxPipeline.CatchUp do
   such a block with one query on the `block_hash` index, and
   `Workers.CatchUpBlockWorker` runs `run/1` off the block lane.
 
-  `run/1` is the three backfills over that one block, so there is one way to
-  bring a row up to version: script analysis first (`block_totals` needs its
-  `coinbase` flag), then types, then tallies, whose block steps rewrite the
-  totals. Each selects by version, so a rerun picks nothing. No
-  `derivation_runs` row: one per block would bury the operators' runs.
-
-  Only the chunk and block steps: `record_spends`, `index_tokens` and
-  `index_bitcom` have no backfill here. A row left out by a failed step or a
-  tx that doesn't decode stays below the version, for the backfills to report.
+  `run/1` is the backfills over that one block, so there is one way to bring
+  a row up to version: script analysis first (everything after needs its
+  `coinbase` flag and tags), then the `:tx` steps, then types, then tallies,
+  whose block steps rewrite the totals. Each selects what it still lacks, so
+  a rerun picks nothing. No `derivation_runs` row: one per block would bury
+  the operators' runs. A row skipped by the sync has no stamps at all, so
+  `needed?/1` finds the rows the `:tx` steps need too. A tx that doesn't
+  decode stays below the version, for the backfills to report.
   """
 
   import Ecto.Query
@@ -25,7 +24,14 @@ defmodule Bitblocks.Chain.TxPipeline.CatchUp do
   require Logger
 
   alias Bitblocks.Chain.{Block, Transaction, TxPipeline}
-  alias Bitblocks.Chain.TxPipeline.{Backfill, ScriptAnalysisBackfill, TxTypesBackfill}
+
+  alias Bitblocks.Chain.TxPipeline.{
+    Backfill,
+    ScriptAnalysisBackfill,
+    TxStepsBackfill,
+    TxTypesBackfill
+  }
+
   alias Bitblocks.Repo
   alias Bitblocks.Workers.CatchUpBlockWorker
 
@@ -67,7 +73,12 @@ defmodule Bitblocks.Chain.TxPipeline.CatchUp do
   def run(%Block{height: height}) do
     opts = [apply: true, record: false, pause_ms: 0]
 
-    [&ScriptAnalysisBackfill.run/3, &TxTypesBackfill.run/3, &Backfill.run/3]
+    [
+      &ScriptAnalysisBackfill.run/3,
+      &TxStepsBackfill.run/3,
+      &TxTypesBackfill.run/3,
+      &Backfill.run/3
+    ]
     |> Enum.find_value(:ok, fn backfill ->
       case backfill.(height, height, opts) do
         %{outcome: "ok"} -> nil

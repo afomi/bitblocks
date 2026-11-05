@@ -8,7 +8,7 @@ defmodule Bitblocks.Chain.TxPipeline.CatchUpTest do
   import Bitblocks.OrdinalFixtures
 
   alias Bitblocks.Chain
-  alias Bitblocks.Chain.{Block, RawBlock, Transaction, TxIngest, TxPipeline}
+  alias Bitblocks.Chain.{Block, RawBlock, Spend, Transaction, TxIngest, TxPipeline}
   alias Bitblocks.Chain.TxPipeline.CatchUp
   alias Bitblocks.Derivations.Run
   alias Bitblocks.Workers.CatchUpBlockWorker
@@ -16,6 +16,8 @@ defmodule Bitblocks.Chain.TxPipeline.CatchUpTest do
   defp tx_json({txid, hex}), do: RawBlock.tx_json(txid, Base.decode16!(hex, case: :mixed))
 
   defp stored_before_the_pipeline(txid) do
+    Repo.delete_all(from(s in Spend, where: s.spending_txid == ^txid))
+
     Repo.update_all(from(t in Transaction, where: t.txid == ^txid),
       set: [
         block_height: nil,
@@ -65,6 +67,7 @@ defmodule Bitblocks.Chain.TxPipeline.CatchUpTest do
     assert tx.tallies_version == TxPipeline.version(:tallies)
     assert tx.tx_types_version == TxPipeline.version(:tx_types)
     assert tx.total_output_satoshis == 1_000
+    assert [%Spend{}] = Repo.all(from(s in Spend, where: s.spending_txid == ^txid))
 
     refute CatchUp.needed?(block)
     assert Repo.reload!(block).type_counts == %{"p2pkh" => 1}
