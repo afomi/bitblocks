@@ -242,7 +242,7 @@ bin/bitblocks rpc 'Bitblocks.Release.tx_store_reconcile(0, 9_999)'
 ### API
 
 Logged-out callers get `RATE_LIMIT_PER_MINUTE` (default 30) requests per minute per IP.
-Logged-in users get `RATE_LIMIT_SIGNED_IN_PER_MINUTE` (600) per user, and admins `RATE_LIMIT_ADMIN_PER_MINUTE` (6,000) per user.
+Logged-in users get `RATE_LIMIT_SIGNED_IN_PER_MINUTE` (600) per user, and admins `RATE_LIMIT_ADMIN_PER_MINUTE` (3,000) per user.
 This covers HTTP requests, not events over an open LiveView socket.
 Keyed callers send `Authorization: Bearer bbk_…` (or `x-api-key`) and get their key's own budget; create one with `bin/bitblocks rpc 'Bitblocks.Release.create_api_key("qart", 1200)'` (printed once), or register one made elsewhere from its sha256 with `Release.create_api_key_from_hash/3`, so the key never appears in command output. An unknown or revoked key is a 401.
 

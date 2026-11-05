@@ -11,7 +11,7 @@ defmodule BitblocksWeb.Plugs.RateLimiter do
         window_ms: 60_000,            # 1 minute window
         max_requests: 30,             # logged out, per IP
         signed_in_max_requests: 600,  # logged in, per user
-        admin_max_requests: 6_000     # admin, per user
+        admin_max_requests: 3_000     # admin, per user
 
   Static assets bypass this plug.
 
@@ -22,14 +22,14 @@ defmodule BitblocksWeb.Plugs.RateLimiter do
   | Caller | Counted by | Budget a minute |
   | --- | --- | --- |
   | API key | the key | its `requests_per_minute` |
-  | Admin | the user | `RATE_LIMIT_ADMIN_PER_MINUTE`, 6,000 |
+  | Admin | the user | `RATE_LIMIT_ADMIN_PER_MINUTE`, 3,000 |
   | Logged in | the user | `RATE_LIMIT_SIGNED_IN_PER_MINUTE`, 600 |
   | Logged out | the IP | `RATE_LIMIT_PER_MINUTE`, 30 |
 
   Counting by user means people behind one address don't share a budget. A
   session whose user is gone, or a forged cookie, which reads as no session,
-  gets the IP's budget. Admin here is `users.admin`; HTTP basic auth, checked
-  later, counts by IP.
+  gets the IP's budget. Admin is `users.admin`, or valid HTTP basic auth, which
+  shares one budget.
 
   The tier is read once and cached (`:tier_cache_ms`, 60 s), so the limiter
   adds no query per request, and a grant or revoke reaches it within that time.
@@ -64,7 +64,7 @@ defmodule BitblocksWeb.Plugs.RateLimiter do
   # their key's own budget (Bitblocks.ApiKeys).
   @default_max_requests 30
   @default_signed_in_max_requests 600
-  @default_admin_max_requests 6_000
+  @default_admin_max_requests 3_000
   @default_tier_cache_ms 60_000
 
   def init(opts), do: opts
@@ -81,18 +81,8 @@ defmodule BitblocksWeb.Plugs.RateLimiter do
       nil ->
         {conn, user_id} = session_user_id(conn)
 
-        case tier(user_id, now) do
-          :admin ->
-            max_requests = config(:admin_max_requests, @default_admin_max_requests)
-            limit(conn, "user:#{user_id}", now, window_ms, max_requests, :admin)
-
-          :signed_in ->
-            max_requests = config(:signed_in_max_requests, @default_signed_in_max_requests)
-            limit(conn, "user:#{user_id}", now, window_ms, max_requests, :signed_in)
-
-          :anonymous ->
-            limit(conn, ip, now, window_ms, anonymous, :anonymous)
-        end
+        {bucket, max_requests, tier} = budget(conn, user_id, ip, now, anonymous)
+        limit(conn, bucket, now, window_ms, max_requests, tier)
 
       token ->
         case Bitblocks.ApiKeys.verify(token) do
@@ -130,6 +120,28 @@ defmodule BitblocksWeb.Plugs.RateLimiter do
         case get_req_header(conn, "x-api-key") do
           [token | _] when token != "" -> String.trim(token)
           _ -> nil
+        end
+    end
+  end
+
+  defp budget(conn, user_id, ip, now, anonymous) do
+    admin = config(:admin_max_requests, @default_admin_max_requests)
+
+    case tier(user_id, now) do
+      :admin ->
+        {"user:#{user_id}", admin, :admin}
+
+      tier ->
+        cond do
+          BitblocksWeb.AdminAuth.valid_basic_auth?(conn) ->
+            {"admin:basic", admin, :admin}
+
+          tier == :signed_in ->
+            max_requests = config(:signed_in_max_requests, @default_signed_in_max_requests)
+            {"user:#{user_id}", max_requests, :signed_in}
+
+          true ->
+            {ip, anonymous, :anonymous}
         end
     end
   end

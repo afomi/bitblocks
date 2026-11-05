@@ -167,7 +167,7 @@ if config_env() == :prod do
     max_requests: String.to_integer(System.get_env("RATE_LIMIT_PER_MINUTE", "30")),
     signed_in_max_requests:
       String.to_integer(System.get_env("RATE_LIMIT_SIGNED_IN_PER_MINUTE", "600")),
-    admin_max_requests: String.to_integer(System.get_env("RATE_LIMIT_ADMIN_PER_MINUTE", "6000"))
+    admin_max_requests: String.to_integer(System.get_env("RATE_LIMIT_ADMIN_PER_MINUTE", "3000"))
 
   database_url =
     System.get_env("DATABASE_URL") ||

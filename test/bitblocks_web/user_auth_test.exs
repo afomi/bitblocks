@@ -104,6 +104,7 @@ defmodule BitblocksWeb.UserAuthTest do
 
     test "sees a sign-in page that explains when GitHub isn't configured", %{conn: conn} do
       html = html_response(get(conn, "/sign-in?return_to=/blocks/1"), 200)
+      refute html =~ "admin credentials"
 
       assert html =~ "Sign in"
       assert html =~ "isn't configured"
