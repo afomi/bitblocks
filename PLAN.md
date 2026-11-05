@@ -11,6 +11,9 @@ Completed-work history (pre-Issues): `product-cycle/BACKLOG.md`.
 **#18 BITCOM**: be a live, maximally useful Bitcom registry (unwriter's Bitcom), then keep reviving the rest of his stack (#25).
 Current system doc: `docs/BITCOM.md`.
 
+Closed 2026-11-04: #36 · #37 · #40 · #41 · #43 · #44 · #46.
+`/sync` has a durable pause, and `/sync` and `/status` lead with one health line (`BitblocksWeb.HealthLine`, from `Ops.health/0`).
+
 Ryan's ops queue: **#1 OPS-ROLLOUT**. The code is deployed (b8b7757, 2026-10-21).
 Run one `Release.analyze_transactions/1` pass on prod to reach v6; it also indexes Bitcom commands, so `/bitcom` gains proofs, files and routes.
 It runs for hours, so start it detached (see #1).
@@ -45,7 +48,9 @@ Grand Tardinians is 999 items: the 1,494 in #30 counted transfers ([field note](
 Queued after #30: #32 BAP identity index (qart request).
 #49 TYPES: a public page per transaction type, then every tx typed (unmatched is `custom`), then types as CRUD resources.
 Phase 1 is built: `/types`, `/types/:id` and `/api/v1/types`, with examples read only from existing indexes, and token and collection badges linking to their type.
-Phase 2 classifies every output against `priv/data/tx_types/output_types_v1.json`; it depends on #1 for full coverage.
+Phase 2 is built (2026-11-04): stable template hashes (script analysis v7), `Bitblocks.TxTypes.Classifier` passing every vector in `priv/data/tx_types/output_types_v1.json`, the `classify_outputs` and `type_counts` pipeline steps, and counts per type (with `custom`) on `/types` and `/api/v1/types`.
+Needs on prod, with Ryan's OK: `Release.backfill_script_analysis` to v7 (re-decodes every row) and `Release.backfill_tx_types` over completed blocks; until then `/types` says no block is typed yet.
+Open: P2PK and P2SH types (early coinbases read `custom` until they exist), named combinations such as a listing, and the canonical opcode names agreed with the wallet project.
 #48 SCRUBBER: admin three.js scrub from genesis to tip, and the first surface for accounting for misspends and burns.
 Built in the working tree (2026-11-03): tile pyramid, incremental builds, `/chain-scrubber`, reorg and classified-loss layers ([docs/CHAIN_SCRUBBER.md](docs/CHAIN_SCRUBBER.md)).
 Needs on prod, after deploy: `Release.build_chain_tiles()` once; a browser pass on the WebGL scene.
