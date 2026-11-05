@@ -722,6 +722,44 @@ defmodule Bitblocks.Release do
     print_run_footer(r)
   end
 
+  @doc """
+  Fills `transactions.size_bytes` and `raw_in_db` on older rows
+  (`Bitblocks.Chain.TxSizeBackfill`). Records the run in `derivation_runs`.
+
+  **Dry run by default**; `apply: true` writes.
+
+      bin/bitblocks rpc 'Bitblocks.Release.backfill_tx_sizes()'
+      bin/bitblocks rpc 'Bitblocks.Release.backfill_tx_sizes(apply: true)'
+  """
+  def backfill_tx_sizes(opts \\ []) do
+    command = command("backfill_tx_sizes", [], opts)
+
+    with_running_repo(fn ->
+      report =
+        Bitblocks.Chain.TxSizeBackfill.run(
+          opts
+          |> Keyword.put_new(:on_batch, &print_progress/1)
+          |> Keyword.put(:command, command)
+        )
+
+      print_run_header(report, "tx sizes for every stored tx")
+
+      IO.puts(
+        "  #{report.rows_changed} transaction(s) #{if report.applied, do: "filled", else: "to fill"}"
+      )
+
+      IO.puts(
+        "  #{report.details.over_threshold} over " <>
+          "#{Bitblocks.Chain.Transaction.raw_in_db_max_bytes()} bytes, " <>
+          "#{report.details.no_raw} with no raw bytes"
+      )
+
+      IO.puts("  #{report.rows_below_version} transaction(s) still unfilled")
+      print_run_footer(report)
+      report
+    end)
+  end
+
   defp print_tx_types_backfill(r) do
     print_run_header(r, "tx types for completed blocks")
     d = r.details

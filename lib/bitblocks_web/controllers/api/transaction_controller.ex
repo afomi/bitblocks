@@ -60,6 +60,8 @@ defmodule BitblocksWeb.Api.TransactionController do
       version: tx.version,
       input_count: tx.input_count,
       output_count: tx.output_count,
+      size_bytes: tx.size_bytes,
+      raw_in_db: tx.raw_in_db,
       total_input_satoshis: tx.total_input_satoshis,
       total_output_satoshis: tx.total_output_satoshis,
       fee: Chain.Transaction.miner_fee(tx)

@@ -41,12 +41,20 @@ Inputs keep the outpoint they spend (`input_txids`, plus `spend_index`); outputs
 Not kept: the scriptSig and script hex and asm inside `inputs` and `outputs`, which are parsed from the raw bytes when a page needs them (`Chain.RawTx`).
 
 **4. Raw bytes in Postgres only when small.**
-`raw` stays in the row for txs up to `:raw_in_db_max_bytes`, **200 KB** (Ryan, 2026-11-05).
+`raw` stays in the row for txs up to 1 MB, `Transaction.raw_in_db_max_bytes/0` (Ryan, 2026-11-05).
 Above that the row keeps its metadata and an empty `raw`, and every reader gets the bytes through `TxStore.raw/1`, which already falls back from the database to the store.
-Why 200 KB: a 5% sample of blocks 900,000 and up (197,573 rows) has p99 at 4.3 KB and p99.9 at 370 KB, and big txs hold most of the bytes: 0.19% of rows over 100 KB hold 77% of raw bytes, and 0.02% over 1 MB hold 36%.
-So 200 KB keeps almost every tx in its row, and the data carriers, which are what the CDN is for, move out.
+Why 1 MB for now: a 5% sample of blocks 900,000 and up (197,573 rows) has p99 at 4.3 KB and p99.9 at 370 KB, and 0.02% of rows over 1 MB hold 36% of raw bytes, against 0.19% and 77% at 100 KB.
 The sample covers only what was stored at those heights, so check the number again when the sync gets there.
 The cap takes effect with step 5 below; until then every row keeps its `raw`.
+
+Every row says what it weighs and where its bytes are:
+
+- `size_bytes` is the tx's size, from its raw bytes.
+- `raw_in_db` is true while the full bytes sit in the row, and false once they live only in the store.
+  It records where the bytes are, not the threshold, so `size_bytes > 1000000 AND raw_in_db` is exactly the rows still to move.
+- The store keeps every tx whatever the threshold, so changing the threshold only moves rows: lower it and more rows trim, raise it and rows refill from the store.
+  A change to the number is a database change too: `raw_in_db_max_bytes/0`, the rows it moves, and any index that names it.
+
 A raw body is never dropped from a row before its block object is written and verified (`blob_stored_at` set and the bytes re-read).
 Stored as bytes (`bytea`), not hex, when the column is next touched: half the size for what stays.
 

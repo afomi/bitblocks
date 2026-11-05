@@ -2,8 +2,19 @@ defmodule Bitblocks.Chain.Transaction do
   use Ecto.Schema
   import Ecto.Changeset
 
+  # The largest tx whose full bytes stay in its row (docs/TX_STORAGE.md). The
+  # tx store keeps every tx whatever this says. Changing it is a change to
+  # the database: rows above or below it move, and an index names this number.
+  @raw_in_db_max_bytes 1_000_000
+
   schema "transactions" do
     field :raw, :string
+    # The tx's size in bytes, from its raw bytes. nil only on an older row
+    # Release.backfill_tx_sizes/1 hasn't reached.
+    field :size_bytes, :integer
+    # True while the full raw bytes sit in this row; false once they live only
+    # in the tx store. nil as size_bytes.
+    field :raw_in_db, :boolean
     field :version, :string
     field :inputs, {:array, :string}
     field :input_txids, {:array, :string}
@@ -93,6 +104,23 @@ defmodule Bitblocks.Chain.Transaction do
       :tx_types_version
     ])
     |> validate_required([:txid, :raw, :version, :block_hash, :inputs, :outputs])
+    |> put_storage()
+  end
+
+  @doc "The largest tx, in bytes, whose full raw bytes stay in its row."
+  def raw_in_db_max_bytes, do: @raw_in_db_max_bytes
+
+  # A size and storage flag for every row, whichever path wrote it.
+  defp put_storage(changeset) do
+    case fetch_change(changeset, :raw) do
+      {:ok, raw} when is_binary(raw) and raw != "" ->
+        changeset
+        |> put_change(:size_bytes, div(byte_size(raw), 2))
+        |> put_change(:raw_in_db, true)
+
+      _ ->
+        changeset
+    end
   end
 
   @doc """

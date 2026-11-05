@@ -206,6 +206,10 @@ bin/bitblocks rpc 'Bitblocks.Release.backfill_script_analysis(0, 10_000)'
 bin/bitblocks rpc 'Bitblocks.Release.backfill_tx_types(0, 10_000)'
 bin/bitblocks rpc 'Bitblocks.Release.derivation_runs()'
 
+# Each tx's size_bytes and raw_in_db on older rows (docs/TX_STORAGE.md): dry run first
+bin/bitblocks rpc 'Bitblocks.Release.backfill_tx_sizes()'
+bin/bitblocks rpc 'Bitblocks.Release.backfill_tx_sizes(apply: true)'
+
 # A reorg's orphaned tx rows (#34): dry run first, then add apply: true
 bin/bitblocks rpc 'Bitblocks.Release.reconcile_orphaned_block("<orphan hash>")'
 
