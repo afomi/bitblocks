@@ -74,18 +74,6 @@ defmodule BitblocksWeb.Plugs.RateLimiter.TiersTest do
     assert limit_of(conn) == ["2"]
   end
 
-  test "valid basic auth is an admin, and wrong credentials stay on the IP's budget" do
-    {:ok, user, pass} = BitblocksWeb.AdminAuth.decision()
-    good = Plug.BasicAuth.encode_basic_auth(user, pass)
-    bad = Plug.BasicAuth.encode_basic_auth(user, "wrong")
-
-    conn = build_conn() |> put_req_header("authorization", good) |> get("/api/v1/blocks")
-    assert limit_of(conn) == ["6"]
-
-    conn = build_conn() |> put_req_header("authorization", bad) |> get("/api/v1/blocks")
-    assert limit_of(conn) == ["2"]
-  end
-
   test "a valid API key wins over the session" do
     {:ok, _key, token} = ApiKeys.create("cdn", 9)
 

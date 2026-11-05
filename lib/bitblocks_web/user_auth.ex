@@ -6,13 +6,11 @@ defmodule BitblocksWeb.UserAuth do
 
     * **Public** - the explorer front: home, `/blocks`, the beta features, the
       API. No sign-in.
-    * **Signed in** (`:require_user`) - block and transaction detail. Any
-      GitHub user, or an admin.
-    * **Admin** (`:require_admin`) - the operator surface. Either a GitHub
-      user whose row has `admin: true` (set with `Release.set_admin/2`, keyed
-      by their GitHub numeric id), or valid HTTP basic auth
-      (`ADMIN_USERNAME`/`ADMIN_PASSWORD`). Either one admits you. Basic auth
-      keeps the T10 fail-closed rule from `BitblocksWeb.AdminAuth`.
+    * **Signed in** (`:require_user`) - block and transaction detail,
+      `/status`, `/syncing`. Any GitHub user.
+    * **Admin** (`:require_admin`) - the operator surface. A GitHub user whose
+      row has `admin: true` (set with `Release.set_admin/2`, keyed by their
+      GitHub numeric id).
 
   ## Session keys
 
@@ -21,11 +19,6 @@ defmodule BitblocksWeb.UserAuth do
   it takes effect on the next page load, with no new sign-in. The admin data
   routes (chain-scrubber tiles, flow, annotations) do one primary-key lookup
   for that, and only while the gate is on.
-
-  LiveViews get one extra key, `"bitblocks_admin"`, from `live_session_data/1`.
-  It is computed from the HTTP request at dead render (so it covers basic
-  auth, which a websocket can't see) and travels inside the signed LiveView
-  token, never in the cookie.
 
   ## Enforcement
 
@@ -44,11 +37,9 @@ defmodule BitblocksWeb.UserAuth do
   alias Bitblocks.Accounts
   alias BitblocksWeb.AdminAuth
 
-  @admin_session_key "bitblocks_admin"
-
   ## Configuration
 
-  @doc "Whether the gates are enforced (shared with the admin basic-auth gate)."
+  @doc "Whether the gates are enforced."
   @spec enforced?() :: boolean()
   def enforced?, do: AdminAuth.enabled?()
 
@@ -105,8 +96,7 @@ defmodule BitblocksWeb.UserAuth do
   Plug for the `:browser` pipeline: assigns `:current_user`, `:admin?` and
   `:current_path`.
 
-  `:admin?` is true for a signed-in admin email, for a request that already
-  carries valid basic-auth credentials, and whenever the gate is off.
+  `:admin?` is true for a signed-in admin, and whenever the gate is off.
   """
   def fetch_current_user(conn, _opts) do
     user_id = get_session(conn, "user_id")
@@ -120,7 +110,7 @@ defmodule BitblocksWeb.UserAuth do
 
     conn
     |> assign(:current_user, user)
-    |> assign(:admin?, admin_request?(conn, user))
+    |> assign(:admin?, admin_request?(user))
     |> assign(:current_path, current_path(conn))
   end
 
@@ -147,7 +137,7 @@ defmodule BitblocksWeb.UserAuth do
   @doc """
   Plug for `:admin_data` (chain-scrubber tiles): no `:browser`, no database.
 
-  Admits an admin email from the signed session cookie, or basic auth.
+  Admits an admin from the signed session cookie.
   """
   def require_admin_data(conn, _opts) do
     conn = fetch_session(conn)
@@ -156,7 +146,7 @@ defmodule BitblocksWeb.UserAuth do
       not enforced?() ->
         conn
 
-      admin_request?(conn, Accounts.get_user(get_session(conn, "user_id"))) ->
+      admin_request?(Accounts.get_user(get_session(conn, "user_id"))) ->
         conn
 
       true ->
@@ -164,46 +154,29 @@ defmodule BitblocksWeb.UserAuth do
     end
   end
 
-  @doc """
-  Extra LiveView session data, computed from the HTTP request at dead render.
-
-  Used as the `:session` MFA of every `live_session` in the router.
-  """
-  @spec live_session_data(Plug.Conn.t()) :: map()
-  def live_session_data(conn) do
-    %{@admin_session_key => conn.assigns[:admin?] == true}
-  end
-
-  defp admin_request?(conn, user) do
-    not enforced?() or admin_user?(user) or AdminAuth.valid_basic_auth?(conn)
-  end
+  defp admin_request?(user), do: not enforced?() or admin_user?(user)
 
   defp admin_user?(%Accounts.User{admin: true}), do: true
   defp admin_user?(_), do: false
 
   # Why the admin gate said no, and the most useful answer for each case:
   #
-  #   * wrong basic-auth credentials: challenge again (401);
-  #   * signed in with GitHub, not on the allowlist: 403;
-  #   * anonymous: the basic-auth challenge (401), or, when production has no
-  #     basic-auth credentials (T10), the GitHub sign-in if it is configured
-  #     and a 503 if nothing is.
+  #   * signed in, not an admin: 403;
+  #   * anonymous on a page: the GitHub sign-in, or a 503 if it isn't configured;
+  #   * anonymous on admin data: 401.
   defp refuse_admin(conn, opts) do
-    has_header? = get_req_header(conn, "authorization") != []
-    basic_auth = AdminAuth.decision()
-
     cond do
-      match?({:ok, _, _}, basic_auth) and (has_header? or not opts[:signed_in?]) ->
-        conn |> Plug.BasicAuth.request_basic_auth(realm: "Bitblocks admin") |> halt()
-
-      opts[:signed_in?] and not has_header? ->
+      opts[:signed_in?] ->
         forbidden(conn, opts[:html?])
 
-      github_configured?() and opts[:html?] and not has_header? ->
+      not opts[:html?] ->
+        conn |> send_resp(401, "Sign in as an admin") |> halt()
+
+      github_configured?() ->
         conn |> redirect(to: sign_in_path(current_path(conn))) |> halt()
 
       true ->
-        Logger.error("Admin auth refused: ADMIN_USERNAME/ADMIN_PASSWORD not set in production")
+        Logger.error("Admin auth refused: GitHub sign-in isn't configured")
         conn |> send_resp(503, "Admin interface not configured") |> halt()
     end
   end
@@ -264,7 +237,7 @@ defmodule BitblocksWeb.UserAuth do
       Phoenix.Component.assign(
         socket,
         :admin?,
-        not enforced?() or session[@admin_session_key] == true or admin_user?(user)
+        admin_request?(user)
       )
     end)
   end

@@ -3,8 +3,7 @@ defmodule BitblocksWeb.Plugs.RequireJsonBody do
   Refuses a POST, PUT or PATCH whose body isn't `application/json` (415).
 
   This is the CSRF guard for admin JSON writes that a browser authenticates
-  on its own (the session cookie, or cached basic-auth credentials): a
-  cross-site form can only send urlencoded, multipart or text/plain bodies,
+  on its own (the session cookie): a cross-site form can only send urlencoded, multipart or text/plain bodies,
   and a cross-site `fetch` with a JSON body needs a CORS preflight that these
   routes never grant. A DELETE carries no body, and no form can send one.
   """

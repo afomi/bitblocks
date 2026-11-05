@@ -24,7 +24,7 @@ describes. Where a control is **not yet built**, it says so honestly in §5.
   asset; bitblocks holds no funds, so denial-of-service is the highest-value attack against it.
 - **A2 — Data integrity of the index** (blocks/txs in PostgreSQL faithfully mirror the chain). A
   consumer of the API trusts that what we return matches the real chain.
-- **A3 — Secrets** (RPC credentials for the BSV node, admin basic-auth credentials). Leaking these
+- **A3 — Secrets** (RPC credentials for the BSV node, the GitHub OAuth secret). Leaking these
   hands an attacker the upstream node and the admin surface.
 - **A4 — The upstream BSV node** (reachable only through bitblocks from the public side). bitblocks
   must not become an amplifier or proxy that lets the internet drive the node.
@@ -40,8 +40,7 @@ describes. Where a control is **not yet built**, it says so honestly in §5.
 - **TB3 — third-party proxies (WhatsOnChain).** `/utxo/:txid/:vout/owner` falls back to an external
   service when the local answer is unknown (address balance and UTXO endpoints are local-only since #36). Its responses are untrusted input, and our *requests* to it must not be injectable by a
   caller-controlled path param.
-- **TB4 — admin surface** (`/config`, `/debug`, `/sync`, edit pages). Privileged; gated by HTTP basic
-  auth. The boundary between "public read" and "operator write" must not be crossable.
+- **TB4 — admin surface** (`/config`, `/debug`, `/sync`, edit pages). Privileged; gated by GitHub sign-in: a user whose row is marked admin (`users.admin`).
 
 ## 3. Threats → mitigations (STRIDE)
 
@@ -58,7 +57,7 @@ Legend: ✅ enforced in code · ⚠️ partial / weak default · ❌ not yet bui
 | T7 | Request-smuggling into an external proxy URL via path param | Tampering / SSRF-ish | ✅ | `BsvParams.{txid,address}/1` validate to a strict charset/length before the value is `URI.encode_www_form`'d into the WhatsOnChain path; invalid → 400, never an outbound call. The proxy suffix is derived from the action, not the param, so the route shape isn't caller-influenceable (REQ-VAL-004 · `utils/bsv_params.ex`, `address_controller.ex`, `utxo_controller.ex`). | `bsv_params_test.exs`, `address_controller_test.exs`, `utxo_controller_test.exs` |
 | T8 | PubSub channel-name injection via `token_id` | Tampering | ✅ | `/stream/order-book` validates `token_id` via `BsvParams.token_id/1` (hex + optional `_vout`, no `:` or `/`) **before** it becomes a topic; invalid → 400 with no slot consumed (REQ-VAL-005 · `stream_controller.ex`, `utils/bsv_params.ex`). | `stream_controller_test.exs`, `bsv_params_test.exs` |
 | T9 | Secrets leak into logs or responses | Info disclosure | ✅ | RPC creds ride an `Authorization: Basic` header that is **not** logged. Error paths now use `Logger` with a `redact/1` helper that truncates node-supplied bodies/reasons to 500 bytes — no raw `IO.puts` of node responses, no flooding (REQ-SEC-002 · `bitcoinsv_cli.ex`). | — (log-path; covered by review) |
-| T10 | Admin surface reached with default / guessable creds | EoP | ✅ | `AdminAuth.decide/3` fails closed: in any non-dev/test env, a default username *or* password is refused with a 503 instead of serving the panel. **Update 2026-07-12:** the operator surface (`/sync`, `/config`, `/debug`, `/admin`, `/rpc_admin`, `/metrics`, mutation LiveViews) now pipes through `:admin` in **every** env — the compile-time dev/test bypass is gone. Enforcement is runtime config (`config :bitblocks, :admin_auth, enabled:`): prod fails closed on defaults (unchanged), dev enforces with logged dev-default creds (overridable via `ADMIN_USERNAME`/`ADMIN_PASSWORD`), test disables the gate in config only (REQ-SEC-003 · `admin_auth.ex`, `router.ex`). | `admin_auth_test.exs`, `admin_gate_test.exs` |
+| T10 | Admin surface reached with default / guessable creds | EoP | ✅ | No shared credential exists: HTTP basic auth was removed on 2026-11-05. The operator surface (`/sync`, `/config`, `/debug`, `/admin`, `/rpc_admin`, `/metrics`, mutation LiveViews) needs a GitHub user marked admin, in **every** env. Enforcement is runtime config (`config :bitblocks, :admin_auth, enabled:`), and test disables the gate in config only (REQ-SEC-003 · `user_auth.ex`, `router.ex`). | `admin_gate_test.exs`, `user_auth_test.exs` |
 | T11 | Unauthenticated write via `/api/v1/mining/submit` | Tampering / EoP | ✅ | **Two crash vectors found & fixed:** `String.to_integer` raised on a non-numeric nonce/timestamp, and a value ≥ 2³² crashed the `::little-32` header packing. Both are now parsed totally and bounded to an unsigned 32-bit int via `parse_u32/1` → 400 on bad input. The proxy is disabled by default and any submission is PoW-gated (`:hash_above_target`), so a bad solution is rejected, not applied; auth remains a deployment choice for this opt-in feature (REQ-SEC-004 · `mining_controller.ex`). | `mining_controller_test.exs` |
 | T12 | Free bulk scraping / cost-shifting onto the upstream node | DoS / abuse | ⚠️ | Pagination is capped (per_page ≤ 100 across controllers) ✅, which prevents unbounded single queries; but proxy endpoints (address/UTXO/balance) turn one cheap public call into one upstream WhatsOnChain call with only the 20 req/min IP limit in front (REQ-DOS-004). **Accepted-residual 2026-07-12:** the remaining amplification risk is accepted pending the EDGE-RATE infrastructure decision (edge rate limiting at nginx/ALB/Cloudflare); no further in-app mitigation planned. | — |
 
@@ -123,7 +122,7 @@ settles nothing. The ones that *do* matter and are missing:
   merkle check covers ALL blocks — the former >10k-tx skip is closed.
 - **T7/T8** proxy-URL and PubSub-topic injection — `BsvParams` validation + URL encoding.
 - **T9** log redaction — `Logger` + `redact/1`, no raw node bodies to stdout.
-- **T10** admin fail-closed — `AdminAuth.decide/3` refuses default creds outside dev/test.
+- **T10** admin gate — GitHub sign-in only, since 2026-11-05; the basic-auth defaults and `AdminAuth.decide/3` are gone.
 - **T10 follow-up (2026-07-12)** all-env operator-surface gating — the router's compile-time dev/test
   auth bypass is removed; `/sync`, `/config`, `/debug`, `/admin`, `/rpc_admin`, `/metrics`, and the
   block/tx mutation LiveViews pipe through `:admin` in every env, with enforcement toggled at runtime

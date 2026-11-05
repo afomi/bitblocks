@@ -97,7 +97,7 @@ config :bitblocks,
 # from 127.0.0.1 and would otherwise get blocked by the RequestLogger.
 config :bitblocks, :invalid_request_threshold, 10_000
 
-# Bypass admin basic auth so LiveView/controller/accessibility tests can reach
+# Bypass the sign-in gates so LiveView/controller/accessibility tests can reach
 # the operator surface (/sync, /config, …) unauthenticated. The gate itself is
 # covered by test/bitblocks_web/admin_gate_test.exs, which re-enables it.
 config :bitblocks, :admin_auth, enabled: false

@@ -181,13 +181,12 @@ defmodule BitblocksWeb.Router do
   # Access model (BitblocksWeb.UserAuth): the explorer front is public;
   # block and transaction detail need a signed-in GitHub user; the operator
   # surface needs an admin, meaning a GitHub user whose row is marked admin
-  # (Release.set_admin/2) OR valid HTTP basic auth. Either one admits you.
+  # (Release.set_admin/2).
   #
   # The gate runs in EVERY env. Enforcement is a runtime toggle
   # (`config :bitblocks, :admin_auth, enabled: true|false`, default true):
-  # prod keeps the T10 fail-closed behavior (basic auth on default creds is
-  # refused), dev runs with logged dev-default creds, and test disables the
-  # gate in config/test.exs so existing tests can hit /sync, /config, etc.
+  # test disables the gate in config/test.exs so existing tests can hit
+  # /sync, /config, etc.
   #
   # Each LiveView route also sits in a live_session whose on_mount hook holds
   # the same line on the websocket, which these plugs never see.
@@ -203,7 +202,7 @@ defmodule BitblocksWeb.Router do
   # Admin data the browser fetches by script: no :browser pipeline.
   # :browser runs ReorgNotice and loads the current user, both database
   # queries; chain-scrubber tiles must be served without a query (#48), so
-  # this gate reads only the signed session cookie and basic auth.
+  # this gate reads only the signed session cookie and that user's row.
   pipeline :admin_data do
     plug :require_admin_data
   end
@@ -229,8 +228,7 @@ defmodule BitblocksWeb.Router do
     pipe_through :browser
 
     live_session :public,
-      on_mount: [{UserAuth, :mount_current_user}],
-      session: {UserAuth, :live_session_data, []} do
+      on_mount: [{UserAuth, :mount_current_user}] do
       live "/search", SearchLive
       live "/protocols", ProtocolsLive
       live "/bitcom", BitcomLive
@@ -275,8 +273,7 @@ defmodule BitblocksWeb.Router do
     get "/debug", PageController, :debug
 
     live_session :admin,
-      on_mount: [{UserAuth, :require_admin}],
-      session: {UserAuth, :live_session_data, []} do
+      on_mount: [{UserAuth, :require_admin}] do
       live "/admin", AdminLive
 
       live "/address_repo", AddressRepoLive
@@ -312,20 +309,12 @@ defmodule BitblocksWeb.Router do
     get "/status", PageController, :status
 
     live_session :signed_in,
-      on_mount: [{UserAuth, :require_user}],
-      session: {UserAuth, :live_session_data, []} do
+      on_mount: [{UserAuth, :require_user}] do
       live "/syncing", SyncingLive
       live "/blocks/:id", BlockLive.Show, :show
       live "/transactions", TransactionLive.Index, :index
       live "/transactions/:id", TransactionLive.Show, :show
     end
-  end
-
-  # Raw blocks exported from our node, pushed by scripts/push_blocks.
-  scope "/admin", BitblocksWeb do
-    pipe_through :admin_data
-
-    post "/blocks/:height", BlockImportController, :create
   end
 
   # Chain annotations (forks, upgrades, mintings, world events): admin CRUD.
@@ -351,7 +340,7 @@ defmodule BitblocksWeb.Router do
     forward "/metrics", TelemetryMetricsPrometheus.Router, name: Bitblocks.TelemetryPrometheus
   end
 
-  # Admin-only routes (protected by basic auth in production)
+  # Dev-only operator tools.
   if Application.compile_env(:bitblocks, :dev_routes) do
     import Phoenix.LiveDashboard.Router
 

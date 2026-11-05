@@ -89,12 +89,16 @@ defmodule BitblocksWeb.Api.AnnotationControllerTest do
       assert Annotations.list() == []
     end
 
-    test "basic auth may", %{conn: conn} do
-      {:ok, user, pass} = BitblocksWeb.AdminAuth.decision()
-      auth = "Basic " <> Base.encode64("#{user}:#{pass}")
+    test "an admin may", %{conn: conn} do
+      admin =
+        Bitblocks.Repo.insert!(%Bitblocks.Accounts.User{
+          github_id: 7_004,
+          login: "operator",
+          admin: true
+        })
 
       assert conn
-             |> put_req_header("authorization", auth)
+             |> init_test_session(%{"user_id" => admin.id})
              |> json_conn()
              |> post("/api/v1/annotations", Jason.encode!(%{kind: "note", title: "x", height: 1}))
              |> Map.get(:status) == 201

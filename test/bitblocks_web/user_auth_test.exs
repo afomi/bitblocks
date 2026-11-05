@@ -70,11 +70,6 @@ defmodule BitblocksWeb.UserAuthTest do
     }
   end
 
-  defp basic_auth(conn) do
-    {:ok, user, pass} = BitblocksWeb.AdminAuth.decision()
-    put_req_header(conn, "authorization", "Basic " <> Base.encode64("#{user}:#{pass}"))
-  end
-
   describe "an anonymous visitor" do
     test "is sent to sign in from block detail, with the way back", %{conn: conn, block: block} do
       conn = get(conn, "/blocks/#{block.height}")
@@ -129,10 +124,25 @@ defmodule BitblocksWeb.UserAuthTest do
       end)
     end
 
-    test "gets the basic auth challenge on the operator surface", %{conn: conn} do
-      conn = get(conn, "/sync")
-      assert conn.status == 401
-      assert [_ | _] = get_resp_header(conn, "www-authenticate")
+    test "is sent to sign in from the operator surface", %{conn: conn} do
+      Application.put_env(:ueberauth, Ueberauth.Strategy.Github.OAuth,
+        client_id: "id",
+        client_secret: "secret"
+      )
+
+      on_exit(fn -> Application.delete_env(:ueberauth, Ueberauth.Strategy.Github.OAuth) end)
+
+      assert redirected_to(get(conn, "/sync")) =~ "/sign-in?return_to="
+    end
+
+    test "gets no basic auth challenge, and credentials open nothing", %{conn: conn} do
+      conn =
+        conn
+        |> put_req_header("authorization", "Basic " <> Base.encode64("admin:secret"))
+        |> get("/sync")
+
+      refute conn.status == 200
+      assert get_resp_header(conn, "www-authenticate") == []
     end
   end
 
@@ -288,29 +298,6 @@ defmodule BitblocksWeb.UserAuthTest do
       {:ok, _} = Accounts.set_admin("afomi", true)
 
       assert {:ok, _view, _html} = live(sign_in(conn, user), "/sync")
-    end
-  end
-
-  describe "basic auth" do
-    test "still admits the admin to the operator surface", %{conn: conn} do
-      assert conn |> basic_auth() |> get("/sync") |> Map.get(:status) == 200
-
-      assert conn |> basic_auth() |> get("/chain-scrubber/tiles/manifest") |> Map.get(:status) !=
-               401
-    end
-
-    test "admits the admin to detail pages, with the download button", %{conn: conn, block: block} do
-      {:ok, _view, html} = live(basic_auth(conn), "/blocks/#{block.height}")
-      assert html =~ ~s(phx-click="download_transactions")
-    end
-
-    test "with wrong credentials is refused", %{conn: conn} do
-      conn =
-        conn
-        |> put_req_header("authorization", "Basic " <> Base.encode64("nope:wrong"))
-        |> get("/sync")
-
-      assert conn.status == 401
     end
   end
 

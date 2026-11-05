@@ -96,30 +96,35 @@ defmodule BitblocksWeb.ChainTileControllerTest do
       :ok
     end
 
-    test "anonymous tile requests get the auth challenge", %{conn: conn} do
-      conn = get(conn, "/chain-scrubber/tiles/manifest")
-      assert conn.status == 401
-      assert [_ | _] = get_resp_header(conn, "www-authenticate")
-
+    test "anonymous tile requests are refused", %{conn: conn} do
+      assert get(conn, "/chain-scrubber/tiles/manifest").status == 401
       assert get(build_conn(), "/chain-scrubber/tiles/0/0").status == 401
     end
 
-    test "credentials pass, still without a database query", %{conn: conn} do
+    test "an admin passes, with only the session's user read", %{conn: conn} do
       insert_blocks(0..10)
       {:ok, _} = ChainTiles.build(mode: :full)
-      {:ok, user, pass} = BitblocksWeb.AdminAuth.decision()
+
+      admin =
+        Bitblocks.Repo.insert!(%Bitblocks.Accounts.User{
+          github_id: 7_003,
+          login: "operator",
+          admin: true
+        })
 
       queries =
         count_queries(fn ->
           conn =
             conn
-            |> put_req_header("authorization", "Basic " <> Base.encode64("#{user}:#{pass}"))
+            |> init_test_session(%{"user_id" => admin.id})
             |> get("/chain-scrubber/tiles/0/0")
 
           assert conn.status == 200
         end)
 
-      assert queries == []
+      # The rate limiter's tier and the gate; both read the users row.
+      assert [_ | _] = queries
+      assert Enum.all?(queries, &(&1 =~ ~s("users")))
     end
   end
 end

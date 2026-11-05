@@ -70,7 +70,7 @@ Every change broadcasts on `"chain_annotations"`, so open scrubbers redraw.
 "Add curated events" (`Annotations.seed/0`) loads `priv/data/chain_annotations.json`: the genesis block, the first spend, Pizza Day, the forks, the Genesis upgrade, the halvings and a few world events, each with a source.
 It adds only what isn't there yet (matched on kind and title).
 
-### API (admin: session or basic auth)
+### API (admin session)
 
 ```
 GET    /api/v1/annotations          ?from=&to= by drawn height, ?kind=
@@ -81,7 +81,7 @@ DELETE /api/v1/annotations/:id
 ```
 
 Writes must be `application/json` (415 otherwise).
-That is the CSRF guard: a browser sends the session cookie or cached basic-auth credentials by itself, but a cross-site form can't send a JSON body, and a cross-site `fetch` with one needs a CORS preflight these routes never grant.
+That is the CSRF guard: a browser sends the session cookie by itself, but a cross-site form can't send a JSON body, and a cross-site `fetch` with one needs a CORS preflight these routes never grant.
 
 ## The first spend
 

@@ -1,6 +1,6 @@
 defmodule BitblocksWeb.AdminGateTest do
   @moduledoc """
-  Verifies the operator surface is gated by basic auth in every env.
+  Verifies the operator surface is gated in every env.
 
   Test env normally bypasses the gate (`config :bitblocks, :admin_auth,
   enabled: false` in config/test.exs); these tests re-enable it for their own
@@ -24,39 +24,38 @@ defmodule BitblocksWeb.AdminGateTest do
   end
 
   describe "operator surface with admin_auth enabled" do
-    test "GET /sync without credentials is refused with 401", %{conn: conn} do
+    test "GET /sync with no session is refused", %{conn: conn} do
       conn = get(conn, ~p"/sync")
 
-      assert conn.status == 401
+      refute conn.status == 200
       assert conn.halted
-      assert [_challenge | _] = get_resp_header(conn, "www-authenticate")
     end
 
-    test "GET /sync with valid credentials renders", %{conn: conn} do
-      {:ok, user, pass} = BitblocksWeb.AdminAuth.decision()
-
-      conn =
-        conn
-        |> put_req_header("authorization", "Basic " <> Base.encode64("#{user}:#{pass}"))
-        |> get(~p"/sync")
-
-      assert conn.status == 200
-    end
-
-    test "GET /sync with wrong credentials is refused with 401", %{conn: conn} do
-      conn =
-        conn
-        |> put_req_header("authorization", "Basic " <> Base.encode64("nope:wrong"))
-        |> get(~p"/sync")
-
-      assert conn.status == 401
-    end
-
-    test "GET /metrics without credentials is refused with 401", %{conn: conn} do
+    test "GET /metrics with no session is refused", %{conn: conn} do
       conn = get(conn, "/metrics")
 
-      assert conn.status == 401
+      refute conn.status == 200
       assert conn.halted
+    end
+
+    test "a non-admin user is refused", %{conn: conn} do
+      user = Bitblocks.Repo.insert!(%Bitblocks.Accounts.User{github_id: 7_001, login: "reader"})
+      conn = conn |> init_test_session(%{"user_id" => user.id}) |> get(~p"/sync")
+
+      assert conn.status == 403
+    end
+
+    test "an admin passes", %{conn: conn} do
+      user =
+        Bitblocks.Repo.insert!(%Bitblocks.Accounts.User{
+          github_id: 7_002,
+          login: "operator",
+          admin: true
+        })
+
+      conn = conn |> init_test_session(%{"user_id" => user.id}) |> get(~p"/sync")
+
+      assert conn.status == 200
     end
   end
 

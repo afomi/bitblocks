@@ -192,11 +192,9 @@ config :bitblocks, Bitblocks.MiningProxy,
   poll_interval_ms: 10_000,
   platform_share_pct: 10
 
-# Admin basic auth on the operator surface (/sync, /config, /debug, /admin,
-# /rpc_admin, /metrics, block/tx mutation pages, …). Enforced in EVERY env by
-# default; test bypasses it (config/test.exs). Credentials come from
-# ADMIN_USERNAME/ADMIN_PASSWORD (see BitblocksWeb.AdminAuth — prod fails
-# closed on the defaults, dev logs a warning).
+# The admin gate on the operator surface (/sync, /config, /debug, /admin,
+# /rpc_admin, /metrics, block/tx mutation pages, …): a GitHub user marked admin.
+# Enforced in EVERY env by default; test bypasses it (config/test.exs).
 config :bitblocks, :admin_auth, enabled: true
 
 # GitHub sign-in (BitblocksWeb.AuthController). Ueberauth is run per request

@@ -1632,9 +1632,6 @@ defmodule Bitblocks.Release do
   `Bitblocks.Chain.BlockImport`. Safe to repeat.
 
       bin/bitblocks rpc 'Bitblocks.Release.import_raw_blocks("/data/blocks/900000-900099")'
-
-  Pushing blocks over HTTP (`scripts/push_blocks`) is usually simpler than
-  copying files onto a node.
   """
   def import_raw_blocks(dir) do
     {:ok, report} = Bitblocks.Chain.BlockImport.import_dir(dir)

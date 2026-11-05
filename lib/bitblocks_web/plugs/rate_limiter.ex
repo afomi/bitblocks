@@ -28,8 +28,7 @@ defmodule BitblocksWeb.Plugs.RateLimiter do
 
   Counting by user means people behind one address don't share a budget. A
   session whose user is gone, or a forged cookie, which reads as no session,
-  gets the IP's budget. Admin is `users.admin`, or valid HTTP basic auth, which
-  shares one budget.
+  gets the IP's budget. Admin is `users.admin`.
 
   The tier is read once and cached (`:tier_cache_ms`, 60 s), so the limiter
   adds no query per request, and a grant or revoke reaches it within that time.
@@ -81,7 +80,7 @@ defmodule BitblocksWeb.Plugs.RateLimiter do
       nil ->
         {conn, user_id} = session_user_id(conn)
 
-        {bucket, max_requests, tier} = budget(conn, user_id, ip, now, anonymous)
+        {bucket, max_requests, tier} = budget(user_id, ip, now, anonymous)
         limit(conn, bucket, now, window_ms, max_requests, tier)
 
       token ->
@@ -124,25 +123,17 @@ defmodule BitblocksWeb.Plugs.RateLimiter do
     end
   end
 
-  defp budget(conn, user_id, ip, now, anonymous) do
-    admin = config(:admin_max_requests, @default_admin_max_requests)
-
+  defp budget(user_id, ip, now, anonymous) do
     case tier(user_id, now) do
       :admin ->
-        {"user:#{user_id}", admin, :admin}
+        {"user:#{user_id}", config(:admin_max_requests, @default_admin_max_requests), :admin}
 
-      tier ->
-        cond do
-          BitblocksWeb.AdminAuth.valid_basic_auth?(conn) ->
-            {"admin:basic", admin, :admin}
+      :signed_in ->
+        max_requests = config(:signed_in_max_requests, @default_signed_in_max_requests)
+        {"user:#{user_id}", max_requests, :signed_in}
 
-          tier == :signed_in ->
-            max_requests = config(:signed_in_max_requests, @default_signed_in_max_requests)
-            {"user:#{user_id}", max_requests, :signed_in}
-
-          true ->
-            {ip, anonymous, :anonymous}
-        end
+      :anonymous ->
+        {ip, anonymous, :anonymous}
     end
   end
 

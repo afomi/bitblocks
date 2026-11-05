@@ -1,7 +1,7 @@
 # Chain scrubber
 
 Admin exploration (#48): scrub the chain from genesis to tip in three.js, and the first visible surface for accounting for misspends and burns.
-Route: `/chain-scrubber` (admin basic auth; not in the sitemap).
+Route: `/chain-scrubber` (admin only; not in the sitemap).
 Code: `Bitblocks.ChainTiles` (tiles), `Bitblocks.ChainScrubber` (rest and annotations), `BitblocksWeb.ChainScrubberLive`, `BitblocksWeb.ChainTileController`, `assets/js/chain_scrubber/tiles.mjs` (pure client logic), `assets/js/hooks/chain_scrubber.js` (WebGL).
 
 ## Decisions

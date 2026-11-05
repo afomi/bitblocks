@@ -2,9 +2,9 @@ defmodule BitblocksWeb.ChainTileController do
   @moduledoc """
   Serves chain-scrubber tiles and their manifest from
   `Bitblocks.ChainTiles.Cache` (ETS). No action here touches the database:
-  the route runs through the `:admin_data` pipeline, which is basic auth and
-  nothing else, and `test/bitblocks_web/controllers/chain_tile_controller_test.exs`
-  asserts zero repo queries per request.
+  the route runs through the `:admin_data` pipeline, which is the session and
+  its user's row, and `test/bitblocks_web/controllers/chain_tile_controller_test.exs`
+  asserts that is the only table read.
 
   A tile URL carries its content hash (`?v=`), so it is served immutable;
   a stale hash is a 404 and the client refetches the manifest.

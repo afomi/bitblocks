@@ -28,11 +28,10 @@ defmodule BitblocksWeb.ChainScrubberLiveTest do
       :ok
     end
 
-    test "an anonymous visitor gets the admin auth challenge", %{conn: conn} do
+    test "an anonymous visitor is refused", %{conn: conn} do
       conn = get(conn, "/chain-scrubber")
-      assert conn.status == 401
+      refute conn.status == 200
       assert conn.halted
-      assert [_challenge | _] = get_resp_header(conn, "www-authenticate")
     end
 
     test "the page is not in the sitemap", %{conn: conn} do

@@ -8,7 +8,7 @@ defmodule BitblocksWeb.Api.AnnotationController do
       PATCH  /api/v1/annotations/:id
       DELETE /api/v1/annotations/:id
 
-  Admin only (session or basic auth, `:admin_data`); writes must be
+  Admin only (`:admin_data`); writes must be
   `application/json` (`BitblocksWeb.Plugs.RequireJsonBody`).
   Fields: `kind`, `title`, `body`, `source_url`, and at least one anchor of
   `height`, `txid` or `occurred_at` (ISO 8601). The response adds

@@ -24,7 +24,7 @@ Search engines get the public subset at `/sitemap.xml` (`BitblocksWeb.SitemapCon
 
 ## Admin / Dev Pages
 
-Protected by basic auth in production; open in dev/test.
+For admins: a GitHub user marked admin; the gate runs in every env and is off only in the test config.
 
 | Path | Description |
 |------|-------------|
