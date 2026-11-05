@@ -10,7 +10,9 @@ defmodule Bitblocks.Derivations.Run do
     * `ok`: every batch done;
     * `partial`: an error stopped it after at least one batch; those
       batches stay applied, and `error` says what stopped it;
-    * `failed`: an error stopped it before any batch finished.
+    * `failed`: an error stopped it before any batch finished;
+    * `abandoned`: it was `running` when its process died, and an operator
+      closed it (`Bitblocks.Derivations.close_abandoned/2`).
 
   `rows_below_version` is the explicit success check: rows in the range
   still below `version` when the run finished. 0 for a complete applied
@@ -18,7 +20,7 @@ defmodule Bitblocks.Derivations.Run do
   """
   use Ecto.Schema
 
-  @outcomes ~w(running ok partial failed)
+  @outcomes ~w(running ok partial failed abandoned)
 
   @type t :: %__MODULE__{}
 

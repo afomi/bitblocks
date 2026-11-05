@@ -762,6 +762,30 @@ defmodule Bitblocks.Release do
       do: IO.puts("  Run again with apply: true to write these.")
   end
 
+  @doc """
+  Closes derivation runs left `running` by a restart as `abandoned`
+  (`Bitblocks.Derivations.close_abandoned/2`). Name them by id or start
+  time; a dry run unless `apply: true`.
+
+      bin/bitblocks rpc 'Bitblocks.Release.close_abandoned_derivation_runs(ids: [1, 2])'
+      bin/bitblocks rpc 'Bitblocks.Release.close_abandoned_derivation_runs([ids: [1, 2]], apply: true)'
+  """
+  def close_abandoned_derivation_runs(which, opts \\ []) do
+    with_running_repo(fn ->
+      result = Bitblocks.Derivations.close_abandoned(which, opts)
+      verb = if result.applied, do: "closed as abandoned", else: "would close as abandoned"
+
+      for id <- result.closed, do: IO.puts("##{id} #{verb}")
+      for id <- result.skipped, do: IO.puts("##{id} already finished; left alone")
+      if result.closed == [], do: IO.puts("No running runs matched.")
+
+      if not result.applied and result.closed != [],
+        do: IO.puts("Run again with apply: true to close these.")
+
+      result
+    end)
+  end
+
   # The command as typed, for the derivation_runs record.
   defp command(name, args, opts) do
     opts = Keyword.drop(opts, [:on_batch, :command])

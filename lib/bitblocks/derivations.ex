@@ -213,6 +213,55 @@ defmodule Bitblocks.Derivations do
   end
 
   @doc """
+  Closes runs left `running` by a process that died (a deploy restart
+  mid-backfill) as `abandoned`, with `finished_at` and a note in `error`.
+  Their applied batches stay applied; a rerun of the range picks up the rest.
+
+  `which` names the runs, so a live one is never closed by accident:
+  `ids: [..]`, or `started_before: %DateTime{}`. Only `running` rows are
+  closed; a named run that already finished is returned in `skipped`.
+  A dry run by default; pass `apply: true` to write.
+  """
+  @spec close_abandoned(keyword(), keyword()) :: %{
+          applied: boolean(),
+          closed: [integer()],
+          skipped: [integer()]
+        }
+  def close_abandoned(which, opts \\ []) do
+    applied = Keyword.get(opts, :apply, false)
+
+    named =
+      cond do
+        ids = which[:ids] -> from(r in Run, where: r.id in ^ids)
+        before = which[:started_before] -> from(r in Run, where: r.started_at < ^before)
+        true -> raise ArgumentError, "name the runs to close: ids: [..] or started_before:"
+      end
+
+    {running, finished} =
+      named
+      |> order_by([r], asc: r.id)
+      |> select([r], {r.id, r.outcome})
+      |> Repo.all()
+      |> Enum.split_with(fn {_, outcome} -> outcome == "running" end)
+
+    closed = Enum.map(running, &elem(&1, 0))
+
+    if applied and closed != [] do
+      from(r in Run, where: r.id in ^closed and r.outcome == "running")
+      |> Repo.update_all(
+        set: [
+          outcome: "abandoned",
+          error: "abandoned: the process ended before the run finished (closed by an operator)",
+          finished_at: DateTime.utc_now(),
+          updated_at: NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second)
+        ]
+      )
+    end
+
+    %{applied: applied, closed: closed, skipped: Enum.map(finished, &elem(&1, 0))}
+  end
+
+  @doc """
   What `GET /api/v1/status/derivations` answers: every step with its stage
   and version, the version of each stage and derivation (with the column it
   stamps and its backfill), and the latest runs. No secrets and no node

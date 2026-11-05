@@ -184,7 +184,7 @@ Every backfill run writes one row, dry runs included (`Bitblocks.Derivations.Run
 | `rows_below_version` | rows in the range still below the version when it finished: 0 for a complete applied run |
 | `blocks_examined` | blocks it walked (tallies) |
 | `details` | per-derivation counts: `values_changed`, `sats_in_unknown`, `blocks_changed`, `blocks_below_version`, `unverified`; `undecodable` for script analysis; `types_changed`, `undecodable`, `blocks_changed`, `blocks_below_version` for tx types |
-| `outcome` | `running`, `ok`, `partial` or `failed` |
+| `outcome` | `running`, `ok`, `partial`, `failed` or `abandoned` |
 | `error` | what stopped a partial or failed run |
 | `command` | the command as typed |
 | `started_at`, `finished_at` | when it ran |
@@ -192,6 +192,8 @@ Every backfill run writes one row, dry runs included (`Bitblocks.Derivations.Run
 `running` means in flight, or the process died before finishing.
 `partial` means an error stopped it after at least one batch: those batches stay applied, and a rerun picks up the rest.
 `failed` means it stopped before finishing any batch.
+`abandoned` means it was `running` when its process died (a deploy restart, say) and an operator closed it: its applied batches stay applied, and a rerun of the range picks up the rest.
+Close such runs by id, dry run first, with `bin/bitblocks rpc 'Bitblocks.Release.close_abandoned_derivation_runs(ids: [1, 2])'`, then `bin/bitblocks rpc 'Bitblocks.Release.close_abandoned_derivation_runs([ids: [1, 2]], apply: true)'`; `started_before: ~U[2026-11-05 00:00:00Z]` names them by start time instead.
 
 Read them with `Release.derivation_runs/1`, or `GET /api/v1/status/derivations` (the latest 20, with each error cut to its first line and any URL or IP address removed).
 
