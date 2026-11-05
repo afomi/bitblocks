@@ -100,6 +100,13 @@
               <p class="text-sm text-neutral-500">
                 <%= length(nodes) %> transactions, <%= length(edges) %> connections
               </p>
+              <p
+                :if={@graph_data.truncated}
+                id="graph-truncated"
+                class="text-sm text-neutral-500"
+              >
+                Showing the first 100 transactions at each level.
+              </p>
             </div>
 
             <div
