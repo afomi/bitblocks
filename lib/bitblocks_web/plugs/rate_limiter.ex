@@ -1,6 +1,6 @@
 defmodule BitblocksWeb.Plugs.RateLimiter do
   @moduledoc """
-  Simple ETS-backed rate limiter per IP address.
+  Simple ETS-backed rate limiter: each caller gets a budget by who is asking.
 
   Tracks request counts in a sliding window. Returns 429 Too Many Requests
   when the limit is exceeded, with a Retry-After header.
@@ -8,11 +8,35 @@ defmodule BitblocksWeb.Plugs.RateLimiter do
   ## Configuration
 
       config :bitblocks, BitblocksWeb.Plugs.RateLimiter,
-        window_ms: 60_000,     # 1 minute window
-        max_requests: 120      # anonymous requests per window, per IP
+        window_ms: 60_000,            # 1 minute window
+        max_requests: 30,             # logged out, per IP
+        signed_in_max_requests: 600,  # logged in, per user
+        admin_max_requests: 6_000     # admin, per user
 
-  Defaults to 120 requests per minute per IP (`RATE_LIMIT_PER_MINUTE` in
-  prod). Static assets bypass this plug.
+  Static assets bypass this plug.
+
+  ## Who is asking
+
+  A valid API key first, then the session's user, then the IP:
+
+  | Caller | Counted by | Budget a minute |
+  | --- | --- | --- |
+  | API key | the key | its `requests_per_minute` |
+  | Admin | the user | `RATE_LIMIT_ADMIN_PER_MINUTE`, 6,000 |
+  | Logged in | the user | `RATE_LIMIT_SIGNED_IN_PER_MINUTE`, 600 |
+  | Logged out | the IP | `RATE_LIMIT_PER_MINUTE`, 30 |
+
+  Counting by user means people behind one address don't share a budget. A
+  session whose user is gone, or a forged cookie, which reads as no session,
+  gets the IP's budget. Admin here is `users.admin`; HTTP basic auth, checked
+  later, counts by IP.
+
+  The tier is read once and cached (`:tier_cache_ms`, 60 s), so the limiter
+  adds no query per request, and a grant or revoke reaches it within that time.
+
+  This covers HTTP requests, including a LiveView's first render. Events over
+  an open LiveView socket don't pass through the endpoint's plugs, so they
+  aren't counted.
 
   ## API keys
 
@@ -36,9 +60,12 @@ defmodule BitblocksWeb.Plugs.RateLimiter do
 
   @table :rate_limiter
   @default_window_ms 60_000
-  # Anonymous, per IP. Prod sets it with RATE_LIMIT_PER_MINUTE (config/runtime.exs);
-  # keyed callers use their key's own budget (Bitblocks.ApiKeys).
-  @default_max_requests 120
+  # Prod sets these from the environment (config/runtime.exs); keyed callers use
+  # their key's own budget (Bitblocks.ApiKeys).
+  @default_max_requests 30
+  @default_signed_in_max_requests 600
+  @default_admin_max_requests 6_000
+  @default_tier_cache_ms 60_000
 
   def init(opts), do: opts
 
@@ -52,7 +79,20 @@ defmodule BitblocksWeb.Plugs.RateLimiter do
 
     case api_token(conn) do
       nil ->
-        limit(conn, ip, now, window_ms, anonymous)
+        {conn, user_id} = session_user_id(conn)
+
+        case tier(user_id, now) do
+          :admin ->
+            max_requests = config(:admin_max_requests, @default_admin_max_requests)
+            limit(conn, "user:#{user_id}", now, window_ms, max_requests, :admin)
+
+          :signed_in ->
+            max_requests = config(:signed_in_max_requests, @default_signed_in_max_requests)
+            limit(conn, "user:#{user_id}", now, window_ms, max_requests, :signed_in)
+
+          :anonymous ->
+            limit(conn, ip, now, window_ms, anonymous, :anonymous)
+        end
 
       token ->
         case Bitblocks.ApiKeys.verify(token) do
@@ -61,12 +101,12 @@ defmodule BitblocksWeb.Plugs.RateLimiter do
           %{id: id, requests_per_minute: rpm} = key ->
             conn
             |> assign(:api_key, key)
-            |> limit("key:#{id}", now, window_ms, rpm)
+            |> limit("key:#{id}", now, window_ms, rpm, :api_key)
 
           # A bad key is refused loudly rather than treated as anonymous, but
           # only within the IP's budget, so random keys can't hammer the DB.
           nil ->
-            case limit(conn, ip, now, window_ms, anonymous) do
+            case limit(conn, ip, now, window_ms, anonymous, :anonymous) do
               %Plug.Conn{halted: true} = halted ->
                 halted
 
@@ -94,7 +134,44 @@ defmodule BitblocksWeb.Plugs.RateLimiter do
     end
   end
 
-  defp limit(conn, bucket, now, window_ms, max_requests) do
+  # The session's user id, once the endpoint's Plug.Session has run. A signed
+  # cookie that doesn't verify reads as an empty session.
+  defp session_user_id(%Plug.Conn{private: %{plug_session_fetch: _}} = conn) do
+    conn = fetch_session(conn)
+    {conn, get_session(conn, "user_id")}
+  end
+
+  defp session_user_id(conn), do: {conn, nil}
+
+  defp tier(nil, _now), do: :anonymous
+
+  # Misses are cached too: the id comes from a signed session, so only we can
+  # name one, and a deleted user shouldn't cost a query per request.
+  defp tier(user_id, now) do
+    case :ets.lookup(@table, {:tier, user_id}) do
+      [{_, tier, expires}] when expires > now ->
+        tier
+
+      _ ->
+        tier = read_tier(user_id)
+        expires = now + config(:tier_cache_ms, @default_tier_cache_ms)
+        :ets.insert(@table, {{:tier, user_id}, tier, expires})
+        tier
+    end
+  rescue
+    # The database is unreachable: the IP's budget, never a higher one.
+    DBConnection.ConnectionError -> :anonymous
+  end
+
+  defp read_tier(user_id) do
+    case Bitblocks.Accounts.get_user(user_id) do
+      %{admin: true} -> :admin
+      %{} -> :signed_in
+      nil -> :anonymous
+    end
+  end
+
+  defp limit(conn, bucket, now, window_ms, max_requests, tier) do
     case check_rate(bucket, now, window_ms, max_requests) do
       {:ok, count} ->
         conn
@@ -107,7 +184,7 @@ defmodule BitblocksWeb.Plugs.RateLimiter do
       {:error, retry_after_ms} ->
         retry_after_s = max(1, div(retry_after_ms, 1000))
 
-        Logger.warning("Rate limited #{bucket}")
+        Logger.warning("Rate limited #{bucket} tier=#{tier} limit=#{max_requests}")
 
         conn
         |> put_resp_header("retry-after", Integer.to_string(retry_after_s))

@@ -160,10 +160,14 @@ if config_env() == :prod do
     config :bitblocks, :rexxie_images_dir, rexxie_images_dir
   end
 
-  # Anonymous per-IP API budget (requests per minute). API keys carry their
-  # own (Release.create_api_key/2); see BitblocksWeb.Plugs.RateLimiter.
+  # Requests per minute by caller: logged out per IP, logged in and admin per
+  # user. API keys carry their own (Release.create_api_key/2); see
+  # BitblocksWeb.Plugs.RateLimiter.
   config :bitblocks, BitblocksWeb.Plugs.RateLimiter,
-    max_requests: String.to_integer(System.get_env("RATE_LIMIT_PER_MINUTE", "120"))
+    max_requests: String.to_integer(System.get_env("RATE_LIMIT_PER_MINUTE", "30")),
+    signed_in_max_requests:
+      String.to_integer(System.get_env("RATE_LIMIT_SIGNED_IN_PER_MINUTE", "600")),
+    admin_max_requests: String.to_integer(System.get_env("RATE_LIMIT_ADMIN_PER_MINUTE", "6000"))
 
   database_url =
     System.get_env("DATABASE_URL") ||

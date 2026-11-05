@@ -13,7 +13,7 @@ defmodule BitblocksWeb.Plugs.RateLimiter.Replicator do
   ## Model
 
   On each admitted request the plug calls `record/3`, which broadcasts the
-  bucket (an IP, or `key:<id>` for an API key), its timestamp, its limit and
+  bucket (an IP, `user:<id>` for a signed-in user, or `key:<id>` for an API key), its timestamp, its limit and
   this node's name. Every node's Replicator receives it, its own included, so
   a node ignores messages it sent: the plug already counted them. (Before
   2026-10-30 the message carried no origin and `broadcast_from` excluded only
@@ -76,7 +76,7 @@ defmodule BitblocksWeb.Plugs.RateLimiter.Replicator do
 
   # Pre-2026-10-30 shape, from a peer still on the old release mid-deploy.
   def handle_info({:rl_hit, ip, ts}, state) do
-    apply_remote_hit(ip, ts, config(:max_requests, 120))
+    apply_remote_hit(ip, ts, config(:max_requests, 30))
     {:noreply, state}
   end
 
