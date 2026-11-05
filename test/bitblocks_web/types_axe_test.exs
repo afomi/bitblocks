@@ -16,6 +16,9 @@ defmodule BitblocksWeb.TypesAxeTest do
   setup do
     # So the Metanet page renders its example list, not the empty state.
     transaction_fixture(%{txid: String.duplicate("ab", 32), protocols: ["Metanet"]})
+    # So /types renders its counts and their coverage note.
+    typed_block_fixture(0, %{"custom" => 1, "p2pkh" => 2})
+    Bitblocks.TxTypes.Counts.refresh()
     :ok
   end
 

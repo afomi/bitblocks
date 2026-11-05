@@ -6,8 +6,8 @@
     Every output on chain follows a pattern: a payment, an object, a token, a record, or a contract.
     Each type here has its script pattern with every part labelled, how it is spent, where it came from, and real transactions from our index.
   </p>
-  <p class="text-gray-700 dark:text-gray-300 mb-8 max-w-3xl">
-    The same definitions are at
+  <p class="text-gray-700 dark:text-gray-300 mb-4 max-w-3xl">
+    The same definitions, with their counts, are at
     <a
       href="/api/v1/types"
       class="font-mono text-sm text-blue-700 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300 underline"
@@ -15,6 +15,51 @@
       /api/v1/types
     </a>.
   </p>
+  <div
+    id="type-counts-coverage"
+    class="mb-8 max-w-3xl rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm text-gray-700 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300"
+  >
+    <%= case @counts do %>
+      <% %{status: :ok, through_height: through} = counts when through >= 0 -> %>
+        <p>
+          Counts cover blocks
+          <span class="font-mono tabular-nums">0</span>
+          to
+          <span class="font-mono tabular-nums"><%= delimit(through) %></span>
+          of <span class="font-mono tabular-nums"><%= delimit(counts.tip) %></span> known.
+          Every block in that range is verified complete and typed, so the counts grow as the sync climbs toward the tip.
+          <%= if through < counts.complete_through do %>
+            Blocks
+            <span class="font-mono tabular-nums"><%= delimit(through + 1) %></span>
+            to
+            <span class="font-mono tabular-nums"><%= delimit(counts.complete_through) %></span>
+            are complete and not typed yet.
+          <% end %>
+        </p>
+        <p class="mt-2 text-gray-600 dark:text-gray-400">
+          A transaction with several types counts once under each, and anything no type matches counts as custom.
+          Computed by type counts v<%= counts.version %> at
+          <time
+            datetime={DateTime.to_iso8601(counts.computed_at)}
+            class="font-mono tabular-nums"
+          ><%= Calendar.strftime(counts.computed_at, "%Y-%m-%d %H:%M UTC") %></time>, from the block tallies.
+        </p>
+      <% %{status: :ok} -> %>
+        <p>
+          No block is typed yet, so there are no counts.
+          They start once block 0 is verified complete and typed.
+        </p>
+      <% %{status: :pending} -> %>
+        <p>
+          Counts are being computed.
+          They appear here within a few minutes.
+        </p>
+      <% _ -> %>
+        <p>
+          Counts are unavailable right now.
+        </p>
+    <% end %>
+  </div>
 
   <section
     :for={group <- @groups}
@@ -51,6 +96,19 @@
           </span>
           <span class="block text-sm text-gray-700 dark:text-gray-300">
             <%= type.summary %>
+          </span>
+          <span
+            :if={count = count(@counts, type)}
+            id={"type-#{type.id}-count"}
+            class="mt-2 block text-xs text-gray-600 dark:text-gray-400"
+          >
+            <%= if count.txs > 0 do %>
+              <span class="font-mono tabular-nums"><%= txs(count.txs) %></span>
+              since block
+              <span class="font-mono tabular-nums"><%= delimit(count.first_height) %></span>
+            <% else %>
+              none yet in the blocks counted
+            <% end %>
           </span>
         </.link>
       </li>

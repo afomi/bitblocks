@@ -2,7 +2,7 @@ defmodule BitblocksWeb.Api.TypeController do
   @moduledoc """
   Read API for transaction types, the same definitions `/types` renders.
 
-      GET /api/v1/types       every type, without examples
+      GET /api/v1/types       every type with its tx count, without examples
       GET /api/v1/types/:id   one type, with its latest examples from the index
 
   Each type carries `url`, its page on this site (the configured host, such as
@@ -11,12 +11,17 @@ defmodule BitblocksWeb.Api.TypeController do
   use BitblocksWeb, :controller
 
   alias Bitblocks.TxTypes
-  alias Bitblocks.TxTypes.Examples
+  alias Bitblocks.TxTypes.{Counts, Examples}
 
-  @doc "Every type, in order. Examples are only on the show endpoint."
+  @doc """
+  Every type, in order, each with its tx count, and `counts`, the range of
+  the chain the counts cover (`Bitblocks.TxTypes.Counts`, cached). Examples
+  are only on the show endpoint.
+  """
   def index(conn, _params) do
-    types = Enum.map(TxTypes.all(), &type_json/1)
-    json(conn, %{data: types, count: length(types)})
+    summary = Counts.get()
+    types = Enum.map(TxTypes.all(), &type_json(&1, summary))
+    json(conn, %{data: types, count: length(types), counts: counts_json(summary)})
   end
 
   @doc "One type by id, with examples; 404 for an unknown id."
@@ -33,13 +38,13 @@ defmodule BitblocksWeb.Api.TypeController do
         json(conn, %{
           data:
             type
-            |> type_json()
+            |> type_json(Counts.get())
             |> Map.put(:examples, examples_json(type, examples))
         })
     end
   end
 
-  defp type_json(type) do
+  defp type_json(type, summary) do
     %{
       id: type.id,
       title: type.title,
@@ -56,7 +61,23 @@ defmodule BitblocksWeb.Api.TypeController do
       concepts: Map.get(type, :concepts),
       attribution: Map.get(type, :attribution),
       url: url(~p"/types/#{type.id}"),
-      api_url: url(~p"/api/v1/types/#{type.id}")
+      api_url: url(~p"/api/v1/types/#{type.id}"),
+      counts: type_counts_json(Counts.count(summary, type.id))
+    }
+  end
+
+  defp type_counts_json(nil), do: nil
+  defp type_counts_json(%{txs: txs, first_height: h}), do: %{txs: txs, first_seen_height: h}
+
+  defp counts_json(summary) do
+    %{
+      status: summary.status,
+      through_height: summary[:through_height],
+      complete_through: summary[:complete_through],
+      tip_height: summary[:tip],
+      version: summary[:version],
+      computed_at: summary[:computed_at],
+      note: Counts.coverage_note(summary)
     }
   end
 

@@ -797,7 +797,7 @@
       "related": ["p2pkh", "op-return"],
       "examples": {
         "kind": "none",
-        "reason": "Every output will get a type, and custom will be counted, in the next phase of this work."
+        "reason": "Custom outputs are typed and counted on the types page; examples need an index of the shapes no type matches yet, which comes next."
       }
     }
   ]

@@ -139,7 +139,7 @@ mix assets.deploy           # Build and minify for production
   - `/order-book` - Open Order Book (browse BSV-20 token listings)
   - `/tokens` and `/tokens/:id` - BSV-20/BSV-21 token index (supply, holders); read-only, minting lives in qart
   - `/collections` and `/collections/:id` - BSV NFT collections index and show (`:id` is a slug or origin outpoint; one view for every collection)
-  - `/types` and `/types/:id` - transaction types glossary (#49): pattern, spend, spec and real examples per type, from `priv/data/tx_types/types.json` (`Bitblocks.TxTypes`)
+  - `/types` and `/types/:id` - transaction types glossary (#49): pattern, spend, spec and real examples per type, from `priv/data/tx_types/types.json` (`Bitblocks.TxTypes`); `/types` shows each type's tx count and first block, summed from `blocks.type_counts` over the blocks verified complete and typed, and says which range that is (`Bitblocks.TxTypes.Counts`, refreshed every 10 minutes)
   - `/bitcom` and `/bitcom/:address` - live Bitcom registry (unwriter's Bitcom): namespaces, on-chain ownership proof, files, routes, usage
   - `/syncing` - public live sync view: blocks fetching on each lane with synced and processed x of y, recent completions, tips and blocks by sync_state, from one shared snapshot (`Bitblocks.SyncProgress`; `docs/SYNCING.md`). `/sync` is the admin operator page
   - `/chain-scrubber` - admin only: scrub the chain genesis to tip in three.js from precomputed tiles (`docs/CHAIN_SCRUBBER.md`); `/chain-scrubber/tiles/manifest` and `/chain-scrubber/tiles/:level/:idx` serve the tiles from ETS with no DB query
@@ -263,7 +263,7 @@ GET /api/v1/addresses/:address/utxos — data: known-unspent outputs only (empty
 GET /api/v1/utxo/:txid/:vout/owner — address, spent (true | false | null), status, source: local | whatsonchain (local first; WoC only when local is unknown or the tx isn't stored)
 GET /api/v1/woc/address/:address/balance|unspent — WoC shapes, served only when exact; otherwise a 503 with status and indexed_through_height
 GET /api/v1/addresses/:address/tokens — unspent BSV-20/21 outputs held by an address (?standard=bsv-21, ?token_id=)
-GET /api/v1/types               — transaction types, each with its page URL (CORS *)
+GET /api/v1/types               — transaction types, each with its page URL and counts (txs, first_seen_height); top-level counts names the range they cover (CORS *)
 GET|POST|PATCH|DELETE /api/v1/annotations[/:id] — admin only: chain annotations (?from=&to=, ?kind=); writes must be application/json
 GET /api/v1/types/:id           — one type with its latest examples from the index (status ok | coming | unavailable)
 GET /api/v1/bitcom              — Bitcom registry export, every namespace with re-verifiable txids (also at /bitcom.json)

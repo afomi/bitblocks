@@ -40,6 +40,8 @@ defmodule Bitblocks.Application do
       Bitblocks.RpcCache,
       # Cache database stats (counts) to avoid slow COUNT(*) queries
       Bitblocks.StatsCache,
+      # Transaction type counts for /types, summed from blocks every 10 minutes (#49)
+      Bitblocks.TxTypes.Counts,
       # Cache BSV spot price from CoinGecko (rate-limit friendly)
       Bitblocks.PriceCache,
       # ETS cache of DB-registered protocol prefixes for detection (no DB per tx)
