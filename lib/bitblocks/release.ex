@@ -565,13 +565,20 @@ defmodule Bitblocks.Release do
 
     case d.unverified do
       [] ->
-        IO.puts("  every block with known fees verifies: miner reward <= subsidy + fees")
+        IO.puts("  every block with a known reward and fees verifies: reward <= subsidy + fees")
 
       heights ->
         IO.puts(
           "  #{length(heights)} block(s) FAIL miner reward <= subsidy + fees: " <>
             Enum.map_join(Enum.take(heights, 20), ", ", &to_string/1)
         )
+    end
+
+    if d.reward_unknown > 0 do
+      IO.puts(
+        "  #{d.reward_unknown} block(s) NOT CHECKED: no coinbase known, so no miner reward; " <>
+          "run backfill_script_analysis over the range, then this again"
+      )
     end
 
     IO.puts(
@@ -584,7 +591,7 @@ defmodule Bitblocks.Release do
 
   @doc """
   Brings script analysis (output types, protocols, coinbase, script and
-  template hashes, AIP signers) of the txs with `block_height` from
+  template hashes, AIP signers) of the txs of stored blocks from
   `from_height` to `to_height` up to the `script_analysis` step's version
   (`TransactionParser.script_analysis_version/0`), and re-indexes their
   Bitcom commands. Picks only rows whose stamp is nil or older, in bounded
@@ -597,7 +604,7 @@ defmodule Bitblocks.Release do
     - apply: true to write (default false)
     - force: true to re-analyze every row in the range
     - batch_size: txs per page (default 500)
-    - height_batch: heights per window (default 1,000)
+    - block_batch: blocks per batch (default 100)
     - pause_ms, statement_timeout_ms: as `backfill_tx_tallies/3`
 
   ## Usage

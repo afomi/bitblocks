@@ -155,6 +155,9 @@ config :bitblocks, Oban,
     # sync_blocks to the chosen concurrency at runtime.
     sync: 1,
     sync_blocks: 1,
+    # A completed block's older rows brought up to version (TxPipeline.CatchUp):
+    # one at a time, so a block full of them never holds a sync slot.
+    derived: 1,
     # Projection webhook deliveries (#29 step 4); off the tx lanes so a slow
     # tenant endpoint never delays sync.
     webhooks: 5,

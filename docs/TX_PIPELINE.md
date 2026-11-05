@@ -49,6 +49,9 @@ So sats in costs no node call.
 | 8 | `index_tokens` | BSV-20/21 inscriptions, only on txs tagged `BSV20` | `protocol_instances`, the token index | none for untagged txs |
 | 9 | `index_bitcom` | Bitcom `$` commands, only on txs tagged `Bitcom` | `bitcom_commands`, with ownership proofs | none for untagged txs |
 
+A tx already stored when its block is fetched is skipped, so neither kind of step runs for it.
+`Chain.TxPipeline.CatchUp` brings such a block's rows up to version after it completes, for the chunk and block steps ([DERIVED_DATA.md](DERIVED_DATA.md)).
+
 ### Block steps (when the block becomes `completed`)
 
 | # | Step | Reads | Writes | Cost |

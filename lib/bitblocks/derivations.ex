@@ -20,8 +20,10 @@ defmodule Bitblocks.Derivations do
   Options every backfill takes: `apply:` (default false), `pause_ms:`
   (default `config :bitblocks, :derivation_pause_ms`, 50),
   `statement_timeout_ms:` (default `:derivation_statement_timeout_ms`,
-  60,000), `command:` (the command as typed, for the record) and
-  `on_batch:` (given the report after each batch).
+  60,000), `command:` (the command as typed, for the record), `on_batch:`
+  (given the report after each batch) and `record:` (default true; false
+  skips the `derivation_runs` row, for the one-block runs of
+  `TxPipeline.CatchUp`, which would bury the operators' runs).
   """
 
   import Ecto.Query
@@ -33,7 +35,7 @@ defmodule Bitblocks.Derivations do
   alias Bitblocks.Repo
 
   @type report :: %{
-          run_id: integer(),
+          run_id: integer() | nil,
           derivation: String.t(),
           version: pos_integer(),
           applied: boolean(),
@@ -73,20 +75,22 @@ defmodule Bitblocks.Derivations do
     applied = Keyword.get(opts, :apply, false)
 
     run =
-      Repo.insert!(%Run{
-        derivation: spec.derivation,
-        version: spec.version,
-        from_height: spec.from_height,
-        to_height: spec.to_height,
-        applied: applied,
-        command: opts[:command],
-        details: spec.details,
-        outcome: "running",
-        started_at: DateTime.utc_now()
-      })
+      if Keyword.get(opts, :record, true) do
+        Repo.insert!(%Run{
+          derivation: spec.derivation,
+          version: spec.version,
+          from_height: spec.from_height,
+          to_height: spec.to_height,
+          applied: applied,
+          command: opts[:command],
+          details: spec.details,
+          outcome: "running",
+          started_at: DateTime.utc_now()
+        })
+      end
 
     report = %{
-      run_id: run.id,
+      run_id: run && run.id,
       derivation: spec.derivation,
       version: spec.version,
       applied: applied,
@@ -110,18 +114,20 @@ defmodule Bitblocks.Derivations do
         _ -> %{report | outcome: "failed"}
       end
 
-    run
-    |> Ecto.Changeset.change(
-      rows_examined: report.rows_examined,
-      rows_changed: report.rows_changed,
-      rows_below_version: report.rows_below_version,
-      blocks_examined: report.blocks_examined,
-      details: report.details,
-      outcome: report.outcome,
-      error: report.error,
-      finished_at: DateTime.utc_now()
-    )
-    |> Repo.update!()
+    if run do
+      run
+      |> Ecto.Changeset.change(
+        rows_examined: report.rows_examined,
+        rows_changed: report.rows_changed,
+        rows_below_version: report.rows_below_version,
+        blocks_examined: report.blocks_examined,
+        details: report.details,
+        outcome: report.outcome,
+        error: report.error,
+        finished_at: DateTime.utc_now()
+      )
+      |> Repo.update!()
+    end
 
     report
   end

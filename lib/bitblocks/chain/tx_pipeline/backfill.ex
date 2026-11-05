@@ -42,7 +42,8 @@ defmodule Bitblocks.Chain.TxPipeline.Backfill do
   Runs over completed blocks from `from_height` to `to_height` inclusive and
   returns the `Derivations` report; `details` holds `values_changed`,
   `sats_in_unknown`, `blocks_changed`, `block_values_changed`,
-  `blocks_below_version` and `unverified` (heights failing
+  `blocks_below_version`, `reward_unknown` (blocks with no coinbase known,
+  so no reward to check, and no stamp) and `unverified` (heights failing
   `miner_reward <= subsidy + fees`).
 
   Options: `apply: true` to write (default false); `force: true` to pick
@@ -81,6 +82,7 @@ defmodule Bitblocks.Chain.TxPipeline.Backfill do
           blocks_changed: 0,
           block_values_changed: 0,
           blocks_below_version: 0,
+          reward_unknown: 0,
           unverified: []
         },
         next: &next(&1, &2, ctx)
@@ -131,6 +133,7 @@ defmodule Bitblocks.Chain.TxPipeline.Backfill do
       |> bump(:blocks_examined, 1)
       |> detail(:blocks_changed, 1)
       |> detail(:block_values_changed, if(changed?, do: 1, else: 0))
+      |> detail(:reward_unknown, if(totals.miner_reward, do: 0, else: 1))
       |> unverified(totals.fees_verified == false, block.height)
     else
       bump(report, :blocks_examined, 1)

@@ -46,7 +46,7 @@ Removing a step would lower it, so a removal also bumps a remaining step of the 
 | `record_spends` | tx | 1 | none | `spend_index` rows |
 | `index_tokens` | tx | 2 | none | `protocol_instances`, the token index, with each BSV-21 transfer's validation status |
 | `index_bitcom` | tx | 1 | none | `bitcom_commands` |
-| `block_totals` | block | 1 | `block_totals` | `blocks.sats_out`, `fees`, `miner_reward`, `subsidy`, `burned`, `fees_verified` |
+| `block_totals` | block | 2 | `block_totals` | `blocks.sats_out`, `fees`, `miner_reward`, `subsidy`, `burned`, `fees_verified` |
 | `type_counts` | block | 1 | `type_counts` | `blocks.type_counts` |
 
 The `script_analysis` step's version is `TransactionParser.script_analysis_version/0`, and `classify_outputs`'s is `TxTypes.Classifier.version/0`: one number each, kept beside the code it versions.
@@ -54,6 +54,8 @@ v7 (#49) names each opcode byte once in `output_template_hashes` (`Bitblocks.Scr
 Before it, a shape holding byte 81, 177 or 178 got whichever name `BSV.OpCode` picked at boot, so one shape could carry two hashes.
 On the dev DB, 1,186 of 7,641 decodable txs hold such a shape (13 shapes), and 65 of them were stamped with a hash v7 no longer produces.
 Until the v7 backfill has run, `TxTypes.template_hash_variants/1` still matches both names.
+`block_totals` v2 stamps a block only once its coinbase is known; v1 stamped blocks whose rows hadn't been through script analysis, leaving `miner_reward` and `fees_verified` nil and the coinbase counted in `sats_out`.
+A block left unstamped stays below the version, so the tally backfill finds it again after script analysis has run, and reports it under `reward_unknown` until then.
 
 ### Derivations
 
@@ -61,11 +63,11 @@ Until the v7 backfill has run, `TxTypes.template_hash_variants/1` still matches 
 | --- | --- | --- | --- | --- |
 | `script_analysis` | `script_analysis` | 7 | `transactions.script_analysis_version` | `Release.backfill_script_analysis/3` |
 | `tallies` | `sats_out`, `burned`, `sats_in`, `fee` | 4 | `transactions.tallies_version` | `Release.backfill_tx_tallies/3` |
-| `block_totals` | `block_totals` | 1 | `blocks.tallies_version` | `Release.backfill_tx_tallies/3` |
+| `block_totals` | `block_totals` | 2 | `blocks.tallies_version` | `Release.backfill_tx_tallies/3` |
 | `tx_types` | `classify_outputs` | 1 | `transactions.tx_types_version` | `Release.backfill_tx_types/3` |
 | `type_counts` | `classify_outputs`, `type_counts` | 2 | `blocks.type_counts_version` | `Release.backfill_tx_types/3` |
 
-Stage versions today: chunk 12, tx 4, block 2.
+Stage versions today: chunk 12, tx 4, block 3.
 `GET /api/v1/status/derivations` answers all of these live.
 
 `type_counts` sums the classifier's version with its own, because a block's counts change when the classifier does: a classifier bump marks every block's counts below the version too, and the one backfill re-types the txs and rewrites the counts.
@@ -155,7 +157,8 @@ bin/bitblocks rpc 'Bitblocks.Release.derivation_runs()'
 
 - The tallies backfill walks completed blocks in height order, `block_batch` (100) at a time, and each block's txs by id, `tx_batch` (1,000) at a time.
 - The tx types backfill walks completed blocks the same way, `block_batch` (100) at a time, each block's txs by id, `tx_batch` (1,000) at a time.
-- The script analysis backfill walks `block_height` windows of `height_batch` (1,000), each paged by id, `batch_size` (500) at a time.
+- The script analysis backfill walks the stored blocks in the range, `block_batch` (100) at a time, and each block's txs on the `block_hash` index, paged by id, `batch_size` (500) at a time.
+  It selects through the block because older rows have a NULL `block_height`, and it fills that column on each row it writes.
 - Each page is one short transaction under `SET LOCAL statement_timeout` (`statement_timeout_ms`, default 60,000).
 - After each page it writes, it sleeps `pause_ms` (default 50, `config :bitblocks, :derivation_pause_ms`).
   Most updates on `transactions` are not HOT (the table carries many indexes, and pages are full), so each one leaves a dead tuple per index; the pause lets autovacuum keep up.
@@ -193,6 +196,7 @@ Every backfill run writes one row, dry runs included (`Bitblocks.Derivations.Run
 `partial` means an error stopped it after at least one batch: those batches stay applied, and a rerun picks up the rest.
 `failed` means it stopped before finishing any batch.
 `abandoned` means it was `running` when its process died (a deploy restart, say) and an operator closed it: its applied batches stay applied, and a rerun of the range picks up the rest.
+A block that completes over rows stored by an earlier sync gets a catch-up job (`Chain.TxPipeline.CatchUp`, queue `:derived`): the sync skips a stored txid, so those rows never meet the chunk steps, and the job runs the three backfills over that one block, with no run record.
 Close such runs by id, dry run first, with `bin/bitblocks rpc 'Bitblocks.Release.close_abandoned_derivation_runs(ids: [1, 2])'`, then `bin/bitblocks rpc 'Bitblocks.Release.close_abandoned_derivation_runs([ids: [1, 2]], apply: true)'`; `started_before: ~U[2026-11-05 00:00:00Z]` names them by start time instead.
 
 Read them with `Release.derivation_runs/1`, or `GET /api/v1/status/derivations` (the latest 20, with each error cut to its first line and any URL or IP address removed).

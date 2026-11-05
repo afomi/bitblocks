@@ -353,6 +353,21 @@ defmodule Bitblocks.Chain.TxPipelineTest do
   end
 
   describe "block_totals" do
+    test "a block with no coinbase known keeps no stamp, so a backfill finds it again" do
+      block = block_fixture(%{height: 32, sync_state: "completed"})
+      {txid, _} = pair = tx([funding_outpoint()], [p2pkh(address(), 1_000)])
+      :ok = TxIngest.store(tx_json(pair), block)
+
+      TxPipeline.run_block(block)
+      assert %{miner_reward: nil, tallies_version: nil} = Repo.reload!(block)
+
+      Repo.update_all(from(t in Transaction, where: t.txid == ^txid), set: [coinbase: true])
+      TxPipeline.run_block(block)
+
+      assert %{miner_reward: 1_000, tallies_version: stamp} = Repo.reload!(block)
+      assert stamp == TxPipeline.version(:block_totals)
+    end
+
     test "subsidy halves every 210,000 blocks" do
       assert Steps.BlockTotals.subsidy(0) == 5_000_000_000
       assert Steps.BlockTotals.subsidy(209_999) == 5_000_000_000

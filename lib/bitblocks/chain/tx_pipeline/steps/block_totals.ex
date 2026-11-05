@@ -17,6 +17,12 @@ defmodule Bitblocks.Chain.TxPipeline.Steps.BlockTotals do
   One aggregate over the block's rows on the `block_hash` index, and one
   update of the block row, which also stamps `blocks.tallies_version` with
   `TxPipeline.version(:block_totals)` (`docs/DERIVED_DATA.md`).
+
+  A completed block has exactly one coinbase. Until its rows say which (the
+  `coinbase` flag comes from script analysis, and an older row may not have
+  it), `miner_reward` is nil, the coinbase counts among the ordinary txs, and
+  the totals aren't final, so the stamp stays nil and a backfill picks the
+  block up again. v2: that rule; v1 stamped such blocks.
   """
 
   @behaviour Bitblocks.Chain.TxPipeline.Step
@@ -36,7 +42,7 @@ defmodule Bitblocks.Chain.TxPipeline.Steps.BlockTotals do
 
   # Bump when this step\'s output would change; docs/DERIVED_DATA.md.
   @impl true
-  def version, do: 1
+  def version, do: 2
 
   @impl true
   def description,
@@ -56,7 +62,8 @@ defmodule Bitblocks.Chain.TxPipeline.Steps.BlockTotals do
         set:
           Map.to_list(totals) ++
             [
-              tallies_version: Bitblocks.Chain.TxPipeline.version(:block_totals),
+              tallies_version:
+                totals.miner_reward && Bitblocks.Chain.TxPipeline.version(:block_totals),
               updated_at: NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second)
             ]
       )

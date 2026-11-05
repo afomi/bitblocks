@@ -63,13 +63,29 @@ defmodule Bitblocks.ReleaseScriptAnalysisTest do
     assert output =~ "0 transaction(s) below the version in the range"
   end
 
-  test "a small height window still covers the range", ctx do
+  test "a small block batch still covers the range", ctx do
     {report, _} =
       quietly(fn ->
-        Release.backfill_script_analysis(0, 100, apply: true, height_batch: 7, batch_size: 1)
+        Release.backfill_script_analysis(0, 100, apply: true, block_batch: 1, batch_size: 1)
       end)
 
     assert %{rows_changed: 2, rows_below_version: 0} = report
     assert Chain.get_transaction!(ctx.outside).script_analysis_version != nil
+  end
+
+  test "a row with no block_height is found through its block, and gets its height", ctx do
+    Repo.update_all(from(t in Transaction, where: t.txid == ^ctx.in_range),
+      set: [block_height: nil]
+    )
+
+    {dry, _} = quietly(fn -> Release.backfill_script_analysis(0, 55) end)
+    assert %{rows_examined: 1, rows_below_version: 1} = dry
+
+    {report, _} = quietly(fn -> Release.backfill_script_analysis(0, 55, apply: true) end)
+    assert %{rows_changed: 1, rows_below_version: 0} = report
+
+    tx = Chain.get_transaction!(ctx.in_range)
+    assert tx.block_height == 50
+    assert tx.script_analysis_version == TxPipeline.version(:script_analysis)
   end
 end

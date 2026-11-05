@@ -130,7 +130,9 @@ defmodule Bitblocks.ReleaseTxTalliesTest do
   test "apply stamps the tallies and block totals; a rerun finds nothing", ctx do
     report = quietly(fn -> Release.backfill_tx_tallies(0, 100, apply: true, tx_batch: 1) end)
     assert %{outcome: "ok", rows_changed: 3, rows_below_version: 0} = report
-    assert report.details.blocks_below_version == 0
+
+    # No coinbase stored in these fixture blocks: written, and not final.
+    assert %{blocks_below_version: 2, reward_unknown: 2} = report.details
 
     version = TxPipeline.version(:tallies)
 
@@ -155,8 +157,17 @@ defmodule Bitblocks.ReleaseTxTalliesTest do
     assert %{sats_out: 17_100, fees: 1_900, burned: 100, subsidy: @fifty_btc, fees_verified: nil} =
              Repo.reload!(ctx.b)
 
-    assert Repo.reload!(ctx.b).tallies_version == TxPipeline.version(:block_totals)
+    assert Repo.reload!(ctx.b).tallies_version == nil
     assert %{fees: nil, sats_out: 10_000} = Repo.reload!(ctx.a)
+
+    # Script analysis then names the coinbases, and the totals become final.
+    Repo.update_all(from(t in Transaction, where: t.txid in ^[ctx.parent, ctx.child]),
+      set: [coinbase: true]
+    )
+
+    healed = quietly(fn -> Release.backfill_tx_tallies(0, 100, apply: true) end)
+    assert %{blocks_below_version: 0, reward_unknown: 0} = healed.details
+    assert Repo.reload!(ctx.b).tallies_version == TxPipeline.version(:block_totals)
 
     output = capture_io(fn -> send(self(), {:report, Release.backfill_tx_tallies(0, 100)}) end)
     assert_received {:report, rerun}
@@ -214,7 +225,7 @@ defmodule Bitblocks.ReleaseTxTalliesTest do
 
     # Block 20's batch committed before block 21 failed.
     assert Chain.get_transaction!(ctx.parent).tallies_version == TxPipeline.version(:tallies)
-    assert Repo.reload!(ctx.a).tallies_version == TxPipeline.version(:block_totals)
+    assert Repo.reload!(ctx.a).subsidy == @fifty_btc
     assert Chain.get_transaction!(ctx.child).tallies_version == nil
 
     assert %Run{outcome: "partial", error: "boom at block 21", applied: true} =

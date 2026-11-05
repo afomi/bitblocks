@@ -416,6 +416,7 @@ defmodule Bitblocks.Workers.FetchTransactionsWorker do
            }) do
       Logger.info("FetchTxs block=#{block.height} completed")
       totals(completed)
+      Chain.TxPipeline.CatchUp.enqueue(completed)
       notify_projections(completed)
     end
   end
