@@ -217,6 +217,7 @@
             class="flex items-center gap-6"
           >
             <a
+              :if={assigns[:current_user] || assigns[:admin?]}
               href="/status"
               class="text-sm font-semibold text-gray-900 dark:text-white hover:text-gray-600 dark:hover:text-gray-300"
             >

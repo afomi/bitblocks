@@ -18,6 +18,7 @@ Disallow: /reward_wall
 Disallow: /chain-scrubber
 Disallow: /annotations
 Disallow: /sync
+Disallow: /status
 Disallow: /sign-in
 Disallow: /auth/
 

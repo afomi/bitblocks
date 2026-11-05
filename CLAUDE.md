@@ -131,7 +131,7 @@ mix assets.deploy           # Build and minify for production
 
 - Phoenix LiveView for interactive UI
 - Routes (lib/bitblocks_web/router.ex):
-  - `/` and `/status` - Status page
+  - `/` - home; `/status` - status page (sign-in required)
   - `/blocks` - List blocks
   - `/blocks/:id` - Show block by height or hash (sign-in required; txids load 50 per page)
   - `/transactions` - List transactions (sign-in required)
@@ -143,15 +143,15 @@ mix assets.deploy           # Build and minify for production
   - `/collections` and `/collections/:id` - BSV NFT collections index and show (`:id` is a slug or origin outpoint; one view for every collection)
   - `/types` and `/types/:id` - transaction types glossary (#49): pattern, spend, spec and real examples per type, from `priv/data/tx_types/types.json` (`Bitblocks.TxTypes`); `/types` shows each type's tx count and first block, summed from `blocks.type_counts` over the blocks verified complete and typed, and says which range that is (`Bitblocks.TxTypes.Counts`, refreshed every 10 minutes)
   - `/bitcom` and `/bitcom/:address` - live Bitcom registry (unwriter's Bitcom): namespaces, on-chain ownership proof, files, routes, usage
-  - `/syncing` - public live sync view: blocks fetching on each lane with synced and processed x of y, recent completions, tips and blocks by sync_state, from one shared snapshot (`Bitblocks.SyncProgress`; `docs/SYNCING.md`). `/sync` is the admin operator page
+  - `/syncing` - signed-in live sync view: blocks fetching on each lane with synced and processed x of y, recent completions, tips and blocks by sync_state, from one shared snapshot (`Bitblocks.SyncProgress`; `docs/SYNCING.md`). `/sync` is the admin operator page
   - `/chain-scrubber` - admin only: scrub the chain genesis to tip in three.js from precomputed tiles (`docs/CHAIN_SCRUBBER.md`); `/chain-scrubber/tiles/manifest` and `/chain-scrubber/tiles/:level/:idx` serve the tiles from ETS with no DB query
   - `/tx-graph` - admin only: the transaction flow space, a block range in three.js with every input as an arc to the output it spends, scrubbed by a playhead (`docs/TX_FLOW.md`); data from `/chain-scrubber/flow?from=&to=` (`Bitblocks.ChainFlow`)
   - `/annotations` - admin only: CRUD for chain annotations (forks, upgrades, halvings, mintings, milestones, world events), placed by height, txid or date (`Bitblocks.Annotations`); drawn on both scenes
   - `/dev/dashboard` - LiveDashboard (dev only)
 
 **Access (`BitblocksWeb.UserAuth`):**
-- Public: home, `/blocks`, the beta features, `/status`, `/reorgs`, `/protocols`, `/about`, the API, `/content`.
-- Signed in with GitHub: block and transaction detail.
+- Public: home, `/blocks`, the beta features, `/reorgs`, `/protocols`, `/about`, the API, `/content`.
+- Signed in with GitHub: block and transaction detail, `/status`, `/syncing`.
 - Admin: everything in the router's `:admin` scope plus the chain-scrubber tiles.
   An admin is a GitHub user whose row is marked admin (`users.admin`, keyed by their GitHub numeric id; set with `bin/bitblocks rpc 'Bitblocks.Release.set_admin("afomi", true)'`), or valid HTTP basic auth (`ADMIN_USERNAME`/`ADMIN_PASSWORD`, T10 fail-closed in prod).
   Sign-in asks GitHub for the public profile only; admin is read from the row on each request, so a grant or revoke takes effect on the next page load.

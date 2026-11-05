@@ -88,9 +88,18 @@ defmodule BitblocksWeb.UserAuthTest do
     end
 
     test "still sees the public pages", %{conn: conn} do
-      for path <- ["/", "/blocks", "/status", "/tokens", "/about"] do
+      for path <- ["/", "/blocks", "/tokens", "/about"] do
         assert get(conn, path).status == 200, "#{path} should stay public"
       end
+    end
+
+    test "is sent to sign in from /status and /syncing, and isn't shown the links", %{conn: conn} do
+      assert redirected_to(get(conn, "/status")) =~ "/sign-in?return_to="
+      assert redirected_to(get(conn, "/syncing")) =~ "/sign-in?return_to="
+
+      home = html_response(get(conn, "/"), 200)
+      refute home =~ ~s(href="/status")
+      refute home =~ ~s(href="/syncing")
     end
 
     test "sees a sign-in page that explains when GitHub isn't configured", %{conn: conn} do
@@ -161,6 +170,14 @@ defmodule BitblocksWeb.UserAuthTest do
       {:ok, _view, html} = live(conn, "/transactions/#{txid(1)}")
       assert html =~ txid(1)
       assert html =~ ~s(id="tx-raw-download")
+    end
+
+    test "opens /status and /syncing, with the links shown", %{conn: conn} do
+      assert html_response(get(conn, "/status"), 200)
+      {:ok, _view, _html} = live(conn, "/syncing")
+
+      home = html_response(get(conn, "/"), 200)
+      assert home =~ ~s(href="/status")
     end
 
     test "does not see or trigger the transaction download", %{conn: conn, block: block} do

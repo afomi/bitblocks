@@ -11,7 +11,6 @@ defmodule BitblocksWeb.SitemapController do
 
   @public_paths [
     {"/", "daily", "1.0"},
-    {"/status", "hourly", "0.7"},
     {"/reorgs", "daily", "0.6"},
     {"/tokens", "daily", "0.7"},
     {"/protocols", "weekly", "0.6"},

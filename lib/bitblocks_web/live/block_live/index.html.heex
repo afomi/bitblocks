@@ -54,6 +54,7 @@
           row={row}
         />
         <a
+          :if={assigns[:current_user] || assigns[:admin?]}
           href="/syncing"
           class="block text-right text-xs text-brand-strong dark:text-brand hover:underline"
         >

@@ -248,7 +248,6 @@ defmodule BitblocksWeb.Router do
       live "/pricing", PricingLive
       live "/guide", GuideLive
       live "/reorgs", ReorgLive
-      live "/syncing", SyncingLive
       live "/did", DIDLive
 
       # Public block index. Detail pages need sign-in; mutation pages are admin.
@@ -263,7 +262,6 @@ defmodule BitblocksWeb.Router do
 
     get "/apps", PageController, :applications
     get "/resources", PageController, :resources
-    get "/status", PageController, :status
     get "/", PageController, :home
   end
 
@@ -308,12 +306,15 @@ defmodule BitblocksWeb.Router do
   end
 
   scope "/", BitblocksWeb do
-    # Detail pages: any signed-in GitHub user, or an admin.
+    # Detail and operations pages: any signed-in GitHub user, or an admin.
     pipe_through [:browser, :signed_in]
+
+    get "/status", PageController, :status
 
     live_session :signed_in,
       on_mount: [{UserAuth, :require_user}],
       session: {UserAuth, :live_session_data, []} do
+      live "/syncing", SyncingLive
       live "/blocks/:id", BlockLive.Show, :show
       live "/transactions", TransactionLive.Index, :index
       live "/transactions/:id", TransactionLive.Show, :show
