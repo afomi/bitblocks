@@ -242,7 +242,7 @@ bin/bitblocks rpc 'Bitblocks.Release.tx_store_reconcile(0, 9_999)'
 ### API
 
 Anonymous callers get `RATE_LIMIT_PER_MINUTE` (default 120) requests per minute per IP.
-Keyed callers send `Authorization: Bearer bbk_…` (or `x-api-key`) and get their key's own budget; create one with `bin/bitblocks rpc 'Bitblocks.Release.create_api_key("qart", 1200)'` (printed once). An unknown or revoked key is a 401.
+Keyed callers send `Authorization: Bearer bbk_…` (or `x-api-key`) and get their key's own budget; create one with `bin/bitblocks rpc 'Bitblocks.Release.create_api_key("qart", 1200)'` (printed once), or register one made elsewhere from its sha256 with `Release.create_api_key_from_hash/3`, so the key never appears in command output. An unknown or revoked key is a 401.
 
 ```
 GET /api/v1/blocks              — paginated block list

@@ -1515,6 +1515,32 @@ defmodule Bitblocks.Release do
     end
   end
 
+  @doc """
+  Registers an API key from its sha256, for a key that must never appear in
+  command output: generate the `bbk_` token elsewhere, store it directly in
+  the secret, and pass only the hash (64 lowercase hex of the whole token).
+
+      bin/bitblocks rpc 'Bitblocks.Release.create_api_key_from_hash("cloudfront-cdn", 3000, "<sha256 hex>")'
+  """
+  def create_api_key_from_hash(name, requests_per_minute, token_hash) do
+    with_running_repo(fn ->
+      case Bitblocks.ApiKeys.create_from_hash(name, requests_per_minute, token_hash) do
+        {:ok, key} ->
+          IO.puts("api key ##{key.id} (#{name}, #{requests_per_minute}/min) registered")
+          {:ok, key.id}
+
+        {:error, %Ecto.Changeset{} = changeset} ->
+          errors = Ecto.Changeset.traverse_errors(changeset, fn {msg, _} -> msg end)
+          IO.puts("NOT REGISTERED: #{inspect(errors)}")
+          {:error, errors}
+
+        {:error, reason} ->
+          IO.puts("NOT REGISTERED: #{inspect(reason)}")
+          {:error, reason}
+      end
+    end)
+  end
+
   @doc "Lists API keys as `{id, name, prefix, requests_per_minute, revoked_at}`."
   def list_api_keys do
     for k <- Bitblocks.ApiKeys.list(),

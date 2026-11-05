@@ -36,6 +36,27 @@ defmodule BitblocksWeb.Plugs.RateLimiter.ApiKeyTest do
     assert get_resp_header(over, "x-ratelimit-limit") == ["5"]
   end
 
+  test "a key registered from its hash works, and the token was never here" do
+    token = "bbk_" <> Base.url_encode64(:crypto.strong_rand_bytes(32), padding: false)
+    hash = :crypto.hash(:sha256, token) |> Base.encode16(case: :lower)
+
+    assert {:ok, key} = ApiKeys.create_from_hash("cloudfront-cdn", 7, hash)
+    assert key.prefix == "sha256:" <> String.slice(hash, 0, 5)
+
+    conn = get_with([{"x-api-key", token}])
+    assert conn.status == 200
+    assert get_resp_header(conn, "x-ratelimit-limit") == ["7"]
+  end
+
+  test "refuses a hash that isn't a sha256 in lowercase hex, or one already registered" do
+    assert {:error, :bad_hash} = ApiKeys.create_from_hash("x", 7, "bbk_notahash")
+    assert {:error, :bad_hash} = ApiKeys.create_from_hash("x", 7, String.duplicate("A", 64))
+
+    hash = String.duplicate("a", 64)
+    assert {:ok, _} = ApiKeys.create_from_hash("x", 7, hash)
+    assert {:error, %Ecto.Changeset{}} = ApiKeys.create_from_hash("y", 7, hash)
+  end
+
   test "x-api-key works the same as a bearer token", %{token: token} do
     conn = get_with([{"x-api-key", token}])
     assert conn.status == 200

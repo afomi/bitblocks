@@ -37,6 +37,28 @@ defmodule Bitblocks.ApiKeys do
     end
   end
 
+  @doc """
+  Registers a key made elsewhere from its sha256 (64 lowercase hex), so the
+  token never passes through this node or an operator's output. The token
+  must start `bbk_` and hold 32 random bytes, as `create/2` makes them.
+  """
+  @spec create_from_hash(String.t(), pos_integer(), String.t()) ::
+          {:ok, ApiKey.t()} | {:error, term()}
+  def create_from_hash(name, requests_per_minute, token_hash) do
+    if token_hash =~ ~r/\A[0-9a-f]{64}\z/ do
+      %ApiKey{}
+      |> ApiKey.changeset(%{
+        name: name,
+        requests_per_minute: requests_per_minute,
+        token_hash: token_hash,
+        prefix: "sha256:" <> String.slice(token_hash, 0, 5)
+      })
+      |> Repo.insert()
+    else
+      {:error, :bad_hash}
+    end
+  end
+
   @doc "The active key for a token, or nil (unknown or revoked). Cached briefly."
   @spec verify(String.t()) :: ApiKey.t() | nil
   def verify(token) when is_binary(token) do
