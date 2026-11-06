@@ -35,7 +35,7 @@ defmodule BitblocksWeb.TransactionLive.Show do
       {:noreply,
        socket
        |> put_flash(:error, "Transaction not found: #{id}")
-       |> push_navigate(to: ~p"/transactions")}
+       |> push_navigate(to: ~p"/blocks")}
     else
       handle_transaction_params(transaction, id, socket)
     end

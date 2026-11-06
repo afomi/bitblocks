@@ -5,16 +5,14 @@ defmodule BitblocksWeb.WayfindingTest do
 
   alias Bitblocks.ProtocolRegistry
 
-  test "the header keeps to blocks, transactions and about, and sends Transactions to the transactions list",
+  test "the header keeps to blocks and about, with Transactions for admins",
        %{conn: conn} do
     html = html_response(get(conn, "/"), 200)
 
     for {id, href} <- [
           {"nav-blocks", "/blocks"},
-          {"nav-transactions", "/transactions"},
           {"nav-about", "/about"},
           {"nav-blocks-mobile", "/blocks"},
-          {"nav-transactions-mobile", "/transactions"},
           {"nav-about-mobile", "/about"}
         ] do
       assert Regex.match?(
@@ -24,7 +22,7 @@ defmodule BitblocksWeb.WayfindingTest do
              "missing #{id} -> #{href}"
     end
 
-    for id <- ~w(tokens order-book metanet bitcom collections),
+    for id <- ~w(transactions tokens order-book metanet bitcom collections),
         suffix <- ["", "-mobile"] do
       refute html =~ ~s(id="nav-#{id}#{suffix}"), "nav-#{id}#{suffix} should be off the header"
     end

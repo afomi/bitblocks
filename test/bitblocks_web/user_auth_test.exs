@@ -70,15 +70,37 @@ defmodule BitblocksWeb.UserAuthTest do
   end
 
   describe "an anonymous visitor" do
-    test "is sent to sign in from block detail, with the way back", %{conn: conn, block: block} do
-      conn = get(conn, "/blocks/#{block.height}")
+    test "opens a shared block link, read-only", %{conn: conn, block: block} do
+      {:ok, _view, html} = live(conn, "/blocks/#{block.height}")
 
-      assert redirected_to(conn) == "/sign-in?return_to=%2Fblocks%2F#{block.height}"
+      assert html =~ ~s(href="/transactions/#{txid(1)}")
+      refute html =~ "/show/edit"
     end
 
-    test "is sent to sign in from transaction pages", %{conn: conn} do
-      assert redirected_to(get(conn, "/transactions/#{txid(1)}")) =~ "/sign-in?return_to="
-      assert redirected_to(get(conn, "/transactions")) =~ "/sign-in?return_to="
+    test "opens a shared transaction link, without the raw download", %{conn: conn} do
+      block = block_fixture()
+      transaction_fixture(txid: txid(1), block_hash: block.hash, block_height: block.height)
+
+      {:ok, _view, html} = live(conn, "/transactions/#{txid(1)}")
+
+      assert html =~ txid(1)
+      refute html =~ ~s(id="tx-raw-download")
+      refute html =~ "/show/edit"
+    end
+
+    test "a missing tx leads to blocks, not sign-in", %{conn: conn} do
+      assert {:error, {:live_redirect, %{to: "/blocks"}}} =
+               live(conn, "/transactions/#{txid(9)}")
+    end
+
+    test "doesn't get the transactions list, or a link to it", %{conn: conn} do
+      refute get(conn, "/transactions").status == 200
+      refute html_response(get(conn, "/"), 200) =~ ~s(id="nav-transactions")
+    end
+
+    test "can read the registry exports without a key", %{conn: conn} do
+      assert get(conn, "/bitcom.json").status == 200
+      assert get(conn, "/api/v1/bitcom/snapshots").status == 200
     end
 
     test "still sees the public pages", %{conn: conn} do
@@ -242,12 +264,16 @@ defmodule BitblocksWeb.UserAuthTest do
       refute html =~ ~s(id="nav-sign-in")
     end
 
-    test "can sign out with a DELETE", %{conn: conn, block: block} do
+    test "can sign out with a DELETE", %{conn: conn} do
       conn = delete(conn, "/auth/logout")
       assert redirected_to(conn) == "/"
 
-      conn = get(recycle(conn), "/blocks/#{block.height}")
+      conn = get(recycle(conn), "/status")
       assert redirected_to(conn) =~ "/sign-in"
+    end
+
+    test "is refused the transactions list", %{conn: conn} do
+      assert get(conn, "/transactions").status == 403
     end
   end
 
@@ -264,6 +290,11 @@ defmodule BitblocksWeb.UserAuthTest do
       assert status.config == 200
       assert status.scrubber == 200
       refute status.tiles in [401, 403]
+    end
+
+    test "opens the transactions list, and has the link to it", %{conn: conn} do
+      assert get(conn, "/transactions").status == 200
+      assert html_response(get(conn, "/"), 200) =~ ~s(id="nav-transactions")
     end
   end
 
