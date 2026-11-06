@@ -255,6 +255,7 @@ GET /api/v1/blocks/:id          — block by height or hash
 GET /api/v1/txs                 — transactions newest confirmation first, keyset cursor `<height>:<txid>` (?protocol=Twetch, ?block_hash=, ?txid=<hex prefix>); meta.complete is false while any block in range is not completed
 GET /api/v1/txs/:txid           — single transaction by txid; confirmed (true | false) and confirmation: confirmed | unverified | orphaned (`Chain.confirmations/1`), also on the list
 GET /api/v1/txs/:txid/proof     — merkle proof for a transaction
+GET /api/v1/txs/:txid/beef      — BRC-62 BEEF as hex: the tx with its own BUMP, its parents first (up to 25; parents_missing, complete); same errors as /proof
 GET /api/v1/txs/:txid/raw       — the tx's exact bytes (octet-stream), verified against the txid, immutable; the CDN origin (docs/TX_STORAGE.md)
 GET /content/:outpoint          — inscription body parsed from the raw tx on the fly (1Sat convention; immutable, nosniff, sandbox CSP)
 GET /api/v1/status/derivations  — each pipeline step's version, stage and derivation versions, latest backfill runs

@@ -45,7 +45,7 @@ defmodule Bitblocks.Chain.MerkleProof do
   that the hash meets the proof-of-work target in `bits`, and that it chains
   onto its stored predecessor. The proof is inclusion under that header; a
   caller who wants more checks the header against their own header chain.
-  This is not a BEEF body (#17).
+  `Bitblocks.Chain.Beef` wraps these proofs as BEEF (#17).
   """
 
   import Ecto.Query

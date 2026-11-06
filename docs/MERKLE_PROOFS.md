@@ -56,7 +56,7 @@ Lightweight clients can cache headers; this reinforces that the proof ties back 
 
 The response gives you everything you need to check inclusion yourself: the transaction's position in its block (`index`), the sibling hashes from leaf to root (`siblings`), and the root they must reach (`merkleroot`), which is the one in the block header.
 Built by `Bitblocks.Chain.MerkleProof` (#43).
-This is not a BEEF body; that is #17.
+For the standard binary evidence, see Part 3.
 
 ### Example: the first spend, block 170
 
@@ -164,3 +164,19 @@ Bitblocks parses and checks it for large blocks, as above, but does not pass it 
 ### Visualise inside Bitblocks
 
 With the proof verified, render it in LiveView: highlight the **leaf** (the txid), list each **sibling** with its left/right orientation (even index: sibling on the right), and show the **root** with a green check once the computed value matches.
+
+---
+
+## Part 3 — BEEF: `GET /api/v1/txs/:txid/beef`
+
+`data.beef` is the transaction as BEEF ([BRC-62](https://github.com/bitcoin-sv/BRCs/blob/master/transactions/0062.md)) in hex, with merkle paths as BUMPs ([BRC-74](https://github.com/bitcoin-sv/BRCs/blob/master/transactions/0074.md)), so an app can store the evidence with its record rather than a pointer.
+Built by `Bitblocks.Chain.Beef`, on the same proofs as Part 2, so the same statuses apply.
+
+- The transaction comes last and carries its own BUMP, so the BEEF is valid on its own.
+- Its parents come first, each with a BUMP, up to 25 distinct parents.
+- Proofs from one block share one BUMP.
+- `parents_missing` names any parent left out (not stored, no proof available, or past the 25), and `complete` is false when there are any.
+- The bytes are parsed back before they are sent: each transaction must hash to its txid, and each BUMP must climb to the root in the stored header.
+
+The roots rest on our stored headers, so check them against your own header source.
+The tests pin the encoder to the BRC-62 and BRC-74 example vectors, and to the real 106-transaction block 814435.

@@ -15,48 +15,69 @@ defmodule BitblocksWeb.Api.ProofController do
       or the tx isn't in the block's list;
     * 503: the block's txid list isn't stored and the node gave no proof.
 
-  Not a BEEF body (#17).
+  `GET /api/v1/txs/:txid/beef` wraps the same proofs as BEEF (#17,
+  `Bitblocks.Chain.Beef`), with the same errors.
   """
   use BitblocksWeb, :controller
 
-  alias Bitblocks.Chain.MerkleProof
+  alias Bitblocks.Chain.{Beef, MerkleProof}
 
   @doc "GET /api/v1/txs/:txid/proof"
   def show(conn, %{"txid" => txid}) do
     case MerkleProof.build(txid) do
-      {:ok, proof} ->
-        json(conn, %{data: proof})
+      {:ok, proof} -> json(conn, %{data: proof})
+      {:error, reason} -> refuse(conn, reason)
+    end
+  end
 
-      {:error, :not_found} ->
+  @doc """
+  GET /api/v1/txs/:txid/beef: `data.beef` is BRC-62 BEEF as hex, the tx last
+  and carrying its own BUMP, its parents ahead of it. `parents_missing` names
+  the parents left out, and `complete` is false when there are any; the BEEF
+  is valid either way.
+  """
+  def beef(conn, %{"txid" => txid}) do
+    case Beef.build(String.downcase(txid)) do
+      {:ok, beef} -> json(conn, %{data: beef})
+      {:error, reason} -> refuse(conn, reason)
+    end
+  end
+
+  defp refuse(conn, reason) do
+    case reason do
+      :not_found ->
         error(conn, 404, "Not found")
 
-      {:error, :not_canonical} ->
+      :not_canonical ->
         error(
           conn,
           409,
           "This transaction's block is not canonical in this index (orphaned by a reorg, or replaced at its height); no proof is given for its old root."
         )
 
-      {:error, :merkleroot_mismatch} ->
+      :merkleroot_mismatch ->
         error(
           conn,
           500,
           "The block's transactions did not rebuild the merkle root in its header, so no proof is given."
         )
 
-      {:error, :tx_not_in_block} ->
+      :tx_not_in_block ->
         error(
           conn,
           500,
           "The block's verified txid list does not contain this transaction, so no proof is given."
         )
 
-      {:error, :proof_unavailable} ->
+      :proof_unavailable ->
         error(
           conn,
           503,
           "This block's txid list is not stored and the node gave no proof; try again later."
         )
+
+      :raw_unavailable ->
+        error(conn, 503, "This transaction's bytes could not be read; try again later.")
     end
   end
 

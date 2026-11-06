@@ -304,4 +304,25 @@ defmodule BitblocksWeb.Api.ProofControllerTest do
        Enum.map_join(leaves, &le.(&1)) <> <<1, 0b101>>)
     |> Base.encode16(case: :lower)
   end
+
+  describe "GET /api/v1/txs/:txid/beef" do
+    test "serves BEEF as hex, the tx last", %{conn: conn} do
+      real_block_170()
+
+      data =
+        conn
+        |> get(~p"/api/v1/txs/#{FirstSpendFixtures.first_spend()}/beef")
+        |> json_response(200)
+        |> Map.fetch!("data")
+
+      assert String.starts_with?(data["beef"], "0100beef")
+      assert List.last(data["transactions"]) == FirstSpendFixtures.first_spend()
+      assert data["block_height"] == 170
+      assert is_boolean(data["complete"])
+    end
+
+    test "answers as the proof does for a tx we don't hold", %{conn: conn} do
+      assert conn |> get(~p"/api/v1/txs/#{String.duplicate("ab", 32)}/beef") |> json_response(404)
+    end
+  end
 end

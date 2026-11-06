@@ -55,6 +55,7 @@ defmodule BitblocksWeb.Router do
 
     # Transactions
     get "/txs/:txid/proof", ProofController, :show
+    get "/txs/:txid/beef", ProofController, :beef
     get "/txs/:txid", TransactionController, :show
     get "/txs", TransactionController, :index
 

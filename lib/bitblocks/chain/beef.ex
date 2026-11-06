@@ -1,0 +1,490 @@
+defmodule Bitblocks.Chain.Beef do
+  @moduledoc """
+  BEEF (BRC-62) and BUMP (BRC-74): a transaction with the merkle evidence that
+  lets someone else check it, in the standard binary forms (#17).
+
+  `build/1` answers `GET /api/v1/txs/:txid/beef`: the tx's stored parents, each
+  with a BUMP, then the tx with its own BUMP, last as BRC-62 requires. Every
+  branch comes from `Chain.MerkleProof`, which also decides what is canonical,
+  so a tx in a replaced block gets no BEEF. Proofs from one block share one
+  BUMP.
+
+  A proof-bearing tx is valid on its own, so a parent we can't prove (not
+  stored, or its proof unavailable) leaves the BEEF valid and is named in
+  `parents_missing`, with `complete: false`. Only the tx's own proof is
+  required. `@max_parents` bounds the proofs one public request can ask of the
+  node; parents past it are listed as missing too.
+
+  The bytes are parsed back before they are returned: each tx's bytes must hash
+  to its txid, and each BUMP must climb to the root in the header we verified.
+
+  ## BUMP byte order
+
+  Hashes are stored in internal order in the binary form. Here a leaf is
+  `%{offset:, hash: <<32 bytes>> | nil, txid: boolean, duplicate: boolean}`
+  with `hash` in that same internal order, and a BUMP is
+  `%{height:, path: [[leaf]]}`, `path` indexed by tree level.
+
+  A block of one transaction has the single leaf at level 0 and no higher
+  level; its txid is its root.
+  """
+
+  import Bitwise
+
+  alias Bitblocks.Chain.{MerkleProof, RawTx}
+  alias Bitblocks.TxStore
+
+  @version <<0x01, 0x00, 0xBE, 0xEF>>
+  @max_parents 25
+
+  @flag_data 0
+  @flag_duplicate 1
+  @flag_txid 2
+
+  @trust "each BUMP climbs to the merkle root in a block header bitblocks stored only after " <>
+           "checking its proof of work. Check those roots against your own headers."
+
+  # --- building --------------------------------------------------------------
+
+  @doc """
+  The BEEF for a stored tx: `{:ok, %{txid, beef (hex), transactions,
+  parents_included, parents_missing, complete, block_hash, block_height,
+  trust}}`, or the errors of `MerkleProof.build/1`, or `:raw_unavailable`
+  when the tx's bytes can't be read.
+  """
+  @spec build(String.t()) :: {:ok, map()} | {:error, atom()}
+  def build(txid) when is_binary(txid) do
+    with {:ok, proof} <- MerkleProof.build(txid),
+         {:ok, raw} <- raw(txid) do
+      parents = parents(raw)
+      {tried, skipped} = Enum.split(parents, @max_parents)
+      proven = Enum.flat_map(tried, &proven_parent/1)
+      included = Enum.map(proven, fn {parent_proof, _raw} -> parent_proof.txid end)
+      missing = (tried -- included) ++ skipped
+
+      entries = proven ++ [{proof, raw}]
+      bumps = entries |> Enum.map(fn {p, _} -> from_proof(p) end) |> merge()
+
+      beef =
+        encode(
+          bumps,
+          Enum.map(entries, fn {p, bytes} -> {bytes, bump_index(bumps, p.block_height)} end)
+        )
+
+      with :ok <- check(beef, entries) do
+        {:ok,
+         %{
+           txid: txid,
+           beef: Base.encode16(beef, case: :lower),
+           transactions: Enum.map(entries, fn {p, _} -> p.txid end),
+           parents_included: included,
+           parents_missing: missing,
+           complete: missing == [],
+           block_hash: proof.block_hash,
+           block_height: proof.block_height,
+           trust: @trust
+         }}
+      end
+    end
+  end
+
+  defp proven_parent(txid) do
+    with {:ok, proof} <- MerkleProof.build(txid),
+         {:ok, raw} <- raw(txid) do
+      [{proof, raw}]
+    else
+      _ -> []
+    end
+  end
+
+  defp raw(txid) do
+    with {:ok, bytes} <- TxStore.raw(txid),
+         ^txid <- TxStore.txid(bytes) do
+      {:ok, bytes}
+    else
+      _ -> {:error, :raw_unavailable}
+    end
+  end
+
+  defp parents(raw) do
+    case RawTx.flows(Base.encode16(raw, case: :lower)) do
+      {:ok, %{inputs: inputs}} ->
+        inputs |> Enum.flat_map(&prev_txid/1) |> Enum.uniq()
+
+      {:error, _} ->
+        []
+    end
+  end
+
+  defp prev_txid({txid, _vout}), do: [txid]
+  defp prev_txid(:coinbase), do: []
+
+  defp bump_index(bumps, height), do: Enum.find_index(bumps, &(&1.height == height))
+
+  # The whole answer read back: nothing goes out that doesn't check.
+  defp check(beef, entries) do
+    roots = Map.new(entries, fn {p, _} -> {p.txid, p.merkleroot} end)
+
+    with {:ok, %{bumps: bumps, transactions: txs}} <- parse(beef),
+         true <- length(txs) == length(entries),
+         true <- Enum.all?(txs, &tx_checks?(&1, bumps, roots)) do
+      :ok
+    else
+      _ -> {:error, :merkleroot_mismatch}
+    end
+  end
+
+  defp tx_checks?(%{raw: raw, bump_index: index}, bumps, roots) when is_integer(index) do
+    txid = TxStore.txid(raw)
+    root(Enum.at(bumps, index), txid) == {:ok, Map.get(roots, txid)}
+  end
+
+  defp tx_checks?(_tx, _bumps, _roots), do: false
+
+  # --- BUMP from a proof -------------------------------------------------------
+
+  @doc """
+  The BUMP for one `MerkleProof` proof: `txid`, `index`, `siblings` (display
+  hex, leaf to root; a level's lone last node is its own sibling) and
+  `block_height`.
+  """
+  @spec from_proof(map()) :: map()
+  def from_proof(%{txid: txid, index: index, siblings: siblings, block_height: height}) do
+    leaf_hash = internal(txid)
+
+    {levels, _hash} =
+      siblings
+      |> Enum.with_index()
+      |> Enum.map_reduce(leaf_hash, fn {sibling, level}, running ->
+        offset = index >>> level
+        sibling = internal(sibling)
+        duplicate? = sibling == running and band(offset, 1) == 0
+
+        leaf =
+          if duplicate? do
+            %{offset: bxor(offset, 1), hash: nil, txid: false, duplicate: true}
+          else
+            %{offset: bxor(offset, 1), hash: sibling, txid: false, duplicate: false}
+          end
+
+        pair = if band(offset, 1) == 0, do: running <> sibling, else: sibling <> running
+        {leaf, sha256d(pair)}
+      end)
+
+    client = %{offset: index, hash: leaf_hash, txid: true, duplicate: false}
+
+    path =
+      case levels do
+        [] -> [[client]]
+        [first | rest] -> [sort([client, first]) | Enum.map(rest, &[&1])]
+      end
+
+    %{height: height, path: path}
+  end
+
+  @doc """
+  Combines BUMPs of one block into one, keeping one per height and order of
+  first appearance. A node that the leaves below it can compute is dropped, and
+  a leaf that is a client txid in either stays one.
+  """
+  @spec merge([map()]) :: [map()]
+  def merge(bumps) do
+    bumps
+    |> Enum.group_by(& &1.height)
+    |> Enum.map(fn {height, group} -> {first_position(bumps, height), merge_block(group)} end)
+    |> Enum.sort_by(&elem(&1, 0))
+    |> Enum.map(&elem(&1, 1))
+  end
+
+  defp first_position(bumps, height), do: Enum.find_index(bumps, &(&1.height == height))
+
+  defp merge_block([bump]), do: bump
+
+  defp merge_block([%{height: height} | _] = group) do
+    depth = group |> Enum.map(&length(&1.path)) |> Enum.max()
+
+    levels =
+      for level <- 0..(depth - 1) do
+        group
+        |> Enum.flat_map(&Enum.at(&1.path, level, []))
+        |> Enum.group_by(& &1.offset)
+        |> Enum.map(fn {_offset, leaves} ->
+          Enum.find(leaves, hd(leaves), & &1.txid)
+        end)
+      end
+
+    %{height: height, path: trim(levels)}
+  end
+
+  # Walks up: a pair known at one level makes its parent known at the next, and
+  # a stored leaf for a known parent is redundant.
+  defp trim(levels) do
+    {path, _known} =
+      Enum.map_reduce(levels, MapSet.new(), fn leaves, computed ->
+        kept = Enum.reject(leaves, &MapSet.member?(computed, &1.offset))
+        {sort(kept), parents_known(kept, computed)}
+      end)
+
+    path
+  end
+
+  defp parents_known(leaves, computed) do
+    offsets = leaves |> Enum.map(& &1.offset) |> MapSet.new() |> MapSet.union(computed)
+
+    for offset <- offsets,
+        band(offset, 1) == 0,
+        MapSet.member?(offsets, offset + 1),
+        into: MapSet.new(),
+        do: offset >>> 1
+  end
+
+  defp sort(leaves), do: Enum.sort_by(leaves, & &1.offset)
+
+  # --- the root ---------------------------------------------------------------
+
+  @doc """
+  Climbs a BUMP from `txid` (display hex) to its merkle root (display hex).
+  `{:error, :not_in_bump}` when the txid isn't a leaf at level 0, and
+  `{:error, :incomplete}` when a node it needs is missing.
+  """
+  @spec root(map(), String.t()) :: {:ok, String.t()} | {:error, :not_in_bump | :incomplete}
+  def root(%{path: path}, txid) do
+    hash = internal(txid)
+    leaves = index(path)
+
+    case Enum.find(hd(path), &(&1.hash == hash)) do
+      nil ->
+        {:error, :not_in_bump}
+
+      # One transaction in the block: it is the root.
+      _leaf when length(path) == 1 and length(hd(path)) == 1 ->
+        {:ok, display(hash)}
+
+      %{offset: offset} ->
+        with {:ok, top} <- climb(leaves, 0, length(path), offset, hash), do: {:ok, display(top)}
+    end
+  end
+
+  defp index(path) do
+    for {leaves, level} <- Enum.with_index(path), leaf <- leaves, into: %{} do
+      {{level, leaf.offset}, leaf}
+    end
+  end
+
+  defp climb(_leaves, height, height, _offset, hash), do: {:ok, hash}
+
+  defp climb(leaves, level, height, offset, hash) do
+    with {:ok, sibling} <- node_at(leaves, level, bxor(offset, 1)) do
+      pair =
+        case {sibling, band(offset, 1)} do
+          {:duplicate, _} -> hash <> hash
+          {node, 0} -> hash <> node
+          {node, 1} -> node <> hash
+        end
+
+      climb(leaves, level + 1, height, offset >>> 1, sha256d(pair))
+    end
+  end
+
+  defp node_at(leaves, level, offset) do
+    case Map.get(leaves, {level, offset}) do
+      %{duplicate: true} -> {:ok, :duplicate}
+      %{hash: hash} -> {:ok, hash}
+      nil when level == 0 -> {:error, :incomplete}
+      nil -> computed(leaves, level - 1, offset * 2)
+    end
+  end
+
+  defp computed(leaves, level, left_offset) do
+    with {:ok, left} when is_binary(left) <- node_at(leaves, level, left_offset),
+         {:ok, right} <- node_at(leaves, level, left_offset + 1) do
+      {:ok, sha256d(left <> if(right == :duplicate, do: left, else: right))}
+    else
+      {:ok, :duplicate} -> {:error, :incomplete}
+      error -> error
+    end
+  end
+
+  # --- binary ------------------------------------------------------------------
+
+  @doc "Serializes a BUMP (BRC-74)."
+  @spec encode_bump(map()) :: binary()
+  def encode_bump(%{height: height, path: path}) do
+    levels =
+      for leaves <- path do
+        [varint(length(leaves)) | Enum.map(leaves, &encode_leaf/1)]
+      end
+
+    IO.iodata_to_binary([varint(height), length(path), levels])
+  end
+
+  defp encode_leaf(%{offset: offset, duplicate: true}),
+    do: [varint(offset), @flag_duplicate]
+
+  defp encode_leaf(%{offset: offset, txid: true, hash: hash}),
+    do: [varint(offset), @flag_txid, hash]
+
+  defp encode_leaf(%{offset: offset, hash: hash}),
+    do: [varint(offset), @flag_data, hash]
+
+  @doc "Reads one BUMP: `{:ok, bump, rest}` or `:error`."
+  @spec parse_bump(binary()) :: {:ok, map(), binary()} | :error
+  def parse_bump(binary) do
+    with {:ok, height, <<tree_height, rest::binary>>} <- read_varint(binary),
+         true <- tree_height <= 64 || :error,
+         {:ok, path, rest} <- times(tree_height, rest, &parse_level/1) do
+      {:ok, %{height: height, path: path}, rest}
+    else
+      _ -> :error
+    end
+  end
+
+  defp parse_level(binary) do
+    with {:ok, count, rest} <- read_varint(binary), do: times(count, rest, &parse_leaf/1)
+  end
+
+  defp parse_leaf(binary) do
+    case read_varint(binary) do
+      {:ok, offset, <<@flag_duplicate, rest::binary>>} ->
+        {:ok, %{offset: offset, hash: nil, txid: false, duplicate: true}, rest}
+
+      {:ok, offset, <<@flag_data, hash::binary-size(32), rest::binary>>} ->
+        {:ok, %{offset: offset, hash: hash, txid: false, duplicate: false}, rest}
+
+      {:ok, offset, <<@flag_txid, hash::binary-size(32), rest::binary>>} ->
+        {:ok, %{offset: offset, hash: hash, txid: true, duplicate: false}, rest}
+
+      _ ->
+        :error
+    end
+  end
+
+  @doc """
+  Serializes a BEEF: `bumps`, then `transactions` as `{raw_bytes, bump_index}`
+  (`bump_index` nil for a tx with no BUMP of its own), parents first.
+  """
+  @spec encode([map()], [{binary(), non_neg_integer() | nil}]) :: binary()
+  def encode(bumps, transactions) do
+    IO.iodata_to_binary([
+      @version,
+      varint(length(bumps)),
+      Enum.map(bumps, &encode_bump/1),
+      varint(length(transactions)),
+      Enum.map(transactions, fn
+        {raw, nil} -> [raw, 0]
+        {raw, index} -> [raw, 1, varint(index)]
+      end)
+    ])
+  end
+
+  @doc """
+  Reads a BEEF: `{:ok, %{bumps:, transactions: [%{raw:, bump_index:}]}}` or
+  `:error`.
+  """
+  @spec parse(binary()) :: {:ok, map()} | :error
+  def parse(<<@version, rest::binary>>) do
+    with {:ok, n, rest} <- read_varint(rest),
+         {:ok, bumps, rest} <- times(n, rest, &parse_bump/1),
+         {:ok, m, rest} <- read_varint(rest),
+         {:ok, txs, <<>>} <- times(m, rest, &parse_entry/1) do
+      {:ok, %{bumps: bumps, transactions: txs}}
+    else
+      _ -> :error
+    end
+  end
+
+  def parse(_), do: :error
+
+  defp parse_entry(binary) do
+    with {:ok, size} <- raw_tx_size(binary),
+         <<raw::binary-size(size), rest::binary>> <- binary do
+      case rest do
+        <<0, rest::binary>> ->
+          {:ok, %{raw: raw, bump_index: nil}, rest}
+
+        <<1, rest::binary>> ->
+          with {:ok, index, rest} <- read_varint(rest),
+               do: {:ok, %{raw: raw, bump_index: index}, rest}
+
+        _ ->
+          :error
+      end
+    else
+      _ -> :error
+    end
+  end
+
+  # Version, inputs, outputs, lock time: the length of a raw tx at the head of
+  # a binary, reading only the lengths it carries.
+  defp raw_tx_size(<<_version::binary-size(4), rest::binary>> = binary) do
+    with {:ok, n, rest} <- read_varint(rest),
+         {:ok, _, rest} <- times(n, rest, &skip_input/1),
+         {:ok, m, rest} <- read_varint(rest),
+         {:ok, _, <<_lock_time::binary-size(4), rest::binary>>} <- times(m, rest, &skip_output/1) do
+      {:ok, byte_size(binary) - byte_size(rest)}
+    else
+      _ -> :error
+    end
+  end
+
+  defp raw_tx_size(_), do: :error
+
+  defp skip_input(<<_outpoint::binary-size(36), rest::binary>>) do
+    with {:ok, size, rest} <- read_varint(rest),
+         <<_script::binary-size(size), _sequence::binary-size(4), rest::binary>> <- rest do
+      {:ok, nil, rest}
+    else
+      _ -> :error
+    end
+  end
+
+  defp skip_input(_), do: :error
+
+  defp skip_output(<<_satoshis::binary-size(8), rest::binary>>) do
+    with {:ok, size, rest} <- read_varint(rest),
+         <<_script::binary-size(size), rest::binary>> <- rest do
+      {:ok, nil, rest}
+    else
+      _ -> :error
+    end
+  end
+
+  defp skip_output(_), do: :error
+
+  defp times(0, rest, _reader), do: {:ok, [], rest}
+
+  defp times(n, rest, reader) do
+    Enum.reduce_while(1..n, {:ok, [], rest}, fn _, {:ok, acc, rest} ->
+      case reader.(rest) do
+        {:ok, item, rest} -> {:cont, {:ok, [item | acc], rest}}
+        _ -> {:halt, :error}
+      end
+    end)
+    |> case do
+      {:ok, items, rest} -> {:ok, Enum.reverse(items), rest}
+      :error -> :error
+    end
+  end
+
+  defp varint(n) when n < 0xFD, do: <<n>>
+  defp varint(n) when n <= 0xFFFF, do: <<0xFD, n::little-16>>
+  defp varint(n) when n <= 0xFFFFFFFF, do: <<0xFE, n::little-32>>
+  defp varint(n), do: <<0xFF, n::little-64>>
+
+  defp read_varint(<<0xFD, n::little-16, rest::binary>>), do: {:ok, n, rest}
+  defp read_varint(<<0xFE, n::little-32, rest::binary>>), do: {:ok, n, rest}
+  defp read_varint(<<0xFF, n::little-64, rest::binary>>), do: {:ok, n, rest}
+  defp read_varint(<<n, rest::binary>>) when n < 0xFD, do: {:ok, n, rest}
+  defp read_varint(_), do: :error
+
+  defp sha256d(bytes), do: :crypto.hash(:sha256, :crypto.hash(:sha256, bytes))
+
+  defp internal(hex) do
+    hex |> Base.decode16!(case: :mixed) |> reverse()
+  end
+
+  defp display(bytes), do: bytes |> reverse() |> Base.encode16(case: :lower)
+
+  defp reverse(bytes),
+    do: bytes |> :binary.bin_to_list() |> Enum.reverse() |> :binary.list_to_bin()
+end
