@@ -20,6 +20,63 @@ defmodule BitblocksWeb.ContentControllerTest do
     %{txid: txid}
   end
 
+  describe "GET /b/:txid" do
+    @b "19HxigV4QyBv3tHpQVcUEQyq1pzZVdoAut"
+
+    defp b_tx(pushes) do
+      script = %BSV.Script{chunks: [:OP_FALSE, :OP_RETURN | pushes]}
+      tx([funding_outpoint()], [p2pkh(address(), 1_000), %BSV.TxOut{satoshis: 0, script: script}])
+    end
+
+    defp stored(built) do
+      {txid, hex} = built
+      block = Bitblocks.ChainFixtures.block_fixture()
+
+      Bitblocks.ChainFixtures.transaction_fixture(%{
+        txid: txid,
+        raw: hex,
+        block_hash: block.hash,
+        block_height: block.height
+      })
+
+      txid
+    end
+
+    test "serves the file with its media type and untrusted-content headers" do
+      txid = [@b, "<p>hello</p>", "text/html", "utf-8", "hi.html"] |> b_tx() |> stored()
+
+      conn = build_conn() |> get("/b/#{txid}")
+
+      assert conn.status == 200
+      assert conn.resp_body == "<p>hello</p>"
+      assert get_resp_header(conn, "content-type") |> hd() =~ "text/html"
+      assert get_resp_header(conn, "x-content-type-options") == ["nosniff"]
+      assert get_resp_header(conn, "content-security-policy") |> hd() =~ "sandbox"
+    end
+
+    test "ignores the segments after a pipe" do
+      txid = [@b, "body", "text/plain", "|", "MAP", "SET"] |> b_tx() |> stored()
+
+      assert build_conn() |> get("/b/#{txid}") |> response(200) == "body"
+    end
+
+    test "a tx with no B:// file is a 404, and a bad txid a 400" do
+      txid = ["not-b", "body"] |> b_tx() |> stored()
+
+      assert %{"error" => "no B:// file" <> _} =
+               build_conn() |> get("/b/#{txid}") |> json_response(404)
+
+      assert build_conn() |> get("/b/nope") |> json_response(400)
+    end
+
+    test "an unknown media type is sent as bytes" do
+      txid = [@b, "body", "not a type"] |> b_tx() |> stored()
+
+      assert get_resp_header(build_conn() |> get("/b/#{txid}"), "content-type") |> hd() =~
+               "application/octet-stream"
+    end
+  end
+
   test "serves an inscription body stored in the database, with untrusted-content headers", ctx do
     OrdinalCollections.import_txs([ctx.txid])
 

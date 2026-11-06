@@ -286,6 +286,8 @@ defmodule BitblocksWeb.Api.ProtocolController do
       description: p.description,
       category: p.category,
       verification_status: p.verification_status,
+      ownership_proof_txid: p.ownership_proof_txid,
+      proven: not is_nil(p.ownership_proof_txid),
       has_covenant: p.has_covenant,
       covenant_hash: p.covenant_hash,
       author: p.author,

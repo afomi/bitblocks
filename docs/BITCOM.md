@@ -42,6 +42,8 @@ Tier is derived, never stored:
 - **listed**: known from the registry seed or a protocol handler, with no on-chain word from the owner.
 
 `verification_status` on `protocols` is curation, not proof, and the directory does not use it.
+`/protocols` follows the same rule: a protocol reads **Proven** only with an `ownership_proof_txid`, and a seeded `verified` reads **Curated**.
+`GET /api/v1/protocols` carries `proven` and `ownership_proof_txid` beside the curation field.
 Usage is the count of indexed txs carrying the namespace's protocol tag, capped at 10,000 so the page never scans a whole protocol's history.
 
 ## Surfaces
@@ -50,10 +52,31 @@ Usage is the count of indexed txs carrying the namespace's protocol tag, capped 
 - `/bitcom/:address`: a namespace's home (proof, files, routes, recent txs, command log).
 - `GET /api/v1/bitcom` and `GET /bitcom.json`: the full export, with every txid needed to re-verify each entry.
 - `GET /api/v1/bitcom/:address`: one namespace.
+- `GET /api/v1/bitcom/snapshots`: every versioned snapshot, newest first, with its sha256.
+- `GET /api/v1/bitcom/snapshots/:version` (or `latest`): one snapshot's exact bytes.
+- `GET /api/v1/bit/:address/*path`: resolves `bit://<address>/<path>` to the endpoints providers added for it.
+  Endpoints are returned and never fetched, so there is no server-side request to forge.
+- `GET /b/:txid`: a B:// file, parsed from its tx on the fly, with the same untrusted-content headers as `/content`.
+
+## Snapshots
+
+`Bitblocks.Bitcom.Snapshots` keeps the registry as versioned files, in the `bitcom_snapshots` table.
+A snapshot is canonical JSON: keys sorted, namespaces sorted by address, and no timestamp or usage count, so the same on-chain facts always give the same bytes.
+A new version is written only when a fact changed, daily by `Workers.BitcomSnapshotWorker` or by hand with `bin/bitblocks rpc 'Bitblocks.Release.bitcom_snapshot()'`.
+The version is the row's id, and the served bytes are the hashed bytes, so `sha256sum` on a download matches the listed hash.
+Snapshots read `bitcom_commands` and `protocols`, never `transactions`.
+
+## Waiting on a bitblocks-owned funded address
+
+Both of these are one transaction away, and the code is ready for them.
+Choosing and funding the address is Ryan's call, and the wallet signs and broadcasts.
+
+- **Anchor a snapshot.** `$ echo <sha256> to registry.json` from that address, then set `anchor_txid` on the snapshot's row (#21).
+  `POST /api/v1/bitcom/compose` builds the unsigned script.
+- **Be a route provider.** `$ route add <namespace> /:tx https://bitblocks.app/b/${tx}` from that address (#22).
+  A provider can only attach to a route the namespace's admin has enabled, so B:// needs its own admin to run `$ route enable /:tx`.
 
 ## Not built yet
 
-- bit:// resolution and bitblocks as a route provider (#22).
-- Command composer that hands unsigned commands to qart (#23).
+- BCat files reassembled and served (#15).
 - Discovery of historical commands in blocks bitblocks hasn't fetched (#24).
-- On-chain anchoring of export snapshots (#21).

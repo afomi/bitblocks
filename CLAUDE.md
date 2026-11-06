@@ -230,6 +230,9 @@ bin/bitblocks rpc 'Bitblocks.Release.store_block_objects(0, 9_999)'
 # BSV-21 transfer validation (#41): dry run first, then add apply: true
 bin/bitblocks rpc 'Bitblocks.Release.revalidate_token_transfers()'
 
+# Bitcom registry snapshot (#21): writes a new version if the registry changed; a daily cron does the same
+bin/bitblocks rpc 'Bitblocks.Release.bitcom_snapshot()'
+
 # Chain-scrubber tiles (#48): full build once, then the cron keeps them current
 bin/bitblocks rpc 'Bitblocks.Release.build_chain_tiles()'
 bin/bitblocks rpc 'Bitblocks.Release.chain_tiles_status()'
@@ -289,6 +292,10 @@ GET|POST|PATCH|DELETE /api/v1/annotations[/:id] — admin only: chain annotation
 GET /api/v1/types/:id           — one type with its latest examples from the index (status ok | coming | unavailable)
 GET /api/v1/bitcom              — Bitcom registry export, every namespace with re-verifiable txids (also at /bitcom.json)
 GET /api/v1/bitcom/:address     — one Bitcom namespace: tier, proof, files, routes
+GET /api/v1/bitcom/snapshots    — versioned registry snapshots, newest first, each with its sha256 (CORS *)
+GET /api/v1/bitcom/snapshots/:version — one snapshot's exact bytes (or latest); sha256sum of the body matches the listed hash
+GET /api/v1/bit/:address/*path  — resolves bit://<address>/<path> to providers' endpoints; returned, never fetched
+GET /b/:txid                    — a B:// file parsed from its tx on the fly (immutable, nosniff, sandbox CSP)
 GET /api/v1/projections/:id     — managed projection (#29): tenant, filter, definition hash
 GET /api/v1/projections/:id/txs — hydrate: matching confirmed txs oldest first, frozen at a snapshot (?cursor=, ?limit=); meta.complete is false while blocks in range are syncing
 GET /api/v1/projections/:id/status — index_state ready | backfilling, indexed_through_height, lag_blocks

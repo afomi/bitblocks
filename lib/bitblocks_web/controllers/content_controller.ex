@@ -5,6 +5,9 @@ defmodule BitblocksWeb.ContentController do
   and a bare txid means output 0). Nothing is pre-extracted: the tx's bytes
   are the source of truth and the parse is cheap.
 
+  `GET /b/:txid`: a B:// file, read the same way (`Bitblocks.Bitcom.BFile`),
+  with the same headers. It is the endpoint a `$ route add` can name for B://.
+
   Bytes come from `Bitblocks.TxStore.raw/1` (database, then blob store). A tx
   we hold nowhere is fetched from WhatsOnChain, checked against its txid, and
   kept in the blob store only, so public requests can't fill the database.
@@ -16,6 +19,7 @@ defmodule BitblocksWeb.ContentController do
 
   require Logger
 
+  alias Bitblocks.Bitcom.BFile
   alias Bitblocks.Chain.RawTx
   alias Bitblocks.Ordinals.Inscription
   alias Bitblocks.{TxStore, Woc}
@@ -28,12 +32,7 @@ defmodule BitblocksWeb.ContentController do
          {:ok, tx} <- RawTx.parse(Base.encode16(bytes)),
          %BSV.TxOut{script: script} <- Enum.at(tx.outputs, vout) || {:error, :no_output},
          {:ok, %{content: content} = insc} when is_binary(content) <- Inscription.parse(script) do
-      conn
-      |> put_resp_content_type(content_type(insc.content_type), nil)
-      |> put_resp_header("cache-control", "public, max-age=31536000, immutable")
-      |> put_resp_header("x-content-type-options", "nosniff")
-      |> put_resp_header("content-security-policy", @csp)
-      |> send_resp(200, content)
+      serve(conn, insc.content_type, content)
     else
       {:error, :bad_outpoint} ->
         error(conn, 400, "Expected /content/<txid>_<vout>")
@@ -54,6 +53,41 @@ defmodule BitblocksWeb.ContentController do
           "no inscription at this outpoint (encrypted or non-1Sat content isn't served)"
         )
     end
+  end
+
+  def b(conn, %{"txid" => raw_txid}) do
+    with {:ok, txid} <- parse_txid(raw_txid),
+         {:ok, bytes} <- bytes(txid),
+         {:ok, tx} <- RawTx.parse(Base.encode16(bytes)),
+         {:ok, file} <- BFile.parse(tx) do
+      serve(conn, file.media_type, file.content)
+    else
+      {:error, :bad_txid} ->
+        error(conn, 400, "Expected /b/<txid>")
+
+      {:error, :not_found} ->
+        error(conn, 404, "unknown transaction")
+
+      {:error, {:fetch_failed, _}} ->
+        error(conn, 502, "could not fetch the transaction; try again")
+
+      _ ->
+        error(conn, 404, "no B:// file in this transaction")
+    end
+  end
+
+  defp serve(conn, type, content) do
+    conn
+    |> put_resp_content_type(content_type(type), nil)
+    |> put_resp_header("cache-control", "public, max-age=31536000, immutable")
+    |> put_resp_header("x-content-type-options", "nosniff")
+    |> put_resp_header("content-security-policy", @csp)
+    |> send_resp(200, content)
+  end
+
+  defp parse_txid(raw) do
+    txid = String.downcase(raw)
+    if txid =~ ~r/\A[0-9a-f]{64}\z/, do: {:ok, txid}, else: {:error, :bad_txid}
   end
 
   defp parse(raw) do

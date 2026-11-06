@@ -32,6 +32,14 @@ defmodule BitblocksWeb.Router do
     plug CORSPlug, origin: "*"
   end
 
+  # Declared before the :api scope so "snapshots" isn't captured as an address.
+  scope "/api/v1", BitblocksWeb.Api do
+    pipe_through :public_api
+
+    get "/bitcom/snapshots", BitcomController, :snapshots
+    get "/bitcom/snapshots/:version", BitcomController, :snapshot
+  end
+
   scope "/api/v1", BitblocksWeb.Api do
     pipe_through :api
 
@@ -167,6 +175,9 @@ defmodule BitblocksWeb.Router do
 
     # Inscription bodies parsed from raw txs on the fly (1Sat /content convention).
     get "/content/:outpoint", ContentController, :show
+
+    # A B:// file parsed from its tx the same way (#22).
+    get "/b/:txid", ContentController, :b
   end
 
   # The Bitcom registry export, at a stable top-level path.

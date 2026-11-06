@@ -1598,6 +1598,27 @@ defmodule Bitblocks.Release do
   end
 
   @doc """
+  Writes a Bitcom registry snapshot if the registry changed, and prints the
+  version and hash (#21). The daily cron does the same.
+
+      bin/bitblocks rpc 'Bitblocks.Release.bitcom_snapshot()'
+  """
+  def bitcom_snapshot do
+    with_running_repo(fn ->
+      case Bitblocks.Bitcom.Snapshots.take() do
+        {:ok, result, snapshot} ->
+          IO.puts(
+            "Bitcom snapshot v#{snapshot.id} #{result}: #{snapshot.sha256}, " <>
+              "#{snapshot.namespaces} namespaces"
+          )
+
+        {:error, changeset} ->
+          IO.puts("Bitcom snapshot failed: #{inspect(changeset.errors)}")
+      end
+    end)
+  end
+
+  @doc """
   Prints tile counts per level and the last builds.
 
       bin/bitblocks rpc 'Bitblocks.Release.chain_tiles_status()'

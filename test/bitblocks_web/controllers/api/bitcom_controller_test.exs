@@ -34,6 +34,39 @@ defmodule BitblocksWeb.Api.BitcomControllerTest do
     assert [%{"file" => "readme", "content" => "hi"}] = data["files"]
   end
 
+  describe "versioned snapshots" do
+    test "a snapshot's served bytes hash to its listed sha256", %{conn: conn} = ctx do
+      {proof, _} = bitcom_command_fixture(ctx.admin, [["$", "useradd", ctx.admin_addr]])
+      {:ok, :created, snapshot} = Bitblocks.Bitcom.Snapshots.take()
+
+      assert %{"data" => [listed | _]} =
+               conn |> get("/api/v1/bitcom/snapshots") |> json_response(200)
+
+      assert listed["version"] == snapshot.id
+      assert listed["anchor_txid"] == nil
+
+      served = get(conn, "/api/v1/bitcom/snapshots/#{snapshot.id}")
+      assert served.status == 200
+      assert get_resp_header(served, "cache-control") |> hd() =~ "immutable"
+
+      assert listed["sha256"] ==
+               :sha256 |> :crypto.hash(served.resp_body) |> Base.encode16(case: :lower)
+
+      assert %{"namespaces" => namespaces} = Jason.decode!(served.resp_body)
+      assert Enum.find(namespaces, &(&1["address"] == ctx.admin_addr))["proof_txid"] == proof.txid
+    end
+
+    test "latest and a .json suffix both find it; an unknown version is a 404", %{conn: conn} do
+      {:ok, _, snapshot} = Bitblocks.Bitcom.Snapshots.take()
+
+      assert conn |> get("/api/v1/bitcom/snapshots/latest") |> response(200) == snapshot.body
+      assert conn |> get("/api/v1/bitcom/snapshots/#{snapshot.id}.json") |> response(200)
+
+      assert conn |> get("/api/v1/bitcom/snapshots/999999999") |> json_response(404)
+      assert conn |> get("/api/v1/bitcom/snapshots/nope") |> json_response(404)
+    end
+  end
+
   describe "GET /api/v1/bit/:address/*path" do
     test "resolves to each provider's instantiated endpoint", %{conn: conn} = ctx do
       provider = BSV.PrivKey.new()

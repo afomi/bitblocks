@@ -145,7 +145,9 @@ config :bitblocks, Oban,
        # (Release.build_chain_tiles/1). Never heavy work on deploy.
        {"*/5 * * * *", Bitblocks.Workers.ChainTilesWorker, args: %{"mode" => "incremental"}},
        # Health check: emails when the node is unreachable or the index stalls.
-       {"*/5 * * * *", Bitblocks.Workers.OpsAlertWorker}
+       {"*/5 * * * *", Bitblocks.Workers.OpsAlertWorker},
+       # A new Bitcom registry snapshot, if the registry changed (#21).
+       {"17 4 * * *", Bitblocks.Workers.BitcomSnapshotWorker}
      ]}
   ],
   queues: [

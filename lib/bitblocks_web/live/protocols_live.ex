@@ -438,8 +438,11 @@ defmodule BitblocksWeb.ProtocolsLive do
                             Enforced
                           </span>
                         <% end %>
-                        <span class={"px-2 py-1 rounded text-xs font-semibold #{status_color(protocol.verification_status)}"}>
-                          <%= format_status(protocol.verification_status) %>
+                        <span
+                          class={"px-2 py-1 rounded text-xs font-semibold #{trust_color(protocol)}"}
+                          title={trust_title(protocol)}
+                        >
+                          <%= trust_label(protocol) %>
                         </span>
                       </div>
                     </div>
@@ -595,8 +598,12 @@ defmodule BitblocksWeb.ProtocolsLive do
               Covenant Enforced
             </span>
           <% end %>
-          <span class={"px-3 py-1 rounded-full text-sm font-semibold #{status_color(@protocol.verification_status)}"}>
-            <%= format_status(@protocol.verification_status) %>
+          <span
+            id="protocol-trust"
+            class={"px-3 py-1 rounded-full text-sm font-semibold #{trust_color(@protocol)}"}
+            title={trust_title(@protocol)}
+          >
+            <%= trust_label(@protocol) %>
           </span>
         </div>
       </div>
@@ -610,6 +617,25 @@ defmodule BitblocksWeb.ProtocolsLive do
       <div class="space-y-4 text-gray-700">
         <p>
           <%= @protocol.description || "No description available." %>
+        </p>
+        <p
+          :if={@protocol.ownership_proof_txid}
+          id="protocol-proof"
+        >
+          Proven on chain: the address funded its own
+          <.link
+            navigate={~p"/transactions/#{@protocol.ownership_proof_txid}"}
+            class="underline text-blue-700 hover:text-blue-900"
+          >
+            useradd transaction
+          </.link>.
+          See its
+          <.link
+            navigate={~p"/bitcom/#{@protocol.address}"}
+            class="underline text-blue-700 hover:text-blue-900"
+          >
+            Bitcom namespace
+          </.link>.
         </p>
 
         <h3 class="font-semibold text-lg mt-4">
@@ -780,16 +806,28 @@ defmodule BitblocksWeb.ProtocolsLive do
     |> Enum.join(" ")
   end
 
-  defp format_status(status) do
+  # "Proven" is earned on chain, by the rule /bitcom uses. Without a proof a
+  # seeded :verified is curation (docs/BITCOM.md), so it reads "Curated".
+  defp trust_label(%{ownership_proof_txid: txid}) when is_binary(txid), do: "Proven"
+
+  defp trust_label(%{verification_status: status}) do
     case status do
       :unverified -> "Unverified"
       :pending -> "Pending"
       :beta -> "Beta"
-      :verified -> "Verified"
+      :verified -> "Curated"
       :deprecated -> "Deprecated"
       _ -> "Unknown"
     end
   end
+
+  defp trust_title(%{ownership_proof_txid: txid}) when is_binary(txid),
+    do: "This address proved ownership on chain with a useradd it funded itself."
+
+  defp trust_title(%{verification_status: :verified}),
+    do: "Reviewed and listed by hand. No on-chain proof yet."
+
+  defp trust_title(_protocol), do: nil
 
   defp category_color(category) do
     case category do
@@ -806,9 +844,11 @@ defmodule BitblocksWeb.ProtocolsLive do
     end
   end
 
-  defp status_color(status) do
+  defp trust_color(%{ownership_proof_txid: txid}) when is_binary(txid),
+    do: "bg-green-100 text-green-800"
+
+  defp trust_color(%{verification_status: status}) do
     case status do
-      :verified -> "bg-green-100 text-green-700"
       :beta -> "bg-blue-100 text-blue-700"
       :pending -> "bg-yellow-100 text-yellow-700"
       :deprecated -> "bg-red-100 text-red-700"

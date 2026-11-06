@@ -346,9 +346,12 @@ defmodule Bitblocks.Bitcom do
     |> Enum.sort_by(&{tier_rank(&1.tier), -&1.usage, &1.name})
   end
 
-  @doc "The directory entry for one address (an empty `:listed` entry if unknown)."
-  @spec entry(String.t()) :: entry()
-  def entry(address) when is_binary(address) do
+  @doc """
+  The directory entry for one address (an empty `:listed` entry if unknown).
+  `usage: false` skips the usage count, the one read of `transactions`.
+  """
+  @spec entry(String.t(), keyword()) :: entry()
+  def entry(address, opts \\ []) when is_binary(address) do
     protocol = ProtocolRegistry.get_protocol_by_address(address)
     tag = tag(address)
     proof = (protocol && protocol.ownership_proof_txid) || useradd_txid(address)
@@ -367,7 +370,7 @@ defmodule Bitblocks.Bitcom do
       tag: tag,
       files: files,
       routes: length(routes(address)),
-      usage: usage(tag)
+      usage: if(Keyword.get(opts, :usage, true), do: usage(tag), else: 0)
     }
   end
 
@@ -379,14 +382,19 @@ defmodule Bitblocks.Bitcom do
   def export_namespace(address) when is_binary(address) do
     entry = entry(address)
 
+    address
+    |> namespace_facts(entry)
+    |> Map.merge(%{indexed_txs: entry.usage, indexed_txs_capped: entry.usage >= @usage_cap})
+  end
+
+  # What the chain says about a namespace: everything in the export but usage.
+  defp namespace_facts(address, entry) do
     %{
       address: entry.address,
       name: entry.name,
       tier: Atom.to_string(entry.tier),
       proof_txid: entry.proof_txid,
       tag: entry.tag,
-      indexed_txs: entry.usage,
-      indexed_txs_capped: entry.usage >= @usage_cap,
       files:
         Enum.map(files(address), fn %{file: file, command: c, history: history} ->
           %{
@@ -411,10 +419,26 @@ defmodule Bitblocks.Bitcom do
     }
   end
 
+  @doc """
+  Every namespace's facts, sorted by address, with no usage counts: the body
+  of a versioned snapshot (`Bitblocks.Bitcom.Snapshots`). Reads no
+  `transactions`, and the same commands always give the same data.
+  """
+  def snapshot_namespaces do
+    known_addresses()
+    |> Enum.sort()
+    |> Enum.map(&namespace_facts(&1, entry(&1, usage: false)))
+  end
+
+  @spec_url "https://github.com/unwriter/Bitcom"
+
+  @doc "The Bitcom spec this registry follows."
+  def spec_url, do: @spec_url
+
   @doc "The whole registry as plain data (see `export_namespace/1`)."
   def export do
     %{
-      spec: "https://github.com/unwriter/Bitcom",
+      spec: @spec_url,
       generated_at: DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601(),
       namespaces: Enum.map(directory(), &export_namespace(&1.address))
     }

@@ -5,6 +5,9 @@ defmodule BitblocksWeb.Api.BitcomController do
     * `GET /api/v1/bitcom` and `GET /bitcom.json` — every namespace, with the
       txids needed to re-verify each entry from the chain.
     * `GET /api/v1/bitcom/:address` — one namespace.
+    * `GET /api/v1/bitcom/snapshots` — every versioned snapshot, newest first.
+    * `GET /api/v1/bitcom/snapshots/:version` — one snapshot's exact bytes, or
+      `latest`; `sha256sum` of the body matches the listed hash.
     * `POST /api/v1/bitcom/compose` — `{"funder", "pushes"}` → the unsigned
       OP_RETURN script for a wallet to sign (pushes exclude the `$`).
     * `GET /api/v1/bit/:address/*path` — resolves `bit://<address>/<path>` to
@@ -13,8 +16,41 @@ defmodule BitblocksWeb.Api.BitcomController do
   use BitblocksWeb, :controller
 
   alias Bitblocks.Bitcom
+  alias Bitblocks.Bitcom.Snapshots
 
   def index(conn, _params), do: json(conn, Bitcom.export())
+
+  def snapshots(conn, _params), do: json(conn, %{data: Snapshots.list()})
+
+  def snapshot(conn, %{"version" => version}) do
+    case find_snapshot(version) do
+      nil ->
+        conn |> put_status(404) |> json(%{error: "No such snapshot"})
+
+      snapshot ->
+        conn
+        |> put_resp_content_type("application/json")
+        |> put_resp_header("x-bitcom-snapshot-version", to_string(snapshot.id))
+        |> put_resp_header("x-bitcom-snapshot-sha256", snapshot.sha256)
+        |> snapshot_cache(version)
+        |> send_resp(200, snapshot.body)
+    end
+  end
+
+  defp find_snapshot("latest"), do: Snapshots.latest()
+
+  defp find_snapshot(version) do
+    case Integer.parse(String.replace_suffix(version, ".json", "")) do
+      {id, ""} when id > 0 and id <= 9_223_372_036_854_775_807 -> Snapshots.get(id)
+      _ -> nil
+    end
+  end
+
+  # A numbered version never changes.
+  defp snapshot_cache(conn, "latest"), do: conn
+
+  defp snapshot_cache(conn, _version),
+    do: put_resp_header(conn, "cache-control", "public, max-age=31536000, immutable")
 
   def show(conn, %{"address" => address}) do
     if Bitcom.address?(address),
