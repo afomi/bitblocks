@@ -276,13 +276,14 @@ defmodule BitblocksWeb.StartLiveTest do
   end
 
   describe "guidance" do
-    test "dates every view and labels it ours or a draft", %{conn: conn} do
+    test "dates every view and labels it a draft", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/start/guidance")
 
       for {anchor, _title, _line} <- Index.guidance_topics() do
         assert has_element?(view, "##{anchor}")
         assert render(element(view, "##{anchor}")) =~ ~r/\d{4}-\d{2}-\d{2}/
-        assert render(element(view, "##{anchor}")) =~ ~r/Our position|Draft/
+        assert render(element(view, "##{anchor}")) =~ "Draft"
+        refute render(element(view, "##{anchor}")) =~ "Our position"
       end
     end
 

@@ -1,9 +1,9 @@
 defmodule BitblocksWeb.StartLive.Guidance do
   @moduledoc """
   `/start/guidance`: Bitblocks' own views on identity, wallets, standards,
-  experiences, applications, resources and what we find interesting. Each is
-  labelled as ours, says why, and carries a date; a `draft` is still to be
-  confirmed by Ryan (`docs/DEMOS_CAMPAIGN.md` lists them).
+  experiences, applications, resources and what we find interesting. Each says
+  why and carries a date, and every one is a draft until Ryan confirms it
+  (`docs/DEMOS_CAMPAIGN.md`).
 
   Admin only until published, like `/start`.
   """

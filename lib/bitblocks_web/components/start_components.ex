@@ -51,12 +51,12 @@ defmodule BitblocksWeb.StartComponents do
 
   @doc """
   A short status. `today` works now with no account, and `signed_in` works now
-  after GitHub sign-in. `coming` isn't built. `position` is a view we hold, and
-  `draft` a view still to be confirmed.
+  after GitHub sign-in. `coming` isn't built, and `draft` is a view still to
+  be confirmed.
   """
   attr :kind, :string, required: true
 
-  def status(%{kind: kind} = assigns) when kind in ~w(today signed_in position) do
+  def status(%{kind: kind} = assigns) when kind in ~w(today signed_in) do
     ~H"""
     <span class="text-xs font-semibold text-green-700 dark:text-green-400">
       {status_label(@kind)}
@@ -75,7 +75,6 @@ defmodule BitblocksWeb.StartComponents do
   defp status_label("today"), do: "Works today, no account needed"
   defp status_label("signed_in"), do: "Works today, signed in"
   defp status_label("coming"), do: "Coming"
-  defp status_label("position"), do: "Our position"
   defp status_label("draft"), do: "Draft"
 
   @doc "One step on the rail: a numbered block, joined to the next by the chain."

@@ -84,6 +84,6 @@ A test holds every listed endpoint to the router and to the access it claims, an
 
 ## Sources for guidance
 
-Our position: Standards (Qart `docs/INTEROP.md`), Identity (Qart `docs/IDENTITY_INTEROP.md`, `docs/IDENTITY_AND_TRANSACTIONS.md`, and `docs/BAP.md` here), Wallets (Qart `docs/BRC100.md`, `docs/INTEROP.md`).
+All seven views stay labelled Draft until Ryan confirms them (Ryan, 2026-11-05).
 
-Draft, for Ryan to confirm: Experiences (`DESIGN.md`, Qart `docs/positioning/POSITIONING.md`), Applications (`docs/ADOPTION_SPECTRUM.md`, Qart `docs/INTEROP.md` and `docs/IDENTITY_AND_TRANSACTIONS.md`), Resources and Things we find interesting (selected for this page).
+Standards (Qart `docs/INTEROP.md`), Identity (Qart `docs/IDENTITY_INTEROP.md`, `docs/IDENTITY_AND_TRANSACTIONS.md`, and `docs/BAP.md` here), Wallets (Qart `docs/BRC100.md`, `docs/INTEROP.md`), Experiences (`DESIGN.md`, Qart `docs/positioning/POSITIONING.md`), Applications (`docs/ADOPTION_SPECTRUM.md`, Qart `docs/INTEROP.md` and `docs/IDENTITY_AND_TRANSACTIONS.md`), Resources and Things we find interesting (selected for this page).
