@@ -11,4 +11,11 @@ defmodule BitblocksWeb.PricingLiveTest do
     refute html =~ "unlimited"
     refute html =~ "/mo"
   end
+
+  test "promises no uptime figure or SLA", %{conn: conn} do
+    {:ok, _view, html} = live(conn, ~p"/pricing")
+
+    refute html =~ "99.95"
+    refute html =~ "SLA"
+  end
 end
