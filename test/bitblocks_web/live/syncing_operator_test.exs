@@ -101,6 +101,27 @@ defmodule BitblocksWeb.SyncingOperatorTest do
       assert has_element?(view, "#sync-failed-blocks", "3 in a row")
     end
 
+    test "lists webhook deliveries given up on, with the projection and last status", %{
+      conn: conn
+    } do
+      {:ok, projection} =
+        Bitblocks.Projections.create(%{
+          tenant: "visible-dao",
+          name: "donations",
+          filter: %{"output_addresses" => ["1Donation"]},
+          webhook_url: "https://hooks.example/bitblocks"
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/syncing")
+      refute has_element?(view, "#sync-webhook-failures")
+
+      Bitblocks.Projections.record_webhook_failure(projection, "tx", "{:http_status, 500}")
+
+      {:ok, view, _html} = live(conn, ~p"/syncing")
+      assert has_element?(view, "#sync-webhook-failures", "visible-dao/donations")
+      assert has_element?(view, "#sync-webhook-failures", "{:http_status, 500}")
+    end
+
     test "the audit's confirm says it scans transactions", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/syncing")
       assert has_element?(view, "button[data-confirm*='scans the whole transactions table']")

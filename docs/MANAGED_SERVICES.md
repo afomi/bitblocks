@@ -60,6 +60,8 @@ Missing for a managed service:
 - SSE follow with a cursor (qart, step 6).
 
 Built (#29 steps 1–4): the projection record, hydrate, status and webhook follow: `Bitblocks.Projections`, `/api/v1/projections/:id/{txs,status}`, `ProjectionWebhookWorker`.
+Built from step 5: webhooks reach public hosts only (`Projections.WebhookTarget`), and a key's `requests_per_minute` is already a tenant's quota.
+Open in step 5: whether tenants must present a key to read their projection, which is a decision on #12.
 
 GIN serves containment (`col @> ARRAY[x]`), not membership (`x = ANY(col)`, which is what Ecto's `^x in t.col` compiles to).
 Before 2026-10-25 the address, script and template lookups used membership, so on prod they scanned the whole table, `/api/v1/support` included.
@@ -146,6 +148,9 @@ Build in dependency order, each step with a test, and do it CLI-first: a context
    No cursor in the payload: a `tx` event is a position on the live chain, and hydrate cursors are for frozen snapshots.
    At least once, unique per `{projection, txid, block_hash}`, so tenants dedupe on that pair.
    The secret is per projection until tenant keys exist, and the webhook URL and secret are never served by the API.
+   A delivery that runs out of retries, or is refused, is recorded on the projection, and `/syncing` lists it for admins.
+   Oban keeps a discarded job for only a minute, so the job itself can't be that record.
+   A webhook must point at a public host: checked when the URL is set and before each delivery, with no redirects followed (`Projections.WebhookTarget`).
    Before tenants self-register (step 5), delivery must refuse private and link-local addresses (SSRF).
 5. **Tenant keys and quotas:** per-tenant API key, a request budget, and tip-lag targets.
    This is the first real step on #12 (anonymous load) and #13 (edge rate limiting).

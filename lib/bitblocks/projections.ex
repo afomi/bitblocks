@@ -74,7 +74,8 @@ defmodule Bitblocks.Projections do
 
   @doc """
   Sets or clears a projection's webhook. Setting it always rotates the
-  secret, so a leaked secret is replaced by re-registering the URL.
+  secret, so a leaked secret is replaced by re-registering the URL, and clears
+  the record of failed deliveries.
   """
   @spec set_webhook(Projection.t(), String.t() | nil) ::
           {:ok, Projection.t()} | {:error, Ecto.Changeset.t()}
@@ -82,9 +83,48 @@ defmodule Bitblocks.Projections do
     # Nil the stored secret as a real change, so clearing persists and setting
     # makes Projection.changeset generate a fresh one.
     projection
-    |> Ecto.Changeset.change(webhook_secret: nil)
+    |> Ecto.Changeset.change(
+      webhook_secret: nil,
+      webhook_failures: 0,
+      webhook_failed_at: nil,
+      webhook_failed_event: nil,
+      webhook_failed_status: nil
+    )
     |> Projection.changeset(%{webhook_url: url})
     |> Repo.update()
+  end
+
+  @doc """
+  Records a delivery given up on: its event, and the last status or error,
+  scrubbed. Oban keeps a discarded job for only a minute, so this is the record.
+  """
+  @spec record_webhook_failure(Projection.t(), String.t(), String.t()) :: :ok
+  def record_webhook_failure(%Projection{id: id}, event, status) do
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+    from(p in Projection, where: p.id == ^id)
+    |> Repo.update_all(
+      inc: [webhook_failures: 1],
+      set: [
+        webhook_failed_at: now,
+        webhook_failed_event: event,
+        webhook_failed_status: Bitblocks.Ops.Scrub.line(status),
+        updated_at: now
+      ]
+    )
+
+    :ok
+  end
+
+  @doc "Projections with deliveries given up on, the latest first (/syncing)."
+  @spec webhook_failures(pos_integer()) :: [Projection.t()]
+  def webhook_failures(limit \\ 20) do
+    Repo.all(
+      from p in Projection,
+        where: p.webhook_failures > 0,
+        order_by: [desc: p.webhook_failed_at],
+        limit: ^limit
+    )
   end
 
   @doc """
@@ -156,10 +196,13 @@ defmodule Bitblocks.Projections do
   Options: `:cursor`, `:limit` (default #{@default_limit}, max #{@max_limit}),
   `:snapshot_height` (first page only).
 
-  Starts at the projection's `from_height`. `complete` says whether every
-  block from there to the snapshot is fully synced (see `status/1`). When it
-  is false, the set is partial: a tx backfilled below a cursor after that page
-  was served is not revisited, so the tenant re-hydrates once it is true.
+  Starts at the projection's `from_height`. `stable_through_height` is the
+  last height with every block from there fully synced (see `status/1`), so
+  nothing can still appear at or below it. `complete` says this page, and every
+  page before it, lies within that stable prefix. A tenant keeps pages while
+  `complete` is true, and when it turns false holds that page's cursor and
+  comes back from the same place: rows above the first incomplete block aren't
+  final, and a tx stored below a cursor already served is not revisited.
   """
   @spec hydrate(Projection.t(), keyword()) ::
           {:ok,
@@ -167,6 +210,7 @@ defmodule Bitblocks.Projections do
              txs: [Transaction.t()],
              next_cursor: String.t() | nil,
              snapshot_height: integer() | nil,
+             stable_through_height: integer() | nil,
              complete: boolean()
            }}
           | {:error, :invalid_cursor}
@@ -184,12 +228,16 @@ defmodule Bitblocks.Projections do
           _ -> nil
         end
 
+      stable = stable_through(projection, snapshot)
+      covered = if next_cursor, do: List.last(txs).block_height, else: snapshot
+
       {:ok,
        %{
          txs: txs,
          next_cursor: next_cursor,
          snapshot_height: snapshot,
-         complete: complete_through?(projection, snapshot)
+         stable_through_height: stable,
+         complete: is_integer(covered) and is_integer(stable) and covered <= stable
        }}
     end
   end
@@ -248,9 +296,12 @@ defmodule Bitblocks.Projections do
 
   `indexed_through_height` is the last height `h` such that every block in
   `[from_height, h]` is stored and `completed` (its transactions fetched and
-  analyzed). A missing block is a gap, never a pass. `index_state` is
-  `"ready"` when that reaches the tip, else `"backfilling"`; `lag_blocks` is
-  the distance to the tip.
+  analyzed), and `stable_through_height` is the same height under the name
+  hydrate uses. A missing block is a gap, never a pass.
+
+  `tip_height` is our newest header, and `node_tip_height` the node's, when we
+  know it. `index_state` is `"ready"` when the stable prefix has reached both,
+  else `"backfilling"`; `lag_blocks` is the distance to the further of them.
 
   Block-level: a `completed` block with a tx-count deficit is caught by
   `Release.audit_completeness/1`, which is too heavy to run per request.
@@ -259,29 +310,33 @@ defmodule Bitblocks.Projections do
           projection_id: integer(),
           from_height: non_neg_integer(),
           tip_height: integer() | nil,
+          node_tip_height: integer() | nil,
           indexed_through_height: integer(),
+          stable_through_height: integer(),
           lag_blocks: non_neg_integer(),
           index_state: String.t()
         }
   def status(%Projection{} = projection) do
     tip = tip_height()
+    node_tip = Bitblocks.SyncProgress.snapshot().overview[:node_tip]
     through = indexed_through(projection.from_height, tip)
-    lag = if tip, do: max(tip - through, 0), else: 0
+    head = [tip, node_tip] |> Enum.filter(&is_integer/1) |> Enum.max(fn -> nil end)
+    lag = if head, do: max(head - through, 0), else: 0
 
     %{
       projection_id: projection.id,
       from_height: projection.from_height,
       tip_height: tip,
+      node_tip_height: node_tip,
       indexed_through_height: through,
+      stable_through_height: through,
       lag_blocks: lag,
-      index_state: if(tip && through >= tip, do: "ready", else: "backfilling")
+      index_state: if(head && through >= head, do: "ready", else: "backfilling")
     }
   end
 
-  defp complete_through?(_projection, nil), do: false
-
-  defp complete_through?(projection, snapshot),
-    do: indexed_through(projection.from_height, snapshot) >= snapshot
+  defp stable_through(_projection, nil), do: nil
+  defp stable_through(projection, snapshot), do: indexed_through(projection.from_height, snapshot)
 
   # Last height h in [from, to] with every block from..h completed; from - 1
   # when the first block is already incomplete. The count is an index-only

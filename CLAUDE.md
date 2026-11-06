@@ -312,8 +312,8 @@ GET /api/v1/bitcom/snapshots/:version — one snapshot's exact bytes (or latest)
 GET /api/v1/bit/:address/*path  — resolves bit://<address>/<path> to providers' endpoints; returned, never fetched
 GET /b/:txid                    — a B:// file parsed from its tx on the fly (immutable, nosniff, sandbox CSP)
 GET /api/v1/projections/:id     — managed projection (#29): tenant, filter, definition hash
-GET /api/v1/projections/:id/txs — hydrate: matching confirmed txs oldest first, frozen at a snapshot (?cursor=, ?limit=); meta.complete is false while blocks in range are syncing
-GET /api/v1/projections/:id/status — index_state ready | backfilling, indexed_through_height, lag_blocks
+GET /api/v1/projections/:id/txs — hydrate: matching confirmed txs on the stored chain, oldest first, frozen at a snapshot (?cursor=, ?limit=); meta.complete is true while a page lies within meta.stable_through_height; when it turns false, hold the cursor and come back
+GET /api/v1/projections/:id/status — index_state ready | backfilling (ready: the stable prefix reaches our tip and the node's), stable_through_height, tip_height, node_tip_height, lag_blocks
 GET /api/v1/collections/:id       — collection summary + verification (:id = grand-tardinians | rexxies, or a 1Sat collection origin outpoint)
 GET /api/v1/collections/:id/items — items in mint order: origin, name, traits, current_outpoint, owner, trace_state: current | ended | partial | unknown | untraced (current and ended are settled; ended is final: the trail truly ends, e.g. a Run jig spent outside Run), trace_error + trace_checked_at for a failed last attempt that kept the last known state (?cursor=, ?limit=)
 POST /api/v1/collections/:id/items/lookup — {"outpoints": [...]} up to 200, answered in order from the index (no re-trace)

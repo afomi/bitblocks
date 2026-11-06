@@ -142,6 +142,40 @@
       </tbody>
     </table>
   </div>
+  <div
+    :if={@webhook_failures != []}
+    id="sync-webhook-failures"
+    class="mb-6"
+  >
+    <h3 class="text-sm font-semibold mb-1 text-gray-900 dark:text-white">
+      Webhook deliveries given up on, latest first
+    </h3>
+    <p class="text-xs text-gray-600 dark:text-gray-300 mb-2">
+      Each ran out of retries, or was refused for a private target.
+      Tenants can recover the rows from hydrate, and setting the webhook again clears this.
+    </p>
+    <table class="w-full text-xs">
+      <thead class="text-left text-gray-600 dark:text-gray-300">
+        <tr>
+          <th class="py-1 pr-4">Projection</th>
+          <th class="py-1 pr-4">Given up on</th>
+          <th class="py-1 pr-4">Last event</th>
+          <th class="py-1">Last status</th>
+        </tr>
+      </thead>
+      <tbody class="text-gray-900 dark:text-gray-100">
+        <tr
+          :for={p <- @webhook_failures}
+          class="border-t border-gray-100 dark:border-gray-700 align-top"
+        >
+          <td class="py-1 pr-4">#{p.id} {p.tenant}/{p.name}</td>
+          <td class="py-1 pr-4">{p.webhook_failures}</td>
+          <td class="py-1 pr-4">{p.webhook_failed_event}</td>
+          <td class="py-1 break-all">{p.webhook_failed_status}</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
   <details
     id="sync-diagnostics"
     class="bg-white dark:bg-gray-800 shadow-md rounded-lg p-6 mb-6"

@@ -72,6 +72,7 @@ config :bitblocks, Oban, testing: :manual, queues: false
 
 # Projection webhooks post to a stub that messages the test process.
 config :bitblocks, :projection_webhook_client, Bitblocks.WebhookClientStub
+config :bitblocks, :webhook_resolver, Bitblocks.WebhookResolverStub
 
 # WhatsOnChain fallback source answers from per-test fixtures.
 config :bitblocks, :woc_client, Bitblocks.WocStub

@@ -17,6 +17,7 @@ defmodule Bitblocks.Projections.Webhook do
       Matches on the new chain arrive as `tx` events as its blocks complete.
 
   Delivery is at least once (Oban retries); dedupe on `{txid, block_hash}`.
+  The target is checked before each delivery (`WebhookTarget`).
   """
 
   alias Bitblocks.Projections.Projection
@@ -78,13 +79,19 @@ defmodule Bitblocks.Projections.Webhook do
     do: :crypto.mac(:hmac, :sha256, secret, data) |> Base.encode16(case: :lower)
 
   @doc """
-  Default HTTP client: `{:ok, status}` or `{:error, reason}`. Swapped in tests
-  via `config :bitblocks, :projection_webhook_client`.
+  Default HTTP client: `{:ok, status}` or `{:error, reason}`. Follows no
+  redirects: a public host must not be able to send us somewhere private, and
+  a 3xx is a failed delivery. Swapped in tests via
+  `config :bitblocks, :projection_webhook_client`.
   """
   @spec post(String.t(), String.t(), [{String.t(), String.t()}]) ::
           {:ok, integer()} | {:error, term()}
   def post(url, body, headers) do
-    case HTTPoison.post(url, body, headers, timeout: 5_000, recv_timeout: 10_000) do
+    case HTTPoison.post(url, body, headers,
+           timeout: 5_000,
+           recv_timeout: 10_000,
+           follow_redirect: false
+         ) do
       {:ok, %HTTPoison.Response{status_code: status}} -> {:ok, status}
       {:error, %HTTPoison.Error{reason: reason}} -> {:error, reason}
     end

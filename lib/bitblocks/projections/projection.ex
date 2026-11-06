@@ -7,6 +7,8 @@ defmodule Bitblocks.Projections.Projection do
   use Ecto.Schema
   import Ecto.Changeset
 
+  alias Bitblocks.Projections.WebhookTarget
+
   # Ingest-time tag columns, each GIN-indexed, so a containment filter on any
   # of them is an index lookup rather than a scan of `transactions`.
   @tag_columns ~w(output_addresses protocols output_script_hashes output_template_hashes aip_signers)
@@ -28,6 +30,11 @@ defmodule Bitblocks.Projections.Projection do
     field :webhook_url, :string
     # HMAC key for x-bitblocks-signature; generated here, never accepted as input.
     field :webhook_secret, :string, redact: true
+    # Deliveries given up on since the webhook was set; see the migration.
+    field :webhook_failures, :integer, default: 0
+    field :webhook_failed_at, :utc_datetime
+    field :webhook_failed_event, :string
+    field :webhook_failed_status, :string
 
     timestamps(type: :utc_datetime)
   end
@@ -50,17 +57,11 @@ defmodule Bitblocks.Projections.Projection do
     |> unique_constraint([:tenant, :name])
   end
 
-  # Operator-registered for now (CLI). Before tenants self-register (#29 step
-  # 5), delivery must also resolve the host and refuse private addresses, or a
-  # tenant could point Bitblocks at its own network (SSRF).
+  # Only a public host (SSRF); delivery checks again. See WebhookTarget.
   defp webhook_url_errors(url) do
-    case URI.parse(url) do
-      %URI{scheme: scheme, host: host}
-      when scheme in ["https", "http"] and host not in [nil, ""] ->
-        []
-
-      _ ->
-        [webhook_url: "must be an http(s) URL"]
+    case WebhookTarget.check(url) do
+      :ok -> []
+      {:error, reason} -> [webhook_url: reason]
     end
   end
 

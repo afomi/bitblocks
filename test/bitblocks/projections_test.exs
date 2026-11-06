@@ -250,18 +250,55 @@ defmodule Bitblocks.ProjectionsTest do
       blocks(103..103, "header_only")
 
       for {height, n} <- [{99, 1}, {100, 2}, {103, 3}] do
-        transaction_fixture(%{
-          block_height: height,
-          block_hash: "block_#{height}",
-          txid: String.duplicate("#{n}", 64),
-          output_addresses: [@donation]
-        })
+        donation(height, n)
       end
 
-      assert {:ok, %{complete: false, txs: txs}} = Projections.hydrate(p)
+      assert {:ok, %{complete: false, txs: txs, stable_through_height: 102}} =
+               Projections.hydrate(p)
+
       assert Enum.map(txs, & &1.block_height) == [100, 103]
 
       assert {:ok, %{complete: true}} = Projections.hydrate(p, snapshot_height: 102)
+    end
+
+    test "pages inside the stable prefix are complete, even with a hole above them", %{
+      projection: p
+    } do
+      blocks(100..102, "completed")
+      blocks(103..103, "header_only")
+      blocks(104..104, "completed")
+
+      for {height, n} <- [{100, 1}, {101, 2}, {103, 3}, {104, 4}], do: donation(height, n)
+
+      assert {:ok, first} = Projections.hydrate(p, limit: 2)
+      assert %{complete: true, stable_through_height: 102, snapshot_height: 104} = first
+      assert Enum.map(first.txs, & &1.block_height) == [100, 101]
+
+      # The next page crosses the hole: hold this cursor and come back later.
+      assert {:ok, second} = Projections.hydrate(p, limit: 2, cursor: first.next_cursor)
+      assert %{complete: false, next_cursor: nil} = second
+      assert Enum.map(second.txs, & &1.block_height) == [103, 104]
+    end
+
+    test "ready means the stable prefix has reached the node's tip, not only ours", %{
+      projection: p
+    } do
+      blocks(100..101, "completed")
+      assert %{index_state: "ready", node_tip_height: nil} = Projections.status(p)
+
+      with_node_tip(105, fn ->
+        assert %{
+                 index_state: "backfilling",
+                 tip_height: 101,
+                 node_tip_height: 105,
+                 stable_through_height: 101,
+                 lag_blocks: 4
+               } = Projections.status(p)
+      end)
+
+      with_node_tip(101, fn ->
+        assert %{index_state: "ready", lag_blocks: 0} = Projections.status(p)
+      end)
     end
   end
 
@@ -300,6 +337,31 @@ defmodule Bitblocks.ProjectionsTest do
                })
 
       assert {id, "t", "n", "active"} in Bitblocks.Release.list_projections()
+    end
+  end
+
+  # A donation on the block stored at `height`.
+  defp donation(height, n) do
+    block_hash =
+      Repo.one(from b in Bitblocks.Chain.Block, where: b.height == ^height, select: b.hash)
+
+    transaction_fixture(%{
+      block_height: height,
+      block_hash: block_hash || "no block stored here",
+      txid: String.duplicate("#{n}", 64),
+      output_addresses: [@donation]
+    })
+  end
+
+  defp with_node_tip(height, fun) do
+    empty = Bitblocks.SyncProgress.empty_snapshot()
+    snapshot = %{empty | overview: %{empty.overview | node_tip: height}}
+    :ets.insert(Bitblocks.SyncProgress, {:snapshot, snapshot})
+
+    try do
+      fun.()
+    after
+      :ets.insert(Bitblocks.SyncProgress, {:snapshot, empty})
     end
   end
 

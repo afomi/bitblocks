@@ -5,10 +5,12 @@ defmodule BitblocksWeb.Api.ProjectionController do
     * `GET /api/v1/projections/:id` — the projection: tenant, filter, hash.
     * `GET /api/v1/projections/:id/txs?cursor=&limit=` — hydrate: confirmed
       history oldest first, frozen at `meta.snapshot_height`. Pass
-      `meta.next_cursor` back until it is null. `meta.complete` is false while
-      blocks in range are still syncing: the set is partial, so re-hydrate.
+      `meta.next_cursor` back until it is null. `meta.complete` is true while
+      a page lies within `meta.stable_through_height`; when it turns false,
+      hold that cursor and come back, because rows above are not yet final.
     * `GET /api/v1/projections/:id/status` — `index_state` (ready |
-      backfilling), `indexed_through_height`, `lag_blocks`, `tip_height`.
+      backfilling), `stable_through_height`, `lag_blocks`, `tip_height`,
+      `node_tip_height`.
 
   Projections are registered from the CLI (`Release.create_projection/1`)
   until tenant keys exist (#29 step 5). Matching txs are public chain data.
@@ -38,6 +40,7 @@ defmodule BitblocksWeb.Api.ProjectionController do
           projection_id: projection.id,
           definition_hash: projection.definition_hash,
           snapshot_height: page.snapshot_height,
+          stable_through_height: page.stable_through_height,
           complete: page.complete,
           next_cursor: page.next_cursor
         }

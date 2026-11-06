@@ -86,6 +86,7 @@ defmodule BitblocksWeb.Api.ProjectionControllerTest do
 
     meta = build_conn() |> get(~p"/api/v1/projections/#{p.id}/txs") |> json_response(200)
     assert meta["meta"]["complete"] == false
+    assert meta["meta"]["stable_through_height"] == -1
   end
 
   test "a bad cursor is a 400, an unknown projection a 404", %{conn: conn, projection: p} do

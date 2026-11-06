@@ -176,6 +176,7 @@ defmodule BitblocksWeb.SyncingLive do
       paused: Sync.paused?(),
       still_finishing: length(Sync.live_jobs()),
       failed_blocks: Sync.failed_blocks(),
+      webhook_failures: Bitblocks.Projections.webhook_failures(),
       concurrency: Sync.concurrency(),
       limit_max: limit_max,
       limit_reason: limit_reason
