@@ -60,27 +60,12 @@ defmodule Bitblocks.Chain.HeaderVerifier do
   def verify(header, claimed_hash, opts \\ [])
 
   def verify(header, claimed_hash, opts) when is_map(header) and is_binary(claimed_hash) do
-    with {:ok, version} <- fetch_int(header, "version"),
-         {:ok, prev_hash} <- fetch_hash(header, "previousblockhash", allow_genesis: true),
-         {:ok, merkle_root} <- fetch_hash(header, "merkleroot"),
-         {:ok, time} <- fetch_int(header, "time"),
-         {:ok, bits} <- fetch_bits(header, "bits"),
-         {:ok, nonce} <- fetch_int(header, "nonce"),
+    with {:ok, serialized} <- serialize(header),
          {:ok, claimed} <- decode_hash(claimed_hash) do
-      serialized =
-        <<
-          version::little-32,
-          # prev/merkle stored big-endian for display → reverse to internal order
-          reverse(prev_hash)::binary,
-          reverse(merkle_root)::binary,
-          time::little-32,
-          bits::little-32,
-          nonce::little-32
-        >>
-
       # Block hash is also displayed big-endian, so reverse the digest back.
       digest = Hash.sha256_sha256(serialized)
       computed = reverse(digest)
+      <<_::binary-size(72), bits::little-32, _nonce::binary-size(4)>> = serialized
 
       cond do
         computed != claimed ->
@@ -96,6 +81,31 @@ defmodule Bitblocks.Chain.HeaderVerifier do
   end
 
   def verify(_header, _claimed_hash, _opts), do: {:error, :invalid_input}
+
+  @doc """
+  The canonical 80-byte header for a `getblockheader` result map, or
+  `{:error, reason}` for a missing or malformed field.
+  """
+  @spec serialize(map()) :: {:ok, <<_::640>>} | {:error, atom()}
+  def serialize(header) when is_map(header) do
+    with {:ok, version} <- fetch_int(header, "version"),
+         {:ok, prev_hash} <- fetch_hash(header, "previousblockhash", allow_genesis: true),
+         {:ok, merkle_root} <- fetch_hash(header, "merkleroot"),
+         {:ok, time} <- fetch_int(header, "time"),
+         {:ok, bits} <- fetch_bits(header, "bits"),
+         {:ok, nonce} <- fetch_int(header, "nonce") do
+      {:ok,
+       <<
+         version::little-32,
+         # prev/merkle stored big-endian for display → reverse to internal order
+         reverse(prev_hash)::binary,
+         reverse(merkle_root)::binary,
+         time::little-32,
+         bits::little-32,
+         nonce::little-32
+       >>}
+    end
+  end
 
   # The hash satisfies PoW when its little-endian integer value is ≤ target.
   # `digest` here is the raw SHA256d (internal byte order), which is the

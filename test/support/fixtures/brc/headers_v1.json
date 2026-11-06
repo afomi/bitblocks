@@ -1,0 +1,32 @@
+{
+  "name": "headers_v1",
+  "spec": "Block headers for ladder step 2b: 80 bytes (version, prev hash, merkle root, time, bits, nonce), little-endian; hash = double SHA-256, compared as a little-endian 256-bit number against the target that bits encodes.",
+  "source": "Mainnet block 973110 from WhatsOnChain (/v1/bsv/main/block/height/973110), 2026-10-29; its merkle root is the one vectors/woc_mainnet_v1.json proves into. Forgeries made from it.",
+  "real": {
+    "height": 973110,
+    "header": "00e0ec29fcb30da28627f8701cc5b8b4302a6e0611992a961d39a01e0000000000000000fe7f3f7765a181b44271f38ec39acce6124778692bb7159dd91c7fdaa7d1889fdab1e26acf792418795dece8",
+    "hash": "0000000000000000028385c66577ddc13278af912119b97c4efdef1748fef8e9",
+    "bits": "182479cf",
+    "merkleRoot": "9f88d1a7da7f1cd99d15b72b69784712e6cc9ac38ef37142b481a165773f7ffe",
+    "explorerFields": {
+      "hash": "0000000000000000028385c66577ddc13278af912119b97c4efdef1748fef8e9",
+      "height": 973110,
+      "version": 703389696,
+      "previousblockhash": "00000000000000001ea0391d962a9911066e2a30b4b8c51c70f82786a20db3fc",
+      "merkleroot": "9f88d1a7da7f1cd99d15b72b69784712e6cc9ac38ef37142b481a165773f7ffe",
+      "time": 1793241562,
+      "bits": "182479cf",
+      "nonce": 3907804537
+    },
+    "explorerFieldsNote": "As WhatsOnChain's /block/height/973110 gives them (2026-10-29); the Workshop rebuilds the 80-byte header from these and checks it hashes to `hash`."
+  },
+  "noWork": {
+    "header": "00e0ec29fcb30da28627f8701cc5b8b4302a6e0611992a961d39a01e0000000000000000fe7f3f7765a181b44271f38ec39acce6124778692bb7159dd91c7fdaa7d1889fdab1e26acf7924187a5dece8",
+    "why": "block 973110 with nonce+1: its hash is above the target its own bits declare"
+  },
+  "easyTarget": {
+    "header": "00e0ec29fcb30da28627f8701cc5b8b4302a6e0611992a961d39a01e0000000000000000fe7f3f7765a181b44271f38ec39acce6124778692bb7159dd91c7fdaa7d1889fdab1e26affff7f2002000000",
+    "nonce": 2,
+    "why": "block 973110's fields with bits 207fffff (regtest's easiest target), mined in a moment: meets its own target, fails the Vault's floor"
+  }
+}

@@ -268,9 +268,9 @@ defmodule Bitblocks.Chain.BeefTest do
   end
 
   test "parse refuses other formats and trailing bytes" do
-    assert Beef.parse(<<1, 0, 0, 0>>) == :error
+    assert {:error, _} = Beef.parse(<<1, 0, 0, 0>>)
 
     {:ok, _} = Beef.parse(vector("brc62_beef.hex"))
-    assert Beef.parse(vector("brc62_beef.hex") <> <<0>>) == :error
+    assert {:error, _} = Beef.parse(vector("brc62_beef.hex") <> <<0>>)
   end
 end

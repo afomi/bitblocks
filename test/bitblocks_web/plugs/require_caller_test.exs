@@ -39,7 +39,9 @@ defmodule BitblocksWeb.Plugs.RequireCallerTest do
         "/api/v1/status/derivations",
         "/api/v1/stream/blocks",
         "/api/v1/bitcom",
-        "/api/v1/txs/#{String.duplicate("a", 64)}/raw"
+        "/api/v1/txs/#{String.duplicate("a", 64)}/raw",
+        "/api/v1/headers/1",
+        "/api/v1/headers?from=0"
       ] do
     test "signed out, GET #{path} is a 401", %{conn: conn} do
       conn = get(conn, unquote(path))

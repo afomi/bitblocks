@@ -104,6 +104,11 @@ defmodule BitblocksWeb.Router do
     get "/txs/:txid", TransactionController, :show
     get "/txs", TransactionController, :index
 
+    # BEEF from anyone, checked against the headers we hold; the headers themselves
+    post "/beef/verify", BeefController, :verify
+    get "/headers/:height", HeaderController, :show
+    get "/headers", HeaderController, :index
+
     # WhatsOnChain-compatible alias layer — bare (un-enveloped) responses with
     # WoC field names, so WoC clients work with minimal changes. The native
     # endpoints above remain primary. See docs/EXTERNAL_APIS.md.
