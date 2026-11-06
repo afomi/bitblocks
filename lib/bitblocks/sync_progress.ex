@@ -553,7 +553,8 @@ defmodule Bitblocks.SyncProgress do
   defp publish(state) do
     snapshot = build(state)
     :ets.insert(@table, {:snapshot, snapshot})
-    Phoenix.PubSub.broadcast(Bitblocks.PubSub, @topic, {:sync_snapshot, snapshot})
+    # Local: every node builds its own snapshot, for its own subscribers.
+    Phoenix.PubSub.local_broadcast(Bitblocks.PubSub, @topic, {:sync_snapshot, snapshot})
     %{state | dirty: false}
   end
 

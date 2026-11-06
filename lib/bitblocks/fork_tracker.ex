@@ -687,7 +687,9 @@ defmodule Bitblocks.ForkTracker do
   end
 
   defp broadcast_delta(delta) do
-    PubSub.broadcast(@pubsub, @topic, {:fork_update, delta})
+    # Local: every node tracks its own graph, and a browser's deltas must come
+    # from the one it started on.
+    PubSub.local_broadcast(@pubsub, @topic, {:fork_update, delta})
   end
 
   defp persist_state(state, opts \\ [])

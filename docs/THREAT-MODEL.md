@@ -102,7 +102,7 @@ settles nothing. The ones that *do* matter and are missing:
    lifetime.
    Revisit only if streams start carrying non-public data.
 4. **Cluster dependency (T1/T2)** — cross-instance rate limiting *and* the SSE cap rely on the Erlang
-   cluster actually being connected via DNSCluster. If the cluster is partitioned or not formed, both
+   cluster actually being connected (`Bitblocks.Cluster.EC2Tags`). If the cluster is partitioned or not formed, both
    degrade gracefully to per-instance enforcement (never fail closed on the request path). Edge
    enforcement (ALB/WAF) remains the belt-and-suspenders for a hard guarantee.
 5. **Upstream proxy amplification (T12)** — **ACCEPTED-RESIDUAL 2026-07-12.**

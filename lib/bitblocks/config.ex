@@ -88,19 +88,6 @@ defmodule Bitblocks.Config do
   end
 
   @doc """
-  Returns the DNS cluster query configuration.
-
-  ## Examples
-
-      iex> dns_cluster_query()
-      nil
-
-  """
-  def dns_cluster_query do
-    Application.get_env(:bitblocks, :dns_cluster_query)
-  end
-
-  @doc """
   Returns the Oban configuration.
 
   ## Examples

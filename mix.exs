@@ -72,7 +72,7 @@ defmodule Bitblocks.MixProject do
       {:gettext, "~> 1.0.2"},
       {:jason, "~> 1.4.4"},
       {:jose, "~> 1.11"},
-      {:dns_cluster, "~> 0.2.0"},
+      {:libcluster, "~> 3.6"},
       {:bandit, "~> 1.2"},
       # Txbox for outbound transaction management
       {:txbox, "~> 0.3"},

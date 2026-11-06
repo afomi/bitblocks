@@ -39,7 +39,7 @@
 │  └──────────────┘    └──────────────┘    └──────────────────────────┘  │
 │                                                                         │
 │  ┌──────────────┐    ┌──────────────┐    ┌──────────────────────────┐  │
-│  │  MemoryMon.  │    │  DNSCluster  │    │  Finch                   │  │
+│  │  MemoryMon.  │    │  libcluster  │    │  Finch                   │  │
 │  │  GenServer   │    │  GenServer   │    │  HTTP client pool        │  │
 │  │              │    │              │    │  (used by Swoosh mailer) │  │
 │  │  Warns when  │    │  Node        │    │                          │  │

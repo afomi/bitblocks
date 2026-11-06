@@ -226,7 +226,26 @@ if config_env() == :prod do
   host = System.get_env("PHX_HOST") || "bitblocks.app"
   port = String.to_integer(System.get_env("PORT") || "4000")
 
-  config :bitblocks, :dns_cluster_query, System.get_env("DNS_CLUSTER_QUERY")
+  # Erlang clustering across the prod instances, so PubSub reaches both and the
+  # rate limiter and SSE limiter share their counts. Peers are found by EC2 tag
+  # (Bitblocks.Cluster.EC2Tags). Unset, empty or "off" leaves each instance on
+  # its own, which is the rollback switch.
+  cluster_tag = System.get_env("CLUSTER_EC2_TAG", "")
+
+  if cluster_tag not in ["", "off"] do
+    config :libcluster,
+      topologies: [
+        ec2: [
+          strategy: Bitblocks.Cluster.EC2Tags,
+          config: [
+            tag_name: "Name",
+            tag_value: cluster_tag,
+            region: System.get_env("CLUSTER_EC2_REGION", "us-east-1"),
+            polling_interval: 5_000
+          ]
+        ]
+      ]
+  end
 
   # The GitHub OAuth app's callback URL is https://<PHX_HOST>/auth/github/callback.
   # Sign-in started on any other host (www.) moves to PHX_HOST first, because

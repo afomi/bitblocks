@@ -25,9 +25,7 @@ PRIVATE_IP=$(curl -s http://169.254.169.254/latest/meta-data/local-ipv4)
 docker run -d --name bitblocks --restart unless-stopped --env-file /opt/bitblocks.env --network host \
   --log-driver=awslogs --log-opt awslogs-region=us-east-1 --log-opt awslogs-group=/app/bitblocks --log-opt awslogs-stream="$INSTANCE_ID" \
   -e RELEASE_SHA="${IMAGE##*:}" \
-  -e RELEASE_DISTRIBUTION=sname \
   -e RELEASE_NODE="bitblocks@${PRIVATE_IP}" \
-  -e DNS_CLUSTER_QUERY="bitblocks.internal.local" \
   "$IMAGE"
 
 # `docker run -d` returns 0 even if the app crashes on boot, so don't trust it:

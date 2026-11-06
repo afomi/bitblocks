@@ -25,7 +25,8 @@ defmodule Bitblocks.Application do
       {TelemetryMetricsPrometheus.Core,
        name: Bitblocks.TelemetryPrometheus, metrics: BitblocksWeb.Telemetry.prometheus_metrics()},
       Bitblocks.Repo,
-      {DNSCluster, query: Application.get_env(:bitblocks, :dns_cluster_query) || :ignore},
+      {Cluster.Supervisor,
+       [Application.get_env(:libcluster, :topologies, []), [name: Bitblocks.ClusterSupervisor]]},
       {Phoenix.PubSub, name: Bitblocks.PubSub},
       # Cluster-replicate per-IP rate-limit counts over PubSub (T1/T12)
       BitblocksWeb.Plugs.RateLimiter.Replicator,

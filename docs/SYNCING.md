@@ -157,7 +157,7 @@ More web instances add no `getrawtransaction` streams.
 Unset, or `writer`, is what production runs today.
 
 `/syncing` and `/status` say whether this node is the sync writer, and `GET /api/v1/status` carries the same as `this_node` (`role`, `sync_writer`, `connected_nodes`, `rate_limit_scope`).
-`RateLimiter.Replicator` shares counts over PubSub, which reaches another instance only over a connected Erlang cluster (`DNS_CLUSTER_QUERY`).
+`RateLimiter.Replicator` shares counts over PubSub, which reaches another instance only over a connected Erlang cluster (`CLUSTER_EC2_TAG`, `Bitblocks.Cluster.EC2Tags`).
 So `rate_limit_scope` is `per_node` until a peer is connected, and each instance then enforces the configured cap on its own.
 The cap at the edge is #13.
 
