@@ -91,8 +91,3 @@ Choosing and funding the address is Ryan's call, and the wallet signs and broadc
   `POST /api/v1/bitcom/compose` builds the unsigned script.
 - **Be a route provider.** `$ route add <namespace> /:tx https://bitblocks.app/b/${tx}` from that address (#22).
   A provider can only attach to a route the namespace's admin has enabled, so B:// needs its own admin to run `$ route enable /:tx`.
-
-## Not built yet
-
-- BCat files reassembled and served (#15).
-- Discovery of historical commands in blocks bitblocks hasn't fetched (#24).

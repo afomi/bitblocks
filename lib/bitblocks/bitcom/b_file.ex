@@ -5,7 +5,7 @@ defmodule Bitblocks.Bitcom.BFile do
       OP_FALSE OP_RETURN 19HxigV4QyBv3tHpQVcUEQyq1pzZVdoAut <data> <media type> [encoding] [filename]
 
   Spec: https://b.bitdb.network. Later piped segments (MAP, AIP) are ignored.
-  A file split with BCat is not here: that is #15.
+  A file split with BCat is served by `/content/bcat/:txid`.
   """
 
   @b "19HxigV4QyBv3tHpQVcUEQyq1pzZVdoAut"
