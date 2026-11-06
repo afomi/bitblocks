@@ -305,19 +305,20 @@ defmodule Bitblocks.Ops do
     }
   end
 
+  # By name, and tolerant: a row from the snapshot may lack a job or a retry.
   defp live_row(row) do
     %{
-      height: row.height,
-      hash: row.hash,
-      num_tx: row.num_tx,
+      height: row[:height],
+      hash: row[:hash],
+      num_tx: row[:num_tx],
       fetched: row[:fetched],
-      stage: row.sync_state,
-      failures: row.failures,
-      error: Scrub.line(row.error),
-      slot: row.slot,
-      node: node_id(row.node),
-      job_state: row.job_state,
-      next_retry_at: row.next_retry_at || nil
+      stage: row[:sync_state],
+      failures: row[:failures],
+      error: Scrub.line(row[:error]),
+      slot: row[:slot],
+      node: node_id(row[:node]),
+      job_state: row[:job_state],
+      next_retry_at: row[:next_retry_at] || nil
     }
   end
 
@@ -359,7 +360,7 @@ defmodule Bitblocks.Ops do
   end
 
   defp block_story(row, snapshot) do
-    job = Enum.find((snapshot.sync || %{})[:rows] || [], &(&1.hash == row.hash))
+    job = Enum.find((snapshot.sync || %{})[:rows] || [], &(&1[:hash] == row.hash))
 
     row
     |> Map.put(:error, Scrub.line(row.error))

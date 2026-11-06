@@ -208,6 +208,15 @@ defmodule BitblocksWeb.Api.OpsControllerTest do
     end
   end
 
+  test "a sparse snapshot row is answered, not a crash" do
+    snapshot = %{
+      SyncProgress.empty_snapshot()
+      | sync: %{rows: [%{hash: "h1", height: 9, sync_state: "txs_syncing"}]}
+    }
+
+    assert %{blocks: [%{height: 9, failures: nil, node: nil}]} = Ops.sync_live(snapshot, [])
+  end
+
   describe "GET /api/v1/ops/blocks/:height" do
     test "tells one block's story", %{conn: conn, token: token} do
       block = block!(5, %{sync_state: "completed", size: 1_000, tx_sync_error: @planted_error})
