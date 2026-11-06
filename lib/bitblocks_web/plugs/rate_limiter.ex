@@ -178,6 +178,7 @@ defmodule BitblocksWeb.Plugs.RateLimiter do
     case check_rate(bucket, now, window_ms, max_requests) do
       {:ok, count} ->
         conn
+        |> assign(:caller_tier, tier)
         |> put_resp_header("x-ratelimit-limit", Integer.to_string(max_requests))
         |> put_resp_header(
           "x-ratelimit-remaining",

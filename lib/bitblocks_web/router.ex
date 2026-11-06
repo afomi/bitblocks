@@ -23,11 +23,22 @@ defmodule BitblocksWeb.Router do
     plug :fetch_current_user
   end
 
+  # The API takes an API key or a signed-in session (#12). The three :open_api
+  # routes are the only exceptions.
   pipeline :api do
     plug :accepts, ["json"]
+    plug BitblocksWeb.Plugs.RequireCaller
   end
 
   pipeline :public_api do
+    plug :accepts, ["json"]
+    plug CORSPlug, origin: "*"
+    plug BitblocksWeb.Plugs.RequireCaller
+  end
+
+  # No key: these are read from browsers on other sites, where a key can't be
+  # kept, and by the deploy check.
+  pipeline :open_api do
     plug :accepts, ["json"]
     plug CORSPlug, origin: "*"
   end
@@ -171,25 +182,37 @@ defmodule BitblocksWeb.Router do
     get "/collections/:id", CollectionController, :show
   end
 
-  # Open to all origins — cached, lightweight, and intended for external
-  # sites: price for qart, support for the sponsorship page (off-site).
+  # Cached and lightweight: price for other sites, support for the sponsorship
+  # page (off-site), and the release and health a deploy is checked against.
+  scope "/api/v1", BitblocksWeb.Api do
+    pipe_through :open_api
+
+    get "/status", StatusController, :show
+    get "/price/bsv", PriceController, :show
+    get "/support", SupportController, :show
+  end
+
+  # Open to all origins, for a caller with a key.
   scope "/api/v1", BitblocksWeb.Api do
     pipe_through :public_api
 
-    get "/status", StatusController, :show
     get "/status/coverage", StatusController, :coverage
     get "/status/derivations", StatusController, :derivations
-    get "/price/bsv", PriceController, :show
-    get "/support", SupportController, :show
 
     # Transaction types (#49): definitions for other tools to link to.
     get "/types/:id", TypeController, :show
     get "/types", TypeController, :index
   end
 
-  # A tx's raw bytes, the CDN's origin (docs/TX_STORAGE.md). No pipeline:
-  # :api only accepts json, and this answers application/octet-stream.
+  pipeline :raw_api do
+    plug BitblocksWeb.Plugs.RequireCaller
+  end
+
+  # A tx's raw bytes, the CDN's origin (docs/TX_STORAGE.md). Not :api, which
+  # only accepts json: this answers application/octet-stream.
   scope "/api/v1", BitblocksWeb.Api do
+    pipe_through :raw_api
+
     get "/txs/:txid/raw", RawTxController, :show
   end
 
