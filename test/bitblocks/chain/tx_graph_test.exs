@@ -67,6 +67,39 @@ defmodule Bitblocks.Chain.TxGraphTest do
     refute graph.truncated
   end
 
+  test "a row with no input_txids still shows its parents, and spend_index its spenders" do
+    parent = tx!()
+    input = Jason.encode!(%{txid: parent.txid, vout: 0})
+    center = tx!(%{inputs: [input], input_txids: nil})
+    spender = tx!(%{input_txids: nil})
+
+    Repo.insert!(%Bitblocks.Chain.Spend{
+      txid: center.txid,
+      vout: 0,
+      spending_txid: spender.txid,
+      spending_vin: 0
+    })
+
+    graph = TxGraph.build(center.txid, 1)
+
+    assert levels(graph) == %{parent.txid => -1, center.txid => 0, spender.txid => 1}
+    assert edges(graph) == Enum.sort([{parent.txid, center.txid}, {center.txid, spender.txid}])
+  end
+
+  test "a spender found both ways is one edge" do
+    center = tx!()
+    spender = tx!(%{input_txids: [center.txid]})
+
+    Repo.insert!(%Bitblocks.Chain.Spend{
+      txid: center.txid,
+      vout: 0,
+      spending_txid: spender.txid,
+      spending_vin: 0
+    })
+
+    assert [_] = TxGraph.build(center.txid, 1).edges
+  end
+
   test "a parent we don't store is still a node" do
     center = tx!(%{input_txids: ["missing-parent"]})
 
@@ -102,7 +135,7 @@ defmodule Bitblocks.Chain.TxGraphTest do
     assert length(graph.nodes) == 101
   end
 
-  test "reads no raw or inputs, and costs one query a level each way" do
+  test "reads no raw, reads inputs only for rows without input_txids, and stays bounded" do
     grandparent = tx!()
     parent = tx!(%{input_txids: [grandparent.txid]})
     center = tx!(%{input_txids: [parent.txid]})
@@ -110,8 +143,8 @@ defmodule Bitblocks.Chain.TxGraphTest do
 
     {_graph, queries} = queries(fn -> TxGraph.build(center.txid, 2) end)
 
-    # The start, then at most two levels back and two forward.
-    assert length(queries) <= 5
+    # The start, two levels back, and two forward from two sources.
+    assert length(queries) <= 7
     refute Enum.any?(queries, &(&1 =~ ~s("raw") or &1 =~ ~s("inputs")))
   end
 
