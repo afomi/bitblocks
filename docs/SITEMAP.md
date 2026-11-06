@@ -95,7 +95,7 @@ All `GET` unless noted.
 
 | Endpoint | Description |
 |----------|-------------|
-| `/api/v1/stream/blocks` | SSE stream — `new_block`, `block_synced`, `reorg`, `sync_progress` events |
+| `/api/v1/stream/blocks` | SSE stream — `block_updated` (height, hash, sync_state; a new header and every state change) and `reorg` events |
 
 ## Data Endpoints (non-API)
 

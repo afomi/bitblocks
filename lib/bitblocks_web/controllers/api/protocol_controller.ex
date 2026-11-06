@@ -65,54 +65,57 @@ defmodule BitblocksWeb.Api.ProtocolController do
 
   GET /api/v1/protocols/:address/feed
 
+  Newest confirmation first, by `(block_height, txid)`, so a backfill of old
+  blocks never jumps the head of the feed. An item that matches the protocol
+  and doesn't parse keeps its place, with `parse_error` instead of `parsed`.
+  `meta.complete` is false while any block up to `meta.snapshot_height` isn't
+  `completed`.
+
   Query parameters:
-    - cursor: Cursor for pagination (last seen transaction id)
+    - cursor: the previous page's `meta.next_cursor`
     - per_page: Results per page (default 25, max 100)
   """
   def feed(conn, %{"address" => address} = params) do
-    case ProtocolRegistry.get_protocol_by_address(address) do
-      nil ->
+    with {:protocol, %Protocol{} = protocol} <-
+           {:protocol, ProtocolRegistry.get_protocol_by_address(address)},
+         {:ok, cursor} <- Chain.decode_tx_cursor(params["cursor"]) do
+      per_page = parse_feed_per_page(params["per_page"])
+
+      {txs, next_cursor} =
+        Chain.list_transactions_paginated(cursor, per_page, %{protocol: protocol.name})
+
+      json(conn, %{
+        data: Enum.map(txs, &feed_item(&1, protocol)),
+        protocol: %{name: protocol.name, address: protocol.address},
+        meta:
+          Chain.tx_list_coverage()
+          |> Map.merge(%{next_cursor: next_cursor, per_page: per_page})
+      })
+    else
+      {:protocol, nil} ->
         conn
         |> put_status(:not_found)
         |> json(%{error: "Protocol not found", address: address})
 
-      protocol ->
-        cursor = parse_feed_cursor(params["cursor"])
-        per_page = parse_feed_per_page(params["per_page"])
-
-        {txs, next_cursor} =
-          Chain.list_transactions_paginated(cursor, per_page, %{protocol: protocol.name})
-
-        items =
-          Enum.map(txs, fn tx ->
-            base = %{
-              txid: tx.txid,
-              block_height: tx.block_height,
-              block_hash: tx.block_hash
-            }
-
-            case ProtocolParser.parse_transaction(tx, protocol.name) do
-              {:ok, parsed} -> Map.put(base, :parsed, parsed)
-              {:error, _} -> base
-            end
-          end)
-
-        json(conn, %{
-          data: items,
-          protocol: %{name: protocol.name, address: protocol.address},
-          meta: %{next_cursor: next_cursor, per_page: per_page}
-        })
+      :error ->
+        conn
+        |> put_status(:bad_request)
+        |> json(%{error: "Invalid cursor: use meta.next_cursor from the previous page."})
     end
   end
 
-  defp parse_feed_cursor(nil), do: nil
+  defp feed_item(tx, protocol) do
+    base = %{txid: tx.txid, block_height: tx.block_height, block_hash: tx.block_hash}
 
-  defp parse_feed_cursor(val) when is_binary(val) do
-    case Integer.parse(val) do
-      {n, ""} -> n
-      _ -> nil
+    case ProtocolParser.parse_transaction(tx, protocol.name) do
+      {:ok, parsed} -> Map.put(base, :parsed, parsed)
+      {:error, reason} -> Map.put(base, :parse_error, parse_error(reason))
     end
   end
+
+  defp parse_error(reason) when is_atom(reason), do: Atom.to_string(reason)
+  defp parse_error(reason) when is_binary(reason), do: reason
+  defp parse_error(reason), do: inspect(reason)
 
   defp parse_feed_per_page(nil), do: 25
 

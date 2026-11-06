@@ -65,7 +65,7 @@ This is the closest thing in your codebase to _unwriter's `e` edge — and in so
 `/blocks/at_time`, `/blocks/time_map?from&to&step` — `height_at_time`, `height_time_samples`. This is a genuinely nice primitive that _unwriter didn't expose, and it's *actually built*, not aspirational.
 
 **6. SSE streams are real and PubSub-backed.**
-`/api/v1/stream/blocks` emits `new_block, block_synced, reorg, sync_progress` over `text/event-stream` with heartbeats, fed by `Phoenix.PubSub`. This is the Bitsocket idea, done with better internal plumbing.
+`/api/v1/stream/blocks` emits `block_updated` and `reorg` over `text/event-stream` with heartbeats, fed by `Phoenix.PubSub`. This is the Bitsocket idea, done with better internal plumbing.
 
 **7. The conceptual docs are ahead of almost everyone.**
 `BITBLOCK.md`, `CHAIN_LENS.md`, `COMPOSABLE_STREAMS.md`, `OUTPOINT.md` — you have already metabolized Planaria and projected it forward (mesh of filtered views, CDN-inverted economics, browser-side OPFS Bitblocks). The *thinking* is excellent. The gap, as Part 3 shows, is that the thinking has outrun the code.

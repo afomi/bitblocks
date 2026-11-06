@@ -263,6 +263,31 @@ defmodule Bitblocks.Workers.SyncHeadersWorkerTest do
     end
   end
 
+  describe "a stored header is published (#35)" do
+    @genesis "000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f"
+
+    test "subscribers of \"blocks\" hear the new header with its sync_state" do
+      BitblocksWeb.RpcStub.setup()
+      BitblocksWeb.RpcStub.stub_batch_getblockhash([0], [@genesis])
+
+      BitblocksWeb.RpcStub.stub_getblockheader(@genesis, %{
+        "hash" => @genesis,
+        "height" => 0,
+        "version" => 1,
+        "merkleroot" => "4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b",
+        "time" => 1_231_006_505,
+        "bits" => "1d00ffff",
+        "nonce" => 2_083_236_893
+      })
+
+      Phoenix.PubSub.subscribe(Bitblocks.PubSub, "blocks")
+
+      assert :ok = SyncHeadersWorker.sync_range(0, 0)
+
+      assert_receive {:block_updated, %Block{hash: @genesis, sync_state: "header_only"}}
+    end
+  end
+
   describe "an orphan's transactions after the reorg (#34)" do
     test "each deleted orphan gets a reconcile job" do
       block_fixture(%{height: 900_200, hash: "ancestor_900200"})

@@ -26,6 +26,14 @@ defmodule Bitblocks.Chain do
   end
 
   @doc """
+  Tells `"blocks"` subscribers (the block stream) that a reorg replaced blocks:
+  `{:reorg, %{fork_point: height, fork_height: height, orphans: [hash]}}`.
+  """
+  def broadcast_reorg(%{fork_point: _, fork_height: _, orphans: _} = reorg) do
+    Phoenix.PubSub.broadcast(@pubsub, "blocks", {:reorg, reorg})
+  end
+
+  @doc """
   Returns the list of blocks with pagination.
 
   ## Examples
@@ -663,28 +671,97 @@ defmodule Bitblocks.Chain do
       iex> list_transactions_paginated(cursor, 50, %{block_hash: "00000..."})
       {[%Transaction{}, ...], next_cursor}
 
-  Cursor is the last `id` seen. Pass `nil` for the first page.
-  Returns `{transactions, next_cursor}` where `next_cursor` is `nil` when
-  there are no more results.
+  Newest confirmation first: rows with a block height, by `(block_height,
+  txid)` descending. Ingest order would put a backfilled old block at the
+  head; this keyset can't. `transactions_block_height_txid_index` serves it.
+
+  `cursor` is `{block_height, txid}`, or `nil` for the first page. Returns
+  `{transactions, next_cursor}`, `next_cursor` a string for
+  `decode_tx_cursor/1`, or `nil` when there are no more results.
 
   """
   def list_transactions_paginated(cursor \\ nil, per_page \\ 50, filters \\ %{}) do
     query =
       from t in Transaction,
-        order_by: [desc: t.id],
+        where: not is_nil(t.block_height),
+        order_by: [desc: t.block_height, desc: t.txid],
         limit: ^(per_page + 1)
 
-    query = if cursor, do: from(t in query, where: t.id < ^cursor), else: query
+    query =
+      case cursor do
+        {height, txid} ->
+          from(t in query,
+            where: fragment("(?, ?) < (?, ?)", t.block_height, t.txid, ^height, ^txid)
+          )
+
+        nil ->
+          query
+      end
+
     query = apply_transaction_filters(query, filters)
 
     rows = Repo.all(query)
 
     if length(rows) > per_page do
       transactions = Enum.take(rows, per_page)
-      next_cursor = List.last(transactions).id
-      {transactions, next_cursor}
+      {transactions, encode_tx_cursor(List.last(transactions))}
     else
       {rows, nil}
+    end
+  end
+
+  @doc """
+  The cursor after `transaction`: `"<block_height>:<txid>"`.
+  """
+  def encode_tx_cursor(%Transaction{block_height: height, txid: txid}), do: "#{height}:#{txid}"
+
+  @doc """
+  Reads a cursor from `encode_tx_cursor/1`. Blank means the first page.
+  Anything else, a pre-#35 numeric id cursor included, is `:error`, so a
+  stale cursor is refused rather than silently restarting from the head.
+  """
+  @spec decode_tx_cursor(String.t() | nil) :: {:ok, {integer(), String.t()} | nil} | :error
+  def decode_tx_cursor(cursor) when cursor in [nil, ""], do: {:ok, nil}
+
+  def decode_tx_cursor(cursor) when is_binary(cursor) do
+    with [height, txid] <- String.split(cursor, ":", parts: 2),
+         {height, ""} when height >= 0 and height <= 2_147_483_647 <- Integer.parse(height),
+         true <- txid != "" and String.valid?(txid) do
+      {:ok, {height, txid}}
+    else
+      _ -> :error
+    end
+  end
+
+  def decode_tx_cursor(_cursor), do: :error
+
+  @doc """
+  What a page from `list_transactions_paginated/3` covers: `snapshot_height`
+  (the block the listing reaches), `indexed_through_height`, and `complete`,
+  true only when every block in the range is `completed`. The range is one
+  block under a `:block_hash` filter, otherwise genesis to our highest header.
+  """
+  @spec tx_list_coverage(map()) :: %{
+          snapshot_height: integer() | nil,
+          indexed_through_height: integer(),
+          complete: boolean()
+        }
+  def tx_list_coverage(filters \\ %{}) do
+    %{indexed_through_height: through, tip_height: tip, complete?: complete?} =
+      Bitblocks.Chain.Utxos.coverage()
+
+    case Map.get(filters, :block_hash) do
+      hash when is_binary(hash) and hash != "" ->
+        block = Repo.one(from(b in Block, where: b.hash == ^hash, select: [:height, :sync_state]))
+
+        %{
+          snapshot_height: block && block.height,
+          indexed_through_height: through,
+          complete: match?(%Block{sync_state: "completed"}, block)
+        }
+
+      _ ->
+        %{snapshot_height: tip, indexed_through_height: through, complete: complete?}
     end
   end
 
@@ -695,8 +772,14 @@ defmodule Bitblocks.Chain do
           from t in acc, where: t.block_hash == ^hash
 
         {:txid_search, search} when is_binary(search) and search != "" ->
-          # Prefix match only — leading wildcard prevents index use
-          from t in acc, where: ilike(t.txid, ^"#{search}%")
+          # A hex prefix, lower case as stored: LIKE reaches the text_pattern_ops
+          # index (ILIKE can't), and hex carries no wildcard. Nothing else is a txid.
+          if search =~ ~r/\A[0-9a-fA-F]{1,64}\z/ do
+            prefix = String.downcase(search) <> "%"
+            from t in acc, where: like(t.txid, ^prefix)
+          else
+            from t in acc, where: false
+          end
 
         {:protocol, protocol} when is_binary(protocol) and protocol != "" ->
           from t in acc, where: fragment("? @> ARRAY[?]::varchar[]", t.protocols, ^protocol)

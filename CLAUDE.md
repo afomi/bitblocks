@@ -250,7 +250,7 @@ Keyed callers send `Authorization: Bearer bbk_…` (or `x-api-key`) and get thei
 GET /api/v1/blocks              — paginated block list
 GET /api/v1/blocks/latest       — most recent block
 GET /api/v1/blocks/:id          — block by height or hash
-GET /api/v1/txs                 — paginated transactions (?protocol=Twetch to filter)
+GET /api/v1/txs                 — transactions newest confirmation first, keyset cursor `<height>:<txid>` (?protocol=Twetch, ?block_hash=, ?txid=<hex prefix>); meta.complete is false while any block in range is not completed
 GET /api/v1/txs/:txid           — single transaction by txid
 GET /api/v1/txs/:txid/proof     — merkle proof for a transaction
 GET /api/v1/txs/:txid/raw       — the tx's exact bytes (octet-stream), verified against the txid, immutable; the CDN origin (docs/TX_STORAGE.md)
@@ -258,12 +258,12 @@ GET /content/:outpoint          — inscription body parsed from the raw tx on t
 GET /api/v1/status/derivations  — each pipeline step's version, stage and derivation versions, latest backfill runs
 GET /api/v1/price/bsv           — cached BSV spot price (USD) from CoinGecko
 GET /api/v1/support             — sponsorship numbers for the off-site page: monthly costs, target, BSV received (CORS *)
-GET /api/v1/stream/blocks       — SSE stream of new blocks
+GET /api/v1/stream/blocks       — SSE stream: `block_updated` (height, hash, sync_state; each new header and state change) and `reorg` (fork_point, fork_height, orphans)
 GET /api/v1/metanet/:txid       — Metanet node with parent, children, MURL path
 GET /api/v1/metanet/:txid/children — children of a Metanet node
 GET /api/v1/metanet/roots       — Metanet root nodes (orphans)
 GET /api/v1/protocols           — registered protocols
-GET /api/v1/protocols/:addr/feed — parsed protocol feed (e.g. Twetch posts)
+GET /api/v1/protocols/:addr/feed — parsed protocol feed (e.g. Twetch posts), same order, cursor and meta as /api/v1/txs; an item that does not parse has parse_error
 GET /api/v1/order-book/listings — open listings, none whose token outpoint is in spend_index; status active only when known unspent, else unknown (Chain.Utxos rule); signature_checked: false; meta.indexed_through_height, meta.tip_height (filters: token_id, seller, min_price, max_price)
 GET /api/v1/order-book/listings/:txid — single listing detail (status spent when a stored tx spends its token outpoint)
 GET /api/v1/order-book/tokens/:token_id — listings for a token

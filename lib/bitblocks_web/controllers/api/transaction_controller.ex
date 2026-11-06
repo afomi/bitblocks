@@ -8,10 +8,14 @@ defmodule BitblocksWeb.Api.TransactionController do
   @doc """
   List transactions with optional filters.
 
-  GET /api/v1/txs?page=1&per_page=50&block_hash=...
+  GET /api/v1/txs?cursor=...&per_page=50&block_hash=...
+
+  Confirmation order: highest block first, by `(block_height, txid)`, so a
+  backfill of old blocks never jumps the first page. `cursor` is the previous
+  page's `meta.next_cursor`. `meta.complete` is false while any block in the
+  listing's range isn't `completed` (`Chain.tx_list_coverage/1`).
   """
   def index(conn, params) do
-    cursor = parse_int(params["cursor"], nil)
     per_page = parse_int(params["per_page"], 50) |> min(100)
 
     filters =
@@ -20,15 +24,23 @@ defmodule BitblocksWeb.Api.TransactionController do
       |> maybe_put(:txid_search, params["txid"])
       |> maybe_put(:protocol, params["protocol"])
 
-    {txs, next_cursor} = Chain.list_transactions_paginated(cursor, per_page, filters)
+    case Chain.decode_tx_cursor(params["cursor"]) do
+      {:ok, cursor} ->
+        {txs, next_cursor} = Chain.list_transactions_paginated(cursor, per_page, filters)
 
-    json(conn, %{
-      data: Enum.map(txs, &tx_to_json/1),
-      meta: %{
-        next_cursor: next_cursor,
-        per_page: per_page
-      }
-    })
+        json(conn, %{
+          data: Enum.map(txs, &tx_to_json/1),
+          meta:
+            filters
+            |> Chain.tx_list_coverage()
+            |> Map.merge(%{next_cursor: next_cursor, per_page: per_page})
+        })
+
+      :error ->
+        conn
+        |> put_status(:bad_request)
+        |> json(%{error: "Invalid cursor: use meta.next_cursor from the previous page."})
+    end
   end
 
   @doc """
@@ -83,7 +95,6 @@ defmodule BitblocksWeb.Api.TransactionController do
 
   defp parse_int(val, default) when is_binary(val) do
     case Integer.parse(val) do
-      {n, ""} when is_nil(default) -> n
       {n, ""} -> max(n, 1)
       _ -> default
     end

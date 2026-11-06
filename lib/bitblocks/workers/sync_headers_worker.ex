@@ -149,6 +149,13 @@ defmodule Bitblocks.Workers.SyncHeadersWorker do
         record_reorg(fork_height, fork_point, orphan_count)
         Bitblocks.Notifications.reorg_alert(fork_height, fork_point, orphan_count)
         notify_projections_of_reorg(fork_point)
+
+        Chain.broadcast_reorg(%{
+          fork_point: fork_point,
+          fork_height: fork_height,
+          orphans: Enum.map(orphans, & &1.hash)
+        })
+
         fetch_and_store_headers(fork_point + 1, fork_height)
         enqueue_reconcile(orphans)
 
@@ -453,6 +460,7 @@ defmodule Bitblocks.Workers.SyncHeadersWorker do
         :exists
 
       {:ok, block} ->
+        Chain.broadcast_block_update(block)
         {:ok, block}
 
       {:error, changeset} ->

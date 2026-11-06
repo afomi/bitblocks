@@ -3,6 +3,63 @@ defmodule BitblocksWeb.Api.TransactionControllerTest do
 
   import Bitblocks.ChainFixtures
 
+  describe "GET /api/v1/txs" do
+    test "pages by (block_height, txid); old rows inserted later stay down", %{conn: conn} do
+      high = "b" <> String.duplicate("0", 63)
+      same = "a" <> String.duplicate("0", 63)
+      low = "c" <> String.duplicate("0", 63)
+
+      transaction_fixture(%{txid: same, block_height: 900})
+      transaction_fixture(%{txid: high, block_height: 900})
+      transaction_fixture(%{txid: low, block_height: 800})
+
+      first = conn |> get(~p"/api/v1/txs?per_page=2") |> json_response(200)
+      assert Enum.map(first["data"], & &1["txid"]) == [high, same]
+      assert first["meta"]["next_cursor"] == "900:#{same}"
+
+      transaction_fixture(%{block_height: 5})
+
+      again = conn |> get(~p"/api/v1/txs?per_page=2") |> json_response(200)
+      assert Enum.map(again["data"], & &1["txid"]) == [high, same]
+
+      rest =
+        conn
+        |> get(~p"/api/v1/txs?per_page=1&cursor=#{first["meta"]["next_cursor"]}")
+        |> json_response(200)
+
+      assert Enum.map(rest["data"], & &1["txid"]) == [low]
+    end
+
+    test "a row with no block height isn't listed", %{conn: conn} do
+      tx = transaction_fixture(%{block_height: nil})
+      body = conn |> get(~p"/api/v1/txs") |> json_response(200)
+      refute tx.txid in Enum.map(body["data"], & &1["txid"])
+    end
+
+    test "meta.complete covers the one block under a block_hash filter", %{conn: conn} do
+      block = block_fixture(%{sync_state: "header_only"})
+
+      meta = conn |> get(~p"/api/v1/txs?block_hash=#{block.hash}") |> json_response(200)
+      assert meta["meta"]["complete"] == false
+      assert meta["meta"]["snapshot_height"] == block.height
+    end
+
+    test "a txid filter is a hex prefix, any case", %{conn: conn} do
+      tx = transaction_fixture(%{txid: "abc" <> String.duplicate("0", 61)})
+
+      for prefix <- ["abc", "ABC"] do
+        body = conn |> get(~p"/api/v1/txs?txid=#{prefix}") |> json_response(200)
+        assert Enum.map(body["data"], & &1["txid"]) == [tx.txid]
+      end
+
+      assert %{"data" => []} = conn |> get(~p"/api/v1/txs?txid=%25abc") |> json_response(200)
+    end
+
+    test "a numeric id cursor from before #35 is refused", %{conn: conn} do
+      assert conn |> get(~p"/api/v1/txs?cursor=100") |> json_response(400)
+    end
+  end
+
   describe "GET /api/v1/txs/:txid" do
     test "returns 404 for unknown txid", %{conn: conn} do
       conn =

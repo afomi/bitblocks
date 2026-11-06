@@ -81,6 +81,73 @@ defmodule BitblocksWeb.Api.ProtocolFeedTest do
       assert item["block_height"] == 620_001
     end
 
+    test "orders by confirmation; a later insert at a lower height stays down (#35)",
+         %{conn: conn} do
+      feed = ~p"/api/v1/protocols/19nknDdM3ueaAt7nFLFQ3aS3PVHVnJoMmU/feed"
+
+      for {txid, height} <- [{"tx_a", 700}, {"tx_c", 700}, {"tx_b", 500}] do
+        twetch_tx(txid, height)
+      end
+
+      first = conn |> get(feed <> "?per_page=2") |> json_response(200)
+      assert Enum.map(first["data"], & &1["txid"]) == ["tx_c", "tx_a"]
+      assert first["meta"]["next_cursor"] == "700:tx_a"
+
+      # A backfill reaches an old block: a new id, a low height.
+      twetch_tx("tx_old", 100)
+
+      assert ["tx_c", "tx_a"] ==
+               conn
+               |> get(feed <> "?per_page=2")
+               |> json_response(200)
+               |> Map.fetch!("data")
+               |> Enum.map(& &1["txid"])
+
+      rest = conn |> get(feed <> "?cursor=700:tx_a") |> json_response(200)
+      assert Enum.map(rest["data"], & &1["txid"]) == ["tx_b", "tx_old"]
+      assert rest["meta"]["next_cursor"] == nil
+    end
+
+    test "a tx that fails to parse keeps its position, with parse_error (#35)", %{conn: conn} do
+      twetch_tx("tx_bad", 700, "zz")
+      twetch_tx("tx_lower", 600, "zz")
+
+      body =
+        conn
+        |> get(~p"/api/v1/protocols/19nknDdM3ueaAt7nFLFQ3aS3PVHVnJoMmU/feed?per_page=1")
+        |> json_response(200)
+
+      assert [%{"txid" => "tx_bad", "parse_error" => error} = item] = body["data"]
+      assert is_binary(error) and error != ""
+      refute Map.has_key?(item, "parsed")
+      assert body["meta"]["next_cursor"] == "700:tx_bad"
+    end
+
+    test "meta.complete is false until every block to the snapshot is completed", %{conn: conn} do
+      feed = ~p"/api/v1/protocols/19nknDdM3ueaAt7nFLFQ3aS3PVHVnJoMmU/feed"
+
+      block_fixture_at(0, "completed")
+      block_fixture_at(1, "header_only")
+
+      meta = conn |> get(feed) |> json_response(200) |> Map.fetch!("meta")
+      assert meta["complete"] == false
+      assert meta["snapshot_height"] == 1
+      assert meta["indexed_through_height"] == 0
+
+      Bitblocks.Repo.update_all(Bitblocks.Chain.Block, set: [sync_state: "completed"])
+
+      meta = conn |> get(feed) |> json_response(200) |> Map.fetch!("meta")
+      assert meta["complete"] == true
+      assert meta["indexed_through_height"] == 1
+    end
+
+    test "a stale or malformed cursor is refused", %{conn: conn} do
+      feed = ~p"/api/v1/protocols/19nknDdM3ueaAt7nFLFQ3aS3PVHVnJoMmU/feed"
+
+      assert conn |> get(feed <> "?cursor=12345") |> json_response(400)
+      assert conn |> get(feed <> "?cursor=x:y") |> json_response(400)
+    end
+
     test "respects per_page parameter", %{conn: conn} do
       conn =
         get(
@@ -91,5 +158,41 @@ defmodule BitblocksWeb.Api.ProtocolFeedTest do
       response = json_response(conn, 200)
       assert response["meta"]["per_page"] == 10
     end
+  end
+
+  defp twetch_tx(txid, height, raw \\ "01000000") do
+    {:ok, tx} =
+      Chain.create_transaction(%{
+        txid: txid,
+        raw: raw,
+        version: "1",
+        block_hash: "hash_#{height}",
+        block_height: height,
+        inputs: ["{}"],
+        outputs: ["{}"],
+        protocols: ["Twetch"]
+      })
+
+    tx
+  end
+
+  defp block_fixture_at(height, state) do
+    {:ok, block} =
+      Chain.create_block(%{
+        hash: "feedblock_#{height}",
+        height: height,
+        version: "1",
+        prevblockhash: "p",
+        merkleroot: "m",
+        time: 1,
+        bits: "1d00ffff",
+        nonce: 1,
+        tx: [],
+        size: 1,
+        difficulty: "1.0",
+        sync_state: state
+      })
+
+    block
   end
 end

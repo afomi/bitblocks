@@ -94,13 +94,10 @@ defmodule BitblocksWeb.TransactionLive.Index do
     end
   end
 
-  defp parse_cursor(nil), do: nil
-  defp parse_cursor(""), do: nil
-
   defp parse_cursor(cursor) do
-    case Integer.parse(cursor) do
-      {id, ""} -> id
-      _ -> nil
+    case Chain.decode_tx_cursor(cursor) do
+      {:ok, cursor} -> cursor
+      :error -> nil
     end
   end
 

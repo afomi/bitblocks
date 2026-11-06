@@ -2,8 +2,14 @@ defmodule BitblocksWeb.Api.StreamController do
   @moduledoc """
   Server-Sent Events stream for real-time blockchain events.
 
-  GET /api/v1/stream/blocks     — new blocks as they sync
+  GET /api/v1/stream/blocks     — block changes, under the publisher's names:
+                                  `block_updated` (a new header, each sync_state
+                                  change, `completed` included) with height, hash
+                                  and sync_state; `reorg` with the fork point and
+                                  the replaced hashes
   GET /api/v1/stream/order-book — order book listing events
+
+  Events reach a stream on any node that shares PubSub with the publisher.
   """
   use BitblocksWeb, :controller
 
@@ -14,7 +20,10 @@ defmodule BitblocksWeb.Api.StreamController do
   @pubsub Bitblocks.PubSub
 
   # Heartbeat cadence — also the granularity at which we check the lifetime cap.
-  @heartbeat_ms 30_000
+  defp heartbeat_ms do
+    Application.get_env(:bitblocks, __MODULE__, [])
+    |> Keyword.get(:heartbeat_ms, 30_000)
+  end
 
   # T2: hard ceiling on how long a single SSE connection may stay open. Without
   # this a client can hold a slot indefinitely; recycling forces reconnection so
@@ -36,8 +45,7 @@ defmodule BitblocksWeb.Api.StreamController do
     # connections (global + per-IP) so a client can't exhaust the server by
     # opening unbounded streams; release the slot when the loop exits.
     with_sse_slot(conn, fn conn ->
-      Phoenix.PubSub.subscribe(@pubsub, "blockchain_events")
-      Phoenix.PubSub.subscribe(@pubsub, "sync_pipeline")
+      Phoenix.PubSub.subscribe(@pubsub, "blocks")
 
       conn = start_event_stream(conn)
       stream_loop(conn, deadline())
@@ -141,7 +149,7 @@ defmodule BitblocksWeb.Api.StreamController do
       _ ->
         order_book_loop(conn, deadline)
     after
-      @heartbeat_ms ->
+      heartbeat_ms() ->
         if expired?(deadline) do
           close_stream(conn)
         else
@@ -173,7 +181,7 @@ defmodule BitblocksWeb.Api.StreamController do
       _ ->
         tokens_loop(conn, deadline)
     after
-      @heartbeat_ms ->
+      heartbeat_ms() ->
         if expired?(deadline) do
           close_stream(conn)
         else
@@ -196,38 +204,16 @@ defmodule BitblocksWeb.Api.StreamController do
 
   defp stream_loop(conn, deadline) do
     receive do
-      {:new_block, height, hash} ->
-        send_event(conn, "new_block", %{height: height, hash: hash}, deadline)
+      {:block_updated, block} ->
+        send_event(conn, "block_updated", block_event(block), deadline)
 
-      {:block_synced, block} ->
-        send_event(
-          conn,
-          "block_synced",
-          %{
-            height: block.height,
-            hash: block.hash,
-            num_tx: block.num_tx,
-            time: block.time
-          },
-          deadline
-        )
-
-      {:new_blocks_detected, count} ->
-        send_event(conn, "new_blocks_detected", %{count: count}, deadline)
-
-      {:reorg_detected, old_tip, new_tip} ->
-        send_event(conn, "reorg", %{old_tip: old_tip, new_tip: new_tip}, deadline)
-
-      {:pipeline_progress, progress} ->
-        send_event(conn, "sync_progress", progress, deadline)
-
-      :pipeline_completed ->
-        send_event(conn, "sync_completed", %{}, deadline)
+      {:reorg, reorg} ->
+        send_event(conn, "reorg", reorg, deadline)
 
       _ ->
         stream_loop(conn, deadline)
     after
-      @heartbeat_ms ->
+      heartbeat_ms() ->
         if expired?(deadline) do
           close_stream(conn)
         else
@@ -238,6 +224,17 @@ defmodule BitblocksWeb.Api.StreamController do
           end
         end
     end
+  end
+
+  @doc false
+  def block_event(block) do
+    %{
+      height: block.height,
+      hash: block.hash,
+      sync_state: block.sync_state,
+      num_tx: block.num_tx,
+      time: block.time
+    }
   end
 
   defp send_event(conn, event, data, deadline) do
