@@ -5,41 +5,39 @@ defmodule BitblocksWeb.BcatContentTest do
 
   import Bitblocks.OrdinalFixtures, only: [publish: 1]
 
-  alias Bitblocks.TxStore
+  alias Bitblocks.{Bcat, TxStore}
 
-  @head "15DHFxWZJT58f9nhyCA3mREYYzkVDetm6A"
+  @head "15DHFxWZJT58f9nhyGnsRBqrgwK4W6h4Up"
   @part "1ChDHzdd1H4wSjgGMHyndZm6qxEDGjqpJL"
 
   defp push(data) when byte_size(data) < 76, do: <<byte_size(data), data::binary>>
   defp push(data) when byte_size(data) < 256, do: <<76, byte_size(data), data::binary>>
+  defp push(data), do: <<78, byte_size(data)::little-32, data::binary>>
 
   defp tx(pushes) do
     script = IO.iodata_to_binary([<<0, 0x6A>> | Enum.map(pushes, &push/1)])
 
     bytes =
-      <<1::little-32, 1, 7::size(256), 0::32, 0, 0xFFFFFFFF::32, 1, 0::64, byte_size(script)>> <>
-        script <> <<0::32>>
+      <<1::little-32, 1, 7::size(256), 0::32, 0, 0xFFFFFFFF::32, 1, 0::64>> <>
+        varint(byte_size(script)) <> script <> <<0::32>>
 
     {TxStore.txid(bytes), Base.encode16(bytes, case: :lower)}
   end
 
+  defp varint(n) when n < 253, do: <<n>>
+  defp varint(n) when n < 0x10000, do: <<253, n::little-16>>
+  defp varint(n), do: <<254, n::little-32>>
+
   defp chunk(data), do: tx([@part, data])
 
   defp bcat_head(chunks, opts \\ []) do
-    order = Keyword.get(opts, :order, & &1)
-
-    ids =
-      for {txid, _hex} <- chunks do
-        txid |> Base.decode16!(case: :lower) |> order.()
-      end
+    ids = for {txid, _hex} <- chunks, do: Base.decode16!(txid, case: :lower)
 
     tx(
       [@head, " ", opts[:mime] || "text/plain", opts[:charset] || "utf-8", "a file.txt", " "] ++
-        ids
+        ids ++ (opts[:after_pipe] || [])
     )
   end
-
-  defp reversed(bin), do: bin |> :binary.bin_to_list() |> Enum.reverse() |> :binary.list_to_bin()
 
   test "joins the chunks in the head's order, with its type and sandbox", %{conn: conn} do
     chunks = [chunk("hello "), chunk("from "), chunk("the chain")]
@@ -66,12 +64,41 @@ defmodule BitblocksWeb.BcatContentTest do
     assert get_resp_header(conn, "content-disposition") == [~s(attachment; filename="a_file.txt")]
   end
 
-  test "reads txid pushes written in internal byte order", %{conn: conn} do
-    chunks = [chunk("one"), chunk("two")]
-    {txid, _} = head = bcat_head(chunks, order: &reversed/1)
+  test "reads a real head from the chain: display byte order, then a pipe and an address" do
+    %{"hex" => hex} =
+      "test/support/data/mainnet/bcat_head.json" |> File.read!() |> Jason.decode!()
+
+    assert {:ok, head} = hex |> Base.decode16!(case: :lower) |> Bcat.parse_head()
+
+    assert head.info == "canonic.xyz"
+    assert head.mime == "image/png"
+    assert head.charset == nil
+    assert head.filename == "Hypophysics-1754334922388.png"
+    assert head.flag == nil
+
+    # WhatsOnChain answers the first of these as written, and 404s it reversed.
+    assert [
+             "9175e42783df1021cf46f0011e7fde022d1ce1cc0170b87315fc49967112fcdf",
+             "0975d5b13c1a00a3fb45fd277508bb3970a745ec0fa307c8a3c427759de6178f",
+             "17bb964ee729af973fb3c0a019ffb34e3a4f0036ff13df20770cc9277074653c"
+           ] = Enum.map(head.chunk_txids, & &1)
+  end
+
+  test "a 32-byte push after the pipe is not a chunk", %{conn: conn} do
+    chunks = [chunk("only this")]
+    {txid, _} = head = bcat_head(chunks, after_pipe: ["|", String.duplicate("x", 32)])
     Enum.each([head | chunks], &publish/1)
 
-    assert conn |> get(~p"/content/bcat/#{txid}") |> response(200) == "onetwo"
+    assert conn |> get(~p"/content/bcat/#{txid}") |> response(200) == "only this"
+  end
+
+  test "a chunk of real size, carried by OP_PUSHDATA4", %{conn: conn} do
+    data = :binary.copy("x", 1_000_000)
+    chunks = [chunk(data)]
+    {txid, _} = head = bcat_head(chunks)
+    Enum.each([head | chunks], &publish/1)
+
+    assert conn |> get(~p"/content/bcat/#{txid}") |> response(200) == data
   end
 
   test "a missing chunk is an error naming it, never a partial file", %{conn: conn} do

@@ -13,7 +13,7 @@ defmodule Bitblocks.Protocol.HandlersTest do
       assert Handlers.detect_all(chunks(["19HxigV4QyBv3tHpQVcUEQyq1pzZVdoAut", "content"])) ==
                ["B://"]
 
-      assert Handlers.detect_all(chunks(["15DHFxWZJT58f9nhyCA3mREYYzkVDetm6A", "chunk1"])) ==
+      assert Handlers.detect_all(chunks(["15DHFxWZJT58f9nhyGnsRBqrgwK4W6h4Up", "chunk1"])) ==
                ["BCat"]
     end
 

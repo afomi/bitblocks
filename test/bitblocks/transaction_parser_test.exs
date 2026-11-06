@@ -171,7 +171,7 @@ defmodule Bitblocks.TransactionParserTest do
   end
 
   describe "BCat protocol detection" do
-    @bcat_prefix "15DHFxWZJT58f9nhyCA3mREYYzkVDetm6A"
+    @bcat_prefix "15DHFxWZJT58f9nhyGnsRBqrgwK4W6h4Up"
 
     test "detects BCat head tx (second push is not 'c')" do
       # Head: prefix, info, mime, encoding, filename, flag, then chunk txids

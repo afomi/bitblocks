@@ -3,7 +3,8 @@ defmodule Bitblocks.Bcat do
   Reassembles a BCat file from its head transaction (#15).
 
   A head's OP_RETURN is `<15DHFx...> <info> <mime> <charset> <filename> <flag>`
-  followed by the chunk txids, 32 bytes each, in file order. A chunk's is
+  followed by the chunk txids, 32 bytes each, in file order and display byte
+  order, then optionally `|` and whatever a publisher appends. A chunk's is
   `<1ChDHz...> <data>`. The older `<15DHFx...> "c" <data>` shape that
   `TransactionLive.Show` recognises is read too.
 
@@ -12,9 +13,7 @@ defmodule Bitblocks.Bcat do
   partial: one chunk short is `{:error, {:missing, txids}}`, naming them.
 
   Chunks come from `TxStore`, then WhatsOnChain in bulk, kept in the blob store
-  like any tx `/content` fetches. A txid push is read as written, and reversed
-  if the first chunk isn't found that way, since no real head has been checked
-  against this reader yet.
+  like any tx `/content` fetches.
 
   `@max_chunks` and `@max_bytes` bound what one request can load.
   """
@@ -25,7 +24,7 @@ defmodule Bitblocks.Bcat do
   alias Bitblocks.Script.OpReturn
   alias Bitblocks.{TxStore, Woc}
 
-  @head_prefix "15DHFxWZJT58f9nhyCA3mREYYzkVDetm6A"
+  @head_prefix "15DHFxWZJT58f9nhyGnsRBqrgwK4W6h4Up"
   @part_prefix "1ChDHzdd1H4wSjgGMHyndZm6qxEDGjqpJL"
 
   @max_chunks 256
@@ -52,15 +51,15 @@ defmodule Bitblocks.Bcat do
     with {:ok, bytes} <- head_bytes(txid),
          {:ok, %{chunk_txids: [_ | _]} = head} <- parse_head(bytes),
          true <- length(head.chunk_txids) <= @max_chunks || {:error, :too_large},
-         {:ok, order, found, failed?} <- chunks(head.chunk_txids),
-         {:ok, data} <- join(order, found, failed?) do
+         {:ok, found, failed?} <- load(head.chunk_txids),
+         {:ok, data} <- join(head.chunk_txids, found, failed?) do
       {:ok,
        %{
          data: data,
          mime: head.mime,
          charset: head.charset,
          filename: head.filename,
-         chunks: length(order)
+         chunks: length(head.chunk_txids)
        }}
     else
       {:ok, %{chunk_txids: []}} -> {:error, :no_chunks}
@@ -83,7 +82,7 @@ defmodule Bitblocks.Bcat do
          flag: text(flag),
          chunk_txids:
            for(
-             <<push::binary-size(32)>> <- pushes,
+             <<push::binary-size(32)>> <- Enum.take_while(pushes, &(&1 != "|")),
              do: Base.encode16(push, case: :lower)
            )
        }}
@@ -134,22 +133,6 @@ defmodule Bitblocks.Bcat do
       {:ok, _none, true} -> {:error, {:fetch_failed, :woc}}
       {:ok, _none, false} -> {:error, :not_found}
       {:error, _} = error -> error
-    end
-  end
-
-  defp chunks([first | _] = txids) do
-    with {:ok, found, failed?} <- load(txids) do
-      if Map.has_key?(found, first) or failed? do
-        {:ok, txids, found, failed?}
-      else
-        reversed = Enum.map(txids, &reverse_hex/1)
-
-        with {:ok, again, failed_again?} <- load(reversed) do
-          if map_size(again) > 0,
-            do: {:ok, reversed, again, failed_again?},
-            else: {:ok, txids, found, failed?}
-        end
-      end
     end
   end
 
@@ -228,14 +211,5 @@ defmodule Bitblocks.Bcat do
 
       {txid, bytes}
     end
-  end
-
-  defp reverse_hex(hex) do
-    hex
-    |> Base.decode16!(case: :lower)
-    |> :binary.bin_to_list()
-    |> Enum.reverse()
-    |> :binary.list_to_bin()
-    |> Base.encode16(case: :lower)
   end
 end

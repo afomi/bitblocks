@@ -118,6 +118,26 @@ defmodule Bitblocks.ScriptTest do
                "09507a7ca50f690592bd1c63b0c826f82e835c4b68d967aea9c5e2c4e666b2d5"
     end
 
+    # The shared vectors, pinned in both projects' suites: the one way to learn
+    # that the two have stopped agreeing on an opcode alias.
+    for {vector, hash} <- [
+          {"ordlock_listing", "f53f98ec68a232c69c0bd4aff530807f4bb4c5d48890149fc93ecccd32302875"},
+          {"lock_timelock", "6c0d4d6b4e7ab62b03ebec527ca1d5e80e702626c743d42be630c54c3ddeecbb"}
+        ] do
+      @vector vector
+      @hash hash
+      test "#{vector} template hash is pinned, parsed from raw bytes" do
+        %{"script_hex" => hex} =
+          "priv/data/tx_types/output_types_v1.json"
+          |> File.read!()
+          |> Jason.decode!()
+          |> Map.fetch!("vectors")
+          |> Enum.find(&(&1["name"] == @vector))
+
+        assert Script.template_hash(BSV.Script.from_binary!(hex, encoding: :hex)) == @hash
+      end
+    end
+
     test "OP_FALSE OP_RETURN <data> template hash is pinned, parsed from raw bytes" do
       raw = <<0x00, 0x6A, 0x02, 0xAB, 0xCD>>
 

@@ -30,5 +30,5 @@ end
 defmodule Bitblocks.Protocol.Handlers.BCat do
   use Bitblocks.Protocol.Handler,
     name: "BCat",
-    prefix: "15DHFxWZJT58f9nhyCA3mREYYzkVDetm6A"
+    prefix: "15DHFxWZJT58f9nhyGnsRBqrgwK4W6h4Up"
 end

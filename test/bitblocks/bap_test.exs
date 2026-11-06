@@ -376,6 +376,51 @@ defmodule Bitblocks.BapTest do
     end
   end
 
+  describe "real records from the chain" do
+    @mainnet "test/support/data/mainnet/bap_records.json" |> File.read!() |> Jason.decode!()
+
+    defp import_mainnet(%{"txid" => txid, "hex" => hex, "block_height" => height}) do
+      block = block_fixture(%{height: height})
+      {:ok, %BSV.Tx{outputs: outputs}} = Bitblocks.Chain.RawTx.parse(hex)
+
+      row =
+        transaction_fixture(%{
+          txid: txid,
+          raw: hex,
+          block_height: height,
+          block_hash: block.hash,
+          aip_signers: Enum.flat_map(outputs, &Aip.verified_signers(&1.script.chunks)),
+          protocols: ["AIP"]
+        })
+
+      Bap.index(row)
+    end
+
+    test "an ID and its ALIAS in one tx, signed on mainnet" do
+      assert [%{"txid" => txid} = first, _] = @mainnet
+      assert import_mainnet(first) == 2
+
+      identity = Bap.identity("DM8tP9YCRqyLwdTYbcJoxvHofBd")
+
+      assert identity.root_address == "1JqSpe5Ca1iHZ4HgHNFP1Rn12TjwftHToH"
+      assert Bap.bap_id_of(identity.root_address) == "DM8tP9YCRqyLwdTYbcJoxvHofBd"
+      assert identity.current_address == "15F1nXvjPFRUz7AiTCExAzpieKUfAiqkf4"
+      assert %{txid: ^txid, block_height: 974_177} = identity.first_record
+      assert %{profile: %{"name" => "jesterwyn"}} = identity.current_profile
+    end
+
+    test "an identity whose root declared itself, signed with a base64 signature" do
+      assert [_, second] = @mainnet
+      assert import_mainnet(second) == 1
+
+      assert %{
+               root_address: "1LFXXCwbtYkJQnzw7i7k1oyScs8y6ei7FD",
+               current_address: "1LFXXCwbtYkJQnzw7i7k1oyScs8y6ei7FD",
+               current_profile: nil
+             } = Bap.identity("2E3dA976QbJcDvs1PnboYBWztu9p")
+    end
+  end
+
   describe "attestations/1 and by_address/1" do
     setup ctx do
       publish([id(ctx.bap_id, ctx.one, ctx.root)], 700_000)

@@ -245,9 +245,9 @@ defmodule BitblocksWeb.TransactionLive.Show do
     |> Enum.sort_by(fn {_type, count} -> -count end)
   end
 
-  # BCat protocol: prefix 15DHFxWZJT58f9nhyCA3mREYYzkVDetm6A
+  # BCat protocol: prefix 15DHFxWZJT58f9nhyGnsRBqrgwK4W6h4Up
   # Discriminator: second push data == "c" → chunk tx; anything else → head tx
-  # Head push layout: [prefix, info, mime, encoding, filename, flag, txid_1..txid_n]
+  # Head push layout: [prefix, info, mime, encoding, filename, flag, txid_1..txid_n, "|", ...]
   # Chunk txids are 32 raw bytes each (push indices 6+), hex-encoded for display
 
   def bcat_info(nil), do: nil
@@ -269,7 +269,9 @@ defmodule BitblocksWeb.TransactionLive.Show do
 
       [_prefix, info, mime, encoding, filename, flag | txid_pushes] ->
         chunk_txids =
-          Enum.filter(txid_pushes, fn chunk -> chunk.length == 32 end)
+          txid_pushes
+          |> Enum.take_while(&(&1.utf8 != "|"))
+          |> Enum.filter(fn chunk -> chunk.length == 32 end)
           |> Enum.map(& &1.hex)
 
         {:head,

@@ -3,7 +3,7 @@ defmodule BitblocksWeb.TransactionLive.BcatInfoTest do
 
   alias BitblocksWeb.TransactionLive.Show
 
-  @bcat_prefix "15DHFxWZJT58f9nhyCA3mREYYzkVDetm6A"
+  @bcat_prefix "15DHFxWZJT58f9nhyGnsRBqrgwK4W6h4Up"
 
   defp make_push(utf8, hex \\ nil, length \\ nil) do
     raw = utf8 || ""

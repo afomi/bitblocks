@@ -57,7 +57,7 @@ defmodule BitblocksWeb.TxSummaryTest do
     end
 
     test "a prefix protocol with no page of its own links to its namespace" do
-      assert [%{path: "/bitcom/15DHFxWZJT58f9nhyCA3mREYYzkVDetm6A"}] =
+      assert [%{path: "/bitcom/15DHFxWZJT58f9nhyGnsRBqrgwK4W6h4Up"}] =
                TxSummary.protocol_links(%{txid: "abc", protocols: ["BCat"]}, nil, [], nil)
     end
 
