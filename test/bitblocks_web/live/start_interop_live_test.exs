@@ -264,7 +264,8 @@ defmodule BitblocksWeb.StartInteropLiveTest do
       end
 
       assert has_element?(view, "#pattern", "Atomic BEEF")
-      assert has_element?(view, "#pattern", "receipt")
+      assert has_element?(view, "#pattern", "acceptance record")
+      assert has_element?(view, "#pattern", "BRC-237")
       assert has_element?(view, "#anchored-proven", "Anchored doesn't mean accepted.")
     end
 

@@ -89,22 +89,70 @@ These notes record provenance, and they aren't legal advice.
 
 ## One payment, end to end
 
-1. The receiver states the terms: the amount, and the script to pay.
-2. The wallet builds the payment and produces Atomic BEEF.
-   A BRC-100 wallet returns this as `tx` from `createAction`, and a receiving BRC-100 wallet takes it through `internalizeAction`.
+1. The receiver states the terms: the amount, the script to pay, and a random salt.
+2. The wallet builds the payment and produces Atomic BEEF without sending it.
+   A BRC-100 wallet returns this as `tx` from `createAction`, and needs `options.noSend`, because by default it sends the payment itself.
 3. The wallet hands the bytes straight to the receiver, with no third party in between.
-4. The receiver verifies against headers: the payment reads `anchored`, its parents `proven`.
+4. The receiver verifies against headers.
+   The payment reads `anchored`, and each parent reads `proven` or `anchored`.
 5. The receiver checks scripts, amounts and terms, then sends the payment to the network.
-6. The receiver gives back a receipt: the txid, a hash of the BEEF, the status, the height of the headers it used, and the time.
+   If the network reports a conflict, the receiver stops here and issues nothing.
+6. The receiver makes a payment evidence statement (BRC-237), and signs it with BRC-77 if it will travel.
+   If it takes the payment, it adds a signed acceptance record naming the outputs it accepted.
 7. Once the payment is mined, the receiver fetches its BUMP, checks again, and the payment reads `proven`.
+   That produces a new statement, and the acceptance record stays exactly as it was signed.
 
-The receipt's shape is our suggestion, and no standard defines it yet.
-Keeping the BEEF rather than a pointer means the record can be checked again later by anyone holding headers.
+Keep the BEEF as received.
+A later BEEF carries the BUMP and has different bytes, so each statement describes the evidence it was made from.
+
+## A receipt is two things
+
+BRC-237 defines the evidence half, and this kit follows it.
+It's new, by its own account it hasn't been run on a live chain, and Bitblocks doesn't produce it yet.
+No published format covers acceptance, so the acceptance record is our candidate, `interop-kit/payment-acceptance/v0`, until a second implementation reads it.
+
+Evidence says what was checked.
+Acceptance says what the receiver took as payment.
+Neither says the payment will be mined.
+Bitblocks can verify a payment, and only the receiver can accept one.
+
+The acceptance record is RFC 8785 canonical JSON, signed with BRC-77 for anyone to verify, with the signature carried beside the exact bytes:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `version` | string | `interop-kit/payment-acceptance/v0` |
+| `acceptedBy` | string | The receiver's identity key, compressed hex, and the BRC-77 signer |
+| `network` | string | CAIP-2: `bsv:mainnet` or `bsv:testnet` |
+| `outputs` | array | `{"txid", "vout", "satoshis"}` for each output accepted as this payment, sorted by `txid` then `vout` |
+| `termsHash` | string or null | SHA-256 of the exact terms bytes from step 1 |
+| `evidenceHash` | string or null | SHA-256 of the exact bytes of the BRC-237 statement it relied on |
+| `acceptedAt` | integer | Unix seconds, the receiver's own word |
+
+The signed `outputs` are what say who was paid: a BRC-29 output can't show that from the chain alone.
+The salt in the terms stops anyone guessing what the hash covers.
+There is no payer, order id or status here.
+The first two stay private, and a status would be out of date the moment it was signed.
+We left out a hash of the BEEF, because those bytes change once the BUMP arrives, and the txid already commits to the payment.
+
+Anyone holding the record, its terms and the BEEF can check the signature, match the outputs to the transaction, and hash the terms, then make their own statement from their own headers.
+A payment that a mined conflict has spent reads as void from that conflict's proof, whatever the record says.
+The record stays true as a statement of what was accepted.
+
+## Our statuses and BRC-237
+
+| Ours | BRC-237 |
+|---|---|
+| `proven` | The payment is in `anchors`, and `status.event` is `mined` |
+| `anchored` | `fullyAnchored` is true, and the payment is in `unconfirmed` |
+| `unknown` | Usually `fullyAnchored` false with `unresolved` listed, though a BUMP at a height we don't hold is walked past there |
+| `failed` | No statement: BRC-237 refuses rather than records a failure |
+
+The words differ: a BRC-237 anchor is a transaction with a checked path, which we call `proven`.
 
 ## Anchored and proven
 
 A fresh payment isn't in a block yet, so `anchored` is the best it can read, and that's the normal result.
-It means the coins trace, inside this BEEF, to transactions that are in blocks.
+It means the payment's inputs name transactions that, inside this BEEF, lead back to transactions in blocks.
 
 Anchored doesn't mean accepted.
 The scripts may not pass, an input may already be spent, and the network hasn't said anything yet.
@@ -113,7 +161,9 @@ It's the start of a receiver's work, and how much risk to take before `proven` i
 `proven` means the payment itself sits in a block under a header you rely on.
 That is the strongest thing this check can say, and it still covers inclusion alone.
 
-`unknown` is never a pass, and `failed` means the evidence is wrong.
+`unknown` is never a pass.
+`failed` means the evidence doesn't hold against these headers.
+That usually means it's wrong, and after a reorg a good payment's old path reads `failed` until the path is replaced.
 
 ## Known gaps
 
@@ -122,7 +172,10 @@ That is the strongest thing this check can say, and it still covers inclusion al
 - Headers come from one node, and we trust it for which chain is longest and what `bits` should be.
 - A block's transaction count isn't in its header, so the check on a proof's shape rests on our node's word.
   The file gives `tx_count` where we hold one, and block 973110's is left out.
-- BRC-95 doesn't say which byte order the subject txid takes, so the vectors follow the SDK's internal order.
+- BRC-95 doesn't say which byte order the subject txid takes, so the vectors follow the SDK's internal order, which BRC-237 section 2.1 also states.
+- Bitblocks can't produce a BRC-237 statement yet: it has no 64-byte check on a transaction's own path, no output index in its walk, no distances, and no tip hash in its verdict.
+- BRC-237 reads BRC-95 as permitting ancestors beyond a BUMP, while `Beef.Reader` refuses them, and neither has a vector settling it.
+- No acceptance record vectors exist yet, and the bytes matching BRC-237's canonical form is reasoned, not tested.
 - BRC-96 treats a txid-only entry as agreed between two parties, and a third-party check has no such agreement, so we answer `unknown`.
 - The size and count limits in `Beef.Reader` have no vectors, because a limit is a reader's own choice.
 - No live wallet has been tried, and one SDK run is a start rather than a result.
