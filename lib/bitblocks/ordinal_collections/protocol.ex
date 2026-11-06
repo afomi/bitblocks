@@ -43,6 +43,12 @@ defmodule Bitblocks.OrdinalCollections.Protocol do
 
   @callback owner(BSV.TxOut.t()) :: String.t() | nil
 
+  @doc """
+  Whether a hop's tx mined on both sides of a reorg sends the item for a
+  re-trace (#52, #53). When false, only a hop no block holds does.
+  """
+  @callback retrace_moved?() :: boolean()
+
   @doc "The membership rule, in words, for the explicit verification block."
   @callback rule() :: String.t()
 

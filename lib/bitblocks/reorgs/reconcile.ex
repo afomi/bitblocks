@@ -27,6 +27,9 @@ defmodule Bitblocks.Reorgs.Reconcile do
   transaction that is mined later is fetched again with its new block, and a
   row is only removed on a source's answer, never on a failed lookup.
 
+  The protocol rows derived from these transactions follow each one's end in
+  the same database transaction: see `Bitblocks.Reorgs.ProtocolRewind`.
+
   Bounded: one block's rows, read through `transactions_block_hash_index`;
   writes are keyed by txid (the unique index) in chunks of 100.
 
@@ -43,6 +46,7 @@ defmodule Bitblocks.Reorgs.Reconcile do
   alias Bitblocks.Chain
   alias Bitblocks.Chain.{Block, Spend, Transaction, TxidSource, TxSources}
   alias Bitblocks.Reorgs
+  alias Bitblocks.Reorgs.ProtocolRewind
 
   @chunk 100
 
@@ -54,7 +58,8 @@ defmodule Bitblocks.Reorgs.Reconcile do
           remove: [String.t()],
           pending: [String.t()],
           unknown: [String.t()],
-          spends_to_remove: non_neg_integer()
+          spends_to_remove: non_neg_integer(),
+          protocols: ProtocolRewind.counts()
         }
 
   @doc """
@@ -102,7 +107,8 @@ defmodule Bitblocks.Reorgs.Reconcile do
          remove: Enum.sort(remove),
          pending: Enum.sort(pending),
          unknown: Enum.sort(unknown),
-         spends_to_remove: count_spends(remove)
+         spends_to_remove: count_spends(remove),
+         protocols: ProtocolRewind.plan(moved_txids(repoint), remove)
        }}
     end
   end
@@ -112,7 +118,8 @@ defmodule Bitblocks.Reorgs.Reconcile do
   orphan's hash, so a row that moved since the plan is left alone.
 
   Returns how many rows were moved and removed, how many spend edges were
-  removed, and how many rows still point at the orphan.
+  removed, how many rows still point at the orphan, and what happened to the
+  protocol rows of the transactions that actually moved or went.
   """
   @spec apply_plan(plan()) ::
           {:ok,
@@ -120,53 +127,71 @@ defmodule Bitblocks.Reorgs.Reconcile do
              repointed: non_neg_integer(),
              removed: non_neg_integer(),
              spends_removed: non_neg_integer(),
-             remaining: non_neg_integer()
+             remaining: non_neg_integer(),
+             protocols: ProtocolRewind.counts()
            }}
           | {:error, term()}
   def apply_plan(%{orphan_hash: orphan} = plan) do
     Repo.transaction(fn ->
       now = NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second)
 
-      repointed =
-        for {hash, height, txids} <- plan.repoint,
-            chunk <- Enum.chunk_every(txids, @chunk),
-            reduce: 0 do
-          acc ->
-            {n, _} =
-              Repo.update_all(
-                from(t in Transaction, where: t.txid in ^chunk and t.block_hash == ^orphan),
-                set: [block_hash: hash, block_height: height, updated_at: now]
-              )
+      {repointed, moved_protocols} =
+        Enum.reduce(plan.repoint, {0, ProtocolRewind.none()}, fn {hash, height, txids}, acc ->
+          moved =
+            txids
+            |> Enum.chunk_every(@chunk)
+            |> Enum.flat_map(fn chunk ->
+              {_n, moved} =
+                Repo.update_all(
+                  from(t in Transaction,
+                    where: t.txid in ^chunk and t.block_hash == ^orphan,
+                    select: t.txid
+                  ),
+                  set: [block_hash: hash, block_height: height, updated_at: now]
+                )
 
-            acc + n
-        end
+              moved
+            end)
 
-      {removed, spends_removed} =
-        for chunk <- Enum.chunk_every(plan.remove, @chunk), reduce: {0, 0} do
+          {count, protocols} = acc
+          step = ProtocolRewind.moved(moved, hash, height)
+          {count + length(moved), ProtocolRewind.add(protocols, step)}
+        end)
+
+      {gone, spends_removed} =
+        for chunk <- Enum.chunk_every(plan.remove, @chunk), reduce: {[], 0} do
           {txs, spends} ->
             {s, _} = Repo.delete_all(from(s in Spend, where: s.spending_txid in ^chunk))
 
-            {t, _} =
+            {_t, deleted} =
               Repo.delete_all(
-                from(t in Transaction, where: t.txid in ^chunk and t.block_hash == ^orphan)
+                from(t in Transaction,
+                  where: t.txid in ^chunk and t.block_hash == ^orphan,
+                  select: t.txid
+                )
               )
 
-            {txs + t, spends + s}
+            {deleted ++ txs, spends + s}
         end
+
+      removed = length(gone)
+      protocols = ProtocolRewind.add(moved_protocols, ProtocolRewind.removed(gone))
 
       remaining =
         Repo.aggregate(from(t in Transaction, where: t.block_hash == ^orphan), :count)
 
       Logger.warning(
         "Reconcile orphan=#{orphan} moved=#{repointed} removed=#{removed} " <>
-          "spends_removed=#{spends_removed} remaining=#{remaining}"
+          "spends_removed=#{spends_removed} remaining=#{remaining} " <>
+          "protocols=#{inspect(protocols)}"
       )
 
       %{
         repointed: repointed,
         removed: removed,
         spends_removed: spends_removed,
-        remaining: remaining
+        remaining: remaining,
+        protocols: protocols
       }
     end)
   end
@@ -354,6 +379,8 @@ defmodule Bitblocks.Reorgs.Reconcile do
       end
     end)
   end
+
+  defp moved_txids(repoint), do: Enum.flat_map(repoint, fn {_hash, _height, ids} -> ids end)
 
   defp count_spends(txids) do
     txids

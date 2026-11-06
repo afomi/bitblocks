@@ -89,6 +89,11 @@ defmodule Bitblocks.OrdinalCollections.OneSat do
       "a mint spends the collection outpoint or output 0 of an earlier proven mint, " <>
         "and inscribes a collectionItem naming this collection"
 
+  # The sat's path is read from the tx's bytes, and a re-mined tx has the same
+  # bytes: the item keeps its answer.
+  @impl true
+  def retrace_moved?, do: false
+
   @impl true
   def owner(%BSV.TxOut{script: script}), do: Inscription.lock_owner(script)
 end

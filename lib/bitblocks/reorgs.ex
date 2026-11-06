@@ -4,9 +4,9 @@ defmodule Bitblocks.Reorgs do
 
   Phase 1 of #34: write an annotation when tip sync sees a fork, and surface
   the recent one as a site notice. Transaction rows and their spend edges are
-  reconciled after the fact (`Bitblocks.Reorgs.Reconcile`). Token, listing and
-  other protocol rows aren't rewound here: each protocol's state is its own,
-  and takes its own pass.
+  reconciled after the fact (`Bitblocks.Reorgs.Reconcile`), and token, listing
+  and collection rows go with them, each by its own protocol's rules
+  (`Bitblocks.Reorgs.ProtocolRewind`).
 
   `summary` is stored for the views, but always computed from the row's
   fields by `summary/1`, and rewritten whenever those fields change, so the

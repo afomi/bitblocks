@@ -99,6 +99,8 @@ bin/bitblocks rpc 'Bitblocks.Release.revalidate_token_transfers(apply: true)'
 
 Transfers indexed before validation existed have no status, so they count for no one until it runs.
 
+After a reorg, token rows follow their transaction: a row of a transaction mined in both blocks moves to the new block, and a row of a transaction no block holds is deleted, with the txs spending it validated again ([docs/SYNCING.md](SYNCING.md#protocol-rows-52-53)).
+
 ## Holder balances
 
 Balances are **net**: `Tokens.token_holders/1` sums the `amt` of each address's *unspent* token outputs, most-held first.
