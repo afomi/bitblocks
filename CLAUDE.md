@@ -258,6 +258,7 @@ These limits count per node until the Erlang cluster is connected (`this_node.ra
 Logged-in users get `RATE_LIMIT_SIGNED_IN_PER_MINUTE` (600) per user, and admins `RATE_LIMIT_ADMIN_PER_MINUTE` (3,000) per user.
 This covers HTTP requests, not events over an open LiveView socket.
 Keyed callers send `Authorization: Bearer bbk_…` (or `x-api-key`) and get their key's own budget; create one with `bin/bitblocks rpc 'Bitblocks.Release.create_api_key("qart", 1200)'` (printed once), or register one made elsewhere from its sha256 with `Release.create_api_key_from_hash/3`, so the key never appears in command output. An unknown or revoked key is a 401.
+A key can hold scopes, none by default: `ops_read` opens `/api/v1/ops/*`, given with `scopes: ["ops_read"]` on either create function or `Release.grant_api_key_scope/2`. A key without it gets a 403.
 
 ```
 GET /api/v1/blocks              — paginated block list
@@ -271,6 +272,11 @@ GET /api/v1/txs/:txid/raw       — the tx's exact bytes (octet-stream), verifie
 GET /content/:outpoint          — inscription body parsed from the raw tx on the fly (1Sat convention; immutable, nosniff, sandbox CSP)
 GET /content/bcat/:txid         — a BCat file, its chunks joined in order, each checked against the txid its head names; ?download=1; a short file is an error naming missing_chunks (up to 256 chunks, 32 MB)
 GET /api/v1/status/derivations  — each pipeline step's version, stage and derivation versions, latest backfill runs
+GET /api/v1/ops/sync            — ops_read key: leader, worker slots, each block's stage and retries, failed blocks with reasons (docs/OPS_API_AND_MCP.md)
+GET /api/v1/ops/blocks/:height  — ops_read key: one block's story: header, num_tx against stored_txs, last fetch, errors, reorgs
+GET /api/v1/ops/node            — ops_read key: node height and headers, RPC and REST latency, our load
+GET /api/v1/ops/errors          — ops_read key: recent error log lines, secrets and addresses removed (?limit=)
+POST /api/v1/ops/mcp            — ops_read key: the same four tools over MCP (Streamable HTTP, JSON)
 GET /api/v1/price/bsv           — cached BSV spot price (USD) from CoinGecko
 GET /api/v1/support             — sponsorship numbers for the off-site page: monthly costs, target, BSV received (CORS *)
 GET /api/v1/stream/blocks       — SSE stream: `block_updated` (height, hash, sync_state; each new header and state change) and `reorg` (fork_point, fork_height, orphans)

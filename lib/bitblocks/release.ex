@@ -1543,8 +1543,8 @@ defmodule Bitblocks.Release do
 
       bin/bitblocks rpc 'Bitblocks.Release.create_api_key("qart", 1200)'
   """
-  def create_api_key(name, requests_per_minute) do
-    case Bitblocks.ApiKeys.create(name, requests_per_minute) do
+  def create_api_key(name, requests_per_minute, opts \\ []) do
+    case Bitblocks.ApiKeys.create(name, requests_per_minute, opts) do
       {:ok, key, token} ->
         Logger.info(
           "create_api_key: ##{key.id} #{name} #{requests_per_minute}/min #{key.prefix}…"
@@ -1568,9 +1568,9 @@ defmodule Bitblocks.Release do
 
       bin/bitblocks rpc 'Bitblocks.Release.create_api_key_from_hash("cloudfront-cdn", 3000, "<sha256 hex>")'
   """
-  def create_api_key_from_hash(name, requests_per_minute, token_hash) do
+  def create_api_key_from_hash(name, requests_per_minute, token_hash, opts \\ []) do
     with_running_repo(fn ->
-      case Bitblocks.ApiKeys.create_from_hash(name, requests_per_minute, token_hash) do
+      case Bitblocks.ApiKeys.create_from_hash(name, requests_per_minute, token_hash, opts) do
         {:ok, key} ->
           IO.puts("api key ##{key.id} (#{name}, #{requests_per_minute}/min) registered")
           {:ok, key.id}
@@ -1590,7 +1590,23 @@ defmodule Bitblocks.Release do
   @doc "Lists API keys as `{id, name, prefix, requests_per_minute, revoked_at}`."
   def list_api_keys do
     for k <- Bitblocks.ApiKeys.list(),
-        do: {k.id, k.name, k.prefix, k.requests_per_minute, k.revoked_at}
+        do: {k.id, k.name, k.prefix, k.requests_per_minute, k.scopes, k.revoked_at}
+  end
+
+  @doc """
+  Grants a scope to an existing key. Keys hold none until granted.
+
+      bin/bitblocks rpc 'Bitblocks.Release.grant_api_key_scope(3, "ops_read")'
+  """
+  def grant_api_key_scope(id, scope) do
+    case Bitblocks.ApiKeys.grant_scope(id, scope) do
+      {:ok, key} ->
+        Logger.info("grant_api_key_scope: ##{key.id} #{key.name} #{scope}")
+        {:ok, key.scopes}
+
+      {:error, changeset} ->
+        {:error, Ecto.Changeset.traverse_errors(changeset, fn {msg, _} -> msg end)}
+    end
   end
 
   @doc "Revokes an API key; requests with it get a 401 within a minute."

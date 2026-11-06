@@ -17,6 +17,7 @@ defmodule Bitblocks.Application do
     # table would die with that connection and silently reset every count.
     BitblocksWeb.Plugs.RateLimiter.create_table()
     Bitblocks.ApiKeys.create_cache()
+    Bitblocks.Ops.ErrorLog.attach()
     Bitblocks.TelemetryHandlers.attach()
 
     children = [

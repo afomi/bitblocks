@@ -3,11 +3,15 @@ defmodule Bitblocks.ApiKeys do
   API keys: a caller's own rate budget (#12, #13, #29 step 5).
 
   A key is `bbk_` plus 32 random bytes (base64url). Only its sha256 is stored;
-  `create/2` returns the key once. `BitblocksWeb.Plugs.RateLimiter` counts a
+  `create/3` returns the key once. `BitblocksWeb.Plugs.RateLimiter` counts a
   keyed request against the key's `requests_per_minute`, not the caller's IP.
 
   Lookups are cached in ETS for #{60} seconds, so a revoked key stops working
   within a minute on every node.
+
+  A key can also hold scopes (#50). A new key has none, and neither does an
+  existing one: `ops_read` is only ever granted by name, at creation or with
+  `grant_scope/2`, and `BitblocksWeb.Plugs.RequireScope` refuses everyone else.
   """
 
   import Ecto.Query
@@ -18,9 +22,13 @@ defmodule Bitblocks.ApiKeys do
   @cache :api_key_cache
   @cache_ttl_ms 60_000
 
-  @doc "Creates a key. Returns `{:ok, %ApiKey{}, token}`; the token isn't stored."
-  @spec create(String.t(), pos_integer()) :: {:ok, ApiKey.t(), String.t()} | {:error, term()}
-  def create(name, requests_per_minute) do
+  @doc """
+  Creates a key. Returns `{:ok, %ApiKey{}, token}`; the token isn't stored.
+  Option: `:scopes`, none by default.
+  """
+  @spec create(String.t(), pos_integer(), keyword()) ::
+          {:ok, ApiKey.t(), String.t()} | {:error, term()}
+  def create(name, requests_per_minute, opts \\ []) do
     token = "bbk_" <> Base.url_encode64(:crypto.strong_rand_bytes(32), padding: false)
 
     %ApiKey{}
@@ -28,7 +36,8 @@ defmodule Bitblocks.ApiKeys do
       name: name,
       requests_per_minute: requests_per_minute,
       token_hash: hash(token),
-      prefix: String.slice(token, 0, 12)
+      prefix: String.slice(token, 0, 12),
+      scopes: Keyword.get(opts, :scopes, [])
     })
     |> Repo.insert()
     |> case do
@@ -40,18 +49,20 @@ defmodule Bitblocks.ApiKeys do
   @doc """
   Registers a key made elsewhere from its sha256 (64 lowercase hex), so the
   token never passes through this node or an operator's output. The token
-  must start `bbk_` and hold 32 random bytes, as `create/2` makes them.
+  must start `bbk_` and hold 32 random bytes, as `create/3` makes them.
+  Option: `:scopes`, none by default.
   """
-  @spec create_from_hash(String.t(), pos_integer(), String.t()) ::
+  @spec create_from_hash(String.t(), pos_integer(), String.t(), keyword()) ::
           {:ok, ApiKey.t()} | {:error, term()}
-  def create_from_hash(name, requests_per_minute, token_hash) do
+  def create_from_hash(name, requests_per_minute, token_hash, opts \\ []) do
     if token_hash =~ ~r/\A[0-9a-f]{64}\z/ do
       %ApiKey{}
       |> ApiKey.changeset(%{
         name: name,
         requests_per_minute: requests_per_minute,
         token_hash: token_hash,
-        prefix: "sha256:" <> String.slice(token_hash, 0, 5)
+        prefix: "sha256:" <> String.slice(token_hash, 0, 5),
+        scopes: Keyword.get(opts, :scopes, [])
       })
       |> Repo.insert()
     else
@@ -79,6 +90,28 @@ defmodule Bitblocks.ApiKeys do
         if key, do: :ets.insert(@cache, {digest, key, now + @cache_ttl_ms})
         key
     end
+  end
+
+  @doc "True when the key holds `scope`."
+  @spec scope?(ApiKey.t(), String.t()) :: boolean()
+  def scope?(%ApiKey{scopes: scopes}, scope), do: scope in scopes
+
+  @doc """
+  Grants a scope to a key by id. Other nodes see it within the cache TTL.
+  An unknown scope is a changeset error.
+  """
+  @spec grant_scope(integer(), String.t()) :: {:ok, ApiKey.t()} | {:error, term()}
+  def grant_scope(id, scope) do
+    key = Repo.get!(ApiKey, id)
+
+    result =
+      key
+      |> ApiKey.changeset(%{scopes: Enum.uniq([scope | key.scopes])})
+      |> Repo.update()
+
+    ensure_cache()
+    :ets.delete(@cache, key.token_hash)
+    result
   end
 
   @doc "Revokes a key by id."

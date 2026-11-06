@@ -1,6 +1,6 @@
 # Ops API and MCP — proposal
 
-Status: proposal (2026-11-03).
+Status: proposal (2026-11-03), with the operator API and its MCP tools built (#50).
 Nothing here is built unless it names an existing module, route or function.
 
 Short answer: yes, Bitblocks would benefit from both, built in a set order.
@@ -191,6 +191,55 @@ A node catching up, with its headers far ahead of its blocks, is not a stall on 
 
 ---
 
+## The operator API
+
+Built for #50, so a session with no production shell can see for itself.
+Read-only, for an API key holding the `ops_read` scope.
+
+| Tool (MCP) | Endpoint | Answers | From |
+|---|---|---|---|
+| `sync_live` | `GET /api/v1/ops/sync` | Leader, worker slots, each block's stage and retries, the lowest failed blocks with their reasons, node load | `Ops.sync_live/0` |
+| `block` | `GET /api/v1/ops/blocks/:height` | One block's story: header, `num_tx` against `stored_txs`, sync state and error, live job, last fetch, reorgs at that height | `Ops.block/1` |
+| `node` | `GET /api/v1/ops/node` | State, height and headers, RPC and REST latency, our load | `Ops.node_report/0` |
+| `errors` | `GET /api/v1/ops/errors?limit=` | Recent error log lines on this node, newest first | `Ops.errors/1` |
+
+**The key.**
+No key is a 401, a key without the scope is a 403, and a signed-in session doesn't count.
+Keys hold no scopes by default, so no existing key gained this one.
+Make a key on your own machine and register only its hash, so the token never appears in command output:
+
+```bash
+bin/bitblocks rpc 'Bitblocks.Release.create_api_key_from_hash("ops-session", 600, "<sha256 hex>", scopes: ["ops_read"])'
+```
+
+`Release.create_api_key(name, rpm, scopes: ["ops_read"])` does the same and prints the token once, and `Release.grant_api_key_scope(id, "ops_read")` grants the scope to a key that already exists.
+Revoke as any key, with `Release.revoke_api_key/1`.
+
+**MCP.**
+`POST /api/v1/ops/mcp` serves the four tools over MCP's Streamable HTTP transport, stateless, behind the same key (`BitblocksWeb.Api.OpsMcpController`).
+Each tool returns what its endpoint returns.
+
+```bash
+claude mcp add --transport http bitblocks-ops https://bitblocks.app/api/v1/ops/mcp --header "Authorization: Bearer $BITBLOCKS_OPS_KEY"
+```
+
+**What stays out.**
+Every field is picked by name, so nothing reaches an answer by default.
+Free text (a block's error, a log line, a node message) passes through `Bitblocks.Ops.Scrub`, which removes URLs, IP addresses, host names, `user@host`, Bitcoin addresses, API keys and credentials by shape, and the exact value of each configured secret and environment variable.
+Node names become the short ids of `Ops.node_id/1`.
+A log line keeps only its time, level and message: metadata carries caller IPs.
+
+**What it costs.**
+`sync` reads the shared /syncing snapshot plus one indexed query, and `errors` reads memory.
+`blocks/:height` counts the block's rows on the `block_hash` index with a five-second statement timeout, and `stored_txs` is null if a huge block doesn't answer in time.
+`node` calls the node at most every 15 seconds, however many sessions ask, and gives up on a call after five.
+
+**Limits to know.**
+`errors` holds the last 200 lines on the node that answers, and they are gone on restart (`Bitblocks.Ops.ErrorLog`).
+`last_fetch` covers raw fetches this node saw in the last ten minutes.
+
+---
+
 ## Order of work
 
 Each step is a user story with a test, in dependency order.
@@ -203,9 +252,9 @@ Each step is a user story with a test, in dependency order.
    Test: it returns the tip, lag and last insert time, and never any credentials or internal hosts.
 4. **Keep job and metric history** longer than 60 seconds: raise the Oban Pruner's `max_age`, plus a small daily rollup table for lag and coverage.
    Test: yesterday's lag can be queried.
-5. **Key scopes** on `api_keys` (`public`, `ops_read`, `ops_write`) and per-key usage counters.
-   Test: a `public` key gets a 403 on `/api/v1/ops/*`.
-6. **Operator API and operator MCP server, read tools.**
+5. **Key scopes** on `api_keys` (`ops_read` built, #50; `ops_write` with the write tools) and per-key usage counters (not built).
+   Test: a key without the scope gets a 403 on `/api/v1/ops/*`.
+6. **Operator API and operator MCP server, read tools.** Built (#50).
    Test: each MCP tool returns the same map as its `Ops` function.
 7. **Write tools** with dry-run, confirmation and command records.
    Test: a call without `confirm` enqueues nothing; a call with it records exactly one command.
@@ -219,7 +268,7 @@ Start there.
 
 ## Open questions for Ryan
 
-- Should the operator MCP server run inside the Phoenix app (Streamable HTTP behind an `ops_*` key), or as a local process that calls `/api/v1/ops/*`?
-  Inside the app is simpler; a local process keeps the MCP surface off the internet.
+- The operator MCP server runs inside the Phoenix app today, because that took about a hundred lines and no new surface beyond the `ops_read` routes.
+  A local process calling `/api/v1/ops/*` would keep MCP off the internet; say if you prefer that.
 - Who gets alerts besides you, and should they go anywhere but email?
 - Is a public status page with history something you want to show prospects now, or after #1's coverage is complete?

@@ -3,15 +3,26 @@ defmodule Bitblocks.Ops do
   Operations as data: is Bitblocks healthy, and how current is it?
 
   One answer shared by `GET /api/v1/status`, the ops alert cron
-  (`Bitblocks.Workers.OpsAlertWorker`) and, later, an operator MCP
-  (docs/OPS_API_AND_MCP.md). It reads only cached state: the /syncing shared
-  snapshot (`SyncProgress`), the node info cache (`RpcCache`) and our newest
-  block row, so it is cheap enough for a public endpoint.
+  (`Bitblocks.Workers.OpsAlertWorker`) and the operator tools below
+  (docs/OPS_API_AND_MCP.md). `health/0` reads only cached state: the /syncing
+  shared snapshot (`SyncProgress`), the node info cache (`RpcCache`) and our
+  newest block row, so it is cheap enough for a public endpoint.
+
+  The operator tools (#50) answer what a session would otherwise ask of
+  `bin/bitblocks rpc`: `sync_live/0`, `block/1`, `node_report/0`, `errors/1`.
+  They are read-only, behind an `ops_read` key, and every field is picked by
+  name: free text passes through `Bitblocks.Ops.Scrub`, and node names become
+  the short ids `node_id/1` makes.
 
   It never carries the node's address or credentials.
   """
 
-  alias Bitblocks.{Chain, Config, NodeRole, Notifications, RpcCache, SyncProgress}
+  import Ecto.Query
+
+  alias Bitblocks.{Chain, Config, NodeRole, Notifications, Repo, RpcCache, Sync, SyncProgress}
+  alias Bitblocks.Chain.{Block, Transaction}
+  alias Bitblocks.Ops.{ErrorLog, Scrub}
+  alias Bitblocks.Reorgs.Reorg
 
   # A stall is no progress for this long while there is work to do: our
   # headers more than @stall_blocks behind the node's validated blocks with no
@@ -160,12 +171,19 @@ defmodule Bitblocks.Ops do
   deploy can be confirmed from the outside.
   """
   def release do
-    # The node name carries its private IP (bitblocks@10.x.x.x); expose only a
-    # short stable id, enough to tell the two app nodes apart.
-    %{
-      sha: System.get_env("RELEASE_SHA"),
-      node: "node-" <> (node() |> :erlang.phash2() |> Integer.to_string(16) |> String.downcase())
-    }
+    %{sha: System.get_env("RELEASE_SHA"), node: node_id(node())}
+  end
+
+  @doc """
+  A node name carries its private IP (bitblocks@10.x.x.x); this is a short
+  stable id instead, enough to tell app nodes apart. nil stays nil.
+  """
+  @spec node_id(atom() | String.t() | nil) :: String.t() | nil
+  def node_id(nil), do: nil
+
+  def node_id(name) do
+    "node-" <>
+      (name |> to_string() |> :erlang.phash2() |> Integer.to_string(16) |> String.downcase())
   end
 
   # Inlined as a literal in the bucket query, so GROUP BY and SELECT match.
@@ -217,9 +235,6 @@ defmodule Bitblocks.Ops do
   end
 
   defp coverage_facts do
-    import Ecto.Query
-    alias Bitblocks.Chain.Block
-
     buckets =
       Bitblocks.Repo.all(
         from(b in Block,
@@ -249,6 +264,219 @@ defmodule Bitblocks.Ops do
       tip: s.tip,
       completed_last_hour: completed_last_hour
     }
+  end
+
+  # -- Operator tools (#50) --------------------------------------------------------
+
+  @failed_blocks 20
+  @stored_count_timeout_ms 5_000
+  @reorgs_per_block 20
+  @node_ttl_ms 15_000
+  @probe_timeout_ms 5_000
+  @errors_default 50
+
+  @doc """
+  The sync right now, from the /syncing snapshot: the leader, worker slots,
+  each block in the table with its stage and retries, and the lowest failed
+  blocks with their reasons. One indexed query, the failed blocks.
+  """
+  @spec sync_live() :: map()
+  def sync_live, do: sync_live(SyncProgress.snapshot(), Sync.failed_blocks(@failed_blocks))
+
+  @doc "`sync_live/0` from a given snapshot and failed blocks (for tests)."
+  def sync_live(snapshot, failed) do
+    sync = snapshot.sync || %{}
+
+    %{
+      as_of: iso(snapshot.updated_at),
+      release: release(),
+      leader: node_id(sync[:leader]),
+      paused: sync[:paused],
+      tip: sync[:tip],
+      complete_through: sync[:complete_through],
+      target: sync[:target],
+      concurrency: sync[:concurrency],
+      max_concurrency: sync[:max_concurrency],
+      limit_reason: sync[:limit_reason],
+      slots_in_use: sync[:in_use],
+      blocks: Enum.map(sync[:rows] || [], &live_row/1),
+      failed: Enum.map(failed, &%{&1 | error: Scrub.line(&1.error)}),
+      node_load: snapshot.node_load
+    }
+  end
+
+  defp live_row(row) do
+    %{
+      height: row.height,
+      hash: row.hash,
+      num_tx: row.num_tx,
+      fetched: row[:fetched],
+      stage: row.sync_state,
+      failures: row.failures,
+      error: Scrub.line(row.error),
+      slot: row.slot,
+      node: node_id(row.node),
+      job_state: row.job_state,
+      next_retry_at: row.next_retry_at || nil
+    }
+  end
+
+  @doc """
+  One block's story: its header, `num_tx` against the rows we hold, its sync
+  state and errors, its live job, its last raw fetch (kept ten minutes, in
+  memory) and the reorgs that touched its height. nil when no block is stored
+  there.
+
+  `stored_txs` is counted on the `block_hash` index with a statement timeout,
+  and is nil if a huge block doesn't answer in time.
+  """
+  @spec block(non_neg_integer()) :: map() | nil
+  def block(height) when is_integer(height) do
+    row =
+      Repo.one(
+        from(b in Block,
+          where: b.height == ^height,
+          limit: 1,
+          select: %{
+            height: b.height,
+            hash: b.hash,
+            prevblockhash: b.prevblockhash,
+            merkleroot: b.merkleroot,
+            time: b.time,
+            size: b.size,
+            num_tx: b.num_tx,
+            sync_state: b.sync_state,
+            attempts: b.tx_sync_attempts,
+            error: b.tx_sync_error,
+            started_at: b.tx_sync_started_at,
+            completed_at: b.tx_sync_completed_at
+          }
+        )
+      )
+
+    row && block_story(row, SyncProgress.snapshot())
+  end
+
+  defp block_story(row, snapshot) do
+    job = Enum.find((snapshot.sync || %{})[:rows] || [], &(&1.hash == row.hash))
+
+    row
+    |> Map.put(:error, Scrub.line(row.error))
+    |> Map.merge(%{
+      stored_txs: stored_txs(row.hash),
+      job: job && Map.take(live_row(job), [:slot, :node, :job_state, :next_retry_at]),
+      last_fetch: SyncProgress.last_fetch(row.height),
+      reorgs: reorgs_at(row.height)
+    })
+  end
+
+  defp stored_txs(hash) do
+    Repo.transaction(fn ->
+      Repo.query!("SET LOCAL statement_timeout = #{@stored_count_timeout_ms}")
+      Repo.one(from(t in Transaction, where: t.block_hash == ^hash, select: count()))
+    end)
+    |> case do
+      {:ok, count} -> count
+      _ -> nil
+    end
+  rescue
+    _ -> nil
+  end
+
+  # A reorg replaces the blocks above its fork point, up to its fork height.
+  defp reorgs_at(height) do
+    from(r in Reorg,
+      where:
+        r.fork_height == ^height or
+          (not is_nil(r.fork_point) and r.fork_point < ^height and r.fork_height >= ^height),
+      order_by: [desc: r.detected_at],
+      limit: @reorgs_per_block,
+      select: map(r, [:detected_at, :fork_height, :fork_point, :orphan_count, :outcome, :summary])
+    )
+    |> Repo.all()
+  end
+
+  @doc """
+  The node as we see it: height and headers, how long one RPC call and one
+  REST call took just now, and the load our sync puts on it. Measured at most
+  every #{div(@node_ttl_ms, 1000)} seconds and shared, so polling this doesn't
+  add to the node's load.
+  """
+  @spec node_report() :: map()
+  def node_report do
+    now = System.monotonic_time(:millisecond)
+
+    case :persistent_term.get({__MODULE__, :node_report}, nil) do
+      {at, value} when now - at < @node_ttl_ms ->
+        value
+
+      _ ->
+        value =
+          node_report(%{
+            rpc: probe(fn -> rpc_client().getblockchaininfo() end),
+            rest: probe(fn -> rpc_client().rest_chaininfo() end),
+            load: SyncProgress.snapshot().node_load,
+            now: DateTime.utc_now() |> DateTime.truncate(:second)
+          })
+
+        :persistent_term.put({__MODULE__, :node_report}, {now, value})
+        value
+    end
+  end
+
+  @doc """
+  `node_report/0` from given facts (for tests): `%{rpc: {ms, result}, rest:
+  {ms, result}, load: node_load, now:}`, each result what the call returned.
+  """
+  def node_report(%{rpc: {rpc_ms, info}, rest: {rest_ms, rest}, load: load, now: now}) do
+    state = Config.node_status(info)
+    info = if is_map(info), do: info, else: %{}
+
+    %{
+      as_of: DateTime.to_iso8601(now),
+      state: node_state_name(state),
+      message: Scrub.line(node_message(state)),
+      blocks: info["blocks"],
+      headers: info["headers"],
+      verification_progress: info["verificationprogress"],
+      rpc: %{ok: state == :ok, ms: rpc_ms, error: rpc_error(state)},
+      rest: %{ok: match?({:ok, _}, rest), ms: rest_ms, error: rest_error(rest)},
+      load: load
+    }
+  end
+
+  defp rpc_error({:unreachable, reason}), do: Scrub.line(reason)
+  defp rpc_error(_), do: nil
+
+  defp rest_error({:ok, _}), do: nil
+  defp rest_error({:error, reason}), do: Scrub.line(reason)
+  defp rest_error(other), do: Scrub.line(other)
+
+  # {ms, result}. A node that doesn't answer in time must not hold the request
+  # for the RPC client's own minute.
+  defp probe(fun) do
+    started = System.monotonic_time(:millisecond)
+    task = Task.async(fn -> safe(fun) end)
+
+    result =
+      case Task.yield(task, @probe_timeout_ms) || Task.shutdown(task, :brutal_kill) do
+        {:ok, result} -> result
+        _ -> {:error, :timeout}
+      end
+
+    {System.monotonic_time(:millisecond) - started, result}
+  end
+
+  defp rpc_client, do: Application.get_env(:bitblocks, :bitcoinsv_cli, BitcoinsvCli)
+
+  @doc """
+  Recent error log lines on this node, newest first and scrubbed. `limit`
+  defaults to #{@errors_default}, and is kept within what `ErrorLog` holds.
+  """
+  @spec errors(integer() | nil) :: map()
+  def errors(limit \\ nil) do
+    limit = (limit || @errors_default) |> max(1) |> min(ErrorLog.capacity())
+    %{node: node_id(node()), kept: ErrorLog.capacity(), errors: ErrorLog.recent(limit)}
   end
 
   # -- Facts ---------------------------------------------------------------------

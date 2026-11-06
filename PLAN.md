@@ -50,6 +50,8 @@ A bitblocks-owned funded address (#21, #22, #26): the code is ready for it ([doc
 
 ## Next
 
+Operator tools (#50): `/api/v1/ops/*` and `POST /api/v1/ops/mcp`, read-only, behind an `ops_read` key ([docs/OPS_API_AND_MCP.md](docs/OPS_API_AND_MCP.md#the-operator-api)).
+Needs on prod: one key registered from its hash.
 #25 REVIVE: unwriter's stack, one sprint per piece.
 #29 PROJECTIONS: shared managed projections, prototype slice ([docs/MANAGED_SERVICES.md](docs/MANAGED_SERVICES.md)).
 Steps 1–4 are built: the projection record (`Bitblocks.Projections`), hydrate (`GET /api/v1/projections/:id/txs`), status (`/status`) and webhook follow (`ProjectionWebhookWorker`).

@@ -1,7 +1,7 @@
 # Full coverage, strong typing, and first seen
 
 Status: plan (2026-11-04), part built.
-Step 1 of the order and the first two typing steps are built; the rest is tracked in #49 (types), #50 (operator MCP) and #51 (first seen and candidates).
+Steps 1 and 2 of the order and the first two typing steps are built; the rest is tracked in #49 (types) and #51 (first seen and candidates).
 
 Two goals, in order:
 
@@ -31,7 +31,7 @@ An operator session needs to see for itself.
 - `GET /api/v1/status` names the running release (`release.sha`, from the image tag via `RELEASE_SHA`) and node, so a deploy can be confirmed from outside.
 - `GET /api/v1/status/coverage` gives completeness per 10,000-block bucket, blocks completed in the last hour, and an ETA to the tip. Computed at most once a minute and shared.
 
-**Next (operator tools, read-only, behind an `ops_read` key, as API and MCP over `Bitblocks.Ops`):**
+**Built (step 2, #50): operator tools, read-only, behind an `ops_read` key, as API and MCP over `Bitblocks.Ops`. See [OPS_API_AND_MCP.md](OPS_API_AND_MCP.md#the-operator-api).**
 
 | Tool | Answers |
 |---|---|

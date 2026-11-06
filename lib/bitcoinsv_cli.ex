@@ -600,6 +600,27 @@ defmodule BitcoinsvCli do
     end
   end
 
+  @doc """
+  The node's REST chain info, the cheapest REST call: `{:ok, body}` or
+  `{:error, reason}` (`{:http_error, 404}` when REST is off).
+  """
+  def rest_chaininfo do
+    {timeout, recv_timeout} = rpc_timeouts()
+
+    with {:ok, base} <- rest_base(),
+         {:ok, %HTTPoison.Response{status_code: 200, body: body}} <-
+           HTTPoison.get("#{base}/rest/chaininfo.json", [],
+             timeout: timeout,
+             recv_timeout: recv_timeout
+           ) do
+      {:ok, body}
+    else
+      {:ok, %HTTPoison.Response{status_code: status}} -> {:error, {:http_error, status}}
+      {:error, %HTTPoison.Error{reason: reason}} -> {:error, {:connection_error, reason}}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
   # Scheme, host and port of the node URL; credentials and path dropped.
   defp rest_base do
     url = Application.get_env(:bitblocks, :rest_url) || Bitblocks.Config.bitcoin_url()

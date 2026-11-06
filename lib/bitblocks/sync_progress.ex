@@ -86,6 +86,19 @@ defmodule Bitblocks.SyncProgress do
     ArgumentError -> empty_snapshot()
   end
 
+  @doc """
+  The last raw fetch of the block at `height` that this node saw in the last
+  ten minutes: `%{source, bytes, ms, height, at}`, or nil. An ETS read.
+  """
+  def last_fetch(height) do
+    case :ets.lookup(@table, :fetches) do
+      [{:fetches, fetches}] -> Enum.find(fetches, &(&1.height == height))
+      [] -> nil
+    end
+  rescue
+    ArgumentError -> nil
+  end
+
   @doc "Reloads from the database now and publishes. Synchronous."
   def refresh, do: GenServer.call(__MODULE__, :refresh, 30_000)
 
@@ -220,6 +233,7 @@ defmodule Bitblocks.SyncProgress do
   def handle_info({:sync_fetch, fetch}, state) do
     cutoff = System.system_time(:second) - @load_window_s
     fetches = [fetch | Enum.filter(state.fetches, &(&1.at >= cutoff))]
+    :ets.insert(@table, {:fetches, fetches})
     {:noreply, %{state | fetches: fetches, dirty: true}}
   end
 

@@ -40,6 +40,25 @@ defmodule BitblocksWeb.Router do
     get "/bitcom/snapshots/:version", BitcomController, :snapshot
   end
 
+  # Operator tools, for an API key with the ops_read scope (#50). Read-only,
+  # and no CORS: these are for sessions and scripts, not pages.
+  pipeline :ops_api do
+    plug :accepts, ["json"]
+    plug BitblocksWeb.Plugs.RequireScope, "ops_read"
+  end
+
+  scope "/api/v1/ops", BitblocksWeb.Api do
+    pipe_through :ops_api
+
+    get "/sync", OpsController, :sync
+    get "/blocks/:height", OpsController, :block
+    get "/node", OpsController, :node_report
+    get "/errors", OpsController, :errors
+
+    post "/mcp", OpsMcpController, :rpc
+    get "/mcp", OpsMcpController, :no_stream
+  end
+
   scope "/api/v1", BitblocksWeb.Api do
     pipe_through :api
 
