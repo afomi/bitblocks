@@ -15,8 +15,16 @@ defmodule Bitblocks.Chain.Beef do
   required. `@max_parents` bounds the proofs one public request can ask of the
   node; parents past it are listed as missing too.
 
-  The bytes are parsed back before they are returned: each tx's bytes must hash
-  to its txid, and each BUMP must climb to the root in the header we verified.
+  The bytes are parsed back before they are returned, by the same strict reader
+  that takes BEEF from anyone (`Bitblocks.Chain.Beef.Reader`): each tx's bytes
+  must hash to its txid, and each BUMP must climb to the root in the header we
+  verified.
+
+  `build(txid, format: :atomic)` gives Atomic BEEF (BRC-95). Its ancestry stops
+  at the first tx with a BUMP, and our tx always has one, so Atomic BEEF here is
+  that tx and its BUMP alone: a parent would be unrelated data, which the
+  reference SDK refuses. The subject is written in internal byte order, as that
+  SDK writes it; BRC-95 doesn't say which.
 
   ## BUMP byte order
 
@@ -32,9 +40,11 @@ defmodule Bitblocks.Chain.Beef do
   import Bitwise
 
   alias Bitblocks.Chain.{MerkleProof, RawTx}
+  alias Bitblocks.Chain.Beef.Reader
   alias Bitblocks.TxStore
 
   @version <<0x01, 0x00, 0xBE, 0xEF>>
+  @atomic_prefix <<0x01, 0x01, 0x01, 0x01>>
   @max_parents 25
 
   @flag_data 0
@@ -50,15 +60,23 @@ defmodule Bitblocks.Chain.Beef do
   The BEEF for a stored tx: `{:ok, %{txid, beef (hex), transactions,
   parents_included, parents_missing, complete, block_hash, block_height,
   trust}}`, or the errors of `MerkleProof.build/1`, or `:raw_unavailable`
-  when the tx's bytes can't be read.
+  when the tx's bytes can't be read. `format: :atomic` gives Atomic BEEF in
+  `beef`; `format` in the answer says which it is.
   """
-  @spec build(String.t()) :: {:ok, map()} | {:error, atom()}
-  def build(txid) when is_binary(txid) do
+  @spec build(String.t(), keyword()) :: {:ok, map()} | {:error, atom()}
+  def build(txid, opts \\ []) when is_binary(txid) do
+    format = Keyword.get(opts, :format, :beef)
+
     with {:ok, proof} <- MerkleProof.build(txid),
          {:ok, raw} <- raw(txid) do
-      parents = parents(raw)
+      parents = if format == :atomic, do: [], else: parents(raw)
       {tried, skipped} = Enum.split(parents, @max_parents)
-      proven = Enum.flat_map(tried, &proven_parent/1)
+      # Chain order then block order, so a parent that spends another comes after it.
+      proven =
+        tried
+        |> Enum.flat_map(&proven_parent/1)
+        |> Enum.sort_by(fn {p, _raw} -> {p.block_height, p.index} end)
+
       included = Enum.map(proven, fn {parent_proof, _raw} -> parent_proof.txid end)
       missing = (tried -- included) ++ skipped
 
@@ -66,15 +84,17 @@ defmodule Bitblocks.Chain.Beef do
       bumps = entries |> Enum.map(fn {p, _} -> from_proof(p) end) |> merge()
 
       beef =
-        encode(
-          bumps,
+        bumps
+        |> encode(
           Enum.map(entries, fn {p, bytes} -> {bytes, bump_index(bumps, p.block_height)} end)
         )
+        |> wrap(format, txid)
 
-      with :ok <- check(beef, entries) do
+      with :ok <- check(beef, entries, txid) do
         {:ok,
          %{
            txid: txid,
+           format: format,
            beef: Base.encode16(beef, case: :lower),
            transactions: Enum.map(entries, fn {p, _} -> p.txid end),
            parents_included: included,
@@ -121,11 +141,21 @@ defmodule Bitblocks.Chain.Beef do
 
   defp bump_index(bumps, height), do: Enum.find_index(bumps, &(&1.height == height))
 
+  defp wrap(beef, :beef, _txid), do: beef
+  defp wrap(beef, :atomic, txid), do: atomic(beef, txid)
+
+  @doc """
+  Atomic BEEF (BRC-95) around a BEEF: the prefix, then the subject in internal
+  byte order, then the BEEF.
+  """
+  @spec atomic(binary(), String.t()) :: binary()
+  def atomic(beef, txid), do: <<@atomic_prefix, internal(txid)::binary, beef::binary>>
+
   # The whole answer read back: nothing goes out that doesn't check.
-  defp check(beef, entries) do
+  defp check(beef, entries, txid) do
     roots = Map.new(entries, fn {p, _} -> {p.txid, p.merkleroot} end)
 
-    with {:ok, %{bumps: bumps, transactions: txs}} <- parse(beef),
+    with {:ok, %{bumps: bumps, transactions: txs, subject: ^txid}} <- parse(beef),
          true <- length(txs) == length(entries),
          true <- Enum.all?(txs, &tx_checks?(&1, bumps, roots)) do
       :ok
@@ -134,8 +164,7 @@ defmodule Bitblocks.Chain.Beef do
     end
   end
 
-  defp tx_checks?(%{raw: raw, bump_index: index}, bumps, roots) when is_integer(index) do
-    txid = TxStore.txid(raw)
+  defp tx_checks?(%{txid: txid, bump_index: index}, bumps, roots) when is_integer(index) do
     root(Enum.at(bumps, index), txid) == {:ok, Map.get(roots, txid)}
   end
 
@@ -248,61 +277,8 @@ defmodule Bitblocks.Chain.Beef do
   `{:error, :incomplete}` when a node it needs is missing.
   """
   @spec root(map(), String.t()) :: {:ok, String.t()} | {:error, :not_in_bump | :incomplete}
-  def root(%{path: path}, txid) do
-    hash = internal(txid)
-    leaves = index(path)
-
-    case Enum.find(hd(path), &(&1.hash == hash)) do
-      nil ->
-        {:error, :not_in_bump}
-
-      # One transaction in the block: it is the root.
-      _leaf when length(path) == 1 and length(hd(path)) == 1 ->
-        {:ok, display(hash)}
-
-      %{offset: offset} ->
-        with {:ok, top} <- climb(leaves, 0, length(path), offset, hash), do: {:ok, display(top)}
-    end
-  end
-
-  defp index(path) do
-    for {leaves, level} <- Enum.with_index(path), leaf <- leaves, into: %{} do
-      {{level, leaf.offset}, leaf}
-    end
-  end
-
-  defp climb(_leaves, height, height, _offset, hash), do: {:ok, hash}
-
-  defp climb(leaves, level, height, offset, hash) do
-    with {:ok, sibling} <- node_at(leaves, level, bxor(offset, 1)) do
-      pair =
-        case {sibling, band(offset, 1)} do
-          {:duplicate, _} -> hash <> hash
-          {node, 0} -> hash <> node
-          {node, 1} -> node <> hash
-        end
-
-      climb(leaves, level + 1, height, offset >>> 1, sha256d(pair))
-    end
-  end
-
-  defp node_at(leaves, level, offset) do
-    case Map.get(leaves, {level, offset}) do
-      %{duplicate: true} -> {:ok, :duplicate}
-      %{hash: hash} -> {:ok, hash}
-      nil when level == 0 -> {:error, :incomplete}
-      nil -> computed(leaves, level - 1, offset * 2)
-    end
-  end
-
-  defp computed(leaves, level, left_offset) do
-    with {:ok, left} when is_binary(left) <- node_at(leaves, level, left_offset),
-         {:ok, right} <- node_at(leaves, level, left_offset + 1) do
-      {:ok, sha256d(left <> if(right == :duplicate, do: left, else: right))}
-    else
-      {:ok, :duplicate} -> {:error, :incomplete}
-      error -> error
-    end
+  def root(bump, txid) do
+    with {:ok, root, _offset} <- Reader.root(bump, txid), do: {:ok, root}
   end
 
   # --- binary ------------------------------------------------------------------
@@ -327,37 +303,8 @@ defmodule Bitblocks.Chain.Beef do
   defp encode_leaf(%{offset: offset, hash: hash}),
     do: [varint(offset), @flag_data, hash]
 
-  @doc "Reads one BUMP: `{:ok, bump, rest}` or `:error`."
-  @spec parse_bump(binary()) :: {:ok, map(), binary()} | :error
-  def parse_bump(binary) do
-    with {:ok, height, <<tree_height, rest::binary>>} <- read_varint(binary),
-         true <- tree_height <= 64 || :error,
-         {:ok, path, rest} <- times(tree_height, rest, &parse_level/1) do
-      {:ok, %{height: height, path: path}, rest}
-    else
-      _ -> :error
-    end
-  end
-
-  defp parse_level(binary) do
-    with {:ok, count, rest} <- read_varint(binary), do: times(count, rest, &parse_leaf/1)
-  end
-
-  defp parse_leaf(binary) do
-    case read_varint(binary) do
-      {:ok, offset, <<@flag_duplicate, rest::binary>>} ->
-        {:ok, %{offset: offset, hash: nil, txid: false, duplicate: true}, rest}
-
-      {:ok, offset, <<@flag_data, hash::binary-size(32), rest::binary>>} ->
-        {:ok, %{offset: offset, hash: hash, txid: false, duplicate: false}, rest}
-
-      {:ok, offset, <<@flag_txid, hash::binary-size(32), rest::binary>>} ->
-        {:ok, %{offset: offset, hash: hash, txid: true, duplicate: false}, rest}
-
-      _ ->
-        :error
-    end
-  end
+  @doc "Reads one BUMP, strictly: `Bitblocks.Chain.Beef.Reader.parse_bump/1`."
+  defdelegate parse_bump(binary), to: Reader
 
   @doc """
   Serializes a BEEF: `bumps`, then `transactions` as `{raw_bytes, bump_index}`
@@ -377,113 +324,19 @@ defmodule Bitblocks.Chain.Beef do
     ])
   end
 
-  @doc """
-  Reads a BEEF: `{:ok, %{bumps:, transactions: [%{raw:, bump_index:}]}}` or
-  `:error`.
-  """
-  @spec parse(binary()) :: {:ok, map()} | :error
-  def parse(<<@version, rest::binary>>) do
-    with {:ok, n, rest} <- read_varint(rest),
-         {:ok, bumps, rest} <- times(n, rest, &parse_bump/1),
-         {:ok, m, rest} <- read_varint(rest),
-         {:ok, txs, <<>>} <- times(m, rest, &parse_entry/1) do
-      {:ok, %{bumps: bumps, transactions: txs}}
-    else
-      _ -> :error
-    end
-  end
-
-  def parse(_), do: :error
-
-  defp parse_entry(binary) do
-    with {:ok, size} <- raw_tx_size(binary),
-         <<raw::binary-size(size), rest::binary>> <- binary do
-      case rest do
-        <<0, rest::binary>> ->
-          {:ok, %{raw: raw, bump_index: nil}, rest}
-
-        <<1, rest::binary>> ->
-          with {:ok, index, rest} <- read_varint(rest),
-               do: {:ok, %{raw: raw, bump_index: index}, rest}
-
-        _ ->
-          :error
-      end
-    else
-      _ -> :error
-    end
-  end
-
-  # Version, inputs, outputs, lock time: the length of a raw tx at the head of
-  # a binary, reading only the lengths it carries.
-  defp raw_tx_size(<<_version::binary-size(4), rest::binary>> = binary) do
-    with {:ok, n, rest} <- read_varint(rest),
-         {:ok, _, rest} <- times(n, rest, &skip_input/1),
-         {:ok, m, rest} <- read_varint(rest),
-         {:ok, _, <<_lock_time::binary-size(4), rest::binary>>} <- times(m, rest, &skip_output/1) do
-      {:ok, byte_size(binary) - byte_size(rest)}
-    else
-      _ -> :error
-    end
-  end
-
-  defp raw_tx_size(_), do: :error
-
-  defp skip_input(<<_outpoint::binary-size(36), rest::binary>>) do
-    with {:ok, size, rest} <- read_varint(rest),
-         <<_script::binary-size(size), _sequence::binary-size(4), rest::binary>> <- rest do
-      {:ok, nil, rest}
-    else
-      _ -> :error
-    end
-  end
-
-  defp skip_input(_), do: :error
-
-  defp skip_output(<<_satoshis::binary-size(8), rest::binary>>) do
-    with {:ok, size, rest} <- read_varint(rest),
-         <<_script::binary-size(size), rest::binary>> <- rest do
-      {:ok, nil, rest}
-    else
-      _ -> :error
-    end
-  end
-
-  defp skip_output(_), do: :error
-
-  defp times(0, rest, _reader), do: {:ok, [], rest}
-
-  defp times(n, rest, reader) do
-    Enum.reduce_while(1..n, {:ok, [], rest}, fn _, {:ok, acc, rest} ->
-      case reader.(rest) do
-        {:ok, item, rest} -> {:cont, {:ok, [item | acc], rest}}
-        _ -> {:halt, :error}
-      end
-    end)
-    |> case do
-      {:ok, items, rest} -> {:ok, Enum.reverse(items), rest}
-      :error -> :error
-    end
-  end
+  @doc "Reads a BEEF from anyone, strictly: `Bitblocks.Chain.Beef.Reader.parse/2`."
+  defdelegate parse(binary), to: Reader
 
   defp varint(n) when n < 0xFD, do: <<n>>
   defp varint(n) when n <= 0xFFFF, do: <<0xFD, n::little-16>>
   defp varint(n) when n <= 0xFFFFFFFF, do: <<0xFE, n::little-32>>
   defp varint(n), do: <<0xFF, n::little-64>>
 
-  defp read_varint(<<0xFD, n::little-16, rest::binary>>), do: {:ok, n, rest}
-  defp read_varint(<<0xFE, n::little-32, rest::binary>>), do: {:ok, n, rest}
-  defp read_varint(<<0xFF, n::little-64, rest::binary>>), do: {:ok, n, rest}
-  defp read_varint(<<n, rest::binary>>) when n < 0xFD, do: {:ok, n, rest}
-  defp read_varint(_), do: :error
-
   defp sha256d(bytes), do: :crypto.hash(:sha256, :crypto.hash(:sha256, bytes))
 
   defp internal(hex) do
     hex |> Base.decode16!(case: :mixed) |> reverse()
   end
-
-  defp display(bytes), do: bytes |> reverse() |> Base.encode16(case: :lower)
 
   defp reverse(bytes),
     do: bytes |> :binary.bin_to_list() |> Enum.reverse() |> :binary.list_to_bin()

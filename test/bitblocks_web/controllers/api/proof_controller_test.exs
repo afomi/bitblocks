@@ -324,5 +324,30 @@ defmodule BitblocksWeb.Api.ProofControllerTest do
     test "answers as the proof does for a tx we don't hold", %{conn: conn} do
       assert conn |> get(~p"/api/v1/txs/#{String.duplicate("ab", 32)}/beef") |> json_response(404)
     end
+
+    test "?format=atomic serves Atomic BEEF: the tx and its BUMP alone", %{conn: conn} do
+      real_block_170()
+      txid = FirstSpendFixtures.first_spend()
+
+      data =
+        conn
+        |> get(~p"/api/v1/txs/#{txid}/beef?format=atomic")
+        |> json_response(200)
+        |> Map.fetch!("data")
+
+      assert data["format"] == "atomic"
+      assert data["transactions"] == [txid]
+      assert data["complete"]
+      assert String.starts_with?(data["beef"], "01010101")
+      assert binary_part(data["beef"], 8, 64) == rev_hex(txid)
+    end
+
+    test "another format is a 400", %{conn: conn} do
+      txid = FirstSpendFixtures.first_spend()
+
+      assert conn |> get(~p"/api/v1/txs/#{txid}/beef?format=v9") |> json_response(400)
+    end
   end
+
+  defp rev_hex(txid), do: txid |> internal() |> Base.encode16(case: :lower)
 end

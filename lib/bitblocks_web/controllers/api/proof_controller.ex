@@ -34,14 +34,27 @@ defmodule BitblocksWeb.Api.ProofController do
   GET /api/v1/txs/:txid/beef: `data.beef` is BRC-62 BEEF as hex, the tx last
   and carrying its own BUMP, its parents ahead of it. `parents_missing` names
   the parents left out, and `complete` is false when there are any; the BEEF
-  is valid either way.
+  is valid either way. `?format=atomic` gives Atomic BEEF (BRC-95): the tx and
+  its BUMP alone, since its ancestry stops at its own proof. `format` in the
+  answer says which it is.
   """
-  def beef(conn, %{"txid" => txid}) do
-    case Beef.build(String.downcase(txid)) do
-      {:ok, beef} -> json(conn, %{data: beef})
-      {:error, reason} -> refuse(conn, reason)
+  def beef(conn, %{"txid" => txid} = params) do
+    case beef_format(params) do
+      {:ok, format} ->
+        case Beef.build(String.downcase(txid), format: format) do
+          {:ok, beef} -> json(conn, %{data: beef})
+          {:error, reason} -> refuse(conn, reason)
+        end
+
+      :error ->
+        error(conn, 400, "format can be beef or atomic")
     end
   end
+
+  defp beef_format(%{"format" => "atomic"}), do: {:ok, :atomic}
+  defp beef_format(%{"format" => "beef"}), do: {:ok, :beef}
+  defp beef_format(%{"format" => _other}), do: :error
+  defp beef_format(_params), do: {:ok, :beef}
 
   defp refuse(conn, reason) do
     case reason do
