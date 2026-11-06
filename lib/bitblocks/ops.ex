@@ -474,9 +474,10 @@ defmodule Bitblocks.Ops do
   Recent error log lines on this node, newest first and scrubbed. `limit`
   defaults to #{@errors_default}, and is kept within what `ErrorLog` holds.
   """
-  @spec errors(integer() | nil) :: map()
+  @spec errors(term()) :: map()
   def errors(limit \\ nil) do
-    limit = (limit || @errors_default) |> max(1) |> min(ErrorLog.capacity())
+    limit = if(is_integer(limit), do: limit, else: @errors_default)
+    limit = limit |> max(1) |> min(ErrorLog.capacity())
     %{node: node_id(node()), kept: ErrorLog.capacity(), errors: ErrorLog.recent(limit)}
   end
 

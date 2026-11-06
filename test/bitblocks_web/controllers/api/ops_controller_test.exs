@@ -395,6 +395,17 @@ defmodule BitblocksWeb.Api.OpsControllerTest do
                |> json_response(200)
     end
 
+    test "a limit that isn't a whole number falls back to the default", %{
+      conn: conn,
+      token: token
+    } do
+      for limit <- [1.5, "many", nil, -3] do
+        assert %{"result" => %{"isError" => false}} =
+                 mcp(conn, token, "tools/call", %{name: "errors", arguments: %{limit: limit}})
+                 |> json_response(200)
+      end
+    end
+
     test "there is no stream to open", %{conn: conn, token: token} do
       assert conn |> with_key(token) |> get("/api/v1/ops/mcp") |> response(405)
     end
