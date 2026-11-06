@@ -135,9 +135,9 @@ GET /api/v1/status/derivations` shows the versions and latest runs.
 - Routes (lib/bitblocks_web/router.ex):
   - `/` - home; `/status` - status page (sign-in required)
   - `/blocks` - List blocks
-  - `/blocks/:id` - Show block by height or hash (sign-in required; txids load 50 per page)
-  - `/transactions` - List transactions (sign-in required)
-  - `/transactions/:id` - Show transaction by txid (sign-in required)
+  - `/blocks/:id` - Show block by height or hash (txids load 50 per page)
+  - `/transactions` - List transactions (admin only)
+  - `/transactions/:id` - Show transaction by txid
   - `/sign-in`, `/auth/github`, `/auth/github/callback`, `DELETE /auth/logout` - GitHub sign-in (`BitblocksWeb.UserAuth`, `BitblocksWeb.AuthController`)
   - `/metanet` - Metanet DAG explorer (enter txid, navigate tree)
   - `/order-book` - Open Order Book (browse BSV-20 token listings)
@@ -152,10 +152,10 @@ GET /api/v1/status/derivations` shows the versions and latest runs.
   - `/dev/dashboard` - LiveDashboard (dev only)
 
 **Access (`BitblocksWeb.UserAuth`):**
-- Public: home, `/blocks`, the beta features, `/reorgs`, `/protocols`, `/about`, `/content`.
-- API key or signed in: all of `/api/v1` and `/bitcom.json` (`BitblocksWeb.Plugs.RequireCaller`, #12). Open with neither: `/api/v1/status`, `/api/v1/price/bsv` and `/api/v1/support`, which other sites' browsers and the deploy check read.
-- Signed in with GitHub: block and transaction detail, `/status`, `/syncing`.
-- Admin: everything in the router's `:admin` scope plus the chain-scrubber tiles.
+- Public: home, `/blocks`, block and transaction detail, the beta features, `/reorgs`, `/protocols`, `/about`, `/content`.
+- API key or signed in: all of `/api/v1` and `/bitcom.json` (`BitblocksWeb.Plugs.RequireCaller`, #12). Open with neither: `/api/v1/status`, `/api/v1/price/bsv` and `/api/v1/support`, which other sites' browsers and the deploy check read, and the Bitcom registry exports (`/bitcom.json`, `/api/v1/bitcom/snapshots`), meant to be checked without trusting us.
+- Signed in with GitHub: `/status`, `/syncing`, and the raw tx download.
+- Admin: everything in the router's `:admin` scope, including the `/transactions` list, plus the chain-scrubber tiles.
   An admin is a GitHub user whose row is marked admin (`users.admin`, keyed by their GitHub numeric id; set with `bin/bitblocks rpc 'Bitblocks.Release.set_admin("afomi", true)'`).
   Sign-in asks GitHub for the public profile only; admin is read from the row on each request, so a grant or revoke takes effect on the next page load.
 - GitHub sign-in needs `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`; unset, the sign-in page says it isn't configured.

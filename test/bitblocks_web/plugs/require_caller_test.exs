@@ -1,7 +1,7 @@
 defmodule BitblocksWeb.Plugs.RequireCallerTest do
   @moduledoc """
   The API answers an API key or a signed-in session (#12); the rest is a 401,
-  apart from the three routes other sites and the deploy check read without one.
+  apart from the routes other sites, the deploy check and registry readers use without one.
   """
   # async: false: the gate and the limiter's table are global.
   use BitblocksWeb.ConnCase, async: false
@@ -38,8 +38,8 @@ defmodule BitblocksWeb.Plugs.RequireCallerTest do
         "/api/v1/tokens",
         "/api/v1/status/derivations",
         "/api/v1/stream/blocks",
-        "/api/v1/txs/#{String.duplicate("a", 64)}/raw",
-        "/bitcom.json"
+        "/api/v1/bitcom",
+        "/api/v1/txs/#{String.duplicate("a", 64)}/raw"
       ] do
     test "signed out, GET #{path} is a 401", %{conn: conn} do
       conn = get(conn, unquote(path))
@@ -70,8 +70,14 @@ defmodule BitblocksWeb.Plugs.RequireCallerTest do
     assert conn.status == 401
   end
 
-  test "the price, support and status routes need no key", %{conn: conn} do
-    for path <- ["/api/v1/price/bsv", "/api/v1/support", "/api/v1/status"] do
+  test "the open routes need no key", %{conn: conn} do
+    for path <- [
+          "/api/v1/price/bsv",
+          "/api/v1/support",
+          "/api/v1/status",
+          "/bitcom.json",
+          "/api/v1/bitcom/snapshots"
+        ] do
       refute get(conn, path).status == 401, "#{path} asked for a caller"
     end
   end

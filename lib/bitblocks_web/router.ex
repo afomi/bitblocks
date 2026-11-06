@@ -23,8 +23,8 @@ defmodule BitblocksWeb.Router do
     plug :fetch_current_user
   end
 
-  # The API takes an API key or a signed-in session (#12). The three :open_api
-  # routes are the only exceptions.
+  # The API takes an API key or a signed-in session (#12). The :open_api routes
+  # are the only exceptions.
   pipeline :api do
     plug :accepts, ["json"]
     plug BitblocksWeb.Plugs.RequireCaller
@@ -44,8 +44,9 @@ defmodule BitblocksWeb.Router do
   end
 
   # Declared before the :api scope so "snapshots" isn't captured as an address.
+  # Open: a registry meant to be checked without trusting us shouldn't need our key.
   scope "/api/v1", BitblocksWeb.Api do
-    pipe_through :public_api
+    pipe_through :open_api
 
     get "/bitcom/snapshots", BitcomController, :snapshots
     get "/bitcom/snapshots/:version", BitcomController, :snapshot
@@ -231,7 +232,7 @@ defmodule BitblocksWeb.Router do
 
   # The Bitcom registry export, at a stable top-level path.
   scope "/", BitblocksWeb.Api do
-    pipe_through :public_api
+    pipe_through :open_api
 
     get "/bitcom.json", BitcomController, :index
   end
@@ -353,6 +354,9 @@ defmodule BitblocksWeb.Router do
       live "/chain-scrubber", ChainScrubberLive
       live "/annotations", AnnotationLive
 
+      # A browse list over the whole table; detail pages cover a shared link.
+      live "/transactions", TransactionLive.Index, :index
+
       # Block and transaction mutation pages
       live "/blocks/new", BlockLive.Index, :new
       live "/blocks/:id/edit", BlockLive.Index, :edit
@@ -364,7 +368,7 @@ defmodule BitblocksWeb.Router do
   end
 
   scope "/", BitblocksWeb do
-    # Detail and operations pages: any signed-in GitHub user, or an admin.
+    # Operations pages: any signed-in GitHub user, or an admin.
     pipe_through [:browser, :signed_in]
 
     get "/status", PageController, :status
@@ -373,8 +377,17 @@ defmodule BitblocksWeb.Router do
     live_session :signed_in,
       on_mount: [{UserAuth, :require_user}] do
       live "/syncing", SyncingLive
+    end
+  end
+
+  scope "/", BitblocksWeb do
+    # Read-only detail, so a link someone was sent simply opens (#38). After the
+    # admin scope, so /blocks/new and /transactions/new match first.
+    pipe_through :browser
+
+    live_session :public_detail,
+      on_mount: [{UserAuth, :mount_current_user}] do
       live "/blocks/:id", BlockLive.Show, :show
-      live "/transactions", TransactionLive.Index, :index
       live "/transactions/:id", TransactionLive.Show, :show
     end
   end

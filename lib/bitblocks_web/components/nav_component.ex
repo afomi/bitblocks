@@ -52,6 +52,7 @@ defmodule BitblocksWeb.NavComponent do
               Blocks
             </a>
             <a
+              :if={@current_user && @current_user.admin}
               id="nav-transactions"
               href="/transactions"
               class="text-sm/6 font-semibold text-gray-900 dark:text-white"
@@ -190,6 +191,7 @@ defmodule BitblocksWeb.NavComponent do
                   Blocks
                 </a>
                 <a
+                  :if={@current_user && @current_user.admin}
                   id="nav-transactions-mobile"
                   href="/transactions"
                   class="-mx-3 block rounded-lg px-3 py-2 text-base/7 font-semibold text-gray-900 hover:bg-gray-50 dark:text-white dark:hover:bg-white/5"
