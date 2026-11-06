@@ -1813,11 +1813,12 @@ defmodule Bitblocks.Release do
 
   Rows still carrying `orphan_hash` are moved to the block that holds their
   transaction now, or removed (with their spend edges) when no block does.
-  A row whose lookup fails is left alone; run it again later. See
+  A row whose lookup fails is left alone; run it again later. The token,
+  listing and collection rows of those transactions follow them. See
   `Bitblocks.Reorgs.Reconcile`.
 
   **Dry run by default**: prints what it would change and writes nothing to
-  `transactions`, `spend_index` or `reorgs` (reading the replacement block's
+  `transactions`, `spend_index`, `reorgs` or any protocol row (reading the replacement block's
   verified txid list may cache it on that block row, as a tx fetch would).
   Pass `apply: true` to make the changes.
 
@@ -1950,6 +1951,9 @@ defmodule Bitblocks.Release do
         "#{length(plan.unknown)} whose lookup failed"
     )
 
+    IO.puts("  protocol rows of those moved and removed:")
+    print_protocol_rewind(plan.protocols)
+
     case report.reorg do
       nil ->
         IO.puts("  no resolved reorg row covers this height")
@@ -1978,9 +1982,25 @@ defmodule Bitblocks.Release do
         "  moved #{r.repointed}, removed #{r.removed}, removed #{r.spends_removed} spend edge(s); " <>
           "#{r.remaining} row(s) still point at the orphan"
       )
+
+      IO.puts("  protocol rows, done:")
+      print_protocol_rewind(r.protocols)
     else
       IO.puts("  Run again with apply: true to make these changes.")
     end
+  end
+
+  defp print_protocol_rewind(%{tokens: t, listings: l, collection_items: c}) do
+    IO.puts(
+      "    tokens: #{t.moved} moved, #{t.removed} removed, #{t.rechecked} spender(s) checked"
+    )
+
+    IO.puts("    listings: #{l.moved} moved, #{l.removed} removed, #{l.reopened} reopened")
+
+    IO.puts(
+      "    collection items: #{c.moved} mint(s) moved, #{c.removed} removed, " <>
+        "#{c.retrace} marked for a re-trace"
+    )
   end
 
   # Private helpers

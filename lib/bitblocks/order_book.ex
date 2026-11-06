@@ -422,6 +422,131 @@ defmodule Bitblocks.OrderBook do
 
   def settle_spent_token_utxos(_), do: 0
 
+  # -- Reorgs (#52) -----------------------------------------------------------
+  #
+  # A listing's row is its tx's output, so it follows its tx. Its fills and
+  # cancel are other txs, recorded in its state: one that no block holds stops
+  # counting, and the listing is open again unless a stored tx spends the token
+  # outpoint, which settles it as usual. A settlement mined in both blocks
+  # stands.
+
+  @doc """
+  What `rewind_moved/3` and `rewind_removed/1` would change. Read-only.
+  `reopened` counts surviving listings with a fill or cancel in `removed`.
+  """
+  @spec rewind_plan([String.t()], [String.t()]) :: %{
+          moved: non_neg_integer(),
+          removed: non_neg_integer(),
+          reopened: non_neg_integer()
+        }
+  def rewind_plan(moved, removed) do
+    case get_protocol_id() do
+      nil ->
+        %{moved: 0, removed: 0, reopened: 0}
+
+      protocol_id ->
+        gone = MapSet.new(removed)
+
+        %{
+          moved: ProtocolRegistry.count_instances(protocol_id, moved),
+          removed: ProtocolRegistry.count_instances(protocol_id, removed),
+          reopened:
+            protocol_id
+            |> settled_by(gone)
+            |> Enum.count(&(not MapSet.member?(gone, &1.txid)))
+        }
+    end
+  end
+
+  @doc """
+  Moves the listing rows of `txids` to the block now holding them.
+  Returns the number of rows moved.
+  """
+  @spec rewind_moved([String.t()], String.t(), integer()) :: non_neg_integer()
+  def rewind_moved(txids, block_hash, block_height) do
+    case get_protocol_id() do
+      nil -> 0
+      protocol_id -> ProtocolRegistry.move_instances(protocol_id, txids, block_hash, block_height)
+    end
+  end
+
+  @doc """
+  Deletes the listings of `txids`, transactions no block holds, and undoes
+  their fills and cancels on the listings that remain.
+
+  Run this after the txs' own rows and spend edges have gone, so a listing
+  reopens against the spend index as it now stands.
+  """
+  @spec rewind_removed([String.t()]) :: %{
+          removed: non_neg_integer(),
+          reopened: non_neg_integer()
+        }
+  def rewind_removed(txids) do
+    case get_protocol_id() do
+      nil ->
+        %{removed: 0, reopened: 0}
+
+      protocol_id ->
+        removed = ProtocolRegistry.delete_instances(protocol_id, txids)
+        gone = MapSet.new(txids)
+        listings = settled_by(protocol_id, gone)
+        Enum.each(listings, &reopen(&1, gone))
+        %{removed: removed, reopened: length(listings)}
+    end
+  end
+
+  # Listings with a fill or cancel by a tx in `gone`. Read in one query, and
+  # matched here: listings are few, and `gone` can be a whole block.
+  defp settled_by(protocol_id, gone) do
+    if MapSet.size(gone) == 0 do
+      []
+    else
+      from(i in Instance,
+        where: i.protocol_id == ^protocol_id,
+        where: fragment("?->>'op' = 'list'", i.parsed_data),
+        where: i.spent == true or fragment("?->'fills' IS NOT NULL", i.state)
+      )
+      |> Repo.all()
+      |> Enum.filter(fn listing ->
+        MapSet.member?(gone, listing.spent_txid) or
+          Enum.any?(fills(listing), &MapSet.member?(gone, &1["txid"]))
+      end)
+    end
+  end
+
+  defp fills(%Instance{state: state}), do: (state || %{})["fills"] || []
+
+  defp reopen(%Instance{} = listing, gone) do
+    state = listing.state || %{}
+    {undone, kept} = Enum.split_with(fills(listing), &MapSet.member?(gone, &1["txid"]))
+    closed_by_gone? = MapSet.member?(gone, listing.spent_txid)
+
+    remaining =
+      Enum.reduce(
+        undone,
+        parse_quantity(state["quantity_remaining"] || listing.parsed_data["quantity"]),
+        &(parse_quantity(&1["quantity"]) + &2)
+      )
+
+    status =
+      cond do
+        not closed_by_gone? and state["status"] != "partially_filled" -> state["status"]
+        kept == [] -> "active"
+        true -> "partially_filled"
+      end
+
+    new_state =
+      state
+      |> Map.put("quantity_remaining", to_string(remaining))
+      |> Map.put("fills", kept)
+      |> Map.put("status", status)
+
+    attrs = if closed_by_gone?, do: %{spent: false, spent_txid: nil}, else: %{}
+
+    updated = listing |> Instance.changeset(Map.put(attrs, :state, new_state)) |> Repo.update!()
+    settle_recorded_spend(updated)
+  end
+
   @doc """
   Returns aggregate statistics about the order book.
   `total_active` and `unique_tokens` count listings on the book: not closed,

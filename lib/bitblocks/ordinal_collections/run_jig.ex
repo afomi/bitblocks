@@ -138,6 +138,11 @@ defmodule Bitblocks.OrdinalCollections.RunJig do
       "a mint spends the class jig's current location (from the class origin) as a Run input " <>
         "and its payload calls mint on it; the class moves on to that jig's output"
 
+  # A Run jig's location is only as good as its whole trail, so any hop through
+  # a replaced block is redone (#53), re-mined or not.
+  @impl true
+  def retrace_moved?, do: true
+
   @impl true
   def owner(%BSV.TxOut{script: script}), do: Inscription.lock_owner(script)
 

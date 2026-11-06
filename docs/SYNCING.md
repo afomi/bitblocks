@@ -193,8 +193,24 @@ The stream sends `reorg` (`fork_point`, `fork_height`, `orphans`) on `GET /api/v
 
 A fork deeper than 10 blocks stops tip sync at that height: the reorg row stays `needs_attention`, `Reorgs.halted/0` names it, `/syncing` and `/status` say so, `GET /api/v1/status` lists `reorg_halted`, and one email goes out for the fork, however many tip runs meet it.
 
-Token, listing, collection and Bitcom rows from orphan-only transactions are not rewound.
+### Protocol rows (#52, #53)
+
+Each protocol's rows follow their transaction, by that protocol's own rules (`Bitblocks.Reorgs.ProtocolRewind`), in the same database transaction that moves or removes it.
+Both paths above do this, so a shared transaction moved by the tx fetch takes its rows with it.
+
+- BSV-20 and BSV-21 rows (`protocol_instances` under `BSV20`): a transaction mined in both blocks keeps its rows and statuses, on the new block. A transaction no block holds loses its rows, its inputs return to their holders because balances read `spend_index`, and any tx spending its outputs is validated again, so it reads `pending` and counts for no one.
+- Listings (`protocol_instances` under `OrderBook`) follow the same rule. A fill or cancel by a transaction no block holds is undone on the listing, and the listing is then settled against the spend index as it now stands, so a rival spend in the new block fills it.
+- Collection items (`collection_items`): an item minted by a transaction no block holds is deleted, and the next sync finds it again if the mint is mined later. An item with a hop no block holds goes back to `untraced` at its origin, says why in `trace_reason`, and a `CollectionTraceWorker` job is queued.
+- A hop mined in both blocks differs by protocol (`retrace_moved?/0`): a Run item is marked for a re-trace, because #53 redoes any trail through a replaced block, and a 1Sat item keeps its answer, because the sat's path is read from bytes that didn't change.
+- Items with no hop in a replaced block keep their state.
+
+A trail records txids, not which output an item left in, so a re-trace starts from the origin.
+Until it finishes, the item reads as unsettled: no owner, `spent` null, `member` unknown for outpoints it doesn't match.
+
+Metanet, Bitcom and BAP rows are not rewound.
 Most protocol state on the chain is bespoke, so each protocol's rewind is its own piece of work, not one pass over every derived table (Ryan, 2026-10-31).
+
+### By hand
 
 For a reorg from before this shipped, run the same reconcile by hand, dry run first:
 
@@ -204,5 +220,7 @@ bin/bitblocks rpc 'Bitblocks.Release.reconcile_orphaned_block("<orphan hash>", a
 ```
 
 Add `orphan_count: n` to correct the reorg row's count of blocks set aside.
+The output lists the protocol rows it would move, remove, reopen and mark.
+These follow the transactions the run moves or removes, so an orphan whose transaction rows were settled before #52 and #53 shipped has nothing left to drive them.
 
 ---

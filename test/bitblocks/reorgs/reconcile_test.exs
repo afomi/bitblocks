@@ -94,7 +94,7 @@ defmodule Bitblocks.Reorgs.ReconcileTest do
     {:ok, plan} = Reconcile.plan(@orphan)
     assert {:ok, result} = Reconcile.apply_plan(plan)
 
-    assert result == %{repointed: 2, removed: 2, spends_removed: 2, remaining: 1}
+    assert %{repointed: 2, removed: 2, spends_removed: 2, remaining: 1} = result
 
     # The tx mined in both blocks now reports the new block hash and height.
     assert %{block_hash: @replacement, block_height: 900_101} = tx("tx_shared")

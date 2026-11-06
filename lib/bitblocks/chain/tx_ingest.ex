@@ -20,6 +20,7 @@ defmodule Bitblocks.Chain.TxIngest do
 
   alias Bitblocks.{Chain, Repo}
   alias Bitblocks.Chain.{Block, TxPipeline}
+  alias Bitblocks.Reorgs.ProtocolRewind
   alias Bitblocks.TransactionParser
 
   @doc """
@@ -29,8 +30,10 @@ defmodule Bitblocks.Chain.TxIngest do
   A stored row whose `block_hash` is no longer a stored block was left behind
   by a reorg: the orphan was deleted and this block holds the transaction now.
   Those rows are moved to `block` (hash and height) here, since the skip means
-  the insert never runs for them. A row under another block that is still
-  stored (a duplicate coinbase txid) is left alone.
+  the insert never runs for them, and the protocol rows derived from them
+  follow in the same database transaction (`Reorgs.ProtocolRewind`). A row
+  under another block that is still stored (a duplicate coinbase txid) is left
+  alone.
 
   Costs one query on the unique txid index per chunk; a second, on `blocks`,
   only when some row sits under another hash.
@@ -62,17 +65,23 @@ defmodule Bitblocks.Chain.TxIngest do
         for {txid, other} <- elsewhere, other in orphaned, do: txid
 
       if moving != [] do
-        {count, _} =
-          Repo.update_all(
-            from(t in Chain.Transaction,
-              where: t.txid in ^moving and t.block_hash in ^orphaned
-            ),
-            set: [
-              block_hash: hash,
-              block_height: height,
-              updated_at: NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second)
-            ]
-          )
+        {:ok, count} =
+          Repo.transaction(fn ->
+            {count, _} =
+              Repo.update_all(
+                from(t in Chain.Transaction,
+                  where: t.txid in ^moving and t.block_hash in ^orphaned
+                ),
+                set: [
+                  block_hash: hash,
+                  block_height: height,
+                  updated_at: NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second)
+                ]
+              )
+
+            ProtocolRewind.moved(moving, hash, height)
+            count
+          end)
 
         Logger.info(
           "TxIngest block=#{height} moved #{count} tx(s) off orphaned block(s) #{inspect(orphaned)}"

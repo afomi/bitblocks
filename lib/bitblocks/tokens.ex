@@ -591,6 +591,91 @@ defmodule Bitblocks.Tokens do
     |> Enum.uniq()
   end
 
+  # -- Reorgs (#52) -----------------------------------------------------------
+  #
+  # A token row is one output of one tx, so a reorg settles it with its tx. A
+  # tx mined in both blocks keeps its rows and their statuses: the same bytes
+  # spend the same inputs. A tx no block holds loses its rows; what it spent
+  # returns to its holders by itself, because balances read `spend_index`, and
+  # any tx spending its outputs is validated again.
+
+  @doc """
+  What `rewind_moved/3` and `rewind_removed/1` would change. Read-only.
+  `rechecked` counts the txs spending a removed token output.
+  """
+  @spec rewind_plan([String.t()], [String.t()]) :: %{
+          moved: non_neg_integer(),
+          removed: non_neg_integer(),
+          rechecked: non_neg_integer()
+        }
+  def rewind_plan(moved, removed) do
+    case get_protocol_id() do
+      nil ->
+        %{moved: 0, removed: 0, rechecked: 0}
+
+      protocol_id ->
+        %{
+          moved: ProtocolRegistry.count_instances(protocol_id, moved),
+          removed: ProtocolRegistry.count_instances(protocol_id, removed),
+          rechecked: protocol_id |> spenders_of_rows(removed) |> length()
+        }
+    end
+  end
+
+  @doc """
+  Moves the token rows of `txids` to the block now holding them.
+  Returns the number of rows moved.
+  """
+  @spec rewind_moved([String.t()], String.t(), integer()) :: non_neg_integer()
+  def rewind_moved(txids, block_hash, block_height) do
+    case get_protocol_id() do
+      nil -> 0
+      protocol_id -> ProtocolRegistry.move_instances(protocol_id, txids, block_hash, block_height)
+    end
+  end
+
+  @doc """
+  Deletes the token rows of `txids`, transactions no block holds, then
+  validates the txs that spent them again: with an input gone they are
+  `pending`, and count for no one (see `validate_tx/1`).
+
+  Run this after the txs' own rows and spend edges have gone.
+  """
+  @spec rewind_removed([String.t()]) :: %{
+          removed: non_neg_integer(),
+          rechecked: non_neg_integer()
+        }
+  def rewind_removed(txids) do
+    case get_protocol_id() do
+      nil ->
+        %{removed: 0, rechecked: 0}
+
+      protocol_id ->
+        spenders = spenders_of_rows(protocol_id, txids)
+        removed = ProtocolRegistry.delete_instances(protocol_id, txids)
+        settle(spenders)
+        %{removed: removed, rechecked: length(spenders)}
+    end
+  end
+
+  # Txs outside `txids` spending a token output of `txids`.
+  defp spenders_of_rows(protocol_id, txids) do
+    gone = MapSet.new(txids)
+
+    txids
+    |> Enum.chunk_every(100)
+    |> Enum.flat_map(fn chunk ->
+      from(i in Instance,
+        where: i.protocol_id == ^protocol_id and i.txid in ^chunk,
+        select: {i.txid, i.vout}
+      )
+      |> Repo.all()
+      |> spenders()
+    end)
+    |> Enum.uniq()
+    |> Enum.reject(&MapSet.member?(gone, &1))
+  end
+
   # -- Queries ----------------------------------------------------------------
 
   @doc """

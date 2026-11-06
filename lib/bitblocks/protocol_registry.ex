@@ -11,6 +11,9 @@ defmodule Bitblocks.ProtocolRegistry do
 
   alias Bitblocks.ProtocolRegistry.{Protocol, ProtocolStats, Audit, Instance}
 
+  # Txids per statement when instances are written by txid after a reorg.
+  @instance_chunk 100
+
   # ============================================================================
   # Protocol CRUD
   # ============================================================================
@@ -361,6 +364,57 @@ defmodule Bitblocks.ProtocolRegistry do
         |> Instance.changeset(%{spent: true, spent_txid: spent_txid})
         |> Repo.update()
     end
+  end
+
+  @doc """
+  Counts `protocol_id`'s instances of `txids`.
+  Keyed by the unique (txid, vout) index, in chunks.
+  """
+  @spec count_instances(integer(), [String.t()]) :: non_neg_integer()
+  def count_instances(protocol_id, txids) do
+    txids
+    |> Enum.chunk_every(@instance_chunk)
+    |> Enum.reduce(0, fn chunk, acc ->
+      acc + Repo.aggregate(instances_of(protocol_id, chunk), :count)
+    end)
+  end
+
+  @doc """
+  Points `protocol_id`'s instances of `txids` at the block that holds those
+  transactions now. Returns how many rows moved.
+  """
+  @spec move_instances(integer(), [String.t()], String.t(), integer()) :: non_neg_integer()
+  def move_instances(protocol_id, txids, block_hash, block_height) do
+    now = NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second)
+
+    txids
+    |> Enum.chunk_every(@instance_chunk)
+    |> Enum.reduce(0, fn chunk, acc ->
+      {n, _} =
+        Repo.update_all(
+          instances_of(protocol_id, chunk),
+          set: [block_hash: block_hash, block_height: block_height, updated_at: now]
+        )
+
+      acc + n
+    end)
+  end
+
+  @doc """
+  Deletes `protocol_id`'s instances of `txids`. Returns how many rows went.
+  """
+  @spec delete_instances(integer(), [String.t()]) :: non_neg_integer()
+  def delete_instances(protocol_id, txids) do
+    txids
+    |> Enum.chunk_every(@instance_chunk)
+    |> Enum.reduce(0, fn chunk, acc ->
+      {n, _} = Repo.delete_all(instances_of(protocol_id, chunk))
+      acc + n
+    end)
+  end
+
+  defp instances_of(protocol_id, txids) do
+    from(i in Instance, where: i.protocol_id == ^protocol_id and i.txid in ^txids)
   end
 
   # ============================================================================

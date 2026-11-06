@@ -48,6 +48,9 @@ defmodule Bitblocks.ReleaseReconcileTest do
     assert io =~ "remove 1 (no block holds them)"
     assert io =~ "remove 1 spend edge(s)"
     assert io =~ "orphan_count 2 -> 1"
+    assert io =~ "tokens: 0 moved, 0 removed, 0 spender(s) checked"
+    assert io =~ "listings: 0 moved, 0 removed, 0 reopened"
+    assert io =~ "collection items: 0 mint(s) moved, 0 removed, 0 marked for a re-trace"
     assert io =~ "apply: true"
 
     assert Repo.get_by(Transaction, txid: "tx_both").block_hash == @orphan
@@ -65,6 +68,7 @@ defmodule Bitblocks.ReleaseReconcileTest do
     assert {:ok, %{applied: true}} = result
     assert io =~ "APPLIED"
     assert io =~ "0 row(s) still point at the orphan"
+    assert io =~ "protocol rows, done:"
 
     assert Repo.get_by(Transaction, txid: "tx_both").block_hash == "real_957301_test"
     refute Repo.get_by(Transaction, txid: "tx_gone")

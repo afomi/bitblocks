@@ -36,7 +36,7 @@ Larger blocks: #66.
 
 ## Built 2026-11-05, on prod once deployed
 
-#35 the block stream and confirmation-order feeds · #34 tip-hash reorgs and a tx is confirmed only while its block is the chain's, with protocol rewinds in #52 and #53 · #39 one sync writer, `NODE_ROLE=reader` · #17 BEEF at `/api/v1/txs/:txid/beef`, with Atomic BEEF by `?format=atomic`.
+#35 the block stream and confirmation-order feeds · #34 tip-hash reorgs and a tx is confirmed only while its block is the chain's · #52 and #53 token, listing and collection rows follow their tx through a reorg · #39 one sync writer, `NODE_ROLE=reader` · #17 BEEF at `/api/v1/txs/:txid/beef`, with Atomic BEEF by `?format=atomic`.
 BEEF from anyone at `POST /api/v1/beef/verify` (inclusion only), and headers at `/api/v1/headers` ([docs/MERKLE_PROOFS.md](docs/MERKLE_PROOFS.md)).
 Interop kit, first version: open test vectors at `/interop/vectors/v1.json`, an admin check page at `/start/interop` and the pattern ([docs/INTEROP_KIT.md](docs/INTEROP_KIT.md)).
 #15 BCat files at `/content/bcat/:txid`, read against real heads from the chain.

@@ -43,6 +43,7 @@ defmodule Bitblocks.OrdinalCollections do
   alias Bitblocks.OrdinalCollections.{Item, Walk}
   alias Bitblocks.Ordinals.Inscription
   alias Bitblocks.{Repo, TxStore, Woc}
+  alias Bitblocks.Workers.CollectionTraceWorker
 
   # id: the chain's first link (the collection's origin outpoint).
   # hint: where candidate mint txids come from (only candidates; see sync/3).
@@ -113,6 +114,11 @@ defmodule Bitblocks.OrdinalCollections do
 
   # trace_all/1 reads items a page at a time.
   @trace_page 100
+
+  # Items in one queued re-trace, as in a collection sync's trace batches.
+  @retrace_batch 10
+
+  @rewound_reason "a reorg replaced a block on this item's trail; the next trace redoes it"
 
   @doc "Transfers followed per trace before stopping as `partial`."
   def max_hops, do: @max_hops
@@ -620,6 +626,152 @@ defmodule Bitblocks.OrdinalCollections do
     end
   end
 
+  # -- Reorgs (#52, #53) ---------------------------------------------------------
+  #
+  # Membership and ownership both rest on txs, so each item answers for the txs
+  # it touches: its mint, its trail and the tx it sits in.
+  #
+  #   * An item minted by a tx no block holds isn't on the chain: it goes. The
+  #     next sync finds it again if the mint is mined later.
+  #   * An item with a hop no block holds goes back to `untraced` at its origin
+  #     and a re-trace is queued. A trail records txids, not the output an item
+  #     left in, so the only sound place to restart is the origin.
+  #   * A re-mined tx keeps its bytes. A mint keeps its item, at its new height;
+  #     a hop sends the item back only when its protocol says so
+  #     (`retrace_moved?/0`: yes for Run, no for 1Sat).
+  #
+  # Every other item keeps its answer, settled or not. Marking is idempotent: a
+  # marked item touches nothing but its mint.
+
+  @doc """
+  What `rewind_moved/2` and `rewind_removed/1` would change. Read-only.
+  `moved` counts mints moved, `removed` items gone, `retrace` items marked.
+  """
+  @spec rewind_plan([String.t()], [String.t()]) :: %{
+          moved: non_neg_integer(),
+          removed: non_neg_integer(),
+          retrace: non_neg_integer()
+        }
+  def rewind_plan(moved, removed) do
+    {minted, gone, retrace} = rewind_targets(moved, removed)
+    %{moved: length(minted), removed: length(gone), retrace: length(retrace)}
+  end
+
+  @doc """
+  Txs in `txids` now sit in the block at `block_height`: moves their mints
+  there and marks the items whose protocol redoes such a trail. Returns the
+  counts of `rewind_plan/2`.
+  """
+  @spec rewind_moved([String.t()], integer()) :: %{
+          moved: non_neg_integer(),
+          removed: 0,
+          retrace: non_neg_integer()
+        }
+  def rewind_moved(txids, block_height) do
+    {minted, _gone, retrace} = rewind_targets(txids, [])
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+    {moved, _} =
+      Repo.update_all(
+        from(i in Item, where: i.id in ^Enum.map(minted, & &1.id)),
+        set: [mint_height: block_height, updated_at: now]
+      )
+
+    mark_for_retrace(retrace)
+    %{moved: moved, removed: 0, retrace: length(retrace)}
+  end
+
+  @doc """
+  No block holds the txs in `txids`: deletes the items they minted and marks
+  the items with a hop among them. Returns the counts of `rewind_plan/2`.
+  """
+  @spec rewind_removed([String.t()]) :: %{
+          moved: 0,
+          removed: non_neg_integer(),
+          retrace: non_neg_integer()
+        }
+  def rewind_removed(txids) do
+    {_minted, gone, retrace} = rewind_targets([], txids)
+
+    {removed, _} = Repo.delete_all(from(i in Item, where: i.id in ^Enum.map(gone, & &1.id)))
+    mark_for_retrace(retrace)
+    %{moved: 0, removed: removed, retrace: length(retrace)}
+  end
+
+  # {items minted by a moved tx, items minted by a removed tx, items to mark}.
+  # Reads the items once and matches here: collections are thousands of items,
+  # and the txids can be a whole block.
+  defp rewind_targets([], []), do: {[], [], []}
+
+  defp rewind_targets(moved, removed) do
+    moved = MapSet.new(moved)
+    removed = MapSet.new(removed)
+
+    items =
+      Repo.all(
+        from(i in Item,
+          select: struct(i, [:id, :collection_id, :mint_txid, :current_outpoint, :trail])
+        )
+      )
+
+    {gone, kept} = Enum.split_with(items, &MapSet.member?(removed, &1.mint_txid))
+    minted = Enum.filter(kept, &MapSet.member?(moved, &1.mint_txid))
+
+    retrace =
+      Enum.filter(kept, fn item ->
+        hops = hops(item)
+        redo_moved? = config_for(item.collection_id).protocol.retrace_moved?()
+
+        Enum.any?(hops, &MapSet.member?(removed, &1)) or
+          (redo_moved? and Enum.any?(hops, &MapSet.member?(moved, &1)))
+      end)
+
+    {minted, gone, retrace}
+  end
+
+  # The txs an item's current answer rests on.
+  defp hops(%Item{mint_txid: mint, current_outpoint: outpoint, trail: trail}) do
+    at = if outpoint, do: outpoint |> String.split("_") |> hd()
+    Enum.reject([mint, at | trail || []], &is_nil/1)
+  end
+
+  defp mark_for_retrace([]), do: :ok
+
+  defp mark_for_retrace(items) do
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+    Repo.update_all(
+      from(i in Item,
+        where: i.id in ^Enum.map(items, & &1.id),
+        update: [
+          set: [
+            trace_state: "untraced",
+            current_outpoint: i.origin,
+            owner: nil,
+            trail: [],
+            trace_reason: ^@rewound_reason,
+            trace_source: nil,
+            traced_at: nil,
+            trace_error: nil,
+            trace_checked_at: nil,
+            updated_at: ^now
+          ]
+        ]
+      ),
+      []
+    )
+
+    started = DateTime.to_iso8601(now)
+
+    for {cid, in_collection} <- Enum.group_by(items, & &1.collection_id),
+        batch <- Enum.chunk_every(in_collection, @retrace_batch) do
+      ids = Enum.map(batch, & &1.id)
+      Oban.insert!(CollectionTraceWorker.new(%{slug: cid, ids: ids, run_started_at: started}))
+    end
+
+    :ok
+  end
+
   # Returns {result, trail}: trail is the txids the item moved through on this
   # walk, oldest first (a spend that ends the item's trail is included, as the
   # last step of its history). result is {state, outpoint, owner, reason}, or
@@ -978,7 +1130,8 @@ defmodule Bitblocks.OrdinalCollections do
   def ownership_sentence(%Item{trace_state: "current", owner: owner}) when is_binary(owner),
     do: "Held by #{owner}."
 
-  def ownership_sentence(%Item{trace_state: "untraced"}), do: "Not traced yet."
+  def ownership_sentence(%Item{trace_state: "untraced", trace_reason: nil}),
+    do: "Not traced yet."
 
   def ownership_sentence(%Item{trace_state: "ended", trace_reason: reason}),
     do: "No holder: #{reason}."

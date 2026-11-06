@@ -190,6 +190,11 @@ A listing is for sale only while its `token_utxo` is unspent, so the book reads 
   `GET /api/v1/order-book/listings/:txid` reads `spent` (with `spent_txid`) for an open listing whose outpoint a stored tx spends.
 - **Unverified offers.** Nothing checks `seller_sig` against `token_utxo` yet, so every listing carries `signature_checked: false`, and `/order-book` says so above the book.
 
+### After a reorg
+
+A listing follows its transaction: it moves to the new block when mined in both, and is deleted when no block holds it.
+A fill or cancel by a transaction no block holds is undone, and the listing is settled again against the spend index ([docs/SYNCING.md](SYNCING.md#protocol-rows-52-53)).
+
 ## Storage
 
 Listings are stored as rows in the `protocol_instances` table:
