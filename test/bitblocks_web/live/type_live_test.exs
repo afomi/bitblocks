@@ -22,7 +22,7 @@ defmodule BitblocksWeb.TypeLiveTest do
     test "lists every type in its group, each linking to its page", %{conn: conn} do
       {:ok, view, html} = live(conn, ~p"/types")
 
-      assert html =~ "Bitcoin SV transaction types"
+      assert html =~ "Bitcoin transaction types"
 
       for type <- TxTypes.all() do
         assert has_element?(
