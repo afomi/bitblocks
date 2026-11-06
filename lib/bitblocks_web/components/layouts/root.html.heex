@@ -150,50 +150,7 @@
   </head>
   <body class="bg-white dark:bg-gray-900 antialiased">
     <BitblocksWeb.ReorgNotice.banner notice={assigns[:reorg_notice]} />
-    <div
-      id="banner"
-      role="region"
-      aria-label="Development notice"
-      class="relative flex items-center gap-x-6 bg-orange-500 bg-opacity-30 px-6 py-2.5 sm:px-3.5 sm:before:flex-1"
-    >
-      <p
-        class="text-sm/6 text-gray-900 dark:text-gray-100"
-      >
-        <strong
-          class="font-semibold"
-        >
-          Development Notice (November 2026):
-        </strong>
-        This project is in development and will sync through block 900,000 as its next milestone.
-      </p>
-      <div
-        class="flex flex-1 justify-end"
-      >
-        <button
-          type="button"
-          class="-m-3 p-3 focus-visible:-outline-offset-4"
-          onclick="document.getElementById('banner').style.display='none'"
-          aria-label="Dismiss development notice"
-        >
-          <span
-            class="sr-only"
-          >
-            Dismiss
-          </span>
-          <svg
-            viewBox="0 0 20 20"
-            fill="currentColor"
-            data-slot="icon"
-            aria-hidden="true"
-            class="size-5 text-gray-900 dark:text-gray-100"
-          >
-            <path
-              d="M6.28 5.22a.75.75 0 0 0-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 1 0 1.06 1.06L10 11.06l3.72 3.72a.75.75 0 1 0 1.06-1.06L11.06 10l3.72-3.72a.75.75 0 0 0-1.06-1.06L10 8.94 6.28 5.22Z"
-            />
-          </svg>
-        </button>
-      </div>
-    </div>
+    <BitblocksWeb.IndexNotice.banner notice={assigns[:index_notice]} />
     <BitblocksWeb.NavComponent.nav
       current_user={assigns[:current_user]}
       current_path={assigns[:current_path]}

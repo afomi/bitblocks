@@ -182,6 +182,18 @@ defmodule BitblocksWeb.UserAuthTest do
       assert html =~ ~s(id="tx-raw-download")
     end
 
+    test "sees no operator controls on block and transaction pages", %{conn: conn} do
+      block = block_fixture()
+      transaction_fixture(txid: txid(2), block_hash: block.hash, block_height: block.height)
+
+      {:ok, _view, block_html} = live(conn, "/blocks/#{block.height}")
+      {:ok, _view, tx_html} = live(conn, "/transactions/#{txid(2)}")
+
+      refute block_html =~ "/show/edit"
+      refute tx_html =~ "/graph?"
+      refute tx_html =~ "/show/edit"
+    end
+
     test "sees /syncing without the operator panel, and can't fire its events", %{conn: conn} do
       block_fixture(%{height: 810_020, sync_state: "failed", tx_sync_error: "secret detail"})
 

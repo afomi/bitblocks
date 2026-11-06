@@ -114,6 +114,12 @@ defmodule Bitblocks.Chain do
     Repo.one(from b in Block, where: b.height == ^height, limit: 1)
   end
 
+  @doc "The header time of the block at `height`, or nil. Reads nothing else."
+  @spec block_time(integer()) :: integer() | nil
+  def block_time(height) when is_integer(height) do
+    Repo.one(from b in Block, where: b.height == ^height, select: b.time, limit: 1)
+  end
+
   # An integer is tried as a primary key first, then as a height. Sync code
   # that means a height must use get_block_at_height/1.
   def get_block(id_or_height_or_hash) when is_integer(id_or_height_or_hash) do

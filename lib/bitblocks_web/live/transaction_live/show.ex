@@ -3,6 +3,7 @@ defmodule BitblocksWeb.TransactionLive.Show do
 
   alias Bitblocks.{Chain, TransactionParser, Collections}
   alias Bitblocks.Script.{Descriptor, Templates}
+  alias BitblocksWeb.TxSummary
 
   @impl true
   def mount(_params, _session, socket) do
@@ -17,7 +18,10 @@ defmodule BitblocksWeb.TransactionLive.Show do
        script_templates: %{},
        output_protocols: %{},
        output_status: nil,
-       nft_facts: nil
+       nft_facts: nil,
+       tx_state: :not_downloaded,
+       protocol_links: [],
+       descriptors_by_vout: %{}
      )}
   end
 
@@ -115,6 +119,15 @@ defmodule BitblocksWeb.TransactionLive.Show do
       end
 
     input_satoshis = build_input_satoshis(decoded_tx)
+    nft_facts = transaction.txid && Chain.nft_facts(transaction.txid)
+
+    protocol_links =
+      TxSummary.protocol_links(
+        transaction,
+        decoded_tx,
+        parsed_data && parsed_data.protocols,
+        nft_facts
+      )
 
     {:noreply,
      socket
@@ -133,7 +146,10 @@ defmodule BitblocksWeb.TransactionLive.Show do
      |> assign(:script_templates, script_templates)
      |> assign(:output_protocols, output_protocols)
      |> assign(:output_status, transaction.txid && Chain.output_status(transaction.txid))
-     |> assign(:nft_facts, transaction.txid && Chain.nft_facts(transaction.txid))}
+     |> assign(:nft_facts, nft_facts)
+     |> assign(:tx_state, TxSummary.state(transaction, decoded_tx))
+     |> assign(:protocol_links, protocol_links)
+     |> assign(:descriptors_by_vout, Map.new(output_descriptors, &{&1.vout, &1}))}
   end
 
   # Outputs listed in the value card; the rest are counted.

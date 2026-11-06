@@ -60,6 +60,114 @@ defmodule BitblocksWeb.TransactionLive.ShowTest do
     BSV.Tx.to_binary(tx, encoding: :hex)
   end
 
+  describe "what happened" do
+    test "a coinbase leads with the miner's text", %{conn: conn} do
+      @genesis_raw
+      |> insert_tx(@genesis_txid)
+      |> Ecto.Changeset.change(total_output_satoshis: 5_000_000_000)
+      |> Bitblocks.Repo.update!()
+
+      {:ok, view, html} = live(conn, ~p"/transactions/#{@genesis_txid}")
+
+      assert view |> element("#tx-summary #tx-miner-text") |> render() =~
+               "Chancellor on brink of second bailout for banks"
+
+      assert view |> element("#tx-headline") |> render() =~ "paid its miner 50 BSV"
+      refute html =~ "What is a Transaction?"
+    end
+
+    test "a payment leads with its inputs, outputs and total", %{conn: conn} do
+      script = %BSV.Script{chunks: [:OP_ADD, :OP_EQUAL]}
+
+      tx =
+        insert_tx(
+          raw_hex_with_output(script, 150_000),
+          "pay#{System.unique_integer([:positive])}"
+        )
+
+      tx |> Ecto.Changeset.change(total_output_satoshis: 150_000) |> Bitblocks.Repo.update!()
+
+      {:ok, view, _html} = live(conn, ~p"/transactions/#{tx.txid}")
+
+      assert view |> element("#tx-headline") |> render() =~
+               "Spends 1 input to create 1 output, paying 0.0015 BSV in total."
+
+      assert has_element?(view, "#input-source-0 a[href^='/transactions/']")
+    end
+
+    test "script and hex sit behind one toggle, after the summary", %{conn: conn} do
+      script = %BSV.Script{chunks: [:OP_ADD, :OP_EQUAL]}
+      raw = raw_hex_with_output(script, 1_000)
+      tx = insert_tx(raw, "toggle#{System.unique_integer([:positive])}")
+
+      {:ok, view, html} = live(conn, ~p"/transactions/#{tx.txid}")
+
+      assert view |> element("#tx-raw-details > summary") |> render() =~
+               "Show the raw transaction"
+
+      assert has_element?(view, "#tx-raw-details #tx-raw", raw)
+      assert has_element?(view, "#tx-raw-details #tx-outputs", "OP_ADD OP_EQUAL")
+      refute has_element?(view, "#tx-raw-details[open]")
+
+      before_toggle = html |> String.split(~s(id="tx-raw-details")) |> hd()
+      refute before_toggle =~ "OP_ADD"
+      refute before_toggle =~ raw
+    end
+
+    test "a row with no raw hex says it is not downloaded yet", %{conn: conn} do
+      tx = insert_tx("00", "noraw#{System.unique_integer([:positive])}")
+      tx |> Ecto.Changeset.change(raw: nil) |> Bitblocks.Repo.update!()
+
+      {:ok, view, html} = live(conn, ~p"/transactions/#{tx.txid}")
+
+      assert view |> element("#tx-not-downloaded") |> render() =~ "not downloaded yet"
+      refute has_element?(view, "#tx-raw-details")
+      refute html =~ "could not be decoded"
+    end
+
+    test "a row whose hex will not decode says so", %{conn: conn} do
+      tx = insert_tx("00ff", "badraw#{System.unique_integer([:positive])}")
+
+      {:ok, view, html} = live(conn, ~p"/transactions/#{tx.txid}")
+
+      assert view |> element("#tx-undecodable") |> render() =~ "could not be decoded"
+      assert has_element?(view, "#tx-raw", "00ff")
+      refute html =~ "not downloaded yet"
+    end
+
+    test "protocols are named in the summary and link to their pages", %{conn: conn} do
+      script = %BSV.Script{chunks: [:OP_FALSE, :OP_RETURN, "meta", "node", "parent"]}
+      tx = insert_tx(raw_hex_with_output(script, 0), "proto#{System.unique_integer([:positive])}")
+
+      tx
+      |> Ecto.Changeset.change(protocols: ["Metanet", "OrderBook", "Bitcom"])
+      |> Bitblocks.Repo.update!()
+
+      {:ok, view, _html} = live(conn, ~p"/transactions/#{tx.txid}")
+
+      assert has_element?(view, ~s(#tx-protocols a[href="/metanet?txid=#{tx.txid}"]), "Metanet")
+      assert has_element?(view, ~s(#tx-protocols a[href="/order-book"]), "Order book")
+      assert has_element?(view, "#tx-protocols a[href^='/bitcom']", "Bitcom")
+    end
+
+    test "the outputs table names who was paid", %{conn: conn} do
+      hash = :binary.copy(<<7>>, 20)
+
+      script = %BSV.Script{
+        chunks: [:OP_DUP, :OP_HASH160, hash, :OP_EQUALVERIFY, :OP_CHECKSIG]
+      }
+
+      tx =
+        insert_tx(raw_hex_with_output(script, 900), "payee#{System.unique_integer([:positive])}")
+
+      address = %BSV.Address{pubkey_hash: hash} |> BSV.Address.to_string()
+
+      {:ok, view, _html} = live(conn, ~p"/transactions/#{tx.txid}")
+
+      assert has_element?(view, "#output-status-0", address)
+    end
+  end
+
   describe "script cards" do
     test "renders the genesis coinbase with a P2PK card showing the pubkey", %{conn: conn} do
       insert_tx(@genesis_raw, @genesis_txid)

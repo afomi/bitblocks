@@ -58,20 +58,42 @@
     </section>
 
     <%!-- Sync State --%>
-    <section class="border-b border-neutral-800 py-6">
+    <section
+      id="block-sync-state"
+      class="border-b border-neutral-800 py-6"
+    >
       <p class="font-mono text-xs text-neutral-500 uppercase tracking-wider mb-4">
         Sync Status
       </p>
 
-      <div class="flex items-center gap-1">
+      <div
+        :if={@block.sync_state == "failed"}
+        id="block-sync-failed"
+        class="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-800 dark:border-red-800 dark:bg-red-900/30 dark:text-red-200"
+      >
+        <p class="font-semibold">
+          Failed.
+        </p>
+        <p>
+          The last attempt to fetch this block's transactions did not finish.
+        </p>
+        <p>
+          The sync tries again by itself.
+        </p>
+      </div>
+
+      <div
+        :if={@block.sync_state != "failed"}
+        id="block-sync-steps"
+        class="flex items-center gap-1"
+      >
         <% steps = ["header_only", "header_synced", "txs_queued", "txs_syncing", "completed"] %>
-        <% current_idx = Enum.find_index(steps, &(&1 == @block.sync_state)) || 0 %>
+        <% current_idx = Enum.find_index(steps, &(&1 == @block.sync_state)) || -1 %>
         <%= for {step, idx} <- Enum.with_index(steps) do %>
           <div class="flex-1">
             <div class={[
               "h-1 rounded-full transition-all",
               cond do
-                @block.sync_state == "failed" && idx == current_idx -> "bg-red-500"
                 idx < current_idx -> "bg-green-500"
                 idx == current_idx -> "bg-brand-strong"
                 true -> "bg-neutral-800"
@@ -318,7 +340,11 @@
           :if={@tx_total == 0}
           class="text-sm text-neutral-500"
         >
-          Transaction IDs not yet synced for this block.
+          <%= if @block.sync_state == "failed" do %>
+            This block failed to sync, so its transactions are not listed yet.
+          <% else %>
+            Transaction IDs not yet synced for this block.
+          <% end %>
         </p>
       </section>
     </div>

@@ -1,8 +1,8 @@
 defmodule BitblocksWeb.SearchLive do
   use BitblocksWeb, :live_view
 
-  alias Bitblocks.Chain
-  alias BitblocksWeb.Seo
+  alias Bitblocks.{Chain, SyncProgress}
+  alias BitblocksWeb.{Sats, Seo}
 
   @impl true
   def mount(params, _session, socket) do
@@ -51,52 +51,57 @@ defmodule BitblocksWeb.SearchLive do
     end
   end
 
+  # The largest height a blocks.height column can hold.
+  @max_height 2_147_483_647
+
   defp search(query) do
     cond do
-      # Check if it's a block height (numeric)
-      is_numeric?(query) ->
-        case Chain.get_block(query) do
-          nil -> {:error, "Block not found"}
-          block -> {:block, block}
-        end
-
-      # Check if it's a transaction ID (64 hex chars)
-      String.length(query) == 64 and is_hex?(query) ->
-        case Chain.get_transaction_by_txid(query) do
-          nil -> {:error, "Transaction not found"}
-          tx -> {:transaction, tx}
-        end
-
-      # Check if it's a block hash (64 hex chars) - same as txid check but try both
-      is_hex?(query) ->
-        # Try as block hash first
-        case Chain.get_block(query) do
-          nil ->
-            # Try as transaction
-            case Chain.get_transaction_by_txid(query) do
-              nil -> {:error, "Block or transaction not found"}
-              tx -> {:transaction, tx}
-            end
-
-          block ->
-            {:block, block}
-        end
-
-      true ->
-        {:error,
-         "Invalid search query. Please enter a block height, block hash, or transaction ID."}
+      String.match?(query, ~r/^[0-9a-fA-F]{64}$/) -> search_hash(String.downcase(query))
+      String.match?(query, ~r/^[0-9]+$/) -> search_height(String.to_integer(query))
+      true -> {:error, invalid_query()}
     end
   end
 
-  defp is_numeric?(str) do
-    case Integer.parse(str) do
-      {_num, ""} -> true
-      _ -> false
+  defp search_height(height) when height > @max_height, do: {:error, not_indexed(height)}
+
+  defp search_height(height) do
+    case Chain.get_block_at_height(height) do
+      nil -> {:error, not_indexed(height)}
+      block -> {:block, block}
     end
   end
 
-  defp is_hex?(str) do
-    String.match?(str, ~r/^[0-9a-fA-F]+$/)
+  # 64 hex characters: a txid or a block hash, and nothing says which.
+  defp search_hash(hash) do
+    cond do
+      tx = Chain.get_transaction_by_txid(hash) -> {:transaction, tx}
+      block = Chain.get_block(hash) -> {:block, block}
+      true -> {:error, hash_not_found()}
+    end
+  end
+
+  defp invalid_query,
+    do:
+      "That doesn't look like a block height, a block hash or a transaction ID. " <>
+        "A height is a whole number, and a hash or transaction ID is 64 hexadecimal characters."
+
+  defp not_indexed(height) do
+    "Block #{Sats.delimit(height)} is not indexed yet." <>
+      case Bitblocks.Sync.tip() do
+        tip when is_integer(tip) -> " The highest block we know is #{Sats.delimit(tip)}."
+        _ -> ""
+      end
+  end
+
+  defp hash_not_found do
+    "Block or transaction not found." <>
+      case SyncProgress.snapshot().overview.complete_through do
+        through when is_integer(through) and through >= 0 ->
+          " It may not be indexed yet: every transaction is stored through block #{Sats.delimit(through)}."
+
+        _ ->
+          ""
+      end
   end
 
   # Template: search_live.html.heex

@@ -42,6 +42,44 @@ defmodule BitblocksWeb.PageControllerTest do
     end
   end
 
+  describe "the banner" do
+    test "states the indexed height and how long ago that block was", %{conn: conn} do
+      Bitblocks.ChainFixtures.block_fixture(%{
+        height: 0,
+        sync_state: "completed",
+        time: System.system_time(:second) - 3 * 3_600
+      })
+
+      Bitblocks.SyncProgress.refresh()
+
+      text =
+        conn
+        |> get(~p"/")
+        |> html_response(200)
+        |> Floki.parse_document!()
+        |> Floki.find("#banner-text")
+        |> Floki.text()
+        |> String.replace(~r/\s+/, " ")
+
+      assert text =~ "Every transaction is stored through block 0, mined 3 hours ago."
+    end
+
+    test "names no milestone or month", %{conn: conn} do
+      html = conn |> get(~p"/") |> html_response(200)
+
+      for stale <- ["June 2026", "November 2026", "700,000", "900,000"] do
+        refute html =~ stale
+      end
+    end
+
+    test "reads whole units", _context do
+      assert BitblocksWeb.IndexNotice.span(30) == "moments"
+      assert BitblocksWeb.IndexNotice.span(60) == "1 minute"
+      assert BitblocksWeb.IndexNotice.span(86_400 * 2) == "2 days"
+      assert BitblocksWeb.IndexNotice.span(86_400 * 365 * 13) == "13 years"
+    end
+  end
+
   test "the homepage names the endpoints a program would call", %{conn: conn} do
     html = conn |> get(~p"/") |> html_response(200)
 

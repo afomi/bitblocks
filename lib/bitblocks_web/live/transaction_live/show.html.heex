@@ -1,20 +1,26 @@
 <div class="container mx-auto px-4 py-8 max-w-6xl">
   <div class="mb-6">
-    <h1 class="text-3xl font-bold mb-2">
+    <h1 class="text-3xl font-bold mb-2 text-gray-900 dark:text-white">
       Transaction
     </h1>
 
     <%= if @block do %>
       <div class="flex items-center gap-2 text-sm">
-        <span class="text-gray-600">
+        <span class="text-gray-600 dark:text-gray-400">
           Block:
         </span>
         <.link
           navigate={~p"/blocks/#{@block.height}"}
-          class="text-blue-600 hover:underline font-semibold"
+          class="text-blue-700 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300 font-semibold font-mono tabular-nums"
         >
           <%= @block.height %>
         </.link>
+        <span
+          :if={@block.time}
+          class="text-gray-600 dark:text-gray-400"
+        >
+          mined <%= DateTime.from_unix!(@block.time) |> Calendar.strftime("%Y-%m-%d %H:%M UTC") %>
+        </span>
       </div>
     <% end %>
   </div>
@@ -36,29 +42,69 @@
     </.modal>
   <% end %>
 
-  <%!-- What is a Transaction? --%>
-  <div class="bg-blue-50 border-l-4 border-blue-500 p-4 mb-6">
-    <div class="flex items-start">
-      <div class="flex-shrink-0">
-        <svg
-          class="h-5 w-5 text-blue-500"
-          fill="currentColor"
-          viewBox="0 0 20 20"
+  <%!-- What happened: the first thing on the page (BitblocksWeb.TxSummary) --%>
+  <section
+    id="tx-summary"
+    aria-labelledby="tx-summary-heading"
+    class="bg-white border border-gray-200 rounded-lg p-6 mb-6 dark:bg-gray-800 dark:border-gray-700"
+  >
+    <h2
+      id="tx-summary-heading"
+      class="sr-only"
+    >
+      What happened
+    </h2>
+    <%= case @tx_state do %>
+      <% :not_downloaded -> %>
+        <p
+          id="tx-not-downloaded"
+          class="text-gray-800 dark:text-gray-200"
         >
-          <path
-            fill-rule="evenodd"
-            d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z"
-            clip-rule="evenodd"
-          />
-        </svg>
-      </div>
-      <div class="ml-3">
-        <p class="text-sm text-blue-700">
-          <strong>What is a Transaction?</strong> A transaction is a transfer of Bitcoin value from one or more inputs (previous outputs being spent) to one or more outputs (new recipients). Transactions are grouped into blocks and recorded permanently on the blockchain.
+          This transaction is not downloaded yet.
         </p>
-      </div>
+        <p class="text-sm text-gray-600 dark:text-gray-400 mt-1">
+          We know its ID, and the sync stores its contents when it reaches this block.
+        </p>
+      <% :undecodable -> %>
+        <p
+          id="tx-undecodable"
+          class="text-gray-800 dark:text-gray-200"
+        >
+          This transaction could not be decoded.
+        </p>
+        <p class="text-sm text-gray-600 dark:text-gray-400 mt-1">
+          Its bytes are stored, and they are shown below as they are.
+        </p>
+      <% :decoded -> %>
+        <blockquote
+          :if={@coinbase_message}
+          id="tx-miner-text"
+          class="font-mono text-sm text-gray-900 dark:text-gray-100 break-words whitespace-pre-wrap bg-gray-50 dark:bg-gray-900 rounded p-4 mb-3"
+        ><%= @coinbase_message.text %></blockquote>
+        <p
+          id="tx-headline"
+          class="text-gray-800 dark:text-gray-200"
+        >
+          <%= BitblocksWeb.TxSummary.headline(@decoded_tx, @parsed_data && @parsed_data.total_output_satoshis, @block) %>
+        </p>
+    <% end %>
+    <div
+      :if={@protocol_links != []}
+      id="tx-protocols"
+      class="flex flex-wrap items-center gap-2 mt-3"
+    >
+      <span class="text-sm text-gray-600 dark:text-gray-400">
+        Part of
+      </span>
+      <.link
+        :for={link <- @protocol_links}
+        navigate={link.path}
+        class="rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-semibold text-blue-700 hover:text-blue-900 dark:bg-gray-700 dark:text-blue-300 dark:hover:text-blue-200"
+      >
+        <%= link.label %>
+      </.link>
     </div>
-  </div>
+  </section>
 
   <%!-- Transaction ID --%>
   <div class="bg-white shadow-md rounded-lg p-6 mb-6">
@@ -67,6 +113,7 @@
         Transaction ID (TXID)
       </div>
       <a
+        :if={@admin?}
         href={"/graph?txid=#{@transaction.txid}&depth=2"}
         class="text-xs text-blue-600 hover:underline font-semibold"
       >
@@ -217,6 +264,9 @@
             <th class="py-1 pr-4 font-medium text-right">
               Sats
             </th>
+            <th class="py-1 pr-4 font-medium">
+              To
+            </th>
             <th class="py-1 font-medium">
               Status
             </th>
@@ -233,6 +283,9 @@
             </td>
             <td class="py-1 pr-4 text-right tabular-nums text-gray-800 dark:text-gray-200">
               <%= BitblocksWeb.Sats.delimit(out.satoshis) %>
+            </td>
+            <td class="py-1 pr-4 font-mono text-xs break-all text-gray-800 dark:text-gray-200">
+              <%= BitblocksWeb.TxSummary.paid_to(Map.get(@descriptors_by_vout, out.vout)) %>
             </td>
             <td class="py-1 text-gray-800 dark:text-gray-200">
               <%= case out.status do %>
@@ -263,6 +316,66 @@
       </p>
       <p class="text-xs text-gray-600 dark:text-gray-400 mt-2">
         Unspent means no transaction we have indexed spends it yet.
+      </p>
+    </div>
+
+    <div
+      :if={match?(%BSV.Tx{}, @decoded_tx) and not BitblocksWeb.TxSummary.coinbase?(@decoded_tx)}
+      id="tx-input-sources"
+      class="mt-4"
+    >
+      <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
+        Inputs, where the value came from
+      </h3>
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="text-left text-gray-600 dark:text-gray-400">
+            <th class="py-1 pr-4 font-medium">
+              Input
+            </th>
+            <th class="py-1 pr-4 font-medium text-right">
+              Sats
+            </th>
+            <th class="py-1 font-medium">
+              Spends
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr
+            :for={{input, idx} <- @decoded_tx.inputs |> Enum.take(BitblocksWeb.TransactionLive.Show.status_rows()) |> Enum.with_index()}
+            id={"input-source-#{idx}"}
+            class="border-t border-gray-200 dark:border-gray-700"
+          >
+            <% input_txid = BSV.OutPoint.get_txid(input.outpoint) %>
+            <td class="py-1 pr-4 font-mono text-gray-800 dark:text-gray-200">
+              #<%= BitblocksWeb.Sats.delimit(idx) %>
+            </td>
+            <td class="py-1 pr-4 text-right tabular-nums text-gray-800 dark:text-gray-200">
+              <%= case Map.get(@input_satoshis, {input_txid, input.outpoint.vout}) do %>
+                <% nil -> %>
+                  —
+                <% sats -> %>
+                  <%= BitblocksWeb.Sats.delimit(sats) %>
+              <% end %>
+            </td>
+            <td class="py-1 text-gray-800 dark:text-gray-200">
+              <.link
+                navigate={~p"/transactions/#{input_txid}"}
+                class="font-mono text-blue-700 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
+              >
+                <%= String.slice(input_txid, 0, 16) %>…
+              </.link>
+              output #<%= BitblocksWeb.Sats.delimit(input.outpoint.vout) %>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+      <p
+        :if={length(@decoded_tx.inputs) > BitblocksWeb.TransactionLive.Show.status_rows()}
+        class="text-xs text-gray-600 dark:text-gray-400 mt-2"
+      >
+        And <%= BitblocksWeb.Sats.delimit(length(@decoded_tx.inputs) - BitblocksWeb.TransactionLive.Show.status_rows()) %> more inputs.
       </p>
     </div>
   </section>
@@ -388,31 +501,33 @@
       </div>
     </div>
 
-    <%!-- Coinbase message (miner scriptSig text; e.g. genesis "...Chancellor...") --%>
-    <%= if @coinbase_message do %>
-      <div class="bg-white shadow-md rounded-lg p-6 mb-6">
-        <div class="flex items-center justify-between mb-4">
-          <h2 class="text-xl font-semibold">
-            Coinbase message
-          </h2>
-          <div class="text-xs text-gray-500">
-            Arbitrary text the miner embedded in the coinbase input
-          </div>
-        </div>
-        <p class="font-mono text-sm text-gray-900 break-words whitespace-pre-wrap bg-gray-50 rounded p-4 border border-gray-200">
-          <%= @coinbase_message.text %>
-        </p>
-        <details class="mt-3">
-          <summary class="text-xs text-gray-500 cursor-pointer">
-            Raw scriptSig hex
-          </summary>
-          <p class="font-mono text-xs text-gray-500 break-all mt-2">
-            <%= @coinbase_message.hex %>
-          </p>
-        </details>
-      </div>
-    <% end %>
+  <% end %>
 
+  <%!-- Scripts and hex: behind one toggle, for anyone who wants them --%>
+  <details
+    :if={@tx_state != :not_downloaded}
+    id="tx-raw-details"
+    class="mb-6"
+  >
+    <summary class="cursor-pointer text-sm font-semibold text-blue-700 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300 mb-4">
+      Show the raw transaction
+    </summary>
+
+    <div
+      :if={@coinbase_message}
+      id="tx-coinbase-hex"
+      class="bg-white shadow-md rounded-lg p-6 mb-6"
+    >
+      <h2 class="text-base font-semibold mb-2">
+        Coinbase scriptSig
+      </h2>
+      <p class="font-mono text-xs text-gray-600 break-all">
+        <%= @coinbase_message.hex %>
+      </p>
+    </div>
+
+    <%= if match?(%BSV.Tx{}, @decoded_tx) do %>
+    <% tx = @decoded_tx %>
     <%!-- Inputs on the left, outputs on the right, from the lg breakpoint --%>
     <div
       id="tx-inputs-outputs"
@@ -509,13 +624,7 @@
         </div>
       </section>
     </div>
-  <% else %>
-    <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-6">
-      <p class="text-yellow-800 text-sm">
-        Raw transaction data could not be decoded. This may happen if the transaction record is incomplete or contains placeholder data.
-      </p>
-    </div>
-  <% end %>
+    <% end %>
 
   <%!-- OP_RETURN Data (if present) --%>
   <%= if @parsed_data && length(@parsed_data.op_returns) > 0 do %>
@@ -714,4 +823,5 @@
       Showing the first <%= BitblocksWeb.Sats.delimit(div(byte_size(raw_shown), 2)) %> of <%= BitblocksWeb.Sats.delimit(raw_bytes) %> bytes.
     </p>
   </div>
+  </details>
 </div>

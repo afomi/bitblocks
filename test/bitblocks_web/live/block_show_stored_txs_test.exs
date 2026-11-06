@@ -34,4 +34,34 @@ defmodule BitblocksWeb.BlockShowStoredTxsTest do
     # The test node answers nothing, so no count is claimed.
     refute html =~ ~s(id="next-block-txs")
   end
+
+  describe "sync status" do
+    test "a failed block says failed, and no step claims it", %{conn: conn} do
+      block = block_fixture(%{sync_state: "failed"})
+
+      {:ok, view, html} = live(conn, ~p"/blocks/#{block.height}")
+
+      assert view |> element("#block-sync-failed") |> render() =~ "Failed."
+      refute has_element?(view, "#block-sync-steps")
+      refute html =~ "header only"
+      assert html =~ "failed to sync"
+    end
+
+    test "a block with no step lights none", %{conn: conn} do
+      block = block_fixture(%{sync_state: "pending"})
+
+      {:ok, view, _html} = live(conn, ~p"/blocks/#{block.height}")
+
+      refute has_element?(view, "#block-sync-steps .bg-brand-strong")
+    end
+
+    test "a block mid-sync lights its step", %{conn: conn} do
+      block = block_fixture(%{sync_state: "header_synced"})
+
+      {:ok, view, _html} = live(conn, ~p"/blocks/#{block.height}")
+
+      assert has_element?(view, "#block-sync-steps .bg-brand-strong")
+      assert has_element?(view, "#block-sync-steps .bg-green-500")
+    end
+  end
 end
