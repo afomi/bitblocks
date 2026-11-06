@@ -62,6 +62,7 @@ defmodule Bitblocks.Chain.TxPipeline do
     Steps.RecordSpends,
     Steps.IndexTokens,
     Steps.IndexBitcom,
+    Steps.IndexBap,
     # :block, at completion
     Steps.BlockTotals,
     Steps.TypeCounts

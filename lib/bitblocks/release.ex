@@ -1622,6 +1622,39 @@ defmodule Bitblocks.Release do
     end
   end
 
+  @doc """
+  Indexes BAP records on stored rows (docs/BAP.md). Dry run by default; run
+  script analysis over the range first.
+
+      bin/bitblocks rpc 'Bitblocks.Release.backfill_bap(600_000, 650_000)'
+      bin/bitblocks rpc 'Bitblocks.Release.backfill_bap(600_000, 650_000, apply: true)'
+  """
+  def backfill_bap(from_height, to_height, opts \\ [])
+      when is_integer(from_height) and is_integer(to_height) do
+    command = command("backfill_bap", [from_height, to_height], opts)
+
+    with_running_repo(fn ->
+      Bitblocks.Chain.TxPipeline.BapBackfill.run(
+        from_height,
+        to_height,
+        opts
+        |> Keyword.put_new(:on_batch, &print_progress/1)
+        |> Keyword.put(:command, command)
+      )
+    end)
+  end
+
+  @doc """
+  Imports txs by id and indexes their BAP records, for a record in a block the
+  sync hasn't reached (docs/BAP.md). A txid is only a candidate: its bytes
+  must hash to it. Returns `%{txid => records held}`.
+
+      bin/bitblocks rpc 'Bitblocks.Release.import_bap(["<txid>"]) |> IO.inspect()'
+  """
+  def import_bap(txids) when is_list(txids) do
+    with_running_repo(fn -> Bitblocks.Bap.import_txs(txids) end)
+  end
+
   @doc "Lists managed projections as `{id, tenant, name, status}`."
   def list_projections do
     for p <- Bitblocks.Projections.list(), do: {p.id, p.tenant, p.name, p.status}

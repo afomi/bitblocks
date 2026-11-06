@@ -46,6 +46,7 @@ Removing a step would lower it, so a removal also bumps a remaining step of the 
 | `record_spends` | tx | 1 | none | `spend_index` rows |
 | `index_tokens` | tx | 2 | none | `protocol_instances`, the token index, with each BSV-21 transfer's validation status |
 | `index_bitcom` | tx | 1 | none | `bitcom_commands` |
+| `index_bap` | tx | 1 | none | `bap_records` |
 | `block_totals` | block | 2 | `block_totals` | `blocks.sats_out`, `fees`, `miner_reward`, `subsidy`, `burned`, `fees_verified` |
 | `type_counts` | block | 1 | `type_counts` | `blocks.type_counts` |
 
@@ -68,7 +69,7 @@ A block left unstamped stays below the version, so the tally backfill finds it a
 | `tx_types` | `classify_outputs` | 2 | `transactions.tx_types_version` | `Release.backfill_tx_types/3` |
 | `type_counts` | `classify_outputs`, `type_counts` | 3 | `blocks.type_counts_version` | `Release.backfill_tx_types/3` |
 
-Stage versions today: chunk 13, tx 4, block 3.
+Stage versions today: chunk 13, tx 5, block 3.
 `GET /api/v1/status/derivations` answers all of these live.
 
 `type_counts` sums the classifier's version with its own, because a block's counts change when the classifier does: a classifier bump marks every block's counts below the version too, and the one backfill re-types the txs and rewrites the counts.
@@ -112,6 +113,7 @@ A backfill run is dated exactly, in `derivation_runs`.
 | `spend_index` rows | `record_spends` | the tx's inputs | none yet | one insert per input | none: written at ingest only |
 | `protocol_instances` (tokens) | `index_tokens` | BSV-20/21 inscriptions; for a transfer, the token rows its spent outpoints hold | none yet | none for untagged txs; a few indexed lookups per transfer | transfer statuses: `Release.revalidate_token_transfers/1` |
 | `bitcom_commands` | `index_bitcom` | Bitcom `$` commands | none yet | none for untagged txs | re-indexed by `Release.backfill_script_analysis/3` |
+| `bap_records` | `index_bap` | BAP records with a valid AIP signature | `version` | none for a tx with no AIP signer | `Release.backfill_bap/3` |
 
 The tx steps write rows in other tables keyed by txid, so they have versions but no per-row stamp yet.
 When one of them changes its output, it gains a stamp column and a backfill in the same change.
@@ -179,7 +181,7 @@ Every backfill run writes one row, dry runs included (`Bitblocks.Derivations.Run
 
 | Column | Meaning |
 | --- | --- |
-| `derivation` | `tallies`, `script_analysis`, `tx_types`, `tx_steps` or `tx_size` |
+| `derivation` | `tallies`, `script_analysis`, `tx_types`, `tx_steps`, `tx_size` or `bap` |
 | `version` | the version the run brought rows up to |
 | `from_height`, `to_height` | the inclusive height range; nil for a run over every stored tx |
 | `applied` | false for a dry run |

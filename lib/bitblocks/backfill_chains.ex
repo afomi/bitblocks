@@ -25,6 +25,7 @@ defmodule Bitblocks.BackfillChains do
 
   alias Bitblocks.Chain.TxPipeline.{
     Backfill,
+    BapBackfill,
     ScriptAnalysisBackfill,
     TxStepsBackfill,
     TxTypesBackfill
@@ -36,7 +37,7 @@ defmodule Bitblocks.BackfillChains do
   alias Bitblocks.Repo
   alias Bitblocks.Workers.BackfillChainWorker
 
-  @derivations ~w(script_analysis tx_steps tallies tx_types tx_size)
+  @derivations ~w(script_analysis tx_steps tallies tx_types tx_size bap)
 
   # What a job passes on to the backfill. Named here because opts come back
   # from JSON, and arbitrary strings must never become atoms.
@@ -222,6 +223,7 @@ defmodule Bitblocks.BackfillChains do
   defp backfill("tx_steps", from, to, opts), do: TxStepsBackfill.run(from, to, opts)
   defp backfill("tallies", from, to, opts), do: Backfill.run(from, to, opts)
   defp backfill("tx_types", from, to, opts), do: TxTypesBackfill.run(from, to, opts)
+  defp backfill("bap", from, to, opts), do: BapBackfill.run(from, to, opts)
 
   defp backfill("tx_size", from, to, opts),
     do: TxSizeBackfill.run(Keyword.merge(opts, from_id: from, to_id: to))

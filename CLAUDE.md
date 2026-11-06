@@ -99,7 +99,7 @@ mix assets.deploy           # Build and minify for production
 
 - `Bitblocks.Chain.TxPipeline.steps/0` is the ordered list of what happens to every stored tx, and the one place to add a step (one module plus one line).
 - Chunk steps run before the insert, in `Chain.TxIngest.store_chunk/2`: `script_analysis`, `sats_out`, `burned`, `sats_in` (previous outputs from stored txs, one query per chunk; nil when one isn't stored), `fee`, `classify_outputs` (every output typed against `priv/data/tx_types/types.json` by `Bitblocks.TxTypes.Classifier`, unmatched as `custom`; the tx's set of types in `transactions.tx_types`, #49).
-- Tx steps run after it: `record_spends`, `index_tokens`, `index_bitcom`.
+- Tx steps run after it: `record_spends`, `index_tokens`, `index_bitcom`, `index_bap` (BAP records with a valid AIP signature, `docs/BAP.md`).
 - A tx already stored when its block is fetched is skipped, so it meets no step; `Chain.TxPipeline.CatchUp` (`CatchUpBlockWorker`, queue `:derived`) brings such a block's rows up to version after it completes.
 - The block steps run once the block is `completed`: `block_totals` (`sats_out`, `fees`, `miner_reward`, `subsidy`, `burned`, and `fees_verified`: `miner_reward <= subsidy + fees`), then `type_counts` (`blocks.type_counts`, txs per type, which `/types` sums through `Bitblocks.TxTypes.Counts`).
 - A failing step is logged and reported (telemetry `[:bitblocks, :tx_pipeline, :step_failed]`) and never loses the stored tx.
@@ -241,6 +241,10 @@ bin/bitblocks rpc 'Bitblocks.Release.discover_bitcom("<address>", apply: true)'
 # The shapes behind `custom`, ranked (#51): reads raw bytes in the range, stores nothing
 bin/bitblocks rpc 'Bitblocks.Release.type_candidates(0, 100_000) |> IO.inspect(limit: :infinity)'
 
+# BAP records on stored rows (docs/BAP.md): dry run first, then add apply: true
+bin/bitblocks rpc 'Bitblocks.Release.backfill_bap(600_000, 650_000)'
+bin/bitblocks rpc 'Bitblocks.Release.import_bap(["<txid>"]) |> IO.inspect()'
+
 # Chain-scrubber tiles (#48): full build once, then the cron keeps them current
 bin/bitblocks rpc 'Bitblocks.Release.build_chain_tiles()'
 bin/bitblocks rpc 'Bitblocks.Release.chain_tiles_status()'
@@ -319,6 +323,9 @@ GET /api/v1/collections/:id/items — items in mint order: origin, name, traits,
 POST /api/v1/collections/:id/items/lookup — {"outpoints": [...]} up to 200, answered in order from the index (no re-trace)
 GET /api/v1/collections/:id/items/:outpoint — one item by origin or current outpoint; member (true | false | "unknown"; false only after a finished chain walk with every trace settled: current or ended), spent (null unless settled; always true when ended), ownership, owner (?refresh=1 re-traces)
 GET /api/v1/outpoints/:txid/:vout — is this outpoint an ordinal/token? answer: yes | no | unknown (spend only on "no")
+GET /api/v1/bap/:bap_id         — BAP identity (docs/BAP.md): first_record, rotations, current_address, current_profile, rejected, as_of
+GET /api/v1/bap/:bap_id/attestations — what the identity attested, each marked revoked or not
+GET /api/v1/bap?address=        — the identities an address signs for
 GET /api/v1/script/:scripthash/history — tx history for a script (Electrum scripthash: sha256 of scriptPubKey, reversed hex)
 GET /api/v1/script/:scripthash/unspent — UTXOs locked by a script, as the address utxos: unspent (exact only), unknown, status, indexed_through_height, tip_height
 POST /api/v1/script/decode      — decode script hex into a descriptor (type, fields, asm, matched template)

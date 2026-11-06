@@ -75,6 +75,11 @@ defmodule BitblocksWeb.Router do
     get "/addresses/:address/balance", AddressController, :balance
     get "/addresses/:address/tokens", AddressController, :tokens
 
+    # BAP identities (#32): read-only, public chain data
+    get "/bap", BapController, :index
+    get "/bap/:bap_id/attestations", BapController, :attestations
+    get "/bap/:bap_id", BapController, :show
+
     # Is this outpoint an ordinal/token? yes | no | unknown (fail-closed wallets)
     get "/outpoints/:txid/:vout", OutpointController, :show
 

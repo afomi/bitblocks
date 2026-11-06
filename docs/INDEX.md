@@ -26,6 +26,7 @@ Docs marked *(mixed)* are mostly aspirational but contain sections that accurate
 - `SITEMAP.md` — all routes, grouped by access level and function.
 - `field-notes/` — dated, single-claim research notes from reading the chain with Bitblocks (see its README).
 - `BSV20_TOKENS.md` — the implemented BSV-20/BSV-21 token indexer (read side of the DEX).
+- `BAP.md` — the BAP identity index (#32): the rules for valid, accepted, rotation and newest, and how to read it.
 - `BITCOM.md` — the live Bitcom registry: command log, tiers, `/bitcom` pages, JSON export.
 - `CHAIN_SCRUBBER.md` — the admin three.js chain scrubber (#48): tile pyramid, rollup rules, measured budget, rest read, loss annotations, ops commands.
 - `TX_STORAGE.md` — proposal: every tx in the CDN packed by block, metadata for every tx in Postgres, raw bytes in the row only up to a size threshold.

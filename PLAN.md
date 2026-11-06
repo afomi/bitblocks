@@ -62,7 +62,8 @@ Rexxies (Run) is built on the same engine (`/api/v1/collections/rexxies`): membe
 `/collections` is the HTML index, with source links; `/collections/:id` lists any collection's items and holders.
 Grand Tardinians is 999 items: the 1,494 in #30 counted transfers ([field note](docs/field-notes/2026-11-02-the-495-tardinians.md)).
 #33 TXSTORE: raw tx bytes in S3 (one immutable CDN URL per txid), collections first; images parsed from raw txs on the fly at `/content/:outpoint`.
-Queued after #30: #32 BAP identity index (qart request).
+#32 BAP identity index is built ([docs/BAP.md](docs/BAP.md)): `/api/v1/bap/:bap_id`, with the rules for valid, accepted, rotation and newest written down.
+Open: a real mainnet identity, by txid or once the sync reaches that era.
 #49 TYPES: a public page per transaction type, then every tx typed (unmatched is `custom`), then types as CRUD resources.
 Phase 1 is built: `/types`, `/types/:id` and `/api/v1/types`, with examples read only from existing indexes, and token and collection badges linking to their type.
 Phase 2 is built (2026-11-04): stable template hashes (script analysis v7), `Bitblocks.TxTypes.Classifier` passing every vector in `priv/data/tx_types/output_types_v1.json`, the `classify_outputs` and `type_counts` pipeline steps, and counts per type (with `custom`) on `/types` and `/api/v1/types`.

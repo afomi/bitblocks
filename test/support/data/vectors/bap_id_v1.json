@@ -1,0 +1,21 @@
+{
+  "description": "BAP ID = base58(ripemd160(sha256(address))), address = mainnet P2PKH of the wallet's identity-0 key (BRC-43 [1, \"sigma\"], keyID \"identity-0\", counterparty \"self\"). As @1sat/actions computeBapId. Generated 2026-10-26 with @bsv/sdk; Qart.BAP must reproduce every row.",
+  "ids": [
+    {
+      "pubkey": "03874c15c7fda20e539c6e5ba573c139884c351188799f5458b4b41f7924f235cd",
+      "address": "1EsP1rg3wJd1DbkvCfsZNBdjCxchqDfCcK",
+      "bap_id": "2Ny5b5yyzSedzcnhK4H3w2xS9iR3"
+    },
+    {
+      "note": "ProtoWallet(PrivateKey(1)).getPublicKey({protocolID: [1, \"sigma\"], keyID: \"identity-0\", counterparty: \"self\"}); forSelf gives the same key",
+      "pubkey": "03154fbce29cebe4a3ecf42f946fa99ef0e3b34f190b0b56bce1e947b90bd15723",
+      "address": "1Gk61B3FcWBXQi2rXnkFQwaLgamgeaMCtH",
+      "bap_id": "uoA1Q9wb4fr5Vxnbwtp67ENuT8P"
+    }
+  ],
+  "id_record": {
+    "description": "OP_FALSE OP_RETURN | BAP prefix | ID | bap_id | declared address (identity-1 of the same wallet), without the AIP signature that follows it on chain",
+    "bap_id": "uoA1Q9wb4fr5Vxnbwtp67ENuT8P",
+    "script_hex": "006a2231424150537561506e66476e53424d33474c56397968785564596534764762644d540249441b756f4131513977623466723556786e627774703637454e75543850223147376161724e5a5a693259337776764d66635932436d63574353654b7a5477424c"
+  }
+}

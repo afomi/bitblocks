@@ -69,6 +69,7 @@ defmodule Bitblocks.Chain.TxPipelineTest do
                {:tx, "record_spends"},
                {:tx, "index_tokens"},
                {:tx, "index_bitcom"},
+               {:tx, "index_bap"},
                {:block, "block_totals"},
                {:block, "type_counts"}
              ]
@@ -300,7 +301,7 @@ defmodule Bitblocks.Chain.TxPipelineTest do
   end
 
   describe "the existing tx steps, unchanged" do
-    test "record_spends, index_tokens and index_bitcom run after the insert" do
+    test "record_spends, index_tokens, index_bitcom and index_bap run after the insert" do
       parent = tx([funding_outpoint()], [p2pkh(address(), 5_000)])
       {parent_txid, _} = parent
       {child_txid, _} = child = tx(["#{parent_txid}_0"], [p2pkh(address(), 4_000)])
@@ -315,7 +316,8 @@ defmodule Bitblocks.Chain.TxPipelineTest do
       assert TxPipeline.run_tx(tx, %Block{hash: "s", height: 5}) == [
                {"record_spends", :ok},
                {"index_tokens", :ok},
-               {"index_bitcom", :ok}
+               {"index_bitcom", :ok},
+               {"index_bap", :ok}
              ]
     end
 

@@ -48,6 +48,7 @@ So sats in costs no node call.
 | 7 | `record_spends` | the tx's inputs | `spend_index`, one row per input; fills order-book listings their inputs settle (once per fill txid; a listing indexed later settles against the row, #40) | one insert per input |
 | 8 | `index_tokens` | BSV-20/21 inscriptions, only on txs tagged `BSV20` | `protocol_instances`, the token index | none for untagged txs |
 | 9 | `index_bitcom` | Bitcom `$` commands, only on txs tagged `Bitcom` | `bitcom_commands`, with ownership proofs | none for untagged txs |
+| 10 | `index_bap` | BAP records, only on txs with a valid AIP signer (`aip_signers`) | `bap_records`: each record whose signature checks; what they mean is worked out when read ([BAP.md](BAP.md)) | none for txs with no AIP signer |
 
 A tx already stored when its block is fetched is skipped, so neither kind of step runs for it.
 `Chain.TxPipeline.CatchUp` brings such a block's rows up to version after it completes, every stage included ([DERIVED_DATA.md](DERIVED_DATA.md)).
@@ -56,8 +57,8 @@ A tx already stored when its block is fetched is skipped, so neither kind of ste
 
 | # | Step | Reads | Writes | Cost |
 | --- | --- | --- | --- | --- |
-| 10 | `block_totals` | the block's tx rows | `blocks.sats_out`, `fees`, `miner_reward`, `subsidy`, `burned`, `fees_verified` | one aggregate on the `block_hash` index, one row update |
-| 11 | `type_counts` | the block's tx rows | `blocks.type_counts`: type id => txs of that type; `type_counts_version`, only when every tx is typed at the current version | one aggregate on the `block_hash` index, one row update |
+| 11 | `block_totals` | the block's tx rows | `blocks.sats_out`, `fees`, `miner_reward`, `subsidy`, `burned`, `fees_verified` | one aggregate on the `block_hash` index, one row update |
+| 12 | `type_counts` | the block's tx rows | `blocks.type_counts`: type id => txs of that type; `type_counts_version`, only when every tx is typed at the current version | one aggregate on the `block_hash` index, one row update |
 
 `block_totals`:
 
