@@ -30,6 +30,15 @@ rpc_batch_timeout_ms =
 
 # The node's RPC worker threads (bitcoind rpcthreads): a ceiling on how many
 # blocks the sync works at once (Bitblocks.Sync.concurrency_limit/0).
+# A read-only web node (#39): see Bitblocks.NodeRole. Unset is a writer.
+config :bitblocks,
+       :node_role,
+       (case System.get_env("NODE_ROLE") do
+          value when value in [nil, "", "writer"] -> :writer
+          "reader" -> :reader
+          value -> raise "NODE_ROLE must be writer or reader, got: #{value}"
+        end)
+
 if limit = System.get_env("SYNC_RPC_LIMIT") do
   config :bitblocks, :sync_rpc_limit, String.to_integer(limit)
 end

@@ -92,6 +92,7 @@ mix assets.deploy           # Build and minify for production
   - A failure marks the block `failed` and backs off 1, 2, 4 … minutes, capped at an hour; never gives up. The seventh failure in a row (over an hour) sends one `Notifications.sync_stall_alert/3`.
 - Concurrency: admin-set on /syncing, persisted in `sync_settings`, clamped to `Sync.concurrency_limit/0` (CPU cores, `pool_size` minus `:sync_pool_reserve`, `:sync_rpc_limit` / `SYNC_RPC_LIMIT`). Default `:sync_workers`: 1 in dev and test, 2 in prod.
 - Pause: admin-set on /syncing, the `paused` column of `sync_settings` (`Sync.set_paused/1`); the coordinator dispatches nothing new while it is set, across restarts and deploys, and blocks already dispatched finish.
+- One writer (#39, `Bitblocks.NodeRole`): `NODE_ROLE=reader` starts a read-only web node with no Oban queues, plugins or leadership and no coordinator. Unset is a writer. Leadership lives in the database and dispatch counts live jobs there, so more instances never mean more RPC streams. `/syncing`, `/status` and `this_node` on `GET /api/v1/status` say whether this node is the sync writer and whether rate limits are shared or per node.
 - `Bitblocks.Workers.SyncHeadersWorker` holds the header logic (`sync_tip/0`, `sync_range/2`, reorg handling) and still runs a manual range job.
 
 **After a tx comes in** (authoritative: `docs/TX_PIPELINE.md`):
@@ -242,6 +243,7 @@ bin/bitblocks rpc 'Bitblocks.Release.tx_store_reconcile(0, 9_999)'
 ### API
 
 Logged-out callers get `RATE_LIMIT_PER_MINUTE` (default 30) requests per minute per IP.
+These limits count per node until the Erlang cluster is connected (`this_node.rate_limit_scope` on `/api/v1/status`).
 Logged-in users get `RATE_LIMIT_SIGNED_IN_PER_MINUTE` (600) per user, and admins `RATE_LIMIT_ADMIN_PER_MINUTE` (3,000) per user.
 This covers HTTP requests, not events over an open LiveView socket.
 Keyed callers send `Authorization: Bearer bbk_…` (or `x-api-key`) and get their key's own budget; create one with `bin/bitblocks rpc 'Bitblocks.Release.create_api_key("qart", 1200)'` (printed once), or register one made elsewhere from its sha256 with `Release.create_api_key_from_hash/3`, so the key never appears in command output. An unknown or revoked key is a 401.

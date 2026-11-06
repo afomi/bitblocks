@@ -72,4 +72,25 @@ defmodule BitblocksWeb.HealthLine do
     do: "The sync has stalled: no block has completed for over an hour."
 
   def progress_text(_), do: "The sync is progressing."
+
+  @doc false
+  # Whether this node writes the chain, and how far rate limits reach (#39).
+  def node_text(%{this_node: %{sync_writer: true}}), do: "This node is the sync writer."
+
+  def node_text(%{this_node: %{role: "reader"}}),
+    do: "This node serves reads; the sync runs on a writer node."
+
+  def node_text(%{this_node: %{role: "writer"}}),
+    do: "This node is not the sync writer: another node leads the sync."
+
+  def node_text(_), do: nil
+
+  @doc false
+  def rate_limit_text(%{this_node: %{rate_limit_scope: "cluster", connected_nodes: n}}),
+    do: "Rate limits are shared with #{n} connected #{if n == 1, do: "node", else: "nodes"}."
+
+  def rate_limit_text(%{this_node: %{rate_limit_scope: "per_node"}}),
+    do: "Rate limits count per node: no other node is connected."
+
+  def rate_limit_text(_), do: nil
 end

@@ -11,7 +11,7 @@ defmodule Bitblocks.Ops do
   It never carries the node's address or credentials.
   """
 
-  alias Bitblocks.{Chain, Config, Notifications, RpcCache, SyncProgress}
+  alias Bitblocks.{Chain, Config, NodeRole, Notifications, RpcCache, SyncProgress}
 
   # A stall is no progress for this long while there is work to do: our
   # headers more than @stall_blocks behind the node's validated blocks with no
@@ -102,6 +102,7 @@ defmodule Bitblocks.Ops do
         blocks: node_blocks,
         headers: node_headers
       },
+      this_node: facts[:this_node],
       network: %{public_tip: public_tip},
       release: facts[:release] || release(),
       lag: %{
@@ -263,6 +264,7 @@ defmodule Bitblocks.Ops do
       blocks_in_progress: blocks_in_progress(snapshot.sync),
       paused: safe(&Bitblocks.Sync.paused?/0) == true,
       halted: halted_fork(),
+      this_node: safe(&NodeRole.status/0),
       now: DateTime.utc_now() |> DateTime.truncate(:second)
     }
   end

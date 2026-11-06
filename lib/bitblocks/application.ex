@@ -53,9 +53,10 @@ defmodule Bitblocks.Application do
       # Start the Finch HTTP client for sending emails
       {Finch, name: Bitblocks.Finch},
       # Start Oban for background job processing
-      {Oban, Application.fetch_env!(:bitblocks, Oban)},
+      # (a read-only node runs no queues: Bitblocks.NodeRole)
+      {Oban, Bitblocks.NodeRole.oban_config(Application.fetch_env!(:bitblocks, Oban))},
       # Leads the sync on the Oban leader node: cursor, dispatch, concurrency
-      Bitblocks.Sync.Coordinator,
+      Bitblocks.NodeRole.writer_only(Bitblocks.Sync.Coordinator),
       # Start Txbox for outbound transaction management
       # Note: Txbox requires additional configuration for mAPI miner integration
       # See config/runtime.exs for mAPI token configuration
@@ -73,7 +74,7 @@ defmodule Bitblocks.Application do
     # See https://hexdocs.pm/elixir/Supervisor.html
     # for other strategies and supported options
     opts = [strategy: :one_for_one, name: Bitblocks.Supervisor]
-    Supervisor.start_link(children, opts)
+    Supervisor.start_link(List.flatten(children), opts)
   end
 
   # Tell Phoenix to update the endpoint configuration

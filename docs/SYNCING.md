@@ -147,6 +147,20 @@ It was down from 2026-07 to 2026-11, so public sources can stand in for it, and 
 
 ---
 
+## One writer, and read-only nodes (#39)
+
+One node at a time leads the sync: `Sync.Coordinator` acts only on the Oban leader, and leadership lives in the database, so it needs no Erlang cluster.
+Dispatch counts live block jobs in the database against the one concurrency setting, so block fetches are bounded across every instance.
+More web instances add no `getrawtransaction` streams.
+
+`NODE_ROLE=reader` starts a node that adds web capacity only (`Bitblocks.NodeRole`): no Oban queues, plugins or leader election, and no coordinator, so it starts no `SyncHeadersWorker`, block job or backfill.
+Unset, or `writer`, is what production runs today.
+
+`/syncing` and `/status` say whether this node is the sync writer, and `GET /api/v1/status` carries the same as `this_node` (`role`, `sync_writer`, `connected_nodes`, `rate_limit_scope`).
+`RateLimiter.Replicator` shares counts over PubSub, which reaches another instance only over a connected Erlang cluster (`DNS_CLUSTER_QUERY`).
+So `rate_limit_scope` is `per_node` until a peer is connected, and each instance then enforces the configured cap on its own.
+The cap at the edge is #13.
+
 ## After a reorg: the orphan's transaction rows (#34)
 
 Tip sync deletes an orphaned block's row, but its transactions keep the orphan's `block_hash`.

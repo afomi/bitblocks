@@ -299,4 +299,34 @@ defmodule Bitblocks.OpsTest do
                "Tip sync has halted at block 501: a fork deeper than 10 blocks needs an operator."
     end
   end
+
+  describe "this node (#39)" do
+    alias BitblocksWeb.HealthLine
+
+    defp this_node(status),
+      do: Ops.health(%{node: %{"blocks" => 10}, overview: %{}, now: @now, this_node: status})
+
+    test "the writer says so; limits are per node until a peer connects" do
+      h = this_node(Bitblocks.NodeRole.status(:writer, [], fn -> true end))
+
+      assert h.this_node.rate_limit_scope == "per_node"
+      assert HealthLine.node_text(h) == "This node is the sync writer."
+
+      assert HealthLine.rate_limit_text(h) ==
+               "Rate limits count per node: no other node is connected."
+    end
+
+    test "a reader says so; limits are shared with a connected node" do
+      h = this_node(Bitblocks.NodeRole.status(:reader, [:peer], fn -> false end))
+
+      assert HealthLine.node_text(h) == "This node serves reads; the sync runs on a writer node."
+      assert HealthLine.rate_limit_text(h) == "Rate limits are shared with 1 connected node."
+    end
+
+    test "a writer that doesn't lead says another node does" do
+      h = this_node(Bitblocks.NodeRole.status(:writer, [], fn -> false end))
+
+      assert HealthLine.node_text(h) =~ "not the sync writer"
+    end
+  end
 end
