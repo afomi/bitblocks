@@ -205,36 +205,52 @@ defmodule BitblocksWeb.TransactionLive.ShowTest do
       assert has_element?(view, "#tx-inputs-outputs.lg\\:grid-cols-2 > #tx-outputs", "Output #0")
     end
 
-    test "caps the raw hex and offers the whole tx as a download", %{conn: conn} do
+    test "shows no part of a large tx's hex, and offers it whole", %{conn: conn} do
       script = %BSV.Script{chunks: [:OP_FALSE, :OP_RETURN, :binary.copy(<<7>>, 3_000)]}
       raw = raw_hex_with_output(script, 0)
       tx = insert_tx(raw, "large#{System.unique_integer([:positive])}")
 
       {:ok, view, html} = live(conn, ~p"/transactions/#{tx.txid}")
 
-      assert {shown, size} = BitblocksWeb.TransactionLive.Show.raw_preview(raw)
-      assert byte_size(shown) == 2_000
-      assert size == div(byte_size(raw), 2)
-      assert has_element?(view, "#tx-raw", shown)
-      refute html =~ raw
-      assert html =~ "Showing the first 1,000 of"
+      size = div(byte_size(raw), 2)
+      assert {nil, ^size} = BitblocksWeb.TransactionLive.Show.raw_shown(raw)
+      refute html =~ binary_part(raw, 0, 200)
+      assert has_element?(view, "#tx-raw-size", BitblocksWeb.Sats.delimit(size))
 
       assert has_element?(
                view,
                ~s(#tx-raw-download[href="/api/v1/txs/#{tx.txid}/raw"][download="#{tx.txid}.bin"])
+             )
+
+      assert has_element?(
+               view,
+               ~s(#tx-raw-download-hex[href="/api/v1/txs/#{tx.txid}/raw?format=hex"][download="#{tx.txid}.hex"])
              )
     end
 
     test "shows a small tx's raw hex whole", %{conn: conn} do
       insert_tx(@genesis_raw, @genesis_txid)
 
-      {:ok, _view, html} = live(conn, ~p"/transactions/#{@genesis_txid}")
+      {:ok, view, html} = live(conn, ~p"/transactions/#{@genesis_txid}")
 
       assert html =~ @genesis_raw
-      refute html =~ "Showing the first"
+      refute has_element?(view, "#tx-raw-size")
     end
 
-    test "the download moves to the CDN once it serves /tx", %{conn: conn} do
+    test "the raw route answers bytes, or the same bytes as hex", %{conn: conn} do
+      insert_tx(@genesis_raw, @genesis_txid)
+
+      bytes = get(conn, "/api/v1/txs/#{@genesis_txid}/raw")
+      assert Base.encode16(bytes.resp_body, case: :lower) == @genesis_raw
+      assert ["application/octet-stream"] = get_resp_header(bytes, "content-type")
+
+      hex = get(conn, "/api/v1/txs/#{@genesis_txid}/raw?format=hex")
+      assert hex.status == 200
+      assert hex.resp_body == @genesis_raw
+      assert ["text/plain"] = get_resp_header(hex, "content-type")
+    end
+
+    test "binary moves to the CDN once it serves /tx, and hex stays here", %{conn: conn} do
       insert_tx(@genesis_raw, @genesis_txid)
       System.put_env("TX_CDN_BASE_URL", "https://cdn.example.test/")
       on_exit(fn -> System.delete_env("TX_CDN_BASE_URL") end)
@@ -244,6 +260,11 @@ defmodule BitblocksWeb.TransactionLive.ShowTest do
       assert has_element?(
                view,
                ~s(#tx-raw-download[href="https://cdn.example.test/tx/#{@genesis_txid}"])
+             )
+
+      assert has_element?(
+               view,
+               ~s(#tx-raw-download-hex[href="/api/v1/txs/#{@genesis_txid}/raw?format=hex"])
              )
     end
 

@@ -282,7 +282,7 @@ POST /api/v1/beef/verify        — checks a BEEF V1, V2 or Atomic BEEF from any
 GET /api/v1/headers/:height     — one header: raw 80 bytes as hex, hash, height, merkleroot, verified, canonical; rely on it only when both are true
 GET /api/v1/headers             — ?from=&limit= up to 2,000 headers by the height index; meta.tip_height says what they cover, meta.missing what we lack below it
 GET /interop/vectors/v1.json    — open test vectors for BEEF and BUMP, each with its expected outcome (docs/INTEROP_KIT.md); licence at /interop/vectors/LICENSE.txt
-GET /api/v1/txs/:txid/raw       — the tx's exact bytes (octet-stream), verified against the txid, immutable; the CDN origin (docs/TX_STORAGE.md)
+GET /api/v1/txs/:txid/raw       — the tx's exact bytes (octet-stream), or ?format=hex for lowercase hex, verified against the txid, immutable; the CDN origin (docs/TX_STORAGE.md)
 GET /content/:outpoint          — inscription body parsed from the raw tx on the fly (1Sat convention; immutable, nosniff, sandbox CSP)
 GET /content/bcat/:txid         — a BCat file, its chunks joined in order, each checked against the txid its head names; ?download=1; a short file is an error naming missing_chunks (up to 256 chunks, 32 MB)
 GET /api/v1/status/derivations  — each pipeline step's version, stage and derivation versions, latest backfill runs

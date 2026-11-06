@@ -155,6 +155,13 @@ defmodule Bitblocks.TxStore do
   end
 
   @doc """
+  Where to download a tx as hex: always the origin, so the CDN holds one form
+  of each tx.
+  """
+  @spec hex_url(String.t()) :: String.t()
+  def hex_url(txid), do: "/api/v1/txs/" <> txid <> "/raw?format=hex"
+
+  @doc """
   Where to download a tx's exact bytes: `TX_CDN_BASE_URL/tx/<txid>` once
   that's set, because CloudFront serves the path; until then the origin,
   `/api/v1/txs/<txid>/raw`, which answers for every tx we hold or can reach.

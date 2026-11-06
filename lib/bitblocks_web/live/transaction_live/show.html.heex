@@ -824,34 +824,53 @@
   <% end %>
 
   <%!-- Raw Transaction --%>
-  <% {raw_shown, raw_bytes} = BitblocksWeb.TransactionLive.Show.raw_preview(@transaction.raw) %>
+  <% {raw_hex, raw_bytes} = BitblocksWeb.TransactionLive.Show.raw_shown(@transaction.raw) %>
   <div
     id="tx-raw"
     class="bg-white shadow-md rounded-lg p-6"
   >
-    <div class="flex items-center justify-between mb-4">
+    <div class="flex flex-wrap items-center justify-between gap-2 mb-4">
       <h2 class="text-xl font-semibold">
         Raw Transaction
       </h2>
-      <a
+      <div
         :if={@current_user || @admin?}
-        id="tx-raw-download"
-        href={Bitblocks.TxStore.download_url(@transaction.txid)}
-        download={"#{@transaction.txid}.bin"}
-        class="text-sm text-blue-600 hover:underline"
+        class="flex items-center gap-4"
       >
-        Download raw transaction
-      </a>
+        <a
+          id="tx-raw-download-hex"
+          href={Bitblocks.TxStore.hex_url(@transaction.txid)}
+          download={"#{@transaction.txid}.hex"}
+          class="text-sm text-blue-600 hover:underline"
+        >
+          Download hex
+        </a>
+        <a
+          id="tx-raw-download"
+          href={Bitblocks.TxStore.download_url(@transaction.txid)}
+          download={"#{@transaction.txid}.bin"}
+          class="text-sm text-blue-600 hover:underline"
+        >
+          Download binary
+        </a>
+      </div>
     </div>
 
-    <div class="font-mono text-xs bg-gray-50 p-4 rounded break-all max-h-48 overflow-y-auto">
-      <%= raw_shown %>
+    <div
+      :if={raw_hex}
+      class="font-mono text-xs bg-gray-50 p-4 rounded break-all max-h-48 overflow-y-auto"
+    >
+      <%= raw_hex %>
     </div>
     <p
-      :if={byte_size(raw_shown) < byte_size(@transaction.raw || "")}
-      class="text-xs text-gray-600 mt-2"
+      :if={is_nil(raw_hex) and raw_bytes > 0}
+      id="tx-raw-size"
+      class="text-sm text-gray-700"
     >
-      Showing the first <%= BitblocksWeb.Sats.delimit(div(byte_size(raw_shown), 2)) %> of <%= BitblocksWeb.Sats.delimit(raw_bytes) %> bytes.
+      <%= BitblocksWeb.Sats.delimit(raw_bytes) %> bytes.
+      <span :if={!(@current_user || @admin?)}>
+        Sign in with GitHub to download it.
+      </span>
     </p>
   </div>
   </details>

@@ -1,8 +1,9 @@
 defmodule BitblocksWeb.Api.RawTxController do
   @moduledoc """
   `GET /api/v1/txs/:txid/raw`: a transaction's exact bytes,
-  `application/octet-stream`. The origin a CDN sits in front of
-  (docs/TX_STORAGE.md, step 2).
+  `application/octet-stream`, or `?format=hex` for the same bytes as lowercase
+  hex in `text/plain`. The origin a CDN sits in front of (docs/TX_STORAGE.md,
+  step 2).
 
   The bytes come from `Bitblocks.TxStore.raw/1`: the database's copy, the
   tx's own object, or a ranged read of its block's object. Every response's
@@ -28,18 +29,20 @@ defmodule BitblocksWeb.Api.RawTxController do
 
   @immutable "public, max-age=31536000, immutable"
 
-  @doc "GET /api/v1/txs/:txid/raw"
-  def show(conn, %{"txid" => txid}) do
+  @doc "GET /api/v1/txs/:txid/raw, or `?format=hex` for the same bytes as lowercase hex."
+  def show(conn, %{"txid" => txid} = params) do
     txid = String.downcase(txid)
 
     with true <- txid =~ ~r/\A[0-9a-f]{64}\z/ || {:error, :bad_txid},
          {:ok, bytes} <- TxStore.raw(txid),
          ^txid <- TxStore.txid(bytes) do
+      {type, body} = body(bytes, params["format"])
+
       conn
-      |> put_resp_content_type("application/octet-stream", nil)
+      |> put_resp_content_type(type, nil)
       |> put_resp_header("cache-control", @immutable)
       |> put_resp_header("x-content-type-options", "nosniff")
-      |> send_resp(200, bytes)
+      |> send_resp(200, body)
     else
       {:error, :bad_txid} ->
         error(conn, 400, "Expected /api/v1/txs/<64 hex txid>/raw")
@@ -59,6 +62,9 @@ defmodule BitblocksWeb.Api.RawTxController do
         error(conn, 503, "the transaction store could not be read; try again")
     end
   end
+
+  defp body(bytes, "hex"), do: {"text/plain", Base.encode16(bytes, case: :lower)}
+  defp body(bytes, _format), do: {"application/octet-stream", bytes}
 
   defp mismatch(conn, txid, reason) do
     Logger.error("raw tx #{txid}: held bytes refused: #{inspect(reason)}")
