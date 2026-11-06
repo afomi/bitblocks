@@ -65,7 +65,7 @@ CloudFront handles rate limiting and geographic distribution.
 ```
 Free:       1,000 tx lookups/day
 Pro:        100,000/day — $29/mo
-Enterprise: unlimited — custom pricing
+Beyond that: by consumption, never unlimited
 ```
 
 ### 2. Satoshi-metered (Bitcoin-native)

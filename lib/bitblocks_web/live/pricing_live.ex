@@ -11,7 +11,7 @@ defmodule BitblocksWeb.PricingLive do
        Seo.public_page(
          page_title: "Pricing",
          meta_description:
-           "Bitblocks API pricing — free tier for exploration, paid tiers for production use.",
+           "Bitblocks API pricing: start free, and pay for what you use as you grow.",
          canonical_path: "/pricing"
        )
      )}
