@@ -39,6 +39,7 @@ Partly built: #21 export, with versioned snapshots at `/api/v1/bitcom/snapshots`
 
 #35 the block stream and confirmation-order feeds · #34 tip-hash reorgs and a tx is confirmed only while its block is the chain's · #39 one sync writer, `NODE_ROLE=reader` · #17 BEEF at `/api/v1/txs/:txid/beef`, with Atomic BEEF by `?format=atomic`.
 BEEF from anyone at `POST /api/v1/beef/verify` (inclusion only), and headers at `/api/v1/headers` ([docs/MERKLE_PROOFS.md](docs/MERKLE_PROOFS.md)).
+Interop kit, first version: open test vectors at `/interop/vectors/v1.json`, an admin check page at `/start/interop` and the pattern ([docs/INTEROP_KIT.md](docs/INTEROP_KIT.md)).
 #15 BCat files at `/content/bcat/:txid`: a real on-chain file is still to be checked.
 #24 `Release.discover_bitcom`: built, for an operator to run.
 #51 first seen and adoption per type on `/types/:id`, and `Release.type_candidates`: `propose_type` and the research export are still to come.

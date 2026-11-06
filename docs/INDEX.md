@@ -22,6 +22,7 @@ Docs marked *(mixed)* are mostly aspirational but contain sections that accurate
 - `LARGE_SCALE_DB.md` — running Bitblocks against a 20TB+ PostgreSQL database.
 - `IP_BLOCKING.md` — blocking abusive IPs, including the auto-ban feature.
 - `MERKLE_PROOFS.md` — the `/api/v1/txs/:txid/proof` endpoint and `MerkleVerifier` internals.
+- `INTEROP_KIT.md` — the interoperability kit: open test vectors at `/interop/vectors/v1.json`, the check page, what a sender and receiver do, and the known gaps.
 - `THREAT-MODEL.md` — Microsoft-SDL threat model for the public-facing explorer/indexer; most controls are implemented (see BACKLOG Completed → Security).
 - `SITEMAP.md` — all routes, grouped by access level and function.
 - `field-notes/` — dated, single-claim research notes from reading the chain with Bitblocks (see its README).

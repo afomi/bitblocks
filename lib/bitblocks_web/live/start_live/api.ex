@@ -90,6 +90,12 @@ defmodule BitblocksWeb.StartLive.Api do
             "/api/v1/txs/:txid/beef",
             :caller,
             "The same proofs as BEEF (BRC-62), for a wallet or an SPV client."
+          ),
+          row(
+            "GET",
+            "/interop/vectors/v1.json",
+            :open,
+            "Test vectors for BEEF and BUMP, each with its expected outcome and source."
           )
         ]
       },

@@ -208,6 +208,7 @@ defmodule BitblocksWeb.StartLive.Index do
       {"standards", "Standards", "Implement a published standard before inventing a format."},
       {"identity", "Identity", "Your identity is the first object you own."},
       {"wallets", "Wallets", "A website should not hold your keys."},
+      {"payments", "Payments", "A payment should carry its own proof."},
       {"experiences", "Experiences", "Say what you know, and as of when."},
       {"applications", "Applications", "Build the app as a view of the chain."},
       {"resources", "Resources", "Read the spec, then the code, then the summary."},

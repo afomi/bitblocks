@@ -1,0 +1,513 @@
+<.start_page current="interop">
+  <section
+    id="interop-lede"
+    class="mb-12"
+  >
+    <h1 class="mb-3 text-3xl font-semibold tracking-tight text-gray-900 dark:text-white">
+      A payment that carries its own proof
+    </h1>
+    <p class="text-lg leading-relaxed text-gray-700 dark:text-gray-300">
+      Any wallet can send it, any app can accept it, and anyone can check it without asking a company.
+      The specs for that exist: BEEF, BUMP and BRC-100.
+      This kit is a way to show they work together, with test vectors anyone can use and a check you can try by hand.
+    </p>
+    <p class="mt-3">
+      <.status kind="draft" />
+    </p>
+    <p class="mt-3 text-sm text-gray-600 dark:text-gray-400">
+      So far the vectors have been tried against one SDK, @bsv/sdk 2.4.0, in a one-off run, and against no live wallet.
+      Nothing here says any wallet or project conforms to this kit or endorses it.
+    </p>
+  </section>
+
+  <section
+    id="check"
+    aria-labelledby="check-heading"
+    class="mb-12"
+  >
+    <.strand_heading id="check-heading">
+      Check a BEEF
+    </.strand_heading>
+    <p class="mb-4 text-sm leading-relaxed text-gray-700 dark:text-gray-300">
+      BEEF V1, BEEF V2 or Atomic BEEF around either, up to
+      <span class="font-mono tabular-nums">{group(@max_bytes)}</span>
+      bytes.
+      Your bytes are read for this check and not kept.
+    </p>
+
+    <form
+      id="interop-paste-form"
+      phx-submit="check_paste"
+      class="mb-6"
+    >
+      <label
+        for="interop-beef"
+        class="mb-1 block text-sm font-medium text-gray-900 dark:text-white"
+      >
+        BEEF as hex
+      </label>
+      <textarea
+        id="interop-beef"
+        name="beef"
+        rows="6"
+        spellcheck="false"
+        autocomplete="off"
+        class="w-full rounded-lg border-gray-300 bg-white font-mono text-xs text-gray-900 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
+      ></textarea>
+      <button
+        id="interop-paste-submit"
+        type="submit"
+        phx-disable-with="Checking..."
+        class="mt-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+      >
+        Check this hex
+      </button>
+    </form>
+
+    <form
+      id="interop-upload-form"
+      phx-change="validate_upload"
+      phx-submit="check_upload"
+    >
+      <label
+        for={@uploads.beef.ref}
+        class="mb-1 block text-sm font-medium text-gray-900 dark:text-white"
+      >
+        Or a file, as raw bytes or hex
+      </label>
+      <.live_file_input
+        upload={@uploads.beef}
+        class="block w-full text-sm text-gray-700 dark:text-gray-300"
+      />
+      <ul
+        :if={@uploads.beef.entries != []}
+        id="interop-upload-entries"
+        role="list"
+        class="mt-2 text-sm text-gray-700 dark:text-gray-300"
+      >
+        <li
+          :for={entry <- @uploads.beef.entries}
+          class="flex flex-wrap items-center gap-x-3"
+        >
+          <span class="break-all">{String.slice(entry.client_name, 0, 80)}</span>
+          <span class="font-mono text-xs tabular-nums">{entry.progress}%</span>
+          <button
+            type="button"
+            phx-click="cancel_upload"
+            phx-value-ref={entry.ref}
+            class="text-blue-700 underline hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
+          >
+            Remove
+          </button>
+          <p
+            :for={error <- upload_errors(@uploads.beef, entry)}
+            class="w-full text-red-800 dark:text-red-200"
+          >
+            {upload_error(error)}
+          </p>
+        </li>
+      </ul>
+      <p
+        :for={error <- upload_errors(@uploads.beef)}
+        class="mt-2 text-sm text-red-800 dark:text-red-200"
+      >
+        {upload_error(error)}
+      </p>
+      <button
+        id="interop-upload-submit"
+        type="submit"
+        phx-disable-with="Checking..."
+        class="mt-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+      >
+        Check this file
+      </button>
+    </form>
+
+    <div
+      id="interop-result"
+      aria-live="polite"
+      class="mt-6"
+    >
+      <p
+        :if={@error}
+        id="interop-error"
+        class="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800 dark:border-red-800 dark:bg-red-900/30 dark:text-red-200"
+      >
+        {@error}
+      </p>
+
+      <div
+        :if={@report}
+        id="interop-report"
+        class="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800"
+      >
+        <h3 class="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-lg font-semibold text-gray-900 dark:text-white">
+          The subject is
+          <.verdict status={@report.status} />
+        </h3>
+        <p
+          :if={@report.detail}
+          class="mb-2 text-sm text-gray-700 dark:text-gray-300"
+        >
+          {@report.detail}
+        </p>
+        <dl class="mb-4 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
+          <dt class="text-gray-600 dark:text-gray-400">Format</dt>
+          <dd class="font-mono text-xs text-gray-900 dark:text-gray-100">{@report.format}</dd>
+          <dt class="text-gray-600 dark:text-gray-400">Subject</dt>
+          <dd class="font-mono text-xs break-all text-gray-900 dark:text-gray-100">
+            {@report.subject_txid}
+          </dd>
+          <dt
+            :if={@report.confirmations}
+            class="text-gray-600 dark:text-gray-400"
+          >
+            Confirmations
+          </dt>
+          <dd
+            :if={@report.confirmations}
+            class="font-mono text-xs tabular-nums text-gray-900 dark:text-gray-100"
+          >
+            {group(@report.confirmations)}
+          </dd>
+          <dt class="text-gray-600 dark:text-gray-400">Headers held to</dt>
+          <dd class="font-mono text-xs tabular-nums text-gray-900 dark:text-gray-100">
+            {if @report.indexed_tip_height, do: group(@report.indexed_tip_height), else: "none yet"}
+          </dd>
+        </dl>
+
+        <p
+          :if={@report.total > length(@report.rows)}
+          id="interop-rows-capped"
+          class="mb-2 text-sm text-gray-700 dark:text-gray-300"
+        >
+          Showing {length(@report.rows)} of {group(@report.total)} transactions, the subject first.
+        </p>
+        <p
+          :if={@report.unused_bumps > 0}
+          id="interop-unused-bumps"
+          class="mb-2 text-sm text-gray-700 dark:text-gray-300"
+        >
+          {group(@report.unused_bumps)} BUMP(s) in this BEEF are used by no transaction.
+        </p>
+
+        <ul
+          id="interop-rows"
+          role="list"
+          class="divide-y divide-gray-200 dark:divide-gray-700"
+        >
+          <li
+            :for={row <- @report.rows}
+            class="py-3"
+          >
+            <p class="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <.verdict status={row.status} />
+              <span
+                :if={row.subject}
+                class="text-xs font-medium text-gray-600 dark:text-gray-400"
+              >
+                Subject
+              </span>
+              <span
+                :if={row.block_height}
+                class="font-mono text-xs tabular-nums text-gray-600 dark:text-gray-400"
+              >
+                Block {group(row.block_height)}<span :if={row.index}>, position {group(row.index)}</span>
+              </span>
+            </p>
+            <p class="mt-1 font-mono text-xs break-all text-gray-900 dark:text-gray-100">
+              {row.txid}
+            </p>
+            <p class="mt-1 text-sm text-gray-700 dark:text-gray-300">
+              {row.detail}
+            </p>
+          </li>
+        </ul>
+
+        <div class="mt-3 space-y-2 border-t border-gray-200 pt-3 text-sm text-gray-700 dark:border-gray-700 dark:text-gray-300">
+          <p>
+            {@report.claim}
+          </p>
+          <p>
+            {@report.trust}
+          </p>
+          <p>
+            Not checked:
+            <span
+              :for={{name, index} <- Enum.with_index(@report.not_checked)}
+            >{if index > 0, do: ", "}{not_checked_label(name)}</span>.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section
+    id="claims"
+    aria-labelledby="claims-heading"
+    class="mb-12"
+  >
+    <.strand_heading id="claims-heading">
+      What this check says, and what it leaves to you
+    </.strand_heading>
+    <div class="space-y-3 text-sm leading-relaxed text-gray-700 dark:text-gray-300">
+      <p>
+        The check says whether a transaction's bytes sit under a merkle root in a block header.
+        That is inclusion in a block, and it's the whole claim.
+      </p>
+      <p>
+        It doesn't run scripts or check signatures, so it can't say a transaction is valid.
+        It doesn't look for double spends, so it can't say inputs were unspent.
+        It doesn't read amounts or terms, so it can't say the right payment was made.
+        A receiver does those parts, and each one is listed below.
+      </p>
+      <p>
+        Roots are compared with the headers Bitblocks holds, which come from one node.
+        Keep your own headers if you'd rather not take ours on trust.
+      </p>
+    </div>
+    <dl class="mt-4 divide-y divide-gray-200 border-y border-gray-200 text-sm dark:divide-gray-700 dark:border-gray-700">
+      <div class="py-3">
+        <dt>
+          <.verdict status={:proven} />
+        </dt>
+        <dd class="mt-1 text-gray-700 dark:text-gray-300">
+          Its bytes hash to its txid, its BUMP climbs to a root, and that root is the one in a verified header on the chain we hold.
+        </dd>
+      </div>
+      <div class="py-3">
+        <dt>
+          <.verdict status={:anchored} />
+        </dt>
+        <dd class="mt-1 text-gray-700 dark:text-gray-300">
+          It has no BUMP, and every input leads, within this BEEF, to proven transactions.
+          It is not itself shown to be in any block.
+        </dd>
+      </div>
+      <div class="py-3">
+        <dt>
+          <.verdict status={:unknown} />
+        </dt>
+        <dd class="mt-1 text-gray-700 dark:text-gray-300">
+          We can't say: we hold no usable header at that height, or the BEEF lacks what it needs.
+          Never read this as a pass.
+        </dd>
+      </div>
+      <div class="py-3">
+        <dt>
+          <.verdict status={:failed} />
+        </dt>
+        <dd class="mt-1 text-gray-700 dark:text-gray-300">
+          The evidence is wrong: the root differs from our header, the BUMP reaches no root or can't be that block's, or an ancestor failed.
+        </dd>
+      </div>
+    </dl>
+  </section>
+
+  <section
+    id="vectors"
+    aria-labelledby="vectors-heading"
+    class="mb-12"
+  >
+    <.strand_heading id="vectors-heading">
+      Test vectors, open to everyone
+    </.strand_heading>
+    <div class="space-y-3 text-sm leading-relaxed text-gray-700 dark:text-gray-300">
+      <p>
+        <a
+          id="interop-vectors-link"
+          href="/interop/vectors/v1.json"
+          class="font-mono text-xs underline text-blue-700 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
+        >/interop/vectors/v1.json</a>
+        needs no key and no account.
+        Version <span class="font-mono tabular-nums">{@vectors.version}</span>
+        holds <span class="font-mono tabular-nums">{@vectors.total}</span>
+        vectors: <span class="font-mono tabular-nums">{@vectors.valid}</span>
+        valid and <span class="font-mono tabular-nums">{@vectors.invalid}</span>
+        deliberately invalid.
+      </p>
+      <p>
+        Each one gives its bytes, the outcome to expect and where it came from, and the file carries the headers to check against.
+        Examples from BRC-62 and BRC-74 sit beside bytes written by @bsv/sdk, a real mainnet transaction, and cases we crafted to fail.
+      </p>
+      <p>
+        A test runs every vector through our reader and verifier, so the file can't drift from what the code does.
+        Where we're stricter than a spec, the vector is marked <code class="font-mono text-xs">hardening</code>, and a reader can differ there and still follow the spec.
+      </p>
+      <.code_panel
+        label="Read the first vector"
+        code={vectors_example()}
+      />
+    </div>
+  </section>
+
+  <section
+    id="sender"
+    aria-labelledby="sender-heading"
+    class="mb-12"
+  >
+    <.strand_heading id="sender-heading">
+      What a conforming sender does
+    </.strand_heading>
+    <ul
+      role="list"
+      class="list-disc space-y-2 pl-5 text-sm leading-relaxed text-gray-700 dark:text-gray-300"
+    >
+      <li>
+        Sends the payment as Atomic BEEF (BRC-95), with the payment as the subject.
+      </li>
+      <li>
+        Includes every unconfirmed ancestor, back to transactions with a BUMP (BRC-74).
+      </li>
+      <li>
+        Puts parents ahead of children, and ends with the payment (BRC-62).
+      </li>
+      <li>
+        Leaves out anything outside the subject's ancestry.
+      </li>
+      <li>
+        Writes each VarInt in its shortest form, with nothing after the end.
+      </li>
+    </ul>
+  </section>
+
+  <section
+    id="receiver"
+    aria-labelledby="receiver-heading"
+    class="mb-12"
+  >
+    <.strand_heading id="receiver-heading">
+      What a conforming receiver does
+    </.strand_heading>
+    <ul
+      role="list"
+      class="list-disc space-y-2 pl-5 text-sm leading-relaxed text-gray-700 dark:text-gray-300"
+    >
+      <li>
+        Reads the bytes strictly, and refuses anything that doesn't parse.
+      </li>
+      <li>
+        Checks every BUMP's root against headers it trusts, by its own choice of source.
+      </li>
+      <li>
+        Treats unknown as not yet, and failed as no.
+      </li>
+      <li>
+        Runs the payment's scripts against the outputs it spends, and adds up the amounts.
+      </li>
+      <li>
+        Confirms the outputs pay what was agreed, to whom it was agreed.
+      </li>
+      <li>
+        Sends the payment to the network, and keeps the BEEF with its record.
+      </li>
+    </ul>
+  </section>
+
+  <section
+    id="pattern"
+    aria-labelledby="pattern-heading"
+    class="mb-12"
+  >
+    <.strand_heading id="pattern-heading">
+      One payment, end to end
+    </.strand_heading>
+    <ol
+      role="list"
+      class="list-decimal space-y-2 pl-5 text-sm leading-relaxed text-gray-700 dark:text-gray-300"
+    >
+      <li>
+        The receiver states the terms: the amount, and the script to pay.
+      </li>
+      <li>
+        The wallet builds the payment and produces Atomic BEEF.
+        A BRC-100 wallet returns this from <code class="font-mono text-xs">createAction</code>.
+      </li>
+      <li>
+        The wallet hands the bytes straight to the receiver, with no third party in between.
+      </li>
+      <li>
+        The receiver verifies against headers: the payment reads anchored, its parents proven.
+      </li>
+      <li>
+        The receiver checks scripts, amounts and terms, then sends the payment to the network.
+      </li>
+      <li>
+        The receiver gives back a receipt: the txid, a hash of the BEEF, the status, the height of the headers it used, and the time.
+      </li>
+      <li>
+        Once the payment is mined, the receiver fetches its BUMP, checks again, and the payment reads proven.
+      </li>
+    </ol>
+    <p class="mt-3 text-sm leading-relaxed text-gray-700 dark:text-gray-300">
+      The receipt's shape is our suggestion, and no standard defines it yet.
+    </p>
+  </section>
+
+  <section
+    id="anchored-proven"
+    aria-labelledby="anchored-proven-heading"
+    class="mb-12"
+  >
+    <.strand_heading id="anchored-proven-heading">
+      Anchored and proven, for a fresh payment
+    </.strand_heading>
+    <div class="space-y-3 text-sm leading-relaxed text-gray-700 dark:text-gray-300">
+      <p>
+        A fresh payment isn't in a block yet, so anchored is the best it can read, and that's the normal result.
+        It means the coins trace, inside this BEEF, to transactions that are in blocks.
+      </p>
+      <p>
+        Anchored doesn't mean accepted.
+        The scripts may not pass, an input may already be spent, and the network hasn't said anything yet.
+        It's the start of a receiver's work, and for a small payment that work may be enough to go ahead.
+        How much risk to take before proven is the receiver's call.
+      </p>
+      <p>
+        Proven means the payment itself sits in a block under a header you rely on.
+        That is the strongest thing this check can say, and it still covers inclusion alone.
+      </p>
+    </div>
+  </section>
+
+  <section
+    id="gaps"
+    aria-labelledby="gaps-heading"
+    class="mb-12"
+  >
+    <.strand_heading id="gaps-heading">
+      Known gaps
+    </.strand_heading>
+    <ul
+      role="list"
+      class="list-disc space-y-2 pl-5 text-sm leading-relaxed text-gray-700 dark:text-gray-300"
+    >
+      <li>
+        Scripts, signatures, amounts and double spends aren't checked here, so an anchored transaction may still be invalid.
+        An input's output index isn't looked at either.
+      </li>
+      <li>
+        Headers come from one node, and we trust it for which chain is longest.
+      </li>
+      <li>
+        A block's transaction count isn't in its header, so the check on a proof's shape rests on our node's word.
+      </li>
+      <li>
+        BRC-95 doesn't say which byte order the subject txid takes.
+        We read internal order, as the SDK writes it.
+      </li>
+      <li>
+        BRC-96 treats a txid-only entry as agreed between two parties.
+        A third-party check has no such agreement, so we answer unknown.
+      </li>
+      <li>
+        No live wallet has been tried yet, and one SDK run is a start rather than a result.
+      </li>
+    </ul>
+    <p class="mt-3 text-sm leading-relaxed text-gray-700 dark:text-gray-300">
+      If you build wallets or apps, run the vectors and tell us where they're wrong.
+      The full write-up is in
+      <.text_link href="https://github.com/afomi/bitblocks/blob/develop/docs/INTEROP_KIT.md">docs/INTEROP_KIT.md</.text_link>.
+    </p>
+  </section>
+</.start_page>

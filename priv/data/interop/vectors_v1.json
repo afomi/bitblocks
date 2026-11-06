@@ -1,0 +1,1391 @@
+{
+  "name": "bitblocks-interop-vectors",
+  "version": "1.0.0",
+  "status": "draft",
+  "published": "2026-11-05",
+  "url": "https://bitblocks.app/interop/vectors/v1.json",
+  "description": "Test vectors for payments that carry their own proof: BEEF V1 (BRC-62), BEEF V2 (BRC-96), Atomic BEEF (BRC-95) and BUMP (BRC-74). Each states what it should do, with where it came from.",
+  "versioning": "Within v1, a vector's id, bytes and expected outcome stay as they are, except to correct a mistake, which the version number and this file will show. New vectors raise the minor version. A change to what outcomes mean gets a new file.",
+  "claim": "These vectors cover inclusion in a block. They say whether a transaction's bytes sit under a merkle root in a header. They don't say a transaction is valid, its scripts pass, its inputs were unspent, a token is genuine or a payment was made.",
+  "not_checked": [
+    "scripts",
+    "signatures",
+    "input_amounts",
+    "double_spends",
+    "token_validity",
+    "payment_terms"
+  ],
+  "tried_against": "One SDK, @bsv/sdk 2.4.0, in a one-off run, and no live wallet. Nothing in this file says any wallet, SDK or project conforms to it or endorses it.",
+  "how_to_use": [
+    "Treat the entries in headers_held as the headers you hold, and no others. Each one is looked up in headers by height.",
+    "For a beef vector, decode hex, read it, and compare your answer with expected.",
+    "For a bump vector, decode hex, read it as one BUMP with nothing left over, and climb each named txid to the root.",
+    "outcome is the result to match. reason is the name Bitblocks uses, so yours may differ."
+  ],
+  "fields": {
+    "valid": "true: a conforming sender could produce these bytes. false: deliberately wrong, or short of what a sender owes.",
+    "basis": "The BRC whose rule this vector exercises, or hardening: a stricter reading Bitblocks applies where a spec is silent or leaves room. A reader may differ on a hardening vector and still follow the spec.",
+    "headers": "synthetic: false is a real mainnet header, with its 80 bytes to check for yourself. synthetic: true is a root made up for this kit, for use in this kit only.",
+    "tx_count": "A block's transaction count. It isn't in the 80-byte header, so it comes from outside it."
+  },
+  "outcomes": {
+    "proven": "Its bytes hash to its txid, its BUMP climbs to a root, and that root is the one in a header you rely on at that height.",
+    "anchored": "It has no BUMP, and every input leads, within this BEEF, to proven transactions. It is not itself shown to be in a block.",
+    "unknown": "The checker can't say: no header at that height, or the BEEF lacks what it needs. Never read this as a pass.",
+    "failed": "The evidence is wrong: the root differs from the header, the BUMP reaches no root or can't be that block's, or an ancestor failed.",
+    "refused": "The bytes can't be read as this format.",
+    "root": "A BUMP vector: each named txid climbs to this root at this offset."
+  },
+  "sources": [
+    {
+      "id": "brc-62",
+      "title": "The worked example in BRC-62",
+      "url": "https://github.com/bsv-blockchain/BRCs/blob/master/transactions/0062.md",
+      "how": "Copied byte for byte from the BRC's example. Its authors are listed in the BRC.",
+      "licence": "The BRC states: \"This BRC is licensed under the Open BSV license.\" It names no version. © BSV Association."
+    },
+    {
+      "id": "brc-74",
+      "title": "The worked example in BRC-74",
+      "url": "https://github.com/bsv-blockchain/BRCs/blob/master/transactions/0074.md",
+      "how": "Copied byte for byte from the BRC's example. Its authors are listed in the BRC.",
+      "licence": "The BRC states: \"This BRC is licensed under the Open BSV license.\" It names no version. © BSV Association."
+    },
+    {
+      "id": "bsv-sdk-2.4.0",
+      "title": "Bytes written by @bsv/sdk 2.4.0",
+      "url": "https://www.npmjs.com/package/@bsv/sdk/v/2.4.0",
+      "how": "Output of Beef.toBinaryAtomic and of Beef.toBinary with version BEEF_V2, run once. No SDK code is included.",
+      "licence": "The package ships under the Open BSV License Version 6, © BSV Association (its LICENSE.txt)."
+    },
+    {
+      "id": "bsv-sdk-2.8.11",
+      "title": "Bytes written by @bsv/sdk 2.8.11",
+      "url": "https://www.npmjs.com/package/@bsv/sdk/v/2.8.11",
+      "how": "A BEEF V1 test vector shared with Bitblocks, whose own note says @bsv/sdk 2.8.11 generated it. We did not regenerate it. No SDK code is included.",
+      "licence": "The package ships under the Open BSV License Version 6, © BSV Association (its LICENSE.txt)."
+    },
+    {
+      "id": "whatsonchain",
+      "title": "One mainnet transaction and its merkle path, from WhatsOnChain",
+      "url": "https://api.whatsonchain.com/v1/bsv/main/tx/947079e0b3e1945ea9fad5e3d33d08fbf39876c44d5a0b16ce54b3041f2560a9/hex",
+      "how": "Fetched 2026-10-28 from /tx/<txid>/hex and /tx/<txid>/proof/bump. WhatsOnChain is named as the source, and has not reviewed this kit.",
+      "licence": "Public chain data. Check it against the chain rather than taking our copy on trust."
+    },
+    {
+      "id": "bitblocks",
+      "title": "Composed or crafted by Bitblocks",
+      "url": "https://github.com/afomi/bitblocks/blob/develop/scripts/interop_vectors_v1.exs",
+      "how": "Built by the script at this URL. Each vector's description says what was changed or put together.",
+      "licence": "MIT, as the Bitblocks repository."
+    }
+  ],
+  "headers": [
+    {
+      "height": 813706,
+      "synthetic": false,
+      "hash": "00000000000000000276ab84b3df90340381e62907fabe43db7b54aad06fb7bb",
+      "merkleroot": "57aab6e6fb1b697174ffb64e062c4728f2ffd33ddcfa02a43b64d8cd29b483b4",
+      "tx_count": 3051,
+      "raw_header": "0060782edc87772d35752ea0c92c42b71e056aed81cf5b64671541020000000000000000b483b429cdd8643ba402fadc3dd3fff228472c064eb6ff7471691bfbe6b6aa570b852965fe4e0f1818ac6c76",
+      "note": "Mainnet, the block of BRC-74's example."
+    },
+    {
+      "height": 814435,
+      "synthetic": false,
+      "hash": "000000000000000003f49bf7c058cc10c205b0fe381c218288bf92fd974c672b",
+      "merkleroot": "bb6f640cc4ee56bf38eb5a1969ac0c16caa2d3d202b22bf3735d10eec0ca6e00",
+      "tx_count": 106,
+      "raw_header": "00806b2308c8c675e8be23d7ca0f6fc78f34a0b68b6a71dba7dc84060000000000000000006ecac0ee105d73f32bb202d2d3a2ca160cac69195aeb38bf56eec40c646fbba4273065d1280c182861516a",
+      "note": "Mainnet, the block of BRC-62's example."
+    },
+    {
+      "height": 973110,
+      "synthetic": false,
+      "hash": "0000000000000000028385c66577ddc13278af912119b97c4efdef1748fef8e9",
+      "merkleroot": "9f88d1a7da7f1cd99d15b72b69784712e6cc9ac38ef37142b481a165773f7ffe",
+      "tx_count": null,
+      "raw_header": "00e0ec29fcb30da28627f8701cc5b8b4302a6e0611992a961d39a01e0000000000000000fe7f3f7765a181b44271f38ec39acce6124778692bb7159dd91c7fdaa7d1889fdab1e26acf792418795dece8",
+      "note": "Mainnet. We hold no transaction count for it here, so none is stated."
+    },
+    {
+      "height": 912117,
+      "synthetic": true,
+      "hash": null,
+      "merkleroot": "e6ae9d9076e5e31056d11392a1f1c8b9d94fd7e966100e3107201425185a16a2",
+      "tx_count": null,
+      "raw_header": null,
+      "note": "A test value. The real block at this height has a different merkle root, so these vectors read failed against real headers. Use this entry in place of the real header for them."
+    },
+    {
+      "height": 3000001,
+      "synthetic": true,
+      "hash": null,
+      "merkleroot": "6609a2ca585ccbf74b98ff3b785ff39b4974a81ed992edd4d4dc588eb89bb2bd",
+      "tx_count": null,
+      "raw_header": null,
+      "note": "A height above the chain, made for this vector. No such block exists."
+    },
+    {
+      "height": 3000002,
+      "synthetic": true,
+      "hash": null,
+      "merkleroot": "ff251fb91a5eb662aaaafc0a68ab00bb68bb86e76d092833641f3401847664aa",
+      "tx_count": 1,
+      "raw_header": null,
+      "note": "A height above the chain, made for this vector. No such block exists."
+    },
+    {
+      "height": 3000003,
+      "synthetic": true,
+      "hash": null,
+      "merkleroot": "0000000000000000000000000000000000000000000000000000000000000000",
+      "tx_count": null,
+      "raw_header": null,
+      "note": "A height above the chain, made for this vector. No such block exists."
+    },
+    {
+      "height": 3000004,
+      "synthetic": true,
+      "hash": null,
+      "merkleroot": "1c0881393971193f81835be3bd1bc39465e46684ae73923d504338dc4b6cd552",
+      "tx_count": 1000,
+      "raw_header": null,
+      "note": "A height above the chain, made for this vector. No such block exists."
+    },
+    {
+      "height": 3000005,
+      "synthetic": true,
+      "hash": null,
+      "merkleroot": "1c0881393971193f81835be3bd1bc39465e46684ae73923d504338dc4b6cd552",
+      "tx_count": 1,
+      "raw_header": null,
+      "note": "A height above the chain, made for this vector. No such block exists."
+    },
+    {
+      "height": 3000006,
+      "synthetic": true,
+      "hash": null,
+      "merkleroot": "d044133472747e179358b6cc6623337aa09a8e95669c45419f28e58bd456abc6",
+      "tx_count": null,
+      "raw_header": null,
+      "note": "A height above the chain, made for this vector. No such block exists."
+    }
+  ],
+  "vectors": [
+    {
+      "id": "brc62-example",
+      "kind": "beef",
+      "valid": true,
+      "basis": "BRC-62",
+      "sources": [
+        "brc-62"
+      ],
+      "title": "BRC-62's example: a proven parent and a fresh payment",
+      "description": "The spec's own example. The parent has a BUMP into block 814435, and the subject has none, so it is anchored and is not shown to be in a block.",
+      "hex": "0100beef01fe636d0c0007021400fe507c0c7aa754cef1f7889d5fd395cf1f785dd7de98eed895dbedfe4e5bc70d1502ac4e164f5bc16746bb0868404292ac8318bbac3800e4aad13a014da427adce3e010b00bc4ff395efd11719b277694cface5aa50d085a0bb81f613f70313acd28cf4557010400574b2d9142b8d28b61d88e3b2c3f44d858411356b49a28a4643b6d1a6a092a5201030051a05fc84d531b5d250c23f4f886f6812f9fe3f402d61607f977b4ecd2701c19010000fd781529d58fc2523cf396a7f25440b409857e7e221766c57214b1d38c7b481f01010062f542f45ea3660f86c013ced80534cb5fd4c19d66c56e7e8c5d4bf2d40acc5e010100b121e91836fd7cd5102b654e9f72f3cf6fdbfd0b161c53a9c54b12c841126331020100000001cd4e4cac3c7b56920d1e7655e7e260d31f29d9a388d04910f1bbd72304a79029010000006b483045022100e75279a205a547c445719420aa3138bf14743e3f42618e5f86a19bde14bb95f7022064777d34776b05d816daf1699493fcdf2ef5a5ab1ad710d9c97bfb5b8f7cef3641210263e2dee22b1ddc5e11f6fab8bcd2378bdd19580d640501ea956ec0e786f93e76ffffffff013e660000000000001976a9146bfd5c7fbe21529d45803dbcf0c87dd3c71efbc288ac0000000001000100000001ac4e164f5bc16746bb0868404292ac8318bbac3800e4aad13a014da427adce3e000000006a47304402203a61a2e931612b4bda08d541cfb980885173b8dcf64a3471238ae7abcd368d6402204cbf24f04b9aa2256d8901f0ed97866603d2be8324c2bfb7a37bf8fc90edd5b441210263e2dee22b1ddc5e11f6fab8bcd2378bdd19580d640501ea956ec0e786f93e76ffffffff013c660000000000001976a9146bfd5c7fbe21529d45803dbcf0c87dd3c71efbc288ac0000000000",
+      "headers_held": [
+        814435
+      ],
+      "expected": {
+        "outcome": "anchored",
+        "reason": null,
+        "format": "beef_v1",
+        "subject_txid": "157428aee67d11123203735e4c540fa1bdab3b36d5882c6f8c5ff79f07d20d1c",
+        "in_block": false,
+        "block_height": null,
+        "transactions": [
+          {
+            "txid": "3ecead27a44d013ad1aae40038acbb1883ac9242406808bb4667c15b4f164eac",
+            "status": "proven",
+            "reason": null,
+            "block_height": 814435
+          },
+          {
+            "txid": "157428aee67d11123203735e4c540fa1bdab3b36d5882c6f8c5ff79f07d20d1c",
+            "status": "anchored",
+            "reason": null,
+            "block_height": null
+          }
+        ]
+      }
+    },
+    {
+      "id": "brc62-example-no-header",
+      "kind": "beef",
+      "valid": true,
+      "basis": "BRC-62",
+      "sources": [
+        "brc-62"
+      ],
+      "title": "The same bytes, with no header at that height",
+      "description": "Good bytes and a checker that holds no header at 814435. The answer is unknown, never a pass.",
+      "hex": "0100beef01fe636d0c0007021400fe507c0c7aa754cef1f7889d5fd395cf1f785dd7de98eed895dbedfe4e5bc70d1502ac4e164f5bc16746bb0868404292ac8318bbac3800e4aad13a014da427adce3e010b00bc4ff395efd11719b277694cface5aa50d085a0bb81f613f70313acd28cf4557010400574b2d9142b8d28b61d88e3b2c3f44d858411356b49a28a4643b6d1a6a092a5201030051a05fc84d531b5d250c23f4f886f6812f9fe3f402d61607f977b4ecd2701c19010000fd781529d58fc2523cf396a7f25440b409857e7e221766c57214b1d38c7b481f01010062f542f45ea3660f86c013ced80534cb5fd4c19d66c56e7e8c5d4bf2d40acc5e010100b121e91836fd7cd5102b654e9f72f3cf6fdbfd0b161c53a9c54b12c841126331020100000001cd4e4cac3c7b56920d1e7655e7e260d31f29d9a388d04910f1bbd72304a79029010000006b483045022100e75279a205a547c445719420aa3138bf14743e3f42618e5f86a19bde14bb95f7022064777d34776b05d816daf1699493fcdf2ef5a5ab1ad710d9c97bfb5b8f7cef3641210263e2dee22b1ddc5e11f6fab8bcd2378bdd19580d640501ea956ec0e786f93e76ffffffff013e660000000000001976a9146bfd5c7fbe21529d45803dbcf0c87dd3c71efbc288ac0000000001000100000001ac4e164f5bc16746bb0868404292ac8318bbac3800e4aad13a014da427adce3e000000006a47304402203a61a2e931612b4bda08d541cfb980885173b8dcf64a3471238ae7abcd368d6402204cbf24f04b9aa2256d8901f0ed97866603d2be8324c2bfb7a37bf8fc90edd5b441210263e2dee22b1ddc5e11f6fab8bcd2378bdd19580d640501ea956ec0e786f93e76ffffffff013c660000000000001976a9146bfd5c7fbe21529d45803dbcf0c87dd3c71efbc288ac0000000000",
+      "headers_held": [],
+      "expected": {
+        "outcome": "unknown",
+        "reason": "ancestor_unknown",
+        "format": "beef_v1",
+        "subject_txid": "157428aee67d11123203735e4c540fa1bdab3b36d5882c6f8c5ff79f07d20d1c",
+        "in_block": false,
+        "block_height": null,
+        "transactions": [
+          {
+            "txid": "3ecead27a44d013ad1aae40038acbb1883ac9242406808bb4667c15b4f164eac",
+            "status": "unknown",
+            "reason": "height_unknown",
+            "block_height": 814435
+          },
+          {
+            "txid": "157428aee67d11123203735e4c540fa1bdab3b36d5882c6f8c5ff79f07d20d1c",
+            "status": "unknown",
+            "reason": "ancestor_unknown",
+            "block_height": null
+          }
+        ]
+      }
+    },
+    {
+      "id": "brc62-atomic-sdk",
+      "kind": "beef",
+      "valid": true,
+      "basis": "BRC-95",
+      "sources": [
+        "brc-62",
+        "bsv-sdk-2.4.0"
+      ],
+      "title": "BRC-62's example as Atomic BEEF",
+      "description": "The SDK's Atomic BEEF around the BRC-62 transactions. BRC-95 doesn't say which byte order the subject takes; this vector has it in internal order, as the SDK writes it.",
+      "hex": "010101011c0dd2079ff75f8c6f2c88d5363babbda10f544c5e73033212117de6ae2874150100beef01fe636d0c0007021400fe507c0c7aa754cef1f7889d5fd395cf1f785dd7de98eed895dbedfe4e5bc70d1502ac4e164f5bc16746bb0868404292ac8318bbac3800e4aad13a014da427adce3e010b00bc4ff395efd11719b277694cface5aa50d085a0bb81f613f70313acd28cf4557010400574b2d9142b8d28b61d88e3b2c3f44d858411356b49a28a4643b6d1a6a092a5201030051a05fc84d531b5d250c23f4f886f6812f9fe3f402d61607f977b4ecd2701c19010000fd781529d58fc2523cf396a7f25440b409857e7e221766c57214b1d38c7b481f01010062f542f45ea3660f86c013ced80534cb5fd4c19d66c56e7e8c5d4bf2d40acc5e010100b121e91836fd7cd5102b654e9f72f3cf6fdbfd0b161c53a9c54b12c841126331020100000001cd4e4cac3c7b56920d1e7655e7e260d31f29d9a388d04910f1bbd72304a79029010000006b483045022100e75279a205a547c445719420aa3138bf14743e3f42618e5f86a19bde14bb95f7022064777d34776b05d816daf1699493fcdf2ef5a5ab1ad710d9c97bfb5b8f7cef3641210263e2dee22b1ddc5e11f6fab8bcd2378bdd19580d640501ea956ec0e786f93e76ffffffff013e660000000000001976a9146bfd5c7fbe21529d45803dbcf0c87dd3c71efbc288ac0000000001000100000001ac4e164f5bc16746bb0868404292ac8318bbac3800e4aad13a014da427adce3e000000006a47304402203a61a2e931612b4bda08d541cfb980885173b8dcf64a3471238ae7abcd368d6402204cbf24f04b9aa2256d8901f0ed97866603d2be8324c2bfb7a37bf8fc90edd5b441210263e2dee22b1ddc5e11f6fab8bcd2378bdd19580d640501ea956ec0e786f93e76ffffffff013c660000000000001976a9146bfd5c7fbe21529d45803dbcf0c87dd3c71efbc288ac0000000000",
+      "headers_held": [
+        814435
+      ],
+      "expected": {
+        "outcome": "anchored",
+        "reason": null,
+        "format": "atomic_beef_v1",
+        "subject_txid": "157428aee67d11123203735e4c540fa1bdab3b36d5882c6f8c5ff79f07d20d1c",
+        "in_block": false,
+        "block_height": null,
+        "transactions": [
+          {
+            "txid": "3ecead27a44d013ad1aae40038acbb1883ac9242406808bb4667c15b4f164eac",
+            "status": "proven",
+            "reason": null,
+            "block_height": 814435
+          },
+          {
+            "txid": "157428aee67d11123203735e4c540fa1bdab3b36d5882c6f8c5ff79f07d20d1c",
+            "status": "anchored",
+            "reason": null,
+            "block_height": null
+          }
+        ]
+      }
+    },
+    {
+      "id": "brc62-v2-txid-only-sdk",
+      "kind": "beef",
+      "valid": true,
+      "basis": "hardening",
+      "sources": [
+        "brc-62",
+        "bsv-sdk-2.4.0"
+      ],
+      "title": "BEEF V2 with the parent as a txid alone",
+      "description": "BRC-96 lets two parties who already share a transaction send its txid and treat it as valid. A third party has no such agreement, so a checker with no earlier exchange answers unknown.",
+      "hex": "0200beef01fe636d0c0007021400fe507c0c7aa754cef1f7889d5fd395cf1f785dd7de98eed895dbedfe4e5bc70d1502ac4e164f5bc16746bb0868404292ac8318bbac3800e4aad13a014da427adce3e010b00bc4ff395efd11719b277694cface5aa50d085a0bb81f613f70313acd28cf4557010400574b2d9142b8d28b61d88e3b2c3f44d858411356b49a28a4643b6d1a6a092a5201030051a05fc84d531b5d250c23f4f886f6812f9fe3f402d61607f977b4ecd2701c19010000fd781529d58fc2523cf396a7f25440b409857e7e221766c57214b1d38c7b481f01010062f542f45ea3660f86c013ced80534cb5fd4c19d66c56e7e8c5d4bf2d40acc5e010100b121e91836fd7cd5102b654e9f72f3cf6fdbfd0b161c53a9c54b12c8411263310202ac4e164f5bc16746bb0868404292ac8318bbac3800e4aad13a014da427adce3e000100000001ac4e164f5bc16746bb0868404292ac8318bbac3800e4aad13a014da427adce3e000000006a47304402203a61a2e931612b4bda08d541cfb980885173b8dcf64a3471238ae7abcd368d6402204cbf24f04b9aa2256d8901f0ed97866603d2be8324c2bfb7a37bf8fc90edd5b441210263e2dee22b1ddc5e11f6fab8bcd2378bdd19580d640501ea956ec0e786f93e76ffffffff013c660000000000001976a9146bfd5c7fbe21529d45803dbcf0c87dd3c71efbc288ac00000000",
+      "headers_held": [
+        814435
+      ],
+      "expected": {
+        "outcome": "unknown",
+        "reason": "ancestor_unknown",
+        "format": "beef_v2",
+        "subject_txid": "157428aee67d11123203735e4c540fa1bdab3b36d5882c6f8c5ff79f07d20d1c",
+        "in_block": false,
+        "block_height": null,
+        "transactions": [
+          {
+            "txid": "3ecead27a44d013ad1aae40038acbb1883ac9242406808bb4667c15b4f164eac",
+            "status": "unknown",
+            "reason": "txid_only",
+            "block_height": null
+          },
+          {
+            "txid": "157428aee67d11123203735e4c540fa1bdab3b36d5882c6f8c5ff79f07d20d1c",
+            "status": "unknown",
+            "reason": "ancestor_unknown",
+            "block_height": null
+          }
+        ]
+      }
+    },
+    {
+      "id": "two-input-v1-sdk",
+      "kind": "beef",
+      "valid": true,
+      "basis": "BRC-62",
+      "sources": [
+        "bsv-sdk-2.8.11"
+      ],
+      "title": "Two inputs: one mined, one unconfirmed, BEEF V1",
+      "description": "A test transaction spending a proven output and an unconfirmed one. Its merkle root is a test value, so hold the synthetic header at this height. Against real headers it reads failed.",
+      "hex": "0100beef01fef5ea0d0002020202bdc4378be625afe00073ec50d9bd0281292a7822e2cf04fe5509047bbd869305030002dba9aa5d2a857986a88fd697bb74451eab2d0ce64d0b0ea7585dd588656eca010000ae5ffdb00a31f82dee9a57b3a834ff9d8b87b49de6c389d82c24b41146611b8f0301000000017698c92f617d48ed5355236976b553e8d0325070805a5d55251eb7eecfafb5b90000000000ffffffff0250c30000000000001976a9143442193e1bb70916e914552172cd4e2dbc9df81188ac581b0000000000001976a9147dd65592d0ab2fe0d0257d571abf032cd9db93dc88ac0000000001000100000001bdc4378be625afe00073ec50d9bd0281292a7822e2cf04fe5509047bbd8693050100000000ffffffff01b80b0000000000001976a9143442193e1bb70916e914552172cd4e2dbc9df81188ac00000000000100000002bdc4378be625afe00073ec50d9bd0281292a7822e2cf04fe5509047bbd8693050000000000ffffffff530d1a17ab25c88d06a6226cd6ec7ae21d89dc165fa9dd079d8e7db87e79655e0000000000ffffffff03e8030000000000001976a91406afd46bcdfd22ef94ac122aa11f241244a37ecc88ac000000000000000048006a457263707420336232643562356430353434656333363665353963303935663334313835396330656662333130383930323334306536303866306530616338363663323932360acb0000000000001976a9143442193e1bb70916e914552172cd4e2dbc9df81188ac0000000000",
+      "headers_held": [
+        912117
+      ],
+      "expected": {
+        "outcome": "anchored",
+        "reason": null,
+        "format": "beef_v1",
+        "subject_txid": "739cc1149a4f82b4436c175a2024f3f8dcf63864856dac0073cde80d425e9ead",
+        "in_block": false,
+        "block_height": null,
+        "transactions": [
+          {
+            "txid": "059386bd7b040955fe04cfe222782a298102bdd950ec7300e0af25e68b37c4bd",
+            "status": "proven",
+            "reason": null,
+            "block_height": 912117
+          },
+          {
+            "txid": "5e65797eb87d8e9d07dda95f16dc891de27aecd66c22a6068dc825ab171a0d53",
+            "status": "anchored",
+            "reason": null,
+            "block_height": null
+          },
+          {
+            "txid": "739cc1149a4f82b4436c175a2024f3f8dcf63864856dac0073cde80d425e9ead",
+            "status": "anchored",
+            "reason": null,
+            "block_height": null
+          }
+        ]
+      }
+    },
+    {
+      "id": "two-input-v2-sdk",
+      "kind": "beef",
+      "valid": true,
+      "basis": "BRC-96",
+      "sources": [
+        "bsv-sdk-2.8.11",
+        "bsv-sdk-2.4.0"
+      ],
+      "title": "The same transactions as BEEF V2",
+      "description": "Rewritten by @bsv/sdk 2.4.0 from the BEEF V1 above. The same test merkle root applies.",
+      "hex": "0200beef01fef5ea0d0002020202bdc4378be625afe00073ec50d9bd0281292a7822e2cf04fe5509047bbd869305030002dba9aa5d2a857986a88fd697bb74451eab2d0ce64d0b0ea7585dd588656eca010000ae5ffdb00a31f82dee9a57b3a834ff9d8b87b49de6c389d82c24b41146611b8f03010001000000017698c92f617d48ed5355236976b553e8d0325070805a5d55251eb7eecfafb5b90000000000ffffffff0250c30000000000001976a9143442193e1bb70916e914552172cd4e2dbc9df81188ac581b0000000000001976a9147dd65592d0ab2fe0d0257d571abf032cd9db93dc88ac00000000000100000001bdc4378be625afe00073ec50d9bd0281292a7822e2cf04fe5509047bbd8693050100000000ffffffff01b80b0000000000001976a9143442193e1bb70916e914552172cd4e2dbc9df81188ac00000000000100000002bdc4378be625afe00073ec50d9bd0281292a7822e2cf04fe5509047bbd8693050000000000ffffffff530d1a17ab25c88d06a6226cd6ec7ae21d89dc165fa9dd079d8e7db87e79655e0000000000ffffffff03e8030000000000001976a91406afd46bcdfd22ef94ac122aa11f241244a37ecc88ac000000000000000048006a457263707420336232643562356430353434656333363665353963303935663334313835396330656662333130383930323334306536303866306530616338363663323932360acb0000000000001976a9143442193e1bb70916e914552172cd4e2dbc9df81188ac00000000",
+      "headers_held": [
+        912117
+      ],
+      "expected": {
+        "outcome": "anchored",
+        "reason": null,
+        "format": "beef_v2",
+        "subject_txid": "739cc1149a4f82b4436c175a2024f3f8dcf63864856dac0073cde80d425e9ead",
+        "in_block": false,
+        "block_height": null,
+        "transactions": [
+          {
+            "txid": "059386bd7b040955fe04cfe222782a298102bdd950ec7300e0af25e68b37c4bd",
+            "status": "proven",
+            "reason": null,
+            "block_height": 912117
+          },
+          {
+            "txid": "5e65797eb87d8e9d07dda95f16dc891de27aecd66c22a6068dc825ab171a0d53",
+            "status": "anchored",
+            "reason": null,
+            "block_height": null
+          },
+          {
+            "txid": "739cc1149a4f82b4436c175a2024f3f8dcf63864856dac0073cde80d425e9ead",
+            "status": "anchored",
+            "reason": null,
+            "block_height": null
+          }
+        ]
+      }
+    },
+    {
+      "id": "two-input-atomic-sdk",
+      "kind": "beef",
+      "valid": true,
+      "basis": "BRC-95",
+      "sources": [
+        "bsv-sdk-2.8.11",
+        "bsv-sdk-2.4.0"
+      ],
+      "title": "The same transactions as Atomic BEEF",
+      "description": "Rewritten by @bsv/sdk 2.4.0 from the BEEF V1 above. The same test merkle root applies.",
+      "hex": "01010101ad9e5e420de8cd7300ac6d856438f6dcf8f324205a176c43b4824f9a14c19c730100beef01fef5ea0d0002020202bdc4378be625afe00073ec50d9bd0281292a7822e2cf04fe5509047bbd869305030002dba9aa5d2a857986a88fd697bb74451eab2d0ce64d0b0ea7585dd588656eca010000ae5ffdb00a31f82dee9a57b3a834ff9d8b87b49de6c389d82c24b41146611b8f0301000000017698c92f617d48ed5355236976b553e8d0325070805a5d55251eb7eecfafb5b90000000000ffffffff0250c30000000000001976a9143442193e1bb70916e914552172cd4e2dbc9df81188ac581b0000000000001976a9147dd65592d0ab2fe0d0257d571abf032cd9db93dc88ac0000000001000100000001bdc4378be625afe00073ec50d9bd0281292a7822e2cf04fe5509047bbd8693050100000000ffffffff01b80b0000000000001976a9143442193e1bb70916e914552172cd4e2dbc9df81188ac00000000000100000002bdc4378be625afe00073ec50d9bd0281292a7822e2cf04fe5509047bbd8693050000000000ffffffff530d1a17ab25c88d06a6226cd6ec7ae21d89dc165fa9dd079d8e7db87e79655e0000000000ffffffff03e8030000000000001976a91406afd46bcdfd22ef94ac122aa11f241244a37ecc88ac000000000000000048006a457263707420336232643562356430353434656333363665353963303935663334313835396330656662333130383930323334306536303866306530616338363663323932360acb0000000000001976a9143442193e1bb70916e914552172cd4e2dbc9df81188ac0000000000",
+      "headers_held": [
+        912117
+      ],
+      "expected": {
+        "outcome": "anchored",
+        "reason": null,
+        "format": "atomic_beef_v1",
+        "subject_txid": "739cc1149a4f82b4436c175a2024f3f8dcf63864856dac0073cde80d425e9ead",
+        "in_block": false,
+        "block_height": null,
+        "transactions": [
+          {
+            "txid": "059386bd7b040955fe04cfe222782a298102bdd950ec7300e0af25e68b37c4bd",
+            "status": "proven",
+            "reason": null,
+            "block_height": 912117
+          },
+          {
+            "txid": "5e65797eb87d8e9d07dda95f16dc891de27aecd66c22a6068dc825ab171a0d53",
+            "status": "anchored",
+            "reason": null,
+            "block_height": null
+          },
+          {
+            "txid": "739cc1149a4f82b4436c175a2024f3f8dcf63864856dac0073cde80d425e9ead",
+            "status": "anchored",
+            "reason": null,
+            "block_height": null
+          }
+        ]
+      }
+    },
+    {
+      "id": "mainnet-v1",
+      "kind": "beef",
+      "valid": true,
+      "basis": "BRC-62",
+      "sources": [
+        "whatsonchain",
+        "bitblocks"
+      ],
+      "title": "A real mainnet transaction, BEEF V1",
+      "description": "WhatsOnChain's transaction and BUMP, put together as BEEF V1 by Bitblocks. The subject has its own proof, against a real header.",
+      "hex": "0100beef01fe36d90e0013020102a960251f04b354ce160b5a4dc47698f3fb083dd3e3d5faa95e94e1b3e0797094000025a47afee5a3be8cf8d67cdc545b6e87a30028b656c187141fcee3de197414410101004e4c171a9a17fcb92f14c53e000b98a78cabec01cd5b175a6717f8bbebc4e0d7010100c9b0c65744d0b2dffb0e430ecfb6359752b08e1b9d69558cf9668465157e6460010100d2c9fc3fdd72bc198758b02abe3aa570a813b732ae5f705234f85870e441898801010023c0cbbac10acadac8a62328513b81a0b1f52a1a7f0421fd802cf7dbe4e601a80101000b94a1f7d503d139e1d8a00ef46583546b86682ff1fe2dae3ee4b5ecdf251df30101002ab27d1441ae9b25e84f162631c54e4707dd00596c72c931d1673c029f6122e001010024f081a6a388a5d03ab8f34cb21f7411cbfefd1097ce8c1c750834e42f164e7b0101000d375c24dd99af935f85f30aa9e42113746b9e10724e642bd7179361e4b984de0101002d7018aa9c42929692521d21046802c06967ae9edf00b9b782218adc6920f970010100b7718bd1ae3e4c560d703aa9c07801adbe74fd374613cd3b09ece7294d85bf03010100975c1ec5942088e1d90ee6385f2abfb7eac412bb940787cdac13f814ae8669fa010100b411e399724d554afd02fa5a5f01fdda018f9ebe03b55fc7a3e11627e1ed5da0010100c233b299abbabb532db4e883c28df22068f57e7a374089d4508f4486995daca10101003e063fcb5ac2dda5dbef8525f1a3d626abf365cba0c0c2947bbe6111b88126b9010100fe92a8c58cf868b4244b31f837e8be3cac65e58853f829c6df295e4645c30d8b010100d87adf75fc6f3cca93da26732452a8967175d618c6613e1f281dcc609b9e96de01010049a099c0bf3e8966807dcd8f21bf2491ffb064cdc7c30c9ea0c92d4b7ab65ac3010100c3fc823dd35646f1aa11e5e201a3925f2b15786ebf529c1175adc36a3985ce050101000000014b6a3a5d5afbf7b0e3da3e646cec68754fe51a519c687c7a1386981be1fae940dd0400006a47304402207c82fb3cec5b9d5b7f6afa54ca5e8f5148c8dca6080e56cb72f7e18782cb923002203706ab2fff1c4c230d360744786837e9c8f646b999926b7d50148132aa1e7e9041210233a6d2e14412a506ef04e706f6cea2d85e5d90e0832862c605655cf377e89802ffffffff0101000000000000001976a914abf7da080c7944e20b3a91cd8091db2b7bd019c188ac000000000100",
+      "headers_held": [
+        973110
+      ],
+      "expected": {
+        "outcome": "proven",
+        "reason": null,
+        "format": "beef_v1",
+        "subject_txid": "947079e0b3e1945ea9fad5e3d33d08fbf39876c44d5a0b16ce54b3041f2560a9",
+        "in_block": true,
+        "block_height": 973110,
+        "transactions": [
+          {
+            "txid": "947079e0b3e1945ea9fad5e3d33d08fbf39876c44d5a0b16ce54b3041f2560a9",
+            "status": "proven",
+            "reason": null,
+            "block_height": 973110
+          }
+        ]
+      }
+    },
+    {
+      "id": "mainnet-v2",
+      "kind": "beef",
+      "valid": true,
+      "basis": "BRC-96",
+      "sources": [
+        "whatsonchain",
+        "bitblocks"
+      ],
+      "title": "The same transaction, BEEF V2",
+      "description": "The same bytes in the V2 layout, put together by Bitblocks.",
+      "hex": "0200beef01fe36d90e0013020102a960251f04b354ce160b5a4dc47698f3fb083dd3e3d5faa95e94e1b3e0797094000025a47afee5a3be8cf8d67cdc545b6e87a30028b656c187141fcee3de197414410101004e4c171a9a17fcb92f14c53e000b98a78cabec01cd5b175a6717f8bbebc4e0d7010100c9b0c65744d0b2dffb0e430ecfb6359752b08e1b9d69558cf9668465157e6460010100d2c9fc3fdd72bc198758b02abe3aa570a813b732ae5f705234f85870e441898801010023c0cbbac10acadac8a62328513b81a0b1f52a1a7f0421fd802cf7dbe4e601a80101000b94a1f7d503d139e1d8a00ef46583546b86682ff1fe2dae3ee4b5ecdf251df30101002ab27d1441ae9b25e84f162631c54e4707dd00596c72c931d1673c029f6122e001010024f081a6a388a5d03ab8f34cb21f7411cbfefd1097ce8c1c750834e42f164e7b0101000d375c24dd99af935f85f30aa9e42113746b9e10724e642bd7179361e4b984de0101002d7018aa9c42929692521d21046802c06967ae9edf00b9b782218adc6920f970010100b7718bd1ae3e4c560d703aa9c07801adbe74fd374613cd3b09ece7294d85bf03010100975c1ec5942088e1d90ee6385f2abfb7eac412bb940787cdac13f814ae8669fa010100b411e399724d554afd02fa5a5f01fdda018f9ebe03b55fc7a3e11627e1ed5da0010100c233b299abbabb532db4e883c28df22068f57e7a374089d4508f4486995daca10101003e063fcb5ac2dda5dbef8525f1a3d626abf365cba0c0c2947bbe6111b88126b9010100fe92a8c58cf868b4244b31f837e8be3cac65e58853f829c6df295e4645c30d8b010100d87adf75fc6f3cca93da26732452a8967175d618c6613e1f281dcc609b9e96de01010049a099c0bf3e8966807dcd8f21bf2491ffb064cdc7c30c9ea0c92d4b7ab65ac3010100c3fc823dd35646f1aa11e5e201a3925f2b15786ebf529c1175adc36a3985ce0501010001000000014b6a3a5d5afbf7b0e3da3e646cec68754fe51a519c687c7a1386981be1fae940dd0400006a47304402207c82fb3cec5b9d5b7f6afa54ca5e8f5148c8dca6080e56cb72f7e18782cb923002203706ab2fff1c4c230d360744786837e9c8f646b999926b7d50148132aa1e7e9041210233a6d2e14412a506ef04e706f6cea2d85e5d90e0832862c605655cf377e89802ffffffff0101000000000000001976a914abf7da080c7944e20b3a91cd8091db2b7bd019c188ac00000000",
+      "headers_held": [
+        973110
+      ],
+      "expected": {
+        "outcome": "proven",
+        "reason": null,
+        "format": "beef_v2",
+        "subject_txid": "947079e0b3e1945ea9fad5e3d33d08fbf39876c44d5a0b16ce54b3041f2560a9",
+        "in_block": true,
+        "block_height": 973110,
+        "transactions": [
+          {
+            "txid": "947079e0b3e1945ea9fad5e3d33d08fbf39876c44d5a0b16ce54b3041f2560a9",
+            "status": "proven",
+            "reason": null,
+            "block_height": 973110
+          }
+        ]
+      }
+    },
+    {
+      "id": "mainnet-atomic-v1",
+      "kind": "beef",
+      "valid": true,
+      "basis": "BRC-95",
+      "sources": [
+        "whatsonchain",
+        "bitblocks"
+      ],
+      "title": "The same transaction, Atomic BEEF around V1",
+      "description": "The Atomic prefix and subject around the V1 vector, subject in internal byte order.",
+      "hex": "01010101a960251f04b354ce160b5a4dc47698f3fb083dd3e3d5faa95e94e1b3e07970940100beef01fe36d90e0013020102a960251f04b354ce160b5a4dc47698f3fb083dd3e3d5faa95e94e1b3e0797094000025a47afee5a3be8cf8d67cdc545b6e87a30028b656c187141fcee3de197414410101004e4c171a9a17fcb92f14c53e000b98a78cabec01cd5b175a6717f8bbebc4e0d7010100c9b0c65744d0b2dffb0e430ecfb6359752b08e1b9d69558cf9668465157e6460010100d2c9fc3fdd72bc198758b02abe3aa570a813b732ae5f705234f85870e441898801010023c0cbbac10acadac8a62328513b81a0b1f52a1a7f0421fd802cf7dbe4e601a80101000b94a1f7d503d139e1d8a00ef46583546b86682ff1fe2dae3ee4b5ecdf251df30101002ab27d1441ae9b25e84f162631c54e4707dd00596c72c931d1673c029f6122e001010024f081a6a388a5d03ab8f34cb21f7411cbfefd1097ce8c1c750834e42f164e7b0101000d375c24dd99af935f85f30aa9e42113746b9e10724e642bd7179361e4b984de0101002d7018aa9c42929692521d21046802c06967ae9edf00b9b782218adc6920f970010100b7718bd1ae3e4c560d703aa9c07801adbe74fd374613cd3b09ece7294d85bf03010100975c1ec5942088e1d90ee6385f2abfb7eac412bb940787cdac13f814ae8669fa010100b411e399724d554afd02fa5a5f01fdda018f9ebe03b55fc7a3e11627e1ed5da0010100c233b299abbabb532db4e883c28df22068f57e7a374089d4508f4486995daca10101003e063fcb5ac2dda5dbef8525f1a3d626abf365cba0c0c2947bbe6111b88126b9010100fe92a8c58cf868b4244b31f837e8be3cac65e58853f829c6df295e4645c30d8b010100d87adf75fc6f3cca93da26732452a8967175d618c6613e1f281dcc609b9e96de01010049a099c0bf3e8966807dcd8f21bf2491ffb064cdc7c30c9ea0c92d4b7ab65ac3010100c3fc823dd35646f1aa11e5e201a3925f2b15786ebf529c1175adc36a3985ce050101000000014b6a3a5d5afbf7b0e3da3e646cec68754fe51a519c687c7a1386981be1fae940dd0400006a47304402207c82fb3cec5b9d5b7f6afa54ca5e8f5148c8dca6080e56cb72f7e18782cb923002203706ab2fff1c4c230d360744786837e9c8f646b999926b7d50148132aa1e7e9041210233a6d2e14412a506ef04e706f6cea2d85e5d90e0832862c605655cf377e89802ffffffff0101000000000000001976a914abf7da080c7944e20b3a91cd8091db2b7bd019c188ac000000000100",
+      "headers_held": [
+        973110
+      ],
+      "expected": {
+        "outcome": "proven",
+        "reason": null,
+        "format": "atomic_beef_v1",
+        "subject_txid": "947079e0b3e1945ea9fad5e3d33d08fbf39876c44d5a0b16ce54b3041f2560a9",
+        "in_block": true,
+        "block_height": 973110,
+        "transactions": [
+          {
+            "txid": "947079e0b3e1945ea9fad5e3d33d08fbf39876c44d5a0b16ce54b3041f2560a9",
+            "status": "proven",
+            "reason": null,
+            "block_height": 973110
+          }
+        ]
+      }
+    },
+    {
+      "id": "mainnet-atomic-v2",
+      "kind": "beef",
+      "valid": true,
+      "basis": "BRC-95",
+      "sources": [
+        "whatsonchain",
+        "bitblocks"
+      ],
+      "title": "The same transaction, Atomic BEEF around V2",
+      "description": "The Atomic prefix and subject around the V2 vector, subject in internal byte order.",
+      "hex": "01010101a960251f04b354ce160b5a4dc47698f3fb083dd3e3d5faa95e94e1b3e07970940200beef01fe36d90e0013020102a960251f04b354ce160b5a4dc47698f3fb083dd3e3d5faa95e94e1b3e0797094000025a47afee5a3be8cf8d67cdc545b6e87a30028b656c187141fcee3de197414410101004e4c171a9a17fcb92f14c53e000b98a78cabec01cd5b175a6717f8bbebc4e0d7010100c9b0c65744d0b2dffb0e430ecfb6359752b08e1b9d69558cf9668465157e6460010100d2c9fc3fdd72bc198758b02abe3aa570a813b732ae5f705234f85870e441898801010023c0cbbac10acadac8a62328513b81a0b1f52a1a7f0421fd802cf7dbe4e601a80101000b94a1f7d503d139e1d8a00ef46583546b86682ff1fe2dae3ee4b5ecdf251df30101002ab27d1441ae9b25e84f162631c54e4707dd00596c72c931d1673c029f6122e001010024f081a6a388a5d03ab8f34cb21f7411cbfefd1097ce8c1c750834e42f164e7b0101000d375c24dd99af935f85f30aa9e42113746b9e10724e642bd7179361e4b984de0101002d7018aa9c42929692521d21046802c06967ae9edf00b9b782218adc6920f970010100b7718bd1ae3e4c560d703aa9c07801adbe74fd374613cd3b09ece7294d85bf03010100975c1ec5942088e1d90ee6385f2abfb7eac412bb940787cdac13f814ae8669fa010100b411e399724d554afd02fa5a5f01fdda018f9ebe03b55fc7a3e11627e1ed5da0010100c233b299abbabb532db4e883c28df22068f57e7a374089d4508f4486995daca10101003e063fcb5ac2dda5dbef8525f1a3d626abf365cba0c0c2947bbe6111b88126b9010100fe92a8c58cf868b4244b31f837e8be3cac65e58853f829c6df295e4645c30d8b010100d87adf75fc6f3cca93da26732452a8967175d618c6613e1f281dcc609b9e96de01010049a099c0bf3e8966807dcd8f21bf2491ffb064cdc7c30c9ea0c92d4b7ab65ac3010100c3fc823dd35646f1aa11e5e201a3925f2b15786ebf529c1175adc36a3985ce0501010001000000014b6a3a5d5afbf7b0e3da3e646cec68754fe51a519c687c7a1386981be1fae940dd0400006a47304402207c82fb3cec5b9d5b7f6afa54ca5e8f5148c8dca6080e56cb72f7e18782cb923002203706ab2fff1c4c230d360744786837e9c8f646b999926b7d50148132aa1e7e9041210233a6d2e14412a506ef04e706f6cea2d85e5d90e0832862c605655cf377e89802ffffffff0101000000000000001976a914abf7da080c7944e20b3a91cd8091db2b7bd019c188ac00000000",
+      "headers_held": [
+        973110
+      ],
+      "expected": {
+        "outcome": "proven",
+        "reason": null,
+        "format": "atomic_beef_v2",
+        "subject_txid": "947079e0b3e1945ea9fad5e3d33d08fbf39876c44d5a0b16ce54b3041f2560a9",
+        "in_block": true,
+        "block_height": 973110,
+        "transactions": [
+          {
+            "txid": "947079e0b3e1945ea9fad5e3d33d08fbf39876c44d5a0b16ce54b3041f2560a9",
+            "status": "proven",
+            "reason": null,
+            "block_height": 973110
+          }
+        ]
+      }
+    },
+    {
+      "id": "anchored-chain",
+      "kind": "beef",
+      "valid": true,
+      "basis": "BRC-62",
+      "sources": [
+        "bitblocks"
+      ],
+      "title": "A chain of unconfirmed transactions from one proof",
+      "description": "Crafted: a proven transaction, a child and a grandchild. Anchoring carries down the chain.",
+      "hex": "0100beef01fec1c62d0001010002bdb29bb88e58dcd4d4ed92d91ea874499bf35f783bff984bf7cb5c58caa20966030100000001bb12c653057eda9ef0003ea3f379963d6ec767f08245131dc25dd74f25345eed0000000000ffffffff01e80300000000000001510000000001000100000001bdb29bb88e58dcd4d4ed92d91ea874499bf35f783bff984bf7cb5c58caa209660000000000ffffffff01e803000000000000015100000000000100000001eceeb573c79dca76d29590da80a3b9b463501d3d5c71b9697b4069d2162803820000000000ffffffff01e80300000000000001510000000000",
+      "headers_held": [
+        3000001
+      ],
+      "expected": {
+        "outcome": "anchored",
+        "reason": null,
+        "format": "beef_v1",
+        "subject_txid": "6cd13dc10d244fe0b530fd2584f5892566ca669d4150b0f9da31dfa242f23927",
+        "in_block": false,
+        "block_height": null,
+        "transactions": [
+          {
+            "txid": "6609a2ca585ccbf74b98ff3b785ff39b4974a81ed992edd4d4dc588eb89bb2bd",
+            "status": "proven",
+            "reason": null,
+            "block_height": 3000001
+          },
+          {
+            "txid": "82032816d269407b69b9715c3d1d5063b4b9a380da9095d276ca9dc773b5eeec",
+            "status": "anchored",
+            "reason": null,
+            "block_height": null
+          },
+          {
+            "txid": "6cd13dc10d244fe0b530fd2584f5892566ca669d4150b0f9da31dfa242f23927",
+            "status": "anchored",
+            "reason": null,
+            "block_height": null
+          }
+        ]
+      }
+    },
+    {
+      "id": "one-transaction-block",
+      "kind": "beef",
+      "valid": true,
+      "basis": "BRC-74",
+      "sources": [
+        "bitblocks"
+      ],
+      "title": "A block of one transaction",
+      "description": "Crafted: the transaction is its block's merkle root, so its BUMP is one leaf at level 0.",
+      "hex": "0100beef01fec2c62d0001010002aa64768401341f643328096de786bb68bb00ab680afcaaaa62b65e1ab91f25ff0101000000013cb571ad414b1780260742f28e10f3cd0f08d277e14f375f6363d78a7e326a910000000000ffffffff01e8030000000000000151000000000100",
+      "headers_held": [
+        3000002
+      ],
+      "expected": {
+        "outcome": "proven",
+        "reason": null,
+        "format": "beef_v1",
+        "subject_txid": "ff251fb91a5eb662aaaafc0a68ab00bb68bb86e76d092833641f3401847664aa",
+        "in_block": true,
+        "block_height": 3000002,
+        "transactions": [
+          {
+            "txid": "ff251fb91a5eb662aaaafc0a68ab00bb68bb86e76d092833641f3401847664aa",
+            "status": "proven",
+            "reason": null,
+            "block_height": 3000002
+          }
+        ]
+      }
+    },
+    {
+      "id": "brc74-example",
+      "kind": "bump",
+      "valid": true,
+      "basis": "BRC-74",
+      "sources": [
+        "brc-74"
+      ],
+      "title": "BRC-74's example: three transactions, one path",
+      "description": "The spec's own example. Each named txid climbs to the root in block 813706's header.",
+      "hex": "fe8a6a0c000c04fde80b0011774f01d26412f0d16ea3f0447be0b5ebec67b0782e321a7a01cbdf7f734e30fde90b02004e53753e3fe4667073063a17987292cfdea278824e9888e52180581d7188d8fdea0b025e441996fc53f0191d649e68a200e752fb5f39e0d5617083408fa179ddc5c998fdeb0b0102fdf405000671394f72237d08a4277f4435e5b6edf7adc272f25effef27cdfe805ce71a81fdf50500262bccabec6c4af3ed00cc7a7414edea9c5efa92fb8623dd6160a001450a528201fdfb020101fd7c010093b3efca9b77ddec914f8effac691ecb54e2c81d0ab81cbc4c4b93befe418e8501bf01015e005881826eb6973c54003a02118fe270f03d46d02681c8bc71cd44c613e86302f8012e00e07a2bb8bb75e5accff266022e1e5e6e7b4d6d943a04faadcf2ab4a22f796ff30116008120cafa17309c0bb0e0ffce835286b3a2dcae48e4497ae2d2b7ced4f051507d010a00502e59ac92f46543c23006bff855d96f5e648043f0fb87a7a5949e6a9bebae430104001ccd9f8f64f4d0489b30cc815351cf425e0e78ad79a589350e4341ac165dbe45010301010000af8764ce7e1cc132ab5ed2229a005c87201c9a5ee15c0f91dd53eff31ab30cd4",
+      "headers_held": [
+        813706
+      ],
+      "expected": {
+        "outcome": "root",
+        "block_height": 813706,
+        "merkleroot": "57aab6e6fb1b697174ffb64e062c4728f2ffd33ddcfa02a43b64d8cd29b483b4",
+        "leaves": [
+          {
+            "txid": "304e737fdfcb017a1a322e78b067ecebb5e07b44f0a36ed1f01264d2014f7711",
+            "offset": 3048
+          },
+          {
+            "txid": "d888711d588021e588984e8278a2decf927298173a06737066e43f3e75534e00",
+            "offset": 3049
+          },
+          {
+            "txid": "98c9c5dd79a18f40837061d5e0395ffb52e700a2689e641d19f053fc9619445e",
+            "offset": 3050
+          }
+        ]
+      }
+    },
+    {
+      "id": "mainnet-bump",
+      "kind": "bump",
+      "valid": true,
+      "basis": "BRC-74",
+      "sources": [
+        "whatsonchain"
+      ],
+      "title": "A real mainnet path",
+      "description": "WhatsOnChain's BUMP for one transaction in block 973110.",
+      "hex": "fe36d90e0013020102a960251f04b354ce160b5a4dc47698f3fb083dd3e3d5faa95e94e1b3e0797094000025a47afee5a3be8cf8d67cdc545b6e87a30028b656c187141fcee3de197414410101004e4c171a9a17fcb92f14c53e000b98a78cabec01cd5b175a6717f8bbebc4e0d7010100c9b0c65744d0b2dffb0e430ecfb6359752b08e1b9d69558cf9668465157e6460010100d2c9fc3fdd72bc198758b02abe3aa570a813b732ae5f705234f85870e441898801010023c0cbbac10acadac8a62328513b81a0b1f52a1a7f0421fd802cf7dbe4e601a80101000b94a1f7d503d139e1d8a00ef46583546b86682ff1fe2dae3ee4b5ecdf251df30101002ab27d1441ae9b25e84f162631c54e4707dd00596c72c931d1673c029f6122e001010024f081a6a388a5d03ab8f34cb21f7411cbfefd1097ce8c1c750834e42f164e7b0101000d375c24dd99af935f85f30aa9e42113746b9e10724e642bd7179361e4b984de0101002d7018aa9c42929692521d21046802c06967ae9edf00b9b782218adc6920f970010100b7718bd1ae3e4c560d703aa9c07801adbe74fd374613cd3b09ece7294d85bf03010100975c1ec5942088e1d90ee6385f2abfb7eac412bb940787cdac13f814ae8669fa010100b411e399724d554afd02fa5a5f01fdda018f9ebe03b55fc7a3e11627e1ed5da0010100c233b299abbabb532db4e883c28df22068f57e7a374089d4508f4486995daca10101003e063fcb5ac2dda5dbef8525f1a3d626abf365cba0c0c2947bbe6111b88126b9010100fe92a8c58cf868b4244b31f837e8be3cac65e58853f829c6df295e4645c30d8b010100d87adf75fc6f3cca93da26732452a8967175d618c6613e1f281dcc609b9e96de01010049a099c0bf3e8966807dcd8f21bf2491ffb064cdc7c30c9ea0c92d4b7ab65ac3010100c3fc823dd35646f1aa11e5e201a3925f2b15786ebf529c1175adc36a3985ce05",
+      "headers_held": [
+        973110
+      ],
+      "expected": {
+        "outcome": "root",
+        "block_height": 973110,
+        "merkleroot": "9f88d1a7da7f1cd99d15b72b69784712e6cc9ac38ef37142b481a165773f7ffe",
+        "leaves": [
+          {
+            "txid": "947079e0b3e1945ea9fad5e3d33d08fbf39876c44d5a0b16ce54b3041f2560a9",
+            "offset": 1
+          }
+        ]
+      }
+    },
+    {
+      "id": "refused-empty",
+      "kind": "beef",
+      "valid": false,
+      "basis": "BRC-62",
+      "sources": [
+        "bitblocks"
+      ],
+      "title": "No bytes at all",
+      "description": "An empty input.",
+      "hex": "",
+      "headers_held": [],
+      "expected": {
+        "outcome": "refused",
+        "reason": "truncated"
+      }
+    },
+    {
+      "id": "refused-unknown-version",
+      "kind": "beef",
+      "valid": false,
+      "basis": "BRC-62",
+      "sources": [
+        "bitblocks"
+      ],
+      "title": "A version we can't read",
+      "description": "0300beef isn't a defined BEEF version.",
+      "hex": "0300beef0000",
+      "headers_held": [],
+      "expected": {
+        "outcome": "refused",
+        "reason": "unknown_format"
+      }
+    },
+    {
+      "id": "refused-truncated",
+      "kind": "beef",
+      "valid": false,
+      "basis": "BRC-62",
+      "sources": [
+        "whatsonchain",
+        "bitblocks"
+      ],
+      "title": "Cut one byte short",
+      "description": "mainnet-v1 without its last byte.",
+      "hex": "0100beef01fe36d90e0013020102a960251f04b354ce160b5a4dc47698f3fb083dd3e3d5faa95e94e1b3e0797094000025a47afee5a3be8cf8d67cdc545b6e87a30028b656c187141fcee3de197414410101004e4c171a9a17fcb92f14c53e000b98a78cabec01cd5b175a6717f8bbebc4e0d7010100c9b0c65744d0b2dffb0e430ecfb6359752b08e1b9d69558cf9668465157e6460010100d2c9fc3fdd72bc198758b02abe3aa570a813b732ae5f705234f85870e441898801010023c0cbbac10acadac8a62328513b81a0b1f52a1a7f0421fd802cf7dbe4e601a80101000b94a1f7d503d139e1d8a00ef46583546b86682ff1fe2dae3ee4b5ecdf251df30101002ab27d1441ae9b25e84f162631c54e4707dd00596c72c931d1673c029f6122e001010024f081a6a388a5d03ab8f34cb21f7411cbfefd1097ce8c1c750834e42f164e7b0101000d375c24dd99af935f85f30aa9e42113746b9e10724e642bd7179361e4b984de0101002d7018aa9c42929692521d21046802c06967ae9edf00b9b782218adc6920f970010100b7718bd1ae3e4c560d703aa9c07801adbe74fd374613cd3b09ece7294d85bf03010100975c1ec5942088e1d90ee6385f2abfb7eac412bb940787cdac13f814ae8669fa010100b411e399724d554afd02fa5a5f01fdda018f9ebe03b55fc7a3e11627e1ed5da0010100c233b299abbabb532db4e883c28df22068f57e7a374089d4508f4486995daca10101003e063fcb5ac2dda5dbef8525f1a3d626abf365cba0c0c2947bbe6111b88126b9010100fe92a8c58cf868b4244b31f837e8be3cac65e58853f829c6df295e4645c30d8b010100d87adf75fc6f3cca93da26732452a8967175d618c6613e1f281dcc609b9e96de01010049a099c0bf3e8966807dcd8f21bf2491ffb064cdc7c30c9ea0c92d4b7ab65ac3010100c3fc823dd35646f1aa11e5e201a3925f2b15786ebf529c1175adc36a3985ce050101000000014b6a3a5d5afbf7b0e3da3e646cec68754fe51a519c687c7a1386981be1fae940dd0400006a47304402207c82fb3cec5b9d5b7f6afa54ca5e8f5148c8dca6080e56cb72f7e18782cb923002203706ab2fff1c4c230d360744786837e9c8f646b999926b7d50148132aa1e7e9041210233a6d2e14412a506ef04e706f6cea2d85e5d90e0832862c605655cf377e89802ffffffff0101000000000000001976a914abf7da080c7944e20b3a91cd8091db2b7bd019c188ac0000000001",
+      "headers_held": [],
+      "expected": {
+        "outcome": "refused",
+        "reason": "truncated"
+      }
+    },
+    {
+      "id": "refused-trailing-bytes",
+      "kind": "beef",
+      "valid": false,
+      "basis": "hardening",
+      "sources": [
+        "whatsonchain",
+        "bitblocks"
+      ],
+      "title": "A byte past the end",
+      "description": "mainnet-v1 with one more byte.",
+      "hex": "0100beef01fe36d90e0013020102a960251f04b354ce160b5a4dc47698f3fb083dd3e3d5faa95e94e1b3e0797094000025a47afee5a3be8cf8d67cdc545b6e87a30028b656c187141fcee3de197414410101004e4c171a9a17fcb92f14c53e000b98a78cabec01cd5b175a6717f8bbebc4e0d7010100c9b0c65744d0b2dffb0e430ecfb6359752b08e1b9d69558cf9668465157e6460010100d2c9fc3fdd72bc198758b02abe3aa570a813b732ae5f705234f85870e441898801010023c0cbbac10acadac8a62328513b81a0b1f52a1a7f0421fd802cf7dbe4e601a80101000b94a1f7d503d139e1d8a00ef46583546b86682ff1fe2dae3ee4b5ecdf251df30101002ab27d1441ae9b25e84f162631c54e4707dd00596c72c931d1673c029f6122e001010024f081a6a388a5d03ab8f34cb21f7411cbfefd1097ce8c1c750834e42f164e7b0101000d375c24dd99af935f85f30aa9e42113746b9e10724e642bd7179361e4b984de0101002d7018aa9c42929692521d21046802c06967ae9edf00b9b782218adc6920f970010100b7718bd1ae3e4c560d703aa9c07801adbe74fd374613cd3b09ece7294d85bf03010100975c1ec5942088e1d90ee6385f2abfb7eac412bb940787cdac13f814ae8669fa010100b411e399724d554afd02fa5a5f01fdda018f9ebe03b55fc7a3e11627e1ed5da0010100c233b299abbabb532db4e883c28df22068f57e7a374089d4508f4486995daca10101003e063fcb5ac2dda5dbef8525f1a3d626abf365cba0c0c2947bbe6111b88126b9010100fe92a8c58cf868b4244b31f837e8be3cac65e58853f829c6df295e4645c30d8b010100d87adf75fc6f3cca93da26732452a8967175d618c6613e1f281dcc609b9e96de01010049a099c0bf3e8966807dcd8f21bf2491ffb064cdc7c30c9ea0c92d4b7ab65ac3010100c3fc823dd35646f1aa11e5e201a3925f2b15786ebf529c1175adc36a3985ce050101000000014b6a3a5d5afbf7b0e3da3e646cec68754fe51a519c687c7a1386981be1fae940dd0400006a47304402207c82fb3cec5b9d5b7f6afa54ca5e8f5148c8dca6080e56cb72f7e18782cb923002203706ab2fff1c4c230d360744786837e9c8f646b999926b7d50148132aa1e7e9041210233a6d2e14412a506ef04e706f6cea2d85e5d90e0832862c605655cf377e89802ffffffff0101000000000000001976a914abf7da080c7944e20b3a91cd8091db2b7bd019c188ac00000000010000",
+      "headers_held": [],
+      "expected": {
+        "outcome": "refused",
+        "reason": "trailing_bytes"
+      }
+    },
+    {
+      "id": "refused-no-transactions",
+      "kind": "beef",
+      "valid": false,
+      "basis": "hardening",
+      "sources": [
+        "bitblocks"
+      ],
+      "title": "No transactions",
+      "description": "No BUMPs and no transactions, so there is no subject.",
+      "hex": "0100beef0000",
+      "headers_held": [],
+      "expected": {
+        "outcome": "refused",
+        "reason": "no_transactions"
+      }
+    },
+    {
+      "id": "refused-varint-not-minimal",
+      "kind": "beef",
+      "valid": false,
+      "basis": "hardening",
+      "sources": [
+        "whatsonchain",
+        "bitblocks"
+      ],
+      "title": "A VarInt longer than it needs to be",
+      "description": "mainnet-v1 with its BUMP count written as fd0100.",
+      "hex": "0100beeffd0100fe36d90e0013020102a960251f04b354ce160b5a4dc47698f3fb083dd3e3d5faa95e94e1b3e0797094000025a47afee5a3be8cf8d67cdc545b6e87a30028b656c187141fcee3de197414410101004e4c171a9a17fcb92f14c53e000b98a78cabec01cd5b175a6717f8bbebc4e0d7010100c9b0c65744d0b2dffb0e430ecfb6359752b08e1b9d69558cf9668465157e6460010100d2c9fc3fdd72bc198758b02abe3aa570a813b732ae5f705234f85870e441898801010023c0cbbac10acadac8a62328513b81a0b1f52a1a7f0421fd802cf7dbe4e601a80101000b94a1f7d503d139e1d8a00ef46583546b86682ff1fe2dae3ee4b5ecdf251df30101002ab27d1441ae9b25e84f162631c54e4707dd00596c72c931d1673c029f6122e001010024f081a6a388a5d03ab8f34cb21f7411cbfefd1097ce8c1c750834e42f164e7b0101000d375c24dd99af935f85f30aa9e42113746b9e10724e642bd7179361e4b984de0101002d7018aa9c42929692521d21046802c06967ae9edf00b9b782218adc6920f970010100b7718bd1ae3e4c560d703aa9c07801adbe74fd374613cd3b09ece7294d85bf03010100975c1ec5942088e1d90ee6385f2abfb7eac412bb940787cdac13f814ae8669fa010100b411e399724d554afd02fa5a5f01fdda018f9ebe03b55fc7a3e11627e1ed5da0010100c233b299abbabb532db4e883c28df22068f57e7a374089d4508f4486995daca10101003e063fcb5ac2dda5dbef8525f1a3d626abf365cba0c0c2947bbe6111b88126b9010100fe92a8c58cf868b4244b31f837e8be3cac65e58853f829c6df295e4645c30d8b010100d87adf75fc6f3cca93da26732452a8967175d618c6613e1f281dcc609b9e96de01010049a099c0bf3e8966807dcd8f21bf2491ffb064cdc7c30c9ea0c92d4b7ab65ac3010100c3fc823dd35646f1aa11e5e201a3925f2b15786ebf529c1175adc36a3985ce050101000000014b6a3a5d5afbf7b0e3da3e646cec68754fe51a519c687c7a1386981be1fae940dd0400006a47304402207c82fb3cec5b9d5b7f6afa54ca5e8f5148c8dca6080e56cb72f7e18782cb923002203706ab2fff1c4c230d360744786837e9c8f646b999926b7d50148132aa1e7e9041210233a6d2e14412a506ef04e706f6cea2d85e5d90e0832862c605655cf377e89802ffffffff0101000000000000001976a914abf7da080c7944e20b3a91cd8091db2b7bd019c188ac000000000100",
+      "headers_held": [],
+      "expected": {
+        "outcome": "refused",
+        "reason": "varint_not_minimal"
+      }
+    },
+    {
+      "id": "refused-no-inputs",
+      "kind": "beef",
+      "valid": false,
+      "basis": "hardening",
+      "sources": [
+        "bitblocks"
+      ],
+      "title": "A transaction with no inputs",
+      "description": "This also refuses Extended Format, whose marker reads as an input count of zero. BEEF carries raw transactions (BRC-12).",
+      "hex": "0100beef0001010000000001000000000000000001510000000000",
+      "headers_held": [],
+      "expected": {
+        "outcome": "refused",
+        "reason": "bad_transaction"
+      }
+    },
+    {
+      "id": "refused-has-bump-flag",
+      "kind": "beef",
+      "valid": false,
+      "basis": "BRC-62",
+      "sources": [
+        "whatsonchain",
+        "bitblocks"
+      ],
+      "title": "A has-BUMP flag other than 0 or 1",
+      "description": "mainnet-v1 with the flag set to 02.",
+      "hex": "0100beef01fe36d90e0013020102a960251f04b354ce160b5a4dc47698f3fb083dd3e3d5faa95e94e1b3e0797094000025a47afee5a3be8cf8d67cdc545b6e87a30028b656c187141fcee3de197414410101004e4c171a9a17fcb92f14c53e000b98a78cabec01cd5b175a6717f8bbebc4e0d7010100c9b0c65744d0b2dffb0e430ecfb6359752b08e1b9d69558cf9668465157e6460010100d2c9fc3fdd72bc198758b02abe3aa570a813b732ae5f705234f85870e441898801010023c0cbbac10acadac8a62328513b81a0b1f52a1a7f0421fd802cf7dbe4e601a80101000b94a1f7d503d139e1d8a00ef46583546b86682ff1fe2dae3ee4b5ecdf251df30101002ab27d1441ae9b25e84f162631c54e4707dd00596c72c931d1673c029f6122e001010024f081a6a388a5d03ab8f34cb21f7411cbfefd1097ce8c1c750834e42f164e7b0101000d375c24dd99af935f85f30aa9e42113746b9e10724e642bd7179361e4b984de0101002d7018aa9c42929692521d21046802c06967ae9edf00b9b782218adc6920f970010100b7718bd1ae3e4c560d703aa9c07801adbe74fd374613cd3b09ece7294d85bf03010100975c1ec5942088e1d90ee6385f2abfb7eac412bb940787cdac13f814ae8669fa010100b411e399724d554afd02fa5a5f01fdda018f9ebe03b55fc7a3e11627e1ed5da0010100c233b299abbabb532db4e883c28df22068f57e7a374089d4508f4486995daca10101003e063fcb5ac2dda5dbef8525f1a3d626abf365cba0c0c2947bbe6111b88126b9010100fe92a8c58cf868b4244b31f837e8be3cac65e58853f829c6df295e4645c30d8b010100d87adf75fc6f3cca93da26732452a8967175d618c6613e1f281dcc609b9e96de01010049a099c0bf3e8966807dcd8f21bf2491ffb064cdc7c30c9ea0c92d4b7ab65ac3010100c3fc823dd35646f1aa11e5e201a3925f2b15786ebf529c1175adc36a3985ce050101000000014b6a3a5d5afbf7b0e3da3e646cec68754fe51a519c687c7a1386981be1fae940dd0400006a47304402207c82fb3cec5b9d5b7f6afa54ca5e8f5148c8dca6080e56cb72f7e18782cb923002203706ab2fff1c4c230d360744786837e9c8f646b999926b7d50148132aa1e7e9041210233a6d2e14412a506ef04e706f6cea2d85e5d90e0832862c605655cf377e89802ffffffff0101000000000000001976a914abf7da080c7944e20b3a91cd8091db2b7bd019c188ac0000000002",
+      "headers_held": [],
+      "expected": {
+        "outcome": "refused",
+        "reason": "bad_transaction_flag"
+      }
+    },
+    {
+      "id": "refused-v2-format-byte",
+      "kind": "beef",
+      "valid": false,
+      "basis": "BRC-96",
+      "sources": [
+        "bitblocks"
+      ],
+      "title": "A BEEF V2 format byte outside 00, 01 and 02",
+      "description": "One transaction entry with format 03.",
+      "hex": "0200beef000103",
+      "headers_held": [],
+      "expected": {
+        "outcome": "refused",
+        "reason": "bad_transaction_flag"
+      }
+    },
+    {
+      "id": "refused-bump-index",
+      "kind": "beef",
+      "valid": false,
+      "basis": "BRC-62",
+      "sources": [
+        "whatsonchain",
+        "bitblocks"
+      ],
+      "title": "A BUMP index past the list",
+      "description": "mainnet-v1 pointing at a second BUMP it doesn't have.",
+      "hex": "0100beef01fe36d90e0013020102a960251f04b354ce160b5a4dc47698f3fb083dd3e3d5faa95e94e1b3e0797094000025a47afee5a3be8cf8d67cdc545b6e87a30028b656c187141fcee3de197414410101004e4c171a9a17fcb92f14c53e000b98a78cabec01cd5b175a6717f8bbebc4e0d7010100c9b0c65744d0b2dffb0e430ecfb6359752b08e1b9d69558cf9668465157e6460010100d2c9fc3fdd72bc198758b02abe3aa570a813b732ae5f705234f85870e441898801010023c0cbbac10acadac8a62328513b81a0b1f52a1a7f0421fd802cf7dbe4e601a80101000b94a1f7d503d139e1d8a00ef46583546b86682ff1fe2dae3ee4b5ecdf251df30101002ab27d1441ae9b25e84f162631c54e4707dd00596c72c931d1673c029f6122e001010024f081a6a388a5d03ab8f34cb21f7411cbfefd1097ce8c1c750834e42f164e7b0101000d375c24dd99af935f85f30aa9e42113746b9e10724e642bd7179361e4b984de0101002d7018aa9c42929692521d21046802c06967ae9edf00b9b782218adc6920f970010100b7718bd1ae3e4c560d703aa9c07801adbe74fd374613cd3b09ece7294d85bf03010100975c1ec5942088e1d90ee6385f2abfb7eac412bb940787cdac13f814ae8669fa010100b411e399724d554afd02fa5a5f01fdda018f9ebe03b55fc7a3e11627e1ed5da0010100c233b299abbabb532db4e883c28df22068f57e7a374089d4508f4486995daca10101003e063fcb5ac2dda5dbef8525f1a3d626abf365cba0c0c2947bbe6111b88126b9010100fe92a8c58cf868b4244b31f837e8be3cac65e58853f829c6df295e4645c30d8b010100d87adf75fc6f3cca93da26732452a8967175d618c6613e1f281dcc609b9e96de01010049a099c0bf3e8966807dcd8f21bf2491ffb064cdc7c30c9ea0c92d4b7ab65ac3010100c3fc823dd35646f1aa11e5e201a3925f2b15786ebf529c1175adc36a3985ce050101000000014b6a3a5d5afbf7b0e3da3e646cec68754fe51a519c687c7a1386981be1fae940dd0400006a47304402207c82fb3cec5b9d5b7f6afa54ca5e8f5148c8dca6080e56cb72f7e18782cb923002203706ab2fff1c4c230d360744786837e9c8f646b999926b7d50148132aa1e7e9041210233a6d2e14412a506ef04e706f6cea2d85e5d90e0832862c605655cf377e89802ffffffff0101000000000000001976a914abf7da080c7944e20b3a91cd8091db2b7bd019c188ac000000000101",
+      "headers_held": [],
+      "expected": {
+        "outcome": "refused",
+        "reason": "bump_index_out_of_range"
+      }
+    },
+    {
+      "id": "refused-duplicate-transaction",
+      "kind": "beef",
+      "valid": false,
+      "basis": "hardening",
+      "sources": [
+        "whatsonchain",
+        "bitblocks"
+      ],
+      "title": "The same transaction twice",
+      "description": "mainnet-v1's transaction listed two times.",
+      "hex": "0100beef01fe36d90e0013020102a960251f04b354ce160b5a4dc47698f3fb083dd3e3d5faa95e94e1b3e0797094000025a47afee5a3be8cf8d67cdc545b6e87a30028b656c187141fcee3de197414410101004e4c171a9a17fcb92f14c53e000b98a78cabec01cd5b175a6717f8bbebc4e0d7010100c9b0c65744d0b2dffb0e430ecfb6359752b08e1b9d69558cf9668465157e6460010100d2c9fc3fdd72bc198758b02abe3aa570a813b732ae5f705234f85870e441898801010023c0cbbac10acadac8a62328513b81a0b1f52a1a7f0421fd802cf7dbe4e601a80101000b94a1f7d503d139e1d8a00ef46583546b86682ff1fe2dae3ee4b5ecdf251df30101002ab27d1441ae9b25e84f162631c54e4707dd00596c72c931d1673c029f6122e001010024f081a6a388a5d03ab8f34cb21f7411cbfefd1097ce8c1c750834e42f164e7b0101000d375c24dd99af935f85f30aa9e42113746b9e10724e642bd7179361e4b984de0101002d7018aa9c42929692521d21046802c06967ae9edf00b9b782218adc6920f970010100b7718bd1ae3e4c560d703aa9c07801adbe74fd374613cd3b09ece7294d85bf03010100975c1ec5942088e1d90ee6385f2abfb7eac412bb940787cdac13f814ae8669fa010100b411e399724d554afd02fa5a5f01fdda018f9ebe03b55fc7a3e11627e1ed5da0010100c233b299abbabb532db4e883c28df22068f57e7a374089d4508f4486995daca10101003e063fcb5ac2dda5dbef8525f1a3d626abf365cba0c0c2947bbe6111b88126b9010100fe92a8c58cf868b4244b31f837e8be3cac65e58853f829c6df295e4645c30d8b010100d87adf75fc6f3cca93da26732452a8967175d618c6613e1f281dcc609b9e96de01010049a099c0bf3e8966807dcd8f21bf2491ffb064cdc7c30c9ea0c92d4b7ab65ac3010100c3fc823dd35646f1aa11e5e201a3925f2b15786ebf529c1175adc36a3985ce050201000000014b6a3a5d5afbf7b0e3da3e646cec68754fe51a519c687c7a1386981be1fae940dd0400006a47304402207c82fb3cec5b9d5b7f6afa54ca5e8f5148c8dca6080e56cb72f7e18782cb923002203706ab2fff1c4c230d360744786837e9c8f646b999926b7d50148132aa1e7e9041210233a6d2e14412a506ef04e706f6cea2d85e5d90e0832862c605655cf377e89802ffffffff0101000000000000001976a914abf7da080c7944e20b3a91cd8091db2b7bd019c188ac00000000010001000000014b6a3a5d5afbf7b0e3da3e646cec68754fe51a519c687c7a1386981be1fae940dd0400006a47304402207c82fb3cec5b9d5b7f6afa54ca5e8f5148c8dca6080e56cb72f7e18782cb923002203706ab2fff1c4c230d360744786837e9c8f646b999926b7d50148132aa1e7e9041210233a6d2e14412a506ef04e706f6cea2d85e5d90e0832862c605655cf377e89802ffffffff0101000000000000001976a914abf7da080c7944e20b3a91cd8091db2b7bd019c188ac000000000100",
+      "headers_held": [],
+      "expected": {
+        "outcome": "refused",
+        "reason": "duplicate_transaction"
+      }
+    },
+    {
+      "id": "refused-out-of-order",
+      "kind": "beef",
+      "valid": false,
+      "basis": "BRC-62",
+      "sources": [
+        "brc-62",
+        "bitblocks"
+      ],
+      "title": "A child ahead of its parent",
+      "description": "BRC-62's example with its two transactions swapped.",
+      "hex": "0100beef01fe636d0c0007021400fe507c0c7aa754cef1f7889d5fd395cf1f785dd7de98eed895dbedfe4e5bc70d1502ac4e164f5bc16746bb0868404292ac8318bbac3800e4aad13a014da427adce3e010b00bc4ff395efd11719b277694cface5aa50d085a0bb81f613f70313acd28cf4557010400574b2d9142b8d28b61d88e3b2c3f44d858411356b49a28a4643b6d1a6a092a5201030051a05fc84d531b5d250c23f4f886f6812f9fe3f402d61607f977b4ecd2701c19010000fd781529d58fc2523cf396a7f25440b409857e7e221766c57214b1d38c7b481f01010062f542f45ea3660f86c013ced80534cb5fd4c19d66c56e7e8c5d4bf2d40acc5e010100b121e91836fd7cd5102b654e9f72f3cf6fdbfd0b161c53a9c54b12c841126331020100000001ac4e164f5bc16746bb0868404292ac8318bbac3800e4aad13a014da427adce3e000000006a47304402203a61a2e931612b4bda08d541cfb980885173b8dcf64a3471238ae7abcd368d6402204cbf24f04b9aa2256d8901f0ed97866603d2be8324c2bfb7a37bf8fc90edd5b441210263e2dee22b1ddc5e11f6fab8bcd2378bdd19580d640501ea956ec0e786f93e76ffffffff013c660000000000001976a9146bfd5c7fbe21529d45803dbcf0c87dd3c71efbc288ac00000000000100000001cd4e4cac3c7b56920d1e7655e7e260d31f29d9a388d04910f1bbd72304a79029010000006b483045022100e75279a205a547c445719420aa3138bf14743e3f42618e5f86a19bde14bb95f7022064777d34776b05d816daf1699493fcdf2ef5a5ab1ad710d9c97bfb5b8f7cef3641210263e2dee22b1ddc5e11f6fab8bcd2378bdd19580d640501ea956ec0e786f93e76ffffffff013e660000000000001976a9146bfd5c7fbe21529d45803dbcf0c87dd3c71efbc288ac000000000100",
+      "headers_held": [],
+      "expected": {
+        "outcome": "refused",
+        "reason": "transactions_out_of_order"
+      }
+    },
+    {
+      "id": "refused-atomic-subject-missing",
+      "kind": "beef",
+      "valid": false,
+      "basis": "BRC-95",
+      "sources": [
+        "whatsonchain",
+        "bitblocks"
+      ],
+      "title": "Atomic BEEF naming a transaction it doesn't hold",
+      "description": "mainnet-v1 wrapped with BRC-62's payment as the subject.",
+      "hex": "010101011c0dd2079ff75f8c6f2c88d5363babbda10f544c5e73033212117de6ae2874150100beef01fe36d90e0013020102a960251f04b354ce160b5a4dc47698f3fb083dd3e3d5faa95e94e1b3e0797094000025a47afee5a3be8cf8d67cdc545b6e87a30028b656c187141fcee3de197414410101004e4c171a9a17fcb92f14c53e000b98a78cabec01cd5b175a6717f8bbebc4e0d7010100c9b0c65744d0b2dffb0e430ecfb6359752b08e1b9d69558cf9668465157e6460010100d2c9fc3fdd72bc198758b02abe3aa570a813b732ae5f705234f85870e441898801010023c0cbbac10acadac8a62328513b81a0b1f52a1a7f0421fd802cf7dbe4e601a80101000b94a1f7d503d139e1d8a00ef46583546b86682ff1fe2dae3ee4b5ecdf251df30101002ab27d1441ae9b25e84f162631c54e4707dd00596c72c931d1673c029f6122e001010024f081a6a388a5d03ab8f34cb21f7411cbfefd1097ce8c1c750834e42f164e7b0101000d375c24dd99af935f85f30aa9e42113746b9e10724e642bd7179361e4b984de0101002d7018aa9c42929692521d21046802c06967ae9edf00b9b782218adc6920f970010100b7718bd1ae3e4c560d703aa9c07801adbe74fd374613cd3b09ece7294d85bf03010100975c1ec5942088e1d90ee6385f2abfb7eac412bb940787cdac13f814ae8669fa010100b411e399724d554afd02fa5a5f01fdda018f9ebe03b55fc7a3e11627e1ed5da0010100c233b299abbabb532db4e883c28df22068f57e7a374089d4508f4486995daca10101003e063fcb5ac2dda5dbef8525f1a3d626abf365cba0c0c2947bbe6111b88126b9010100fe92a8c58cf868b4244b31f837e8be3cac65e58853f829c6df295e4645c30d8b010100d87adf75fc6f3cca93da26732452a8967175d618c6613e1f281dcc609b9e96de01010049a099c0bf3e8966807dcd8f21bf2491ffb064cdc7c30c9ea0c92d4b7ab65ac3010100c3fc823dd35646f1aa11e5e201a3925f2b15786ebf529c1175adc36a3985ce050101000000014b6a3a5d5afbf7b0e3da3e646cec68754fe51a519c687c7a1386981be1fae940dd0400006a47304402207c82fb3cec5b9d5b7f6afa54ca5e8f5148c8dca6080e56cb72f7e18782cb923002203706ab2fff1c4c230d360744786837e9c8f646b999926b7d50148132aa1e7e9041210233a6d2e14412a506ef04e706f6cea2d85e5d90e0832862c605655cf377e89802ffffffff0101000000000000001976a914abf7da080c7944e20b3a91cd8091db2b7bd019c188ac000000000100",
+      "headers_held": [],
+      "expected": {
+        "outcome": "refused",
+        "reason": "atomic_subject_missing"
+      }
+    },
+    {
+      "id": "refused-atomic-unrelated",
+      "kind": "beef",
+      "valid": false,
+      "basis": "BRC-95",
+      "sources": [
+        "brc-62",
+        "bitblocks"
+      ],
+      "title": "Atomic BEEF holding a transaction outside the subject's ancestry",
+      "description": "BRC-62's example wrapped with the parent as the subject, so the payment is unrelated.",
+      "hex": "01010101ac4e164f5bc16746bb0868404292ac8318bbac3800e4aad13a014da427adce3e0100beef01fe636d0c0007021400fe507c0c7aa754cef1f7889d5fd395cf1f785dd7de98eed895dbedfe4e5bc70d1502ac4e164f5bc16746bb0868404292ac8318bbac3800e4aad13a014da427adce3e010b00bc4ff395efd11719b277694cface5aa50d085a0bb81f613f70313acd28cf4557010400574b2d9142b8d28b61d88e3b2c3f44d858411356b49a28a4643b6d1a6a092a5201030051a05fc84d531b5d250c23f4f886f6812f9fe3f402d61607f977b4ecd2701c19010000fd781529d58fc2523cf396a7f25440b409857e7e221766c57214b1d38c7b481f01010062f542f45ea3660f86c013ced80534cb5fd4c19d66c56e7e8c5d4bf2d40acc5e010100b121e91836fd7cd5102b654e9f72f3cf6fdbfd0b161c53a9c54b12c841126331020100000001cd4e4cac3c7b56920d1e7655e7e260d31f29d9a388d04910f1bbd72304a79029010000006b483045022100e75279a205a547c445719420aa3138bf14743e3f42618e5f86a19bde14bb95f7022064777d34776b05d816daf1699493fcdf2ef5a5ab1ad710d9c97bfb5b8f7cef3641210263e2dee22b1ddc5e11f6fab8bcd2378bdd19580d640501ea956ec0e786f93e76ffffffff013e660000000000001976a9146bfd5c7fbe21529d45803dbcf0c87dd3c71efbc288ac0000000001000100000001ac4e164f5bc16746bb0868404292ac8318bbac3800e4aad13a014da427adce3e000000006a47304402203a61a2e931612b4bda08d541cfb980885173b8dcf64a3471238ae7abcd368d6402204cbf24f04b9aa2256d8901f0ed97866603d2be8324c2bfb7a37bf8fc90edd5b441210263e2dee22b1ddc5e11f6fab8bcd2378bdd19580d640501ea956ec0e786f93e76ffffffff013c660000000000001976a9146bfd5c7fbe21529d45803dbcf0c87dd3c71efbc288ac0000000000",
+      "headers_held": [],
+      "expected": {
+        "outcome": "refused",
+        "reason": "atomic_unrelated_transaction"
+      }
+    },
+    {
+      "id": "refused-bump-block-height",
+      "kind": "bump",
+      "valid": false,
+      "basis": "hardening",
+      "sources": [
+        "bitblocks"
+      ],
+      "title": "A block height past 2^32 - 1",
+      "description": "A height no block header can hold.",
+      "hex": "ff00000000010000000101000230bff0bd44ed23344eb007fec97f32a72238b4b6e4c56fb78a6d73422475e20e",
+      "headers_held": [],
+      "expected": {
+        "outcome": "refused",
+        "reason": "block_height_out_of_range"
+      }
+    },
+    {
+      "id": "refused-bump-tree-height-zero",
+      "kind": "bump",
+      "valid": false,
+      "basis": "hardening",
+      "sources": [
+        "bitblocks"
+      ],
+      "title": "A tree height of 0",
+      "description": "A BUMP with no levels proves nothing.",
+      "hex": "0700",
+      "headers_held": [],
+      "expected": {
+        "outcome": "refused",
+        "reason": "tree_height_out_of_range"
+      }
+    },
+    {
+      "id": "refused-bump-tree-height-65",
+      "kind": "bump",
+      "valid": false,
+      "basis": "BRC-74",
+      "sources": [
+        "bitblocks"
+      ],
+      "title": "A tree height of 65",
+      "description": "BRC-74 caps the tree height at 64.",
+      "hex": "0741",
+      "headers_held": [],
+      "expected": {
+        "outcome": "refused",
+        "reason": "tree_height_out_of_range"
+      }
+    },
+    {
+      "id": "refused-bump-empty-level-zero",
+      "kind": "bump",
+      "valid": false,
+      "basis": "hardening",
+      "sources": [
+        "bitblocks"
+      ],
+      "title": "No leaves at level 0",
+      "description": "Nothing to climb from.",
+      "hex": "070100",
+      "headers_held": [],
+      "expected": {
+        "outcome": "refused",
+        "reason": "empty_level"
+      }
+    },
+    {
+      "id": "refused-bump-offset",
+      "kind": "bump",
+      "valid": false,
+      "basis": "hardening",
+      "sources": [
+        "bitblocks"
+      ],
+      "title": "An offset that can't fit the tree",
+      "description": "Offset 2 in a tree of height 1.",
+      "hex": "070101020230bff0bd44ed23344eb007fec97f32a72238b4b6e4c56fb78a6d73422475e20e",
+      "headers_held": [],
+      "expected": {
+        "outcome": "refused",
+        "reason": "offset_out_of_range"
+      }
+    },
+    {
+      "id": "refused-bump-duplicate-offset",
+      "kind": "bump",
+      "valid": false,
+      "basis": "hardening",
+      "sources": [
+        "bitblocks"
+      ],
+      "title": "Two leaves at one offset",
+      "description": "Both at offset 0.",
+      "hex": "070102000230bff0bd44ed23344eb007fec97f32a72238b4b6e4c56fb78a6d73422475e20e000030bff0bd44ed23344eb007fec97f32a72238b4b6e4c56fb78a6d73422475e20e",
+      "headers_held": [],
+      "expected": {
+        "outcome": "refused",
+        "reason": "duplicate_offset"
+      }
+    },
+    {
+      "id": "refused-bump-leaf-flag",
+      "kind": "bump",
+      "valid": false,
+      "basis": "BRC-74",
+      "sources": [
+        "bitblocks"
+      ],
+      "title": "A leaf flag outside 00, 01 and 02",
+      "description": "Flag 03.",
+      "hex": "0701010003",
+      "headers_held": [],
+      "expected": {
+        "outcome": "refused",
+        "reason": "bad_leaf_flag"
+      }
+    },
+    {
+      "id": "refused-bump-duplicate-at-even-offset",
+      "kind": "bump",
+      "valid": false,
+      "basis": "hardening",
+      "sources": [
+        "bitblocks"
+      ],
+      "title": "A duplicate flag at an even offset",
+      "description": "A duplicate stands for the right-hand node of a last pair, so its offset is odd.",
+      "hex": "0701010001",
+      "headers_held": [],
+      "expected": {
+        "outcome": "refused",
+        "reason": "bad_duplicate_offset"
+      }
+    },
+    {
+      "id": "failed-root-mismatch",
+      "kind": "beef",
+      "valid": false,
+      "basis": "BRC-62",
+      "sources": [
+        "brc-62",
+        "bitblocks"
+      ],
+      "title": "A proof pointed at the wrong block",
+      "description": "BRC-62's BUMP with its height changed to 813706, whose real header has another root. The subject fails with its ancestor.",
+      "hex": "0100beef01fe8a6a0c0007021400fe507c0c7aa754cef1f7889d5fd395cf1f785dd7de98eed895dbedfe4e5bc70d1502ac4e164f5bc16746bb0868404292ac8318bbac3800e4aad13a014da427adce3e010b00bc4ff395efd11719b277694cface5aa50d085a0bb81f613f70313acd28cf4557010400574b2d9142b8d28b61d88e3b2c3f44d858411356b49a28a4643b6d1a6a092a5201030051a05fc84d531b5d250c23f4f886f6812f9fe3f402d61607f977b4ecd2701c19010000fd781529d58fc2523cf396a7f25440b409857e7e221766c57214b1d38c7b481f01010062f542f45ea3660f86c013ced80534cb5fd4c19d66c56e7e8c5d4bf2d40acc5e010100b121e91836fd7cd5102b654e9f72f3cf6fdbfd0b161c53a9c54b12c841126331020100000001cd4e4cac3c7b56920d1e7655e7e260d31f29d9a388d04910f1bbd72304a79029010000006b483045022100e75279a205a547c445719420aa3138bf14743e3f42618e5f86a19bde14bb95f7022064777d34776b05d816daf1699493fcdf2ef5a5ab1ad710d9c97bfb5b8f7cef3641210263e2dee22b1ddc5e11f6fab8bcd2378bdd19580d640501ea956ec0e786f93e76ffffffff013e660000000000001976a9146bfd5c7fbe21529d45803dbcf0c87dd3c71efbc288ac0000000001000100000001ac4e164f5bc16746bb0868404292ac8318bbac3800e4aad13a014da427adce3e000000006a47304402203a61a2e931612b4bda08d541cfb980885173b8dcf64a3471238ae7abcd368d6402204cbf24f04b9aa2256d8901f0ed97866603d2be8324c2bfb7a37bf8fc90edd5b441210263e2dee22b1ddc5e11f6fab8bcd2378bdd19580d640501ea956ec0e786f93e76ffffffff013c660000000000001976a9146bfd5c7fbe21529d45803dbcf0c87dd3c71efbc288ac0000000000",
+      "headers_held": [
+        813706
+      ],
+      "expected": {
+        "outcome": "failed",
+        "reason": "ancestor_failed",
+        "format": "beef_v1",
+        "subject_txid": "157428aee67d11123203735e4c540fa1bdab3b36d5882c6f8c5ff79f07d20d1c",
+        "in_block": false,
+        "block_height": null,
+        "transactions": [
+          {
+            "txid": "3ecead27a44d013ad1aae40038acbb1883ac9242406808bb4667c15b4f164eac",
+            "status": "failed",
+            "reason": "root_mismatch",
+            "block_height": 813706
+          },
+          {
+            "txid": "157428aee67d11123203735e4c540fa1bdab3b36d5882c6f8c5ff79f07d20d1c",
+            "status": "failed",
+            "reason": "ancestor_failed",
+            "block_height": null
+          }
+        ]
+      }
+    },
+    {
+      "id": "failed-tampered-sibling",
+      "kind": "beef",
+      "valid": false,
+      "basis": "BRC-62",
+      "sources": [
+        "brc-62",
+        "bitblocks"
+      ],
+      "title": "A changed hash in the path",
+      "description": "BRC-62's example with one sibling at level 0 hashed again. The climb reaches some other root.",
+      "hex": "0100beef01fe636d0c000702140026e77abae49b471da93015ece451594b933d03ecb27f4d83000a3bff069b8e681502ac4e164f5bc16746bb0868404292ac8318bbac3800e4aad13a014da427adce3e010b00bc4ff395efd11719b277694cface5aa50d085a0bb81f613f70313acd28cf4557010400574b2d9142b8d28b61d88e3b2c3f44d858411356b49a28a4643b6d1a6a092a5201030051a05fc84d531b5d250c23f4f886f6812f9fe3f402d61607f977b4ecd2701c19010000fd781529d58fc2523cf396a7f25440b409857e7e221766c57214b1d38c7b481f01010062f542f45ea3660f86c013ced80534cb5fd4c19d66c56e7e8c5d4bf2d40acc5e010100b121e91836fd7cd5102b654e9f72f3cf6fdbfd0b161c53a9c54b12c841126331020100000001cd4e4cac3c7b56920d1e7655e7e260d31f29d9a388d04910f1bbd72304a79029010000006b483045022100e75279a205a547c445719420aa3138bf14743e3f42618e5f86a19bde14bb95f7022064777d34776b05d816daf1699493fcdf2ef5a5ab1ad710d9c97bfb5b8f7cef3641210263e2dee22b1ddc5e11f6fab8bcd2378bdd19580d640501ea956ec0e786f93e76ffffffff013e660000000000001976a9146bfd5c7fbe21529d45803dbcf0c87dd3c71efbc288ac0000000001000100000001ac4e164f5bc16746bb0868404292ac8318bbac3800e4aad13a014da427adce3e000000006a47304402203a61a2e931612b4bda08d541cfb980885173b8dcf64a3471238ae7abcd368d6402204cbf24f04b9aa2256d8901f0ed97866603d2be8324c2bfb7a37bf8fc90edd5b441210263e2dee22b1ddc5e11f6fab8bcd2378bdd19580d640501ea956ec0e786f93e76ffffffff013c660000000000001976a9146bfd5c7fbe21529d45803dbcf0c87dd3c71efbc288ac0000000000",
+      "headers_held": [
+        814435
+      ],
+      "expected": {
+        "outcome": "failed",
+        "reason": "ancestor_failed",
+        "format": "beef_v1",
+        "subject_txid": "157428aee67d11123203735e4c540fa1bdab3b36d5882c6f8c5ff79f07d20d1c",
+        "in_block": false,
+        "block_height": null,
+        "transactions": [
+          {
+            "txid": "3ecead27a44d013ad1aae40038acbb1883ac9242406808bb4667c15b4f164eac",
+            "status": "failed",
+            "reason": "root_mismatch",
+            "block_height": 814435
+          },
+          {
+            "txid": "157428aee67d11123203735e4c540fa1bdab3b36d5882c6f8c5ff79f07d20d1c",
+            "status": "failed",
+            "reason": "ancestor_failed",
+            "block_height": null
+          }
+        ]
+      }
+    },
+    {
+      "id": "failed-tampered-transaction",
+      "kind": "beef",
+      "valid": false,
+      "basis": "BRC-62",
+      "sources": [
+        "brc-62",
+        "bitblocks"
+      ],
+      "title": "A changed transaction",
+      "description": "BRC-62's parent with its last byte flipped, so it has another txid and isn't a leaf of the BUMP.",
+      "hex": "0100beef01fe636d0c0007021400fe507c0c7aa754cef1f7889d5fd395cf1f785dd7de98eed895dbedfe4e5bc70d1502ac4e164f5bc16746bb0868404292ac8318bbac3800e4aad13a014da427adce3e010b00bc4ff395efd11719b277694cface5aa50d085a0bb81f613f70313acd28cf4557010400574b2d9142b8d28b61d88e3b2c3f44d858411356b49a28a4643b6d1a6a092a5201030051a05fc84d531b5d250c23f4f886f6812f9fe3f402d61607f977b4ecd2701c19010000fd781529d58fc2523cf396a7f25440b409857e7e221766c57214b1d38c7b481f01010062f542f45ea3660f86c013ced80534cb5fd4c19d66c56e7e8c5d4bf2d40acc5e010100b121e91836fd7cd5102b654e9f72f3cf6fdbfd0b161c53a9c54b12c841126331010100000001cd4e4cac3c7b56920d1e7655e7e260d31f29d9a388d04910f1bbd72304a79029010000006b483045022100e75279a205a547c445719420aa3138bf14743e3f42618e5f86a19bde14bb95f7022064777d34776b05d816daf1699493fcdf2ef5a5ab1ad710d9c97bfb5b8f7cef3641210263e2dee22b1ddc5e11f6fab8bcd2378bdd19580d640501ea956ec0e786f93e76ffffffff013e660000000000001976a9146bfd5c7fbe21529d45803dbcf0c87dd3c71efbc288ac000000010100",
+      "headers_held": [
+        814435
+      ],
+      "expected": {
+        "outcome": "failed",
+        "reason": "not_in_bump",
+        "format": "beef_v1",
+        "subject_txid": "a0a5fde15e2079e57dac0f3bedb2f516b741985a0d4b3e790e0b3f9f7cf9fe1b",
+        "in_block": false,
+        "block_height": null,
+        "transactions": [
+          {
+            "txid": "a0a5fde15e2079e57dac0f3bedb2f516b741985a0d4b3e790e0b3f9f7cf9fe1b",
+            "status": "failed",
+            "reason": "not_in_bump",
+            "block_height": null
+          }
+        ]
+      }
+    },
+    {
+      "id": "failed-incomplete-path",
+      "kind": "beef",
+      "valid": false,
+      "basis": "BRC-74",
+      "sources": [
+        "bitblocks"
+      ],
+      "title": "A path with a node missing",
+      "description": "Crafted: three levels, and nothing at offset 1 of level 0 or above to climb with.",
+      "hex": "0100beef01fec3c62d0003020002aa64768401341f643328096de786bb68bb00ab680afcaaaa62b65e1ab91f25ff040030bff0bd44ed23344eb007fec97f32a72238b4b6e4c56fb78a6d73422475e20e00000101000000013cb571ad414b1780260742f28e10f3cd0f08d277e14f375f6363d78a7e326a910000000000ffffffff01e8030000000000000151000000000100",
+      "headers_held": [
+        3000003
+      ],
+      "expected": {
+        "outcome": "failed",
+        "reason": "incomplete",
+        "format": "beef_v1",
+        "subject_txid": "ff251fb91a5eb662aaaafc0a68ab00bb68bb86e76d092833641f3401847664aa",
+        "in_block": false,
+        "block_height": null,
+        "transactions": [
+          {
+            "txid": "ff251fb91a5eb662aaaafc0a68ab00bb68bb86e76d092833641f3401847664aa",
+            "status": "failed",
+            "reason": "incomplete",
+            "block_height": null
+          }
+        ]
+      }
+    },
+    {
+      "id": "failed-tree-height",
+      "kind": "beef",
+      "valid": false,
+      "basis": "hardening",
+      "sources": [
+        "bitblocks"
+      ],
+      "title": "A tree height that doesn't fit the block",
+      "description": "Crafted: the root matches, but a block of 1,000 transactions has a tree of height 10, and this BUMP has 1. That shape would let an inner node pose as a leaf.",
+      "hex": "0100beef01fec4c62d000102000004fd81ba44879559129589f78ca3aa03252884cb031be633128424a3f80922150102ede6fd6502906e9e6d64c84266b7db1c59b372410fc42e05aa945d2102c8935a0101000000010ffe93e2300170a93af6ae9737a60ff6606cc07ebefb146fe5075485bab738ee0000000000ffffffff01e8030000000000000151000000000100",
+      "headers_held": [
+        3000004
+      ],
+      "expected": {
+        "outcome": "failed",
+        "reason": "tree_height_mismatch",
+        "format": "beef_v1",
+        "subject_txid": "5a93c802215d94aa052ec40f4172b3591cdbb76642c8646d9e6e900265fde6ed",
+        "in_block": false,
+        "block_height": 3000004,
+        "transactions": [
+          {
+            "txid": "5a93c802215d94aa052ec40f4172b3591cdbb76642c8646d9e6e900265fde6ed",
+            "status": "failed",
+            "reason": "tree_height_mismatch",
+            "block_height": 3000004
+          }
+        ]
+      }
+    },
+    {
+      "id": "failed-offset-past-block",
+      "kind": "beef",
+      "valid": false,
+      "basis": "hardening",
+      "sources": [
+        "bitblocks"
+      ],
+      "title": "An offset past the block's last transaction",
+      "description": "Crafted: the root matches, but the block has one transaction and this one sits at offset 1.",
+      "hex": "0100beef01fec5c62d000102000004fd81ba44879559129589f78ca3aa03252884cb031be633128424a3f80922150102ede6fd6502906e9e6d64c84266b7db1c59b372410fc42e05aa945d2102c8935a0101000000010ffe93e2300170a93af6ae9737a60ff6606cc07ebefb146fe5075485bab738ee0000000000ffffffff01e8030000000000000151000000000100",
+      "headers_held": [
+        3000005
+      ],
+      "expected": {
+        "outcome": "failed",
+        "reason": "offset_past_block",
+        "format": "beef_v1",
+        "subject_txid": "5a93c802215d94aa052ec40f4172b3591cdbb76642c8646d9e6e900265fde6ed",
+        "in_block": false,
+        "block_height": 3000005,
+        "transactions": [
+          {
+            "txid": "5a93c802215d94aa052ec40f4172b3591cdbb76642c8646d9e6e900265fde6ed",
+            "status": "failed",
+            "reason": "offset_past_block",
+            "block_height": 3000005
+          }
+        ]
+      }
+    },
+    {
+      "id": "failed-64-byte-transaction",
+      "kind": "beef",
+      "valid": false,
+      "basis": "hardening",
+      "sources": [
+        "bitblocks"
+      ],
+      "title": "A 64-byte transaction",
+      "description": "Crafted: 64 bytes is also the preimage of an inner merkle node, so such a transaction could pose as a leaf.",
+      "hex": "0100beef01fec6c62d0001010002c6ab56d48be5289f41459c66958e9aa07a332366ccb65893177e7472341344d00101000000016866dc6315489e8899fc2713a3fb8e7cdd52317b53b7a5ad9f57621e562f3ca10000000000000000000100000000000000000451515151000000000100",
+      "headers_held": [
+        3000006
+      ],
+      "expected": {
+        "outcome": "failed",
+        "reason": "ambiguous_64_byte_tx",
+        "format": "beef_v1",
+        "subject_txid": "d044133472747e179358b6cc6623337aa09a8e95669c45419f28e58bd456abc6",
+        "in_block": false,
+        "block_height": null,
+        "transactions": [
+          {
+            "txid": "d044133472747e179358b6cc6623337aa09a8e95669c45419f28e58bd456abc6",
+            "status": "failed",
+            "reason": "ambiguous_64_byte_tx",
+            "block_height": null
+          }
+        ]
+      }
+    },
+    {
+      "id": "unknown-parent-not-included",
+      "kind": "beef",
+      "valid": false,
+      "basis": "BRC-62",
+      "sources": [
+        "bitblocks"
+      ],
+      "title": "A transaction whose parent isn't there",
+      "description": "Crafted: no BUMP and no parent in the BEEF, so it leads to no proof. BRC-62 asks for the ancestors; a reader can still answer unknown.",
+      "hex": "0100beef000101000000013cb571ad414b1780260742f28e10f3cd0f08d277e14f375f6363d78a7e326a910000000000ffffffff01e80300000000000001510000000000",
+      "headers_held": [],
+      "expected": {
+        "outcome": "unknown",
+        "reason": "no_inputs_in_beef",
+        "format": "beef_v1",
+        "subject_txid": "ff251fb91a5eb662aaaafc0a68ab00bb68bb86e76d092833641f3401847664aa",
+        "in_block": false,
+        "block_height": null,
+        "transactions": [
+          {
+            "txid": "ff251fb91a5eb662aaaafc0a68ab00bb68bb86e76d092833641f3401847664aa",
+            "status": "unknown",
+            "reason": "no_inputs_in_beef",
+            "block_height": null
+          }
+        ]
+      }
+    },
+    {
+      "id": "unknown-coinbase-without-bump",
+      "kind": "beef",
+      "valid": false,
+      "basis": "BRC-62",
+      "sources": [
+        "bitblocks"
+      ],
+      "title": "A coinbase with no proof",
+      "description": "Crafted: a coinbase has no parents to lead to, so without its own BUMP nothing supports it.",
+      "hex": "0100beef000101000000010000000000000000000000000000000000000000000000000000000000000000ffffffff025151ffffffff0100f2052a0100000001510000000000",
+      "headers_held": [],
+      "expected": {
+        "outcome": "unknown",
+        "reason": "no_bump",
+        "format": "beef_v1",
+        "subject_txid": "f60c73405d499a956d3162e3483c395526ef78286458a4cb17b125aa92e49b20",
+        "in_block": false,
+        "block_height": null,
+        "transactions": [
+          {
+            "txid": "f60c73405d499a956d3162e3483c395526ef78286458a4cb17b125aa92e49b20",
+            "status": "unknown",
+            "reason": "no_bump",
+            "block_height": null
+          }
+        ]
+      }
+    }
+  ]
+}

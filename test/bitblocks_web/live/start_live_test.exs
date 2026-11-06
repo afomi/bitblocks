@@ -11,7 +11,7 @@ defmodule BitblocksWeb.StartLiveTest do
   alias BitblocksWeb.SitemapController
   alias BitblocksWeb.StartLive.{Api, Index}
 
-  @pages ~w(/start /start/api /start/guidance)
+  @pages ~w(/start /start/api /start/guidance /start/interop)
 
   # Rexxie #1's mint, from the bundled catalog.
   @mint "52c8ee4935f983b7ce10b84882cb42b30d989a4385eaec1289fafe88325eb53f"
@@ -285,6 +285,40 @@ defmodule BitblocksWeb.StartLiveTest do
         assert render(element(view, "##{anchor}")) =~ "Draft"
         refute render(element(view, "##{anchor}")) =~ "Our position"
       end
+    end
+
+    test "the thesis is a dated draft, in plain words", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/start/guidance")
+
+      assert has_element?(view, "#payments", "A payment should carry its own proof.")
+      assert has_element?(view, "#payments", "2026-11-05")
+      assert has_element?(view, "#payments", "Draft")
+      assert has_element?(view, "#payments", "without asking a company")
+      assert has_element?(view, "#payments", "one SDK and no live wallet")
+    end
+
+    test "every view on the page stays a draft, listed or not", %{conn: conn} do
+      {:ok, view, html} = live(conn, ~p"/start/guidance")
+
+      rendered =
+        ~r/<section[^>]*id="([a-z-]+)"[^>]*aria-labelledby/
+        |> Regex.scan(html, capture: :all_but_first)
+        |> List.flatten()
+
+      listed = Enum.map(Index.guidance_topics(), fn {anchor, _title, _line} -> anchor end)
+      assert Enum.sort(rendered) == Enum.sort(listed)
+
+      for anchor <- rendered do
+        assert render(element(view, "##{anchor}")) =~ "Draft", "#{anchor} isn't a draft"
+      end
+
+      template = File.read!("lib/bitblocks_web/live/start_live/guidance.html.heex")
+      views = Regex.scan(~r/<\.view\b.*?>/s, template)
+      statuses = Regex.scan(~r/^\s+status="([a-z_]+)"$/m, template, capture: :all_but_first)
+
+      assert length(views) == length(rendered)
+      assert length(statuses) == length(views)
+      assert Enum.uniq(statuses) == [["draft"]]
     end
 
     test "says plainly that nobody has endorsed it", %{conn: conn} do

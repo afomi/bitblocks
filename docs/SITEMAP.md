@@ -35,6 +35,7 @@ For admins: a GitHub user marked admin; the gate runs in every env and is off on
 | `/start` | Builder onboarding, admin only until published ([DEMOS_CAMPAIGN.md](DEMOS_CAMPAIGN.md)) |
 | `/start/api` | API reference, admin only until published |
 | `/start/guidance` | Our dated views on building on Bitcoin, admin only until published |
+| `/start/interop` | Check a BEEF by hand, and the interop pattern, admin only until published ([INTEROP_KIT.md](INTEROP_KIT.md)) |
 | `/config` | Application configuration viewer |
 | `/debug` | Debug info |
 | `/graph` | Transaction graph visualization |

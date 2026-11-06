@@ -11,7 +11,8 @@ defmodule BitblocksWeb.StartComponents do
   @tabs [
     {"path", "/start", "The path"},
     {"api", "/start/api", "API"},
-    {"guidance", "/start/guidance", "Guidance"}
+    {"guidance", "/start/guidance", "Guidance"},
+    {"interop", "/start/interop", "Interop"}
   ]
 
   @doc "The page frame, with a tab for each `/start` page."

@@ -220,6 +220,8 @@ When the block's `num_tx` is known, the BUMP's tree height must be that block's 
 The parser is `Bitblocks.Chain.Beef.Reader`: no database, no atoms from input, sizes and counts bounded, with truncation and trailing bytes refused.
 It is built to move to bsv-ex.
 
+The same reader and verifier stand behind the open test vectors at `GET /interop/vectors/v1.json` and the check page at `/start/interop` ([INTEROP_KIT.md](INTEROP_KIT.md)).
+
 ### The size limit
 
 `Plug.Parsers` in the endpoint passes `application/octet-stream` through unread, so `BeefController` reads that body itself, after the key-or-session gate, up to `:beef_verify_max_bytes` (4 MB).

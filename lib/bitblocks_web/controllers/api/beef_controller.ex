@@ -23,8 +23,8 @@ defmodule BitblocksWeb.Api.BeefController do
   use BitblocksWeb, :controller
 
   alias Bitblocks.Chain.BeefVerifier
+  alias Bitblocks.Interop.Check
 
-  @max_bytes 4_000_000
   @read_length 1_000_000
 
   @doc "POST /api/v1/beef/verify"
@@ -108,5 +108,5 @@ defmodule BitblocksWeb.Api.BeefController do
     conn |> put_status(status) |> json(%{error: message})
   end
 
-  defp max_bytes, do: Application.get_env(:bitblocks, :beef_verify_max_bytes, @max_bytes)
+  defp max_bytes, do: Check.max_bytes()
 end

@@ -127,6 +127,7 @@ defmodule BitblocksWeb.AccessibilityAxeTest do
           {"/start", "#step-get-a-key", false},
           {"/start/api", "#access-table", false},
           {"/start/guidance", "#interesting", false},
+          {"/start/interop", "#gaps", false},
           {"/tx-graph", "#tx-flow-range", true},
           {"/shape-layers", "svg[viewBox='0 0 400 300']", false},
           {"/chain-scrubber", "#chain-scrubber-controls", true},

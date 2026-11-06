@@ -242,6 +242,14 @@ defmodule BitblocksWeb.Router do
     get "/bitcom.json", BitcomController, :index
   end
 
+  # The interoperability vectors: static, cached and open, because a test kit
+  # that needs our key isn't neutral (docs/INTEROP_KIT.md).
+  scope "/", BitblocksWeb do
+    pipe_through :open_api
+
+    get "/interop/vectors/v1.json", InteropController, :vectors
+  end
+
   pipeline :metrics do
     plug :accepts, ["text"]
   end
@@ -363,6 +371,7 @@ defmodule BitblocksWeb.Router do
       live "/start", StartLive.Index
       live "/start/api", StartLive.Api
       live "/start/guidance", StartLive.Guidance
+      live "/start/interop", StartLive.Interop
 
       # A browse list over the whole table; detail pages cover a shared link.
       live "/transactions", TransactionLive.Index, :index
