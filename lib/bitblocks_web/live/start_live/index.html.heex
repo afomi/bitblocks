@@ -1,0 +1,522 @@
+<.start_page current="path">
+  <section
+    id="start-lede"
+    class="mb-10"
+  >
+    <h1 class="mb-3 text-3xl font-semibold tracking-tight text-gray-900 dark:text-white">
+      Start building on Bitcoin
+    </h1>
+    <p class="text-lg leading-relaxed text-gray-700 dark:text-gray-300">
+      Bitblocks is the read side of an application: blocks, transactions and proofs from the chain, over a plain API.
+      Here is the path from a first request to something of your own.
+      Each step says what works today and where it leads.
+    </p>
+  </section>
+
+  <%!-- What's here: the one thing to know before relying on any of it --%>
+  <section
+    :if={@coverage}
+    id="start-coverage"
+    aria-labelledby="start-coverage-heading"
+    class="mb-10 rounded-lg border border-gray-200 p-4 dark:border-gray-700"
+  >
+    <h2
+      id="start-coverage-heading"
+      class="mb-1 text-sm font-semibold text-gray-900 dark:text-white"
+    >
+      What's here today
+    </h2>
+    <p class="text-sm text-gray-700 dark:text-gray-300">
+      Every transaction is stored through block
+      <span class="font-mono tabular-nums">{format_number(@coverage.through)}</span>
+      of <span class="font-mono tabular-nums">{format_number(@coverage.tip)}</span> known.
+      The sync works upward from the first block, so the examples below use a block that's already here.
+    </p>
+    <div
+      aria-hidden="true"
+      class="mt-3 h-1.5 overflow-hidden rounded bg-gray-200 dark:bg-gray-700"
+    >
+      <div
+        class="h-full bg-orange-500 dark:bg-orange-400"
+        style={"width: #{@coverage.percent}%"}
+      ></div>
+    </div>
+  </section>
+
+  <%!-- The path --%>
+  <section
+    id="path"
+    aria-labelledby="path-heading"
+    class="mb-14"
+  >
+    <.strand_heading id="path-heading">
+      The path
+    </.strand_heading>
+    <p class="mb-6 text-sm text-gray-600 dark:text-gray-400">
+      Five steps.
+      The first takes one command, and the fourth runs on your own machine.
+    </p>
+    <ol
+      role="list"
+      class="list-none"
+    >
+      <.step
+        id="step-first-request"
+        n={1}
+        title="Make your first request"
+        status="today"
+      >
+        <p>
+          Ask Bitblocks where it stands.
+          This endpoint is open, so it needs no account and no key.
+        </p>
+        <.code_panel
+          label="In a terminal"
+          code={curl_status()}
+        />
+        <.code_panel
+          label="The response, abridged"
+          code={status_example(@coverage)}
+        />
+        <p>
+          <code class="font-mono text-xs">complete_through</code>
+          is the highest block with every block below it stored and checked.
+          It's worth reading first in anything you build, because it says how far the answers go.
+        </p>
+      </.step>
+
+      <.step
+        id="step-sign-in"
+        n={2}
+        title="Sign in with GitHub"
+        status="signed_in"
+      >
+        <p
+          :if={@current_user}
+          id="start-signed-in"
+        >
+          You're signed in as <span class="font-mono">{@current_user.login}</span>, so this step is done.
+        </p>
+        <p :if={!@current_user}>
+          <.text_link
+            id="start-sign-in"
+            href={@sign_in_path}
+          >
+            Sign in with GitHub
+          </.text_link>
+          and you'll come back here.
+          Bitblocks asks GitHub for your public profile and nothing more.
+        </p>
+        <p>
+          Signing in opens block and transaction pages, and the API in the same browser, at
+          <span class="font-mono tabular-nums">{format_number(@rate_limits.signed_in)}</span>
+          requests a minute.
+          It's free, and <.text_link href="/pricing">pricing</.text_link> says what comes after.
+        </p>
+      </.step>
+
+      <.step
+        id="step-read-a-transaction"
+        n={3}
+        title="Read a transaction"
+        status="signed_in"
+      >
+        <p>
+          The first spend ever made is in block 170: 10 coins to Hal Finney, and 40 back to Satoshi.
+          Signed in, the API is a URL you can open in a tab.
+        </p>
+        <p>
+          <.text_link
+            id="start-tx-link"
+            href={tx_path()}
+          >
+            Open the transaction as JSON
+          </.text_link>
+          <span :if={!@current_user}>
+            (needs step 2; signed out, it answers 401 and says how to sign in)
+          </span>
+        </p>
+        <.code_panel
+          label="The response, abridged"
+          code={tx_example()}
+        />
+        <p>
+          The same record reads as a page at
+          <.text_link href={"/transactions/#{@example_txid}"}>/transactions</.text_link>, which also needs sign-in.
+        </p>
+      </.step>
+
+      <.step
+        id="step-prove-it"
+        n={4}
+        title="Prove it yourself"
+        status="signed_in"
+      >
+        <p>
+          A proof lets you check a transaction is in a block without trusting Bitblocks.
+          <.text_link
+            id="start-proof-link"
+            href={proof_path()}
+          >
+            Fetch the proof
+          </.text_link>
+          once you're signed in, or use this one.
+        </p>
+        <.code_panel
+          label="The response, abridged"
+          code={proof_example()}
+        />
+        <p>
+          Now climb from the transaction to the root.
+          This needs Python and no account, and it prints <code class="font-mono text-xs">True</code>.
+        </p>
+        <.code_panel
+          label="check_proof.py"
+          code={proof_check()}
+        />
+        <p>
+          The root is in the block's header, so anyone holding the headers can make the same check.
+          <.text_link href="/start/api#proofs">The API reference</.text_link>
+          covers proofs and BEEF.
+        </p>
+      </.step>
+
+      <.step
+        id="step-get-a-key"
+        n={5}
+        title="Get a key"
+        status="coming"
+        last
+      >
+        <p>
+          A server can't sign in with GitHub, so an application needs a key.
+          The plan is simple: sign in, and get a key with a small budget from this page.
+        </p>
+        <p>
+          That isn't built yet, and keys are issued by hand for now.
+          Until then, everything above works in a signed-in browser.
+        </p>
+        <.code_panel
+          label="How a key is sent"
+          code={key_example()}
+        />
+      </.step>
+    </ol>
+  </section>
+
+  <%!-- Demos: real things, read from the index --%>
+  <section
+    id="demos"
+    aria-labelledby="demos-heading"
+    class="mb-14"
+  >
+    <.strand_heading id="demos-heading">
+      See what's been built
+    </.strand_heading>
+    <p class="mb-6 text-sm text-gray-600 dark:text-gray-400">
+      These run on the same index as the steps above, and they're all open to browse.
+    </p>
+
+    <article
+      id="demo-rexxies"
+      class="mb-6 rounded-lg border border-gray-200 p-5 dark:border-gray-700"
+    >
+      <h3 class="mb-3 text-lg font-semibold text-gray-900 dark:text-white">
+        <a
+          href="/collections/rexxies"
+          class="text-blue-700 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
+        >
+          Rexxies
+        </a>
+      </h3>
+      <ul
+        :if={@rexxie_items != []}
+        id="rexxie-strip"
+        role="list"
+        class="mb-4 grid grid-cols-3 gap-2 sm:grid-cols-6"
+      >
+        <li
+          :for={item <- @rexxie_items}
+          class="aspect-square overflow-hidden rounded bg-gray-50 dark:bg-gray-800"
+        >
+          <.item_art item={item} />
+        </li>
+      </ul>
+      <div class="space-y-3 text-sm leading-relaxed text-gray-700 dark:text-gray-300">
+        <p :if={@rexxies && @rexxies.items > 0}>
+          <span class="font-mono tabular-nums">{format_number(@rexxies.items)}</span>
+          dinosaur NFTs, each a Run jig, minted from block 771,246.
+          Bitblocks proves each one's membership from the collection's mint chain, and has followed
+          <span class="font-mono tabular-nums">{format_number(@rexxies.traced)}</span>
+          of them to a settled answer.
+        </p>
+        <p :if={!@rexxies || @rexxies.items == 0}>
+          Dinosaur NFTs, each a Run jig, minted from block 771,246.
+          This instance hasn't indexed them yet.
+        </p>
+        <p :if={@rexxies && @rexxies.ended > 0}>
+          For <span class="font-mono tabular-nums">{format_number(@rexxies.ended)}</span>
+          of them the trail ends, and
+          <.text_link href="https://github.com/afomi/bitblocks/blob/develop/docs/field-notes/2026-11-02-rexxies-spent-outside-run.md">our field note</.text_link>
+          looks at how that happens.
+        </p>
+        <p>
+          Where this data comes from: Rexxies sit well above where the full sync has reached, so a collection is imported on its own, and each transaction is checked against its txid.
+          The pictures come from the collection's catalog, because the on-chain payloads are encrypted.
+        </p>
+        <p>
+          Run's SDK is
+          <.text_link href="https://github.com/runonbitcoin/run-sdk">kept for reference</.text_link>
+          and no longer supported, so read Rexxies as a demo of what the chain keeps, and start new work from the list below.
+        </p>
+      </div>
+    </article>
+
+    <ul
+      role="list"
+      class="grid grid-cols-1 gap-3 sm:grid-cols-2"
+    >
+      <li :for={
+        {id, href, title, blurb} <- [
+          {"demo-tardinians", "/collections/grand-tardinians", "Grand Tardinians",
+           if(@tardinians && @tardinians.items > 0,
+             do: "#{format_number(@tardinians.items)} items on 1Sat, with membership and holders from the chain.",
+             else: "A 1Sat collection, with membership and holders from the chain."
+           )},
+          {"demo-bitcom", "/bitcom", "Bitcom registry",
+           "Namespaces on chain, with proof of who owns each one."},
+          {"demo-types", "/types", "Transaction types",
+           "What each kind of transaction is, how it's spent, and real examples."},
+          {"demo-metanet", "/metanet", "Metanet",
+           "Walk Metanet trees from a root to its children and versions."}
+        ]
+      }>
+        <a
+          id={id}
+          href={href}
+          class="block h-full rounded-lg border border-gray-200 p-4 hover:border-orange-400 dark:border-gray-700"
+        >
+          <span class="block font-semibold text-gray-900 dark:text-white">
+            {title}
+          </span>
+          <span class="mt-1 block text-sm text-gray-600 dark:text-gray-400">
+            {blurb}
+          </span>
+        </a>
+      </li>
+    </ul>
+    <p class="mt-4 text-sm text-gray-600 dark:text-gray-400">
+      These are beta views, and they fill in as the sync climbs.
+      For more of what people are building,
+      <.text_link href="https://bsvradar.com">BSV Radar</.text_link>
+      is a public directory of Bitcoin applications.
+    </p>
+  </section>
+
+  <%!-- References: other people's work, plain links --%>
+  <section
+    id="references"
+    aria-labelledby="references-heading"
+    class="mb-14"
+  >
+    <.strand_heading id="references-heading">
+      Start from these
+    </.strand_heading>
+    <p class="mb-2 text-sm text-gray-600 dark:text-gray-400">
+      Good starting points from around the ecosystem.
+      None of them is ours, and we checked each link on 2026-11-05.
+    </p>
+    <h3 class="mt-6 text-sm font-semibold text-gray-900 dark:text-white">
+      Smart contracts
+    </h3>
+    <ul
+      role="list"
+      class="divide-y divide-gray-200 dark:divide-gray-700"
+    >
+      <.out_link
+        name="sCrypt boilerplate"
+        href="https://github.com/sCrypt-Inc/boilerplate"
+      >
+        A collection of example contracts with tests, in TypeScript.
+        Clone it, run the tests, change a contract.
+        Its last commit was in 2024, so pair it with the documentation below.
+      </.out_link>
+      <.out_link
+        name="sCrypt documentation"
+        href="https://docs.scrypt.io/bsv-docs/overview/"
+      >
+        How to install sCrypt and write contracts in TypeScript, with worked tutorials.
+      </.out_link>
+    </ul>
+    <h3 class="mt-6 text-sm font-semibold text-gray-900 dark:text-white">
+      Applications and wallets
+    </h3>
+    <ul
+      role="list"
+      class="divide-y divide-gray-200 dark:divide-gray-700"
+    >
+      <.out_link
+        name="BSV Skills Center quick start"
+        href="https://docs.bsvblockchain.org/intro/quick-start"
+      >
+        Set up a Node project with the SDK.
+      </.out_link>
+      <.out_link
+        name="BSV TypeScript stack"
+        href="https://github.com/bsv-blockchain/ts-stack"
+      >
+        The source of <code class="font-mono text-xs">@bsv/sdk</code>, with wallet tooling, overlays and messaging.
+      </.out_link>
+      <.out_link
+        name="1Sat SDK"
+        href="https://github.com/b-open-io/1sat-sdk"
+      >
+        Tools for building on 1Sat Ordinals: NFTs, fungible tokens and on-chain data.
+      </.out_link>
+      <.out_link
+        name="Yours Wallet"
+        href="https://github.com/yours-org/yours-wallet"
+      >
+        A non-custodial, open-source wallet for Bitcoin and 1Sat Ordinals.
+      </.out_link>
+    </ul>
+    <h3 class="mt-6 text-sm font-semibold text-gray-900 dark:text-white">
+      Standards and data
+    </h3>
+    <ul
+      role="list"
+      class="divide-y divide-gray-200 dark:divide-gray-700"
+    >
+      <.out_link
+        name="BRCs"
+        href="https://github.com/bsv-blockchain/BRCs"
+      >
+        Bitcoin Requests for Comments: published standards for wallets, tokens, transactions and more.
+      </.out_link>
+      <.out_link
+        name="1Sat Ordinals specification"
+        href="https://docs.1satordinals.com/"
+      >
+        The protocol behind Grand Tardinians and the other 1Sat collections.
+      </.out_link>
+      <.out_link
+        name="WhatsOnChain API"
+        href="https://docs.whatsonchain.com/"
+      >
+        A REST API for blocks, transactions and addresses, and a good companion for anything above where our sync has reached.
+      </.out_link>
+    </ul>
+  </section>
+
+  <%!-- Writing: the other half of an application --%>
+  <section
+    id="write"
+    aria-labelledby="write-heading"
+    class="mb-14"
+  >
+    <.strand_heading id="write-heading">
+      Write with Qart
+    </.strand_heading>
+    <div class="space-y-3 text-sm leading-relaxed text-gray-700 dark:text-gray-300">
+      <p>
+        Bitblocks reads, and doesn't compose or sign.
+        Qart, a sibling project, is a write side you can use today: tools for selling from a web page you own.
+        A payment goes straight to the seller's address, and Qart takes no percentage of a sale.
+      </p>
+      <ol
+        id="qart-steps"
+        class="list-decimal space-y-1 pl-5"
+      >
+        <li>
+          Sign in at <.text_link href="https://qart.app/start">qart.app/start</.text_link> and set up a shop.
+        </li>
+        <li>
+          Add a button to any page you own, with the key from your shop.
+        </li>
+        <li>
+          Sell something, then read the payment's transaction on Bitblocks once the sync reaches it.
+        </li>
+      </ol>
+      <.code_panel
+        label="A Qart buy button, in plain HTML"
+        code={qart_button()}
+      />
+      <p>
+        <.text_link href="https://teambitcoin.us">Team Bitcoin</.text_link>
+        is a store built this way, with these buttons on its page.
+      </p>
+    </div>
+    <dl class="mt-5 divide-y divide-gray-200 border-y border-gray-200 text-sm dark:divide-gray-700 dark:border-gray-700">
+      <div class="py-3 sm:flex sm:gap-4">
+        <dt class="w-28 shrink-0 text-xs font-semibold text-green-700 dark:text-green-400">
+          Live
+        </dt>
+        <dd
+          id="qart-live"
+          class="text-gray-700 dark:text-gray-300"
+        >
+          Buy buttons, pay links, receipts, a point of sale, double-entry books, HTTP 402 pay-per-request, and a wallet API that broadcasts transactions your own tools signed.
+        </dd>
+      </div>
+      <div class="py-3 sm:flex sm:gap-4">
+        <dt class="w-28 shrink-0 text-xs font-semibold text-amber-900 dark:text-amber-200">
+          On testnet
+        </dt>
+        <dd
+          id="qart-testnet"
+          class="text-gray-700 dark:text-gray-300"
+        >
+          Escrow, pre-signed refunds and co-signed transactions.
+        </dd>
+      </div>
+      <div class="py-3 sm:flex sm:gap-4">
+        <dt class="w-28 shrink-0 text-xs font-semibold text-amber-900 dark:text-amber-200">
+          In preview
+        </dt>
+        <dd
+          id="qart-preview"
+          class="text-gray-700 dark:text-gray-300"
+        >
+          Minting your own BSV-21 token, and referral covenants.
+        </dd>
+      </div>
+    </dl>
+    <p class="mt-3 text-sm text-gray-600 dark:text-gray-400">
+      These labels are Qart's own, from <.text_link href="https://qart.app/start">its ladder</.text_link>.
+      <.text_link href="https://qart.app/build">qart.app/build</.text_link>
+      explains the thinking, and <.text_link href="https://qart.app/llms.txt">llms.txt</.text_link> lists its API.
+    </p>
+  </section>
+
+  <%!-- Guidance: a way into the views page --%>
+  <section
+    id="guidance"
+    aria-labelledby="guidance-heading"
+    class="mb-8"
+  >
+    <.strand_heading id="guidance-heading">
+      What we'd tell a friend
+    </.strand_heading>
+    <p class="mb-3 text-sm text-gray-600 dark:text-gray-400">
+      Our views, with our reasons, dated so you can see how they age.
+    </p>
+    <dl class="divide-y divide-gray-200 border-y border-gray-200 dark:divide-gray-700 dark:border-gray-700">
+      <div
+        :for={{anchor, title, line} <- guidance_topics()}
+        class="flex flex-col gap-1 py-3 sm:flex-row sm:items-baseline sm:gap-4"
+      >
+        <dt class="w-44 shrink-0 text-sm">
+          <a
+            href={"/start/guidance##{anchor}"}
+            class="text-blue-700 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
+          >
+            {title}
+          </a>
+        </dt>
+        <dd class="text-sm text-gray-700 dark:text-gray-300">
+          {line}
+        </dd>
+      </div>
+    </dl>
+  </section>
+</.start_page>

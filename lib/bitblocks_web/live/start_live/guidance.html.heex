@@ -1,0 +1,227 @@
+<.start_page current="guidance">
+  <section
+    id="guidance-lede"
+    class="mb-12"
+  >
+    <h1 class="mb-3 text-3xl font-semibold tracking-tight text-gray-900 dark:text-white">
+      How we think about building on Bitcoin
+    </h1>
+    <p class="text-lg leading-relaxed text-gray-700 dark:text-gray-300">
+      These are Bitblocks' own opinions, drawn from what we've built and decided so far.
+      Each one gives our reason and a date, because we expect to learn and change our minds.
+    </p>
+    <p class="mt-3 text-sm text-gray-600 dark:text-gray-400">
+      "Our position" means we've built on it.
+      "Draft" means we're still working it out.
+      A project named here is one we admire, and that's all it means: nobody has reviewed or endorsed these views.
+    </p>
+  </section>
+
+  <.view
+    id="standards"
+    title="Standards"
+    claim="Implement a published standard before inventing a format."
+    status="position"
+    date="2026-10-19"
+  >
+    <p>
+      When two applications follow the same published format, each can read the other's bytes without asking.
+      That is much of the value of a shared ledger, and a private format gives it away.
+    </p>
+    <p>
+      We call a pattern settled once two projects have implemented it on their own and read each other's bytes, ideally in two different contexts.
+      Where a standard is silent, we decide locally, write the gap down, and send it to the standard's authors.
+    </p>
+    <p>
+      In practice: Bitblocks serves proofs as BEEF
+      (<.text_link href="https://github.com/bsv-blockchain/BRCs/blob/master/transactions/0062.md">BRC-62</.text_link>), and tests its BAP index against vectors shared with a wallet project.
+      <.text_link href="https://github.com/bsv-blockchain/BRCs">The BRCs</.text_link>
+      are the first place we look.
+    </p>
+  </.view>
+
+  <.view
+    id="identity"
+    title="Identity"
+    claim="Your identity is the first object you own."
+    status="position"
+    date="2026-10-28"
+  >
+    <p>
+      Use the wallet's own identity key, and prove it with a signature.
+      The same wallet then gives the same key to every application, and no application's name becomes part of anyone's identity.
+    </p>
+    <p>
+      Keep what's hard apart from what's soft.
+      A signature either verifies or it doesn't, and the chain settles that.
+      "This is Alice's current key" is a rule that readers apply to bytes that never change, so a rule like that needs writing down, naming and versioning, like a protocol.
+    </p>
+    <p>
+      In practice: our
+      <.text_link href="https://github.com/afomi/bitblocks/blob/develop/docs/BAP.md">BAP index</.text_link>
+      writes its rules down.
+      It accepts a key rotation signed by the root or by the outgoing key, because real identities are published both ways.
+    </p>
+  </.view>
+
+  <.view
+    id="wallets"
+    title="Wallets"
+    claim="A website should not hold your keys."
+    status="position"
+    date="2026-10-06"
+  >
+    <p>
+      The work should come to the key, and the key should never move.
+      <.text_link href="https://github.com/bsv-blockchain/BRCs/blob/master/wallet/0100.md">BRC-100</.text_link>
+      is the best answer we know to that: a list of what a website may ask a wallet to do, with one interface across wallets.
+    </p>
+    <p>
+      So ask for actions, not transactions.
+      Say what you want, and let the wallet pick the coins, sign, and show the person a description they can read.
+      Let proof travel with a payment too, so the receiver can check it against block headers alone.
+    </p>
+    <p>
+      When we need a reference for wallet behaviour we follow
+      <.text_link href="https://github.com/yours-org/yours-wallet">Yours Wallet</.text_link>, and its names and shapes are our default vocabulary.
+      Bitblocks itself holds no keys, because it only reads.
+    </p>
+  </.view>
+
+  <.view
+    id="experiences"
+    title="Experiences"
+    claim="Say what you know, and as of when."
+    status="draft"
+    date="2026-11-05"
+  >
+    <p>
+      People build on what they can trust, and a clear "unknown" earns more trust than a confident guess.
+      Bitblocks says which block its answers reach, and calls an output unspent only when it knows.
+    </p>
+    <p>
+      Treat Bitcoin as the mechanism rather than the admission ticket.
+      A person came to pay, sell, prove or play, so the bitcoin can stay quiet until it helps them.
+    </p>
+    <p>
+      Show the real thing rather than a mockup, and make each claim something a reader can open.
+    </p>
+  </.view>
+
+  <.view
+    id="applications"
+    title="Applications"
+    claim="Build the app as a view of the chain."
+    status="draft"
+    date="2026-11-05"
+  >
+    <p>
+      The chain is the source of truth, and an application is a projection of it.
+      One app writing and another reading the same transaction is the strongest test we know.
+    </p>
+    <p>
+      Start small: pay, then note, then prove.
+      A note needs no counterparty, only a record that can't change.
+      Proving is where two parties point at the same transaction and neither one's database has to be believed.
+    </p>
+    <p>
+      Put anything you need to change in a spendable output.
+      Spending an output is the one update the chain enforces, and everything else is appending.
+    </p>
+  </.view>
+
+  <.view
+    id="resources"
+    title="Resources"
+    claim="Read the spec, then the code, then the summary."
+    status="draft"
+    date="2026-11-05"
+  >
+    <p>
+      Primary sources age best, and this ecosystem publishes plenty of them.
+      These are where we go first.
+    </p>
+    <ul
+      role="list"
+      class="divide-y divide-gray-200 dark:divide-gray-700"
+    >
+      <.out_link
+        name="BRCs"
+        href="https://github.com/bsv-blockchain/BRCs"
+      >
+        The published standards, in one repository.
+      </.out_link>
+      <.out_link
+        name="Bitcom"
+        href="https://github.com/unwriter/Bitcom"
+      >
+        unwriter's convention for protocols as addresses, with its commands and spec.
+      </.out_link>
+      <.out_link
+        name="BSV Skills Center"
+        href="https://docs.bsvblockchain.org/"
+      >
+        Documentation on the whole system, from quick starts to running a node.
+      </.out_link>
+      <.out_link
+        name="BSV Radar"
+        href="https://bsvradar.com"
+      >
+        A public directory of Bitcoin applications.
+      </.out_link>
+    </ul>
+    <p>
+      Our own <.text_link href="/types">transaction types</.text_link>
+      page is a good companion: what each kind of transaction is, with real examples.
+    </p>
+  </.view>
+
+  <.view
+    id="interesting"
+    title="Things we find interesting"
+    claim="What has caught our eye."
+    status="draft"
+    date="2026-11-05"
+  >
+    <ul
+      role="list"
+      class="divide-y divide-gray-200 dark:divide-gray-700"
+    >
+      <.out_link
+        name="Bitcom, still"
+        href="https://github.com/unwriter/Bitcom"
+      >
+        A protocol is an address, and an address is a user.
+        It's a small idea that still holds up, which is why we run <.text_link href="/bitcom">a live registry</.text_link> of it.
+      </.out_link>
+      <.out_link
+        name="1Sat Ordinals"
+        href="https://github.com/b-open-io/1sat-sdk"
+      >
+        An object lives in a one-satoshi output, so owning it and moving it are plain Bitcoin.
+      </.out_link>
+      <.out_link
+        name="One wallet interface"
+        href="https://github.com/bsv-blockchain/ts-stack"
+      >
+        Wallets and applications meeting at BRC-100, with the tooling built in the open.
+      </.out_link>
+      <.out_link
+        name="Teranode"
+        href="https://github.com/bsv-blockchain/teranode"
+      >
+        A new node implementation, developed in the open, with a Docker quick start.
+      </.out_link>
+      <.out_link
+        name="Digital product passports"
+        href="https://github.com/bsv-blockchain/dpp"
+      >
+        A standard with specifications, test fixtures and a reference implementation, which is a good way to publish one.
+      </.out_link>
+    </ul>
+    <p>
+      <.text_link href="/collections/rexxies">Rexxies</.text_link>
+      belong here too: the chain still holds an app's objects, and we can still follow them, long after the tools that made them moved on.
+    </p>
+  </.view>
+</.start_page>

@@ -1,0 +1,235 @@
+defmodule BitblocksWeb.StartLiveTest do
+  # Writes the shared SyncProgress snapshot, so not async.
+  use BitblocksWeb.ConnCase, async: false
+
+  import Bitblocks.ChainFixtures
+  import Phoenix.LiveViewTest
+
+  alias Bitblocks.Chain.MerkleProof
+  alias Bitblocks.OrdinalCollections.Item
+  alias Bitblocks.SyncProgress
+  alias BitblocksWeb.SitemapController
+  alias BitblocksWeb.StartLive.{Api, Index}
+
+  @pages ~w(/start /start/api /start/guidance)
+
+  # Rexxie #1's mint, from the bundled catalog.
+  @mint "52c8ee4935f983b7ce10b84882cb42b30d989a4385eaec1289fafe88325eb53f"
+
+  setup do
+    :ets.insert(SyncProgress, {:snapshot, SyncProgress.empty_snapshot()})
+    on_exit(fn -> :ets.insert(SyncProgress, {:snapshot, SyncProgress.empty_snapshot()}) end)
+    :ok
+  end
+
+  defp put_coverage(overview) do
+    snapshot = SyncProgress.empty_snapshot()
+
+    :ets.insert(
+      SyncProgress,
+      {:snapshot, %{snapshot | overview: Map.merge(snapshot.overview, overview)}}
+    )
+  end
+
+  defp rexxie!(attrs \\ []) do
+    Bitblocks.Repo.insert!(
+      struct!(
+        %Item{
+          collection_id: Bitblocks.OrdinalCollections.known()["rexxies"],
+          origin: "#{@mint}_3",
+          mint_txid: @mint,
+          name: "Rexxie #1",
+          trace_state: "current"
+        },
+        attrs
+      )
+    )
+  end
+
+  defp with_gate(fun) do
+    Application.put_env(:bitblocks, :admin_auth, enabled: true)
+    on_exit(fn -> Application.put_env(:bitblocks, :admin_auth, enabled: false) end)
+    fun.()
+  end
+
+  describe "not published yet" do
+    test "every page is served, and asks not to be indexed", %{conn: conn} do
+      for path <- @pages do
+        html = conn |> get(path) |> html_response(200)
+        assert html =~ ~s(content="noindex, nofollow")
+      end
+    end
+
+    test "nothing public links to them", %{conn: conn} do
+      refute Enum.any?(SitemapController.public_paths(), &String.starts_with?(&1, "/start"))
+      refute conn |> get(~p"/") |> html_response(200) =~ ~s(href="/start)
+      refute File.read!("priv/static/robots.txt") =~ "/start"
+    end
+
+    test "a signed-out visitor can reach all of them", %{conn: conn} do
+      with_gate(fn ->
+        for path <- @pages do
+          assert conn |> get(path) |> html_response(200)
+        end
+      end)
+    end
+  end
+
+  describe "the path" do
+    test "reads coverage from the sync, not the copy", %{conn: conn} do
+      put_coverage(%{complete_through: 123_456, our_tip: 987_654})
+
+      {:ok, view, _html} = live(conn, ~p"/start")
+
+      assert has_element?(view, "#start-coverage", "123,456")
+      assert has_element?(view, "#start-coverage", "987,654")
+    end
+
+    test "leaves coverage out before the sync has a figure", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/start")
+      refute has_element?(view, "#start-coverage")
+    end
+
+    test "walks the steps in order, and says what isn't built", %{conn: conn} do
+      {:ok, view, html} = live(conn, ~p"/start")
+
+      steps = Regex.scan(~r/id="(step-[a-z-]+)"/, html, capture: :all_but_first) |> List.flatten()
+
+      assert steps == ~w(
+               step-first-request
+               step-sign-in
+               step-read-a-transaction
+               step-prove-it
+               step-get-a-key
+             )
+
+      assert has_element?(view, "#step-first-request", "Works today, no account needed")
+      assert has_element?(view, "#step-get-a-key", "Coming")
+      assert has_element?(view, "#step-get-a-key", "issued by hand")
+    end
+
+    test "warns a signed-out visitor before a link that needs sign-in", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/start")
+
+      assert has_element?(view, "#start-sign-in[href*='return_to']")
+      assert has_element?(view, "#step-read-a-transaction", "answers 401")
+    end
+
+    test "knows a signed-in visitor has done that step", %{conn: conn} do
+      user = Bitblocks.Repo.insert!(%Bitblocks.Accounts.User{github_id: 4242, login: "builder"})
+
+      {:ok, view, _html} = conn |> init_test_session(%{"user_id" => user.id}) |> live(~p"/start")
+
+      assert has_element?(view, "#start-signed-in", "builder")
+      refute has_element?(view, "#start-sign-in")
+      refute has_element?(view, "#step-read-a-transaction", "answers 401")
+    end
+
+    test "the proof it teaches climbs to the root it shows" do
+      {txid, index, siblings, root} = Index.proof_parts()
+
+      assert MerkleProof.climb(txid, index, siblings) == root
+    end
+  end
+
+  describe "the examples match the API" do
+    test "the status example's fields are in the response", %{conn: conn} do
+      body = conn |> get(~p"/api/v1/status") |> json_response(200)
+
+      assert Map.has_key?(body, "status")
+      assert Map.has_key?(body["index"], "complete_through")
+      assert Map.has_key?(body["index"], "tip")
+    end
+
+    test "the transaction example's fields are in the response", %{conn: conn} do
+      block = block_fixture()
+      tx = transaction_fixture(%{block_height: block.height})
+
+      data = conn |> get(~p"/api/v1/txs/#{tx.txid}") |> json_response(200) |> Map.fetch!("data")
+
+      for key <-
+            ~w(txid block_hash block_height version input_count output_count) ++
+              ~w(total_output_satoshis) do
+        assert Map.has_key?(data, key), "#{key} is on the page but not in the API"
+      end
+    end
+  end
+
+  describe "demos" do
+    test "says so when Rexxies aren't indexed", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/start")
+
+      assert has_element?(view, "#demo-rexxies", "hasn't indexed them yet")
+      refute has_element?(view, "#rexxie-strip")
+    end
+
+    test "shows Rexxies from the index, with the count it holds", %{conn: conn} do
+      rexxie!()
+
+      {:ok, view, _html} = live(conn, ~p"/start")
+
+      assert has_element?(view, "#rexxie-strip img[src='/images/rexxies/1.png']")
+      assert has_element?(view, "#demo-rexxies", "minted from block 771,246")
+      refute has_element?(view, "#demo-rexxies", "2,222")
+    end
+  end
+
+  describe "the API reference" do
+    test "every endpoint it lists is in the router" do
+      for group <- Api.groups(), row <- group.rows do
+        info = Phoenix.Router.route_info(BitblocksWeb.Router, row.method, row.path, "")
+
+        assert info != :error, "#{row.method} #{row.path} isn't a route"
+      end
+    end
+
+    test "every example is an endpoint in the router" do
+      for group <- Api.groups(), %{example: example} when is_binary(example) <- group.rows do
+        assert Phoenix.Router.route_info(BitblocksWeb.Router, "GET", example, "") != :error
+      end
+    end
+
+    test "states each endpoint's access truthfully", %{conn: conn} do
+      with_gate(fn ->
+        for group <- Api.groups(), %{method: "GET", access: :caller} = row <- group.rows do
+          assert conn |> get(row.path) |> response(401)
+        end
+
+        assert conn |> get(~p"/api/v1/status") |> response(200)
+      end)
+    end
+
+    test "shows the limits the rate limiter is configured with", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/start/api")
+      limits = Index.rate_limits()
+
+      assert has_element?(view, "#access-table", "#{limits.anonymous}, per IP")
+      assert has_element?(view, "#access-table", "#{limits.signed_in}, per user")
+    end
+  end
+
+  describe "guidance" do
+    test "dates every view and labels it ours or a draft", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/start/guidance")
+
+      for {anchor, _title, _line} <- Index.guidance_topics() do
+        assert has_element?(view, "##{anchor}")
+        assert render(element(view, "##{anchor}")) =~ ~r/\d{4}-\d{2}-\d{2}/
+        assert render(element(view, "##{anchor}")) =~ ~r/Our position|Draft/
+      end
+    end
+
+    test "says plainly that nobody has endorsed it", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/start/guidance")
+
+      assert has_element?(view, "#guidance-lede", "nobody has reviewed or endorsed")
+    end
+  end
+
+  test "copy says Bitcoin, and keeps technical names", %{conn: conn} do
+    for path <- @pages do
+      {:ok, view, _html} = live(conn, path)
+      refute render(view) =~ "Bitcoin SV"
+    end
+  end
+end

@@ -124,6 +124,9 @@ defmodule BitblocksWeb.AccessibilityAxeTest do
     for {path, ready, webgl?} <- [
           {"/", "#home-search-form", false},
           {"/about", "#how-it-is-built", false},
+          {"/start", "#step-get-a-key", false},
+          {"/start/api", "#access-table", false},
+          {"/start/guidance", "#interesting", false},
           {"/tx-graph", "#tx-flow-range", true},
           {"/shape-layers", "svg[viewBox='0 0 400 300']", false},
           {"/chain-scrubber", "#chain-scrubber-controls", true},

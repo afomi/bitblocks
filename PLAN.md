@@ -47,6 +47,7 @@ Partly built: #21 export, with versioned snapshots at `/api/v1/bitcom/snapshots`
 #12 API-SURFACE · #13 EDGE-RATE.
 #38: signed-out read-only block and transaction pages (the pages are built; the gate is Ryan's call).
 A bitblocks-owned funded address (#21, #22, #26): the code is ready for it ([docs/BITCOM.md](docs/BITCOM.md#waiting-on-a-bitblocks-owned-funded-address)).
+`/start` builder onboarding: built, unpublished, Draft guidance and self-serve keys to decide ([docs/DEMOS_CAMPAIGN.md](docs/DEMOS_CAMPAIGN.md)).
 
 ## Next
 

@@ -306,6 +306,9 @@ defmodule BitblocksWeb.Router do
       live "/types/:id", TypeLive.Show
       live "/about", AboutLive
       live "/pricing", PricingLive
+      live "/start", StartLive.Index
+      live "/start/api", StartLive.Api
+      live "/start/guidance", StartLive.Guidance
       live "/guide", GuideLive
       live "/reorgs", ReorgLive
       live "/did", DIDLive
