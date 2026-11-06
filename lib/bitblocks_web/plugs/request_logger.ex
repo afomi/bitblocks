@@ -183,7 +183,7 @@ defmodule BitblocksWeb.Plugs.RequestLogger do
 
   defp counts_against?(conn, true, _suspicious) do
     not (conn.status in [401, 429] or
-           String.starts_with?(conn.request_path, ["/api/", "/content/"]))
+           String.starts_with?(conn.request_path, ["/api/", "/content/", "/b/"]))
   end
 
   defp track_and_ban_if_needed(ip, _conn, metadata) do

@@ -6,6 +6,7 @@ Disallow: /blocks
 Disallow: /transactions
 Disallow: /tx
 Disallow: /content/
+Disallow: /b/
 Disallow: /bit/
 Disallow: /search
 Disallow: /order-book
