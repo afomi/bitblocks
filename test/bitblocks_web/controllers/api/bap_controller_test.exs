@@ -51,7 +51,7 @@ defmodule BitblocksWeb.Api.BapControllerTest do
 
     %{
       txid: BSV.Tx.get_txid(tx),
-      raw: BSV.Tx.to_binary(tx, encoding: :hex),
+      raw: Bitblocks.OrdinalFixtures.raw_tx_hex(tx),
       block_height: height,
       block_hash: block.hash,
       aip_signers: ["signed"],

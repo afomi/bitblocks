@@ -122,6 +122,30 @@ defmodule Bitblocks.OrdinalFixtures do
   def spend(outpoint, spender, vin),
     do: Process.put(:woc_spent, Map.put(Process.get(:woc_spent, %{}), outpoint, {spender, vin}))
 
+  @doc """
+  A tx's hex, for one that spends a single input with no script. `BSV.Tx`
+  can't be trusted here: `BSV.VarInt.encode/1` (bsv 2.1.0) writes 253 as one
+  byte, where the protocol wants `fd fd 00`, so a script of exactly 253 bytes
+  serializes to a tx nothing can read. An AIP-signed record lands on that
+  length about one time in a thousand, depending on its addresses.
+  """
+  def raw_tx_hex(%BSV.Tx{inputs: [%BSV.TxIn{outpoint: outpoint}], outputs: outputs}) do
+    bytes =
+      for %BSV.TxOut{satoshis: satoshis, script: script} <- outputs, into: <<>> do
+        script = BSV.Script.to_binary(script)
+        <<satoshis::little-64, varint(byte_size(script))::binary, script::binary>>
+      end
+
+    input = <<outpoint.hash::binary, outpoint.vout::little-32, 0, 0xFFFFFFFF::little-32>>
+
+    <<1::little-32, 1, input::binary, varint(length(outputs))::binary, bytes::binary, 0::32>>
+    |> Base.encode16(case: :lower)
+  end
+
+  defp varint(n) when n < 253, do: <<n>>
+  defp varint(n) when n <= 0xFFFF, do: <<0xFD, n::little-16>>
+  defp varint(n), do: <<0xFE, n::little-32>>
+
   @doc "A random txid-shaped outpoint for funding inputs."
   def funding_outpoint, do: "#{:crypto.strong_rand_bytes(32) |> Base.encode16(case: :lower)}_0"
 

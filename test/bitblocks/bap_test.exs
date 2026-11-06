@@ -61,7 +61,7 @@ defmodule Bitblocks.BapTest do
     block = Repo.get_by(Bitblocks.Chain.Block, height: height) || block_fixture(%{height: height})
     in_tx = %BSV.TxIn{outpoint: %BSV.OutPoint{hash: :crypto.strong_rand_bytes(32), vout: 0}}
     tx = %BSV.Tx{inputs: [in_tx], outputs: outputs}
-    raw = BSV.Tx.to_binary(tx, encoding: :hex)
+    raw = Bitblocks.OrdinalFixtures.raw_tx_hex(tx)
     signers = for %BSV.TxOut{script: s} <- outputs, a <- Aip.verified_signers(s.chunks), do: a
 
     row =
@@ -214,6 +214,25 @@ defmodule Bitblocks.BapTest do
     test "runs in the pipeline, as one module and one line" do
       assert TxPipeline.Steps.IndexBap in TxPipeline.steps(:tx)
     end
+  end
+
+  test "a record whose script is exactly 253 bytes reads like any other", ctx do
+    fields = [Bap.prefix(), "ALIAS", ctx.bap_id, "{}"]
+
+    base =
+      signed(fields, ctx.root) |> Map.fetch!(:script) |> BSV.Script.to_binary() |> byte_size()
+
+    json = Jason.encode!(%{name: String.duplicate("a", 253 - base + 2 - 11)})
+
+    output = alias_record(ctx.bap_id, json, ctx.root)
+    assert output.script |> BSV.Script.to_binary() |> byte_size() == 253
+
+    tx = %BSV.Tx{
+      inputs: [%BSV.TxIn{outpoint: %BSV.OutPoint{hash: <<1::256>>, vout: 0}}],
+      outputs: [output]
+    }
+
+    assert [%{action: "ALIAS"}] = Bap.records("t", Bitblocks.OrdinalFixtures.raw_tx_hex(tx))
   end
 
   describe "identity/1" do

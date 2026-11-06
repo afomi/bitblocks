@@ -145,7 +145,7 @@ defmodule Bitblocks.OrdinalCollections.StreamingWalkTest do
     end
 
     test "a trace batch holds one hop at a time, and the highest peak is kept" do
-      %{cid: cid} = walked(@long)
+      assert %{cid: cid, complete: true, import: %{failed: []}} = walked(@long)
       ids = Repo.all(from i in Item, where: i.collection_id == ^cid, select: i.id)
 
       :ok =
