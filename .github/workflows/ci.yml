@@ -132,6 +132,13 @@ jobs:
       - name: Setup database
         run: mix ecto.create && mix ecto.migrate
 
+      # Real CSS for the contrast checks, and app.js for the LiveView client.
+      - name: Install asset packages
+        run: npm --prefix assets install
+
+      - name: Build assets
+        run: mix assets.setup && mix assets.build
+
       - name: Run accessibility tests
         run: mix test --only accessibility_axe
         env:
