@@ -13,6 +13,8 @@ defmodule Bitblocks.OrdinalCollections.Walk do
     field :finished_at, :utc_datetime
     field :mints, :integer
     field :items, :integer
+    field :peak_bytes, :integer
+    field :trace_peak_bytes, :integer
 
     timestamps(type: :utc_datetime)
   end

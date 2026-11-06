@@ -25,6 +25,14 @@ defmodule Bitblocks.OrdinalCollections do
 
   Transactions come from our own index first and WhatsOnChain second
   (`Bitblocks.Woc`); every imported body is checked against its txid.
+
+  **Memory (#47).** A walk touches every tx of a collection, and a mint's tx
+  holds its whole inscription. What a protocol reads from a tx (a name, a
+  content type, a trait) is a slice of those bytes and keeps all of them alive
+  for as long as it is referenced, so nothing read from a tx may outlive its
+  hop: `sync/3` writes each mint's items as it walks and keeps only counts, and
+  `settle/0` drops each hop's garbage. `measure/1` reports the high-water mark,
+  recorded on the walk (`peak_bytes`, `trace_peak_bytes`).
   """
 
   import Ecto.Query
@@ -99,6 +107,12 @@ defmodule Bitblocks.OrdinalCollections do
 
   # Per trace. A longer trail stops as "partial" and the next trace resumes.
   @max_hops 100
+
+  # The process dictionary key of the high-water mark while `measure/1` runs.
+  @peak {__MODULE__, :peak_bytes}
+
+  # trace_all/1 reads items a page at a time.
+  @trace_page 100
 
   @doc "Transfers followed per trace before stopping as `partial`."
   def max_hops, do: @max_hops
@@ -255,90 +269,174 @@ defmodule Bitblocks.OrdinalCollections do
   candidates. Options: `follow: false` skips following the chain past the
   hint with WhatsOnChain.
 
-  Returns `%{mints, items, rejected, import, complete}`: `rejected` counts
-  hinted txs that are not on the mint chain, and `complete` says the walk
-  reached the end of the chain with no lookup failing (recorded for
-  `absence/2`).
+  Returns `%{mints, items, rejected, import, complete, peak_bytes}`:
+  `rejected` counts hinted txs that are not on the mint chain, `complete` says
+  the walk reached the end of the chain with no lookup failing (recorded for
+  `absence/2`), and `peak_bytes` is the most this process held above where it
+  started.
+
+  Items are written as the walk reaches them, in chain order, so the walk
+  holds counts and not transactions. A walk that stops early keeps the items
+  it proved; every one of them is on the chain.
   """
   def sync(collection_id, hint_txids, opts \\ []) do
-    [collection_txid, _] = String.split(collection_id, "_")
-    import = import_txs([collection_txid | hint_txids])
+    {{walk, import}, peak} =
+      measure(fn ->
+        [collection_txid, _] = String.split(collection_id, "_")
+        import = import_txs([collection_txid | hint_txids])
+        spenders = spender_index(hint_txids)
+        config = config_for(collection_id)
+        {walk_chain(config, spenders, Keyword.get(opts, :follow, true)), import}
+      end)
 
-    spenders = spender_index(hint_txids)
-    config = config_for(collection_id)
-    {mints, complete?} = walk_chain(config, spenders, Keyword.get(opts, :follow, true))
-
-    items =
-      mints
-      |> Enum.map(fn {txid, height, items} -> index_items(collection_id, txid, height, items) end)
-      |> Enum.sum()
-
-    mint_ids = MapSet.new(mints, &elem(&1, 0))
-    rejected = hint_txids |> Enum.uniq() |> Enum.count(&(not MapSet.member?(mint_ids, &1)))
-    record_walk(collection_id, complete?, length(mints), items)
+    mints = MapSet.size(walk.mint_ids)
+    rejected = hint_txids |> Enum.uniq() |> Enum.count(&(not MapSet.member?(walk.mint_ids, &1)))
+    record_walk(collection_id, walk.complete?, mints, walk.items, peak)
 
     Logger.info(
-      "OrdinalCollections.sync #{collection_id}: #{length(mints)} mints, #{items} items, " <>
-        "#{rejected} hinted txs rejected"
+      "OrdinalCollections.sync #{collection_id}: #{mints} mints, #{walk.items} items, " <>
+        "#{rejected} hinted txs rejected, #{peak} bytes at peak"
     )
 
-    %{mints: length(mints), items: items, rejected: rejected, import: import, complete: complete?}
+    %{
+      mints: mints,
+      items: walk.items,
+      rejected: rejected,
+      import: import,
+      complete: walk.complete?,
+      peak_bytes: peak
+    }
+  end
+
+  @doc """
+  Runs `fun` and returns `{result, peak_bytes}`: the most this process held
+  above where it started (its heap and the binaries it references), sampled at
+  each hop of a walk or trace.
+  """
+  def measure(fun) do
+    :erlang.garbage_collect()
+    start = process_bytes()
+    Process.put(@peak, start)
+    result = fun.()
+    settle()
+    {result, max(Process.delete(@peak) - start, 0)}
+  end
+
+  # A hop's end: notes the high-water mark, then frees what the hop left, so
+  # one large tx is gone before the next is read. The heap of a walking process
+  # is small, so this costs little beside the lookups around it.
+  defp settle do
+    if peak = Process.get(@peak), do: Process.put(@peak, max(peak, process_bytes()))
+    :erlang.garbage_collect()
+    :ok
+  end
+
+  defp process_bytes do
+    {:memory, heap} = Process.info(self(), :memory)
+    {:binary, binaries} = Process.info(self(), :binary)
+    heap + (binaries |> Enum.map(&elem(&1, 1)) |> Enum.sum())
+  end
+
+  @doc """
+  Records a trace batch's high-water mark on the collection's walk, keeping
+  the highest of the run. No walk on record, nothing to do.
+  """
+  def record_trace_peak(collection_id, peak) when is_integer(peak) do
+    from(w in Walk,
+      where: w.collection_id == ^collection_id,
+      update: [set: [trace_peak_bytes: fragment("GREATEST(?, ?)", w.trace_peak_bytes, ^peak)]]
+    )
+    |> Repo.update_all([])
+
+    :ok
   end
 
   # An unfinished walk clears the record: `absence/2` must not answer from a
   # chain we could no longer follow.
-  defp record_walk(collection_id, false, _mints, _items) do
+  defp record_walk(collection_id, false, _mints, _items, _peak) do
     Repo.delete_all(from w in Walk, where: w.collection_id == ^collection_id)
   end
 
-  defp record_walk(collection_id, true, mints, items) do
+  defp record_walk(collection_id, true, mints, items, peak) do
     now = DateTime.utc_now() |> DateTime.truncate(:second)
 
     Repo.insert!(
-      %Walk{collection_id: collection_id, finished_at: now, mints: mints, items: items},
-      on_conflict: {:replace, [:finished_at, :mints, :items, :updated_at]},
+      %Walk{
+        collection_id: collection_id,
+        finished_at: now,
+        mints: mints,
+        items: items,
+        peak_bytes: peak,
+        trace_peak_bytes: nil
+      },
+      on_conflict:
+        {:replace, [:finished_at, :mints, :items, :peak_bytes, :trace_peak_bytes, :updated_at]},
       conflict_target: :collection_id
     )
   end
 
   # outpoint ("txid_vout") => spending txid, over the candidate txs we hold.
   defp spender_index(txids) do
-    for txid <- Enum.uniq(txids),
-        {:ok, tx, _height} <- [load_tx(txid)],
-        input <- tx.inputs,
-        into: %{} do
-      {outpoint_id(input.outpoint), txid}
-    end
+    txids
+    |> Enum.uniq()
+    |> Enum.reduce(%{}, fn txid, index ->
+      index =
+        case load_tx(txid) do
+          {:ok, tx, _height} ->
+            Enum.reduce(tx.inputs, index, &Map.put(&2, outpoint_id(&1.outpoint), txid))
+
+          _ ->
+            index
+        end
+
+      settle()
+      index
+    end)
   end
 
   # Breadth-first from the collection outpoint: each chain link is spent by at
   # most one tx, and the protocol decides whether that tx mints and where the
   # chain goes next. Txs that carry the chain on without minting are walked
-  # through but aren't mints. Returns {mints, complete?}: complete? is false
-  # when a link couldn't be followed, which is not the same as the chain ending.
+  # through but aren't mints. Each mint's items are indexed as it is reached,
+  # so the walk holds no tx past its hop. Returns `%{mint_ids, items,
+  # complete?}`: complete? is false when a link couldn't be followed, which is
+  # not the same as the chain ending.
   defp walk_chain(config, spenders, follow?) do
-    do_walk([config.id], spenders, follow?, config, MapSet.new(), [], true)
+    walk = %{mint_ids: MapSet.new(), items: 0, complete?: true}
+    do_walk([config.id], spenders, follow?, config, MapSet.new(), walk)
   end
 
-  defp do_walk([], _spenders, _follow?, _config, _seen, mints, complete?),
-    do: {Enum.reverse(mints), complete?}
+  defp do_walk([], _spenders, _follow?, _config, _seen, walk), do: walk
 
-  defp do_walk([link | queue], spenders, follow?, config, seen, mints, complete?) do
+  defp do_walk([link | queue], spenders, follow?, config, seen, walk) do
+    settle()
+
     with {:ok, spender} <- spender_of(link, spenders, follow?),
          false <- MapSet.member?(seen, spender),
          {:ok, tx, height} <- load_tx(spender),
          {:ok, items, next_links} <- config.protocol.mint(tx, spender, link, config) do
-      mints = if items == [], do: mints, else: [{spender, height, items} | mints]
+      walk = index_mint(walk, config.id, spender, height, items)
       seen = MapSet.put(seen, spender)
-      do_walk(queue ++ next_links, spenders, follow?, config, seen, mints, complete?)
+      do_walk(queue ++ next_links, spenders, follow?, config, seen, walk)
     else
       # The link is unspent, already walked, or spent by a tx that ends the chain.
       ended when ended in [:unspent, true, :no] ->
-        do_walk(queue, spenders, follow?, config, seen, mints, complete?)
+        do_walk(queue, spenders, follow?, config, seen, walk)
 
       _ ->
-        do_walk(queue, spenders, follow?, config, seen, mints, false)
+        do_walk(queue, spenders, follow?, config, seen, %{walk | complete?: false})
     end
+  end
+
+  # A tx that only carries the chain on isn't a mint.
+  defp index_mint(walk, _cid, _txid, _height, []), do: walk
+
+  defp index_mint(walk, cid, txid, height, items) do
+    %{
+      walk
+      | mint_ids: MapSet.put(walk.mint_ids, txid),
+        items: walk.items + index_items(cid, txid, height, items)
+    }
   end
 
   defp spender_of(link, spenders, follow?) do
@@ -495,15 +593,31 @@ defmodule Bitblocks.OrdinalCollections do
     end
   end
 
-  @doc "Traces every item of a collection. Returns counts by trace_state."
-  def trace_all(collection_id) do
-    from(i in Item, where: i.collection_id == ^collection_id, order_by: i.id)
-    |> Repo.all()
-    |> Enum.map(fn item ->
-      {:ok, traced} = trace(item)
-      traced.trace_state
-    end)
-    |> Enum.frequencies()
+  @doc "Traces every item of a collection, a page at a time. Returns counts by trace_state."
+  def trace_all(collection_id), do: trace_pages(collection_id, 0, %{})
+
+  defp trace_pages(collection_id, after_id, counts) do
+    page =
+      from(i in Item,
+        where: i.collection_id == ^collection_id and i.id > ^after_id,
+        order_by: i.id,
+        limit: @trace_page
+      )
+      |> Repo.all()
+
+    case page do
+      [] ->
+        counts
+
+      page ->
+        counts =
+          Enum.reduce(page, counts, fn item, counts ->
+            {:ok, traced} = trace(item)
+            Map.update(counts, traced.trace_state, 1, &(&1 + 1))
+          end)
+
+        trace_pages(collection_id, List.last(page).id, counts)
+    end
   end
 
   # Returns {result, trail}: trail is the txids the item moved through on this
@@ -519,6 +633,7 @@ defmodule Bitblocks.OrdinalCollections do
        Enum.reverse(trail)}
 
   defp follow(outpoint, hops, protocol, trail) do
+    settle()
     [txid, vout] = String.split(outpoint, "_")
 
     case Woc.spent(txid, String.to_integer(vout)) do

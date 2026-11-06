@@ -119,6 +119,18 @@ elixir --erl "+MBas aoffcbf +Muac 0 +Muas 1024" -S mix phx.server
 iex> :observer.start()   # System tab
 ```
 
+## Slices keep the whole binary alive
+
+A slice of a binary is a reference to it.
+The BEAM copies a slice of 64 bytes or less out of its parent during garbage collection, and keeps the parent alive for anything longer.
+So one 90-byte trait description read from a mint's inscription holds the whole inscription for as long as that string is referenced (#47).
+Measured on OTP 28: one mint's items, with a 1 MB inscription, held 256 bytes with short traits and 1,001,050 bytes with one long trait.
+
+The rule for anything that walks many transactions: nothing read from a tx outlives its hop.
+`OrdinalCollections.sync/3` writes each mint's items as it reaches them and keeps counts, and each hop ends with a garbage collection, which costs little in a process with a small heap.
+A walk of 20 mints of 500 KB peaks near 3 MB this way, against 10 MB when the items are held to the end.
+`OrdinalCollections.measure/1` reports that high-water mark, and each walk records it (`collection_walks.peak_bytes`, `trace_peak_bytes`), so `Release.collection_sync_status/1` shows it on real data.
+
 ## Monitoring
 
 The MemoryMonitor emits telemetry on each check; wire alerts in your monitoring stack on total memory crossing your per-instance budget, and track total memory, top-process memory, ETS sizes, process count, and binary memory over time.

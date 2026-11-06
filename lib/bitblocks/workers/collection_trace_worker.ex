@@ -26,17 +26,22 @@ defmodule Bitblocks.Workers.CollectionTraceWorker do
       }) do
     {:ok, since, _} = DateTime.from_iso8601(started)
 
-    from(i in Item, where: i.id in ^ids, order_by: i.id)
-    |> Bitblocks.Repo.all()
-    |> Enum.reject(&(&1.traced_at && DateTime.compare(&1.traced_at, since) != :lt))
-    |> Enum.each(fn item ->
-      opts =
-        if item.trail == [] and item.current_outpoint != item.origin,
-          do: [from: :origin],
-          else: []
+    {:ok, peak} =
+      OrdinalCollections.measure(fn ->
+        from(i in Item, where: i.id in ^ids, order_by: i.id)
+        |> Bitblocks.Repo.all()
+        |> Enum.reject(&(&1.traced_at && DateTime.compare(&1.traced_at, since) != :lt))
+        |> Enum.each(fn item ->
+          opts =
+            if item.trail == [] and item.current_outpoint != item.origin,
+              do: [from: :origin],
+              else: []
 
-      {:ok, _} = OrdinalCollections.trace(item, opts)
-    end)
+          {:ok, _} = OrdinalCollections.trace(item, opts)
+        end)
+      end)
+
+    if cid = OrdinalCollections.resolve(slug), do: OrdinalCollections.record_trace_peak(cid, peak)
 
     if last_batch?(job_id, slug, started), do: log_done(slug)
     :ok

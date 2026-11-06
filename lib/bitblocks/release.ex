@@ -1435,8 +1435,10 @@ defmodule Bitblocks.Release do
   end
 
   @doc """
-  Progress of a collection sync: items by trace_state, and this collection's
-  sync and trace jobs still pending.
+  Progress of a collection sync: items by trace_state, this collection's sync
+  and trace jobs still pending, and the last finished walk with its high-water
+  marks (`peak_bytes` for the walk, `trace_peak_bytes` for the largest trace
+  batch since).
   """
   def collection_sync_status(slug) do
     import Ecto.Query
@@ -1460,9 +1462,12 @@ defmodule Bitblocks.Release do
       |> Enum.map(fn {w, st, n} -> {"#{w |> String.split(".") |> List.last()} #{st}", n} end)
       |> Map.new()
 
+    walk = cid && Bitblocks.Repo.get_by(Bitblocks.OrdinalCollections.Walk, collection_id: cid)
+
     status = %{
       summary: if(cid, do: OrdinalCollections.summary(cid)),
-      pending_jobs: pending
+      pending_jobs: pending,
+      walk: walk && Map.take(walk, [:finished_at, :mints, :items, :peak_bytes, :trace_peak_bytes])
     }
 
     IO.puts("collection_sync_status #{slug}: #{inspect(status)}")
