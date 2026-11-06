@@ -161,7 +161,7 @@ defmodule Bitblocks.Workers.SyncHeadersWorkerTest do
   end
 
   describe "queue_transaction_fetch integration" do
-    test "queuing tx fetch for a block transitions it to txs_queued" do
+    test "requesting a block leaves ownership to the ordered sync loop" do
       block =
         block_fixture(%{
           height: 200,
@@ -169,17 +169,17 @@ defmodule Bitblocks.Workers.SyncHeadersWorkerTest do
           sync_state: "header_only"
         })
 
-      assert {:ok, _job} = Chain.queue_transaction_fetch(block)
+      assert {:ok, :automatic} = Chain.queue_transaction_fetch(block)
 
       updated = Chain.get_block!(200)
-      assert updated.sync_state == "txs_queued"
+      assert updated.sync_state == "header_only"
     end
 
-    test "queues the block on the sync loop's block queue" do
+    test "accepts a block hash without inserting a separate fetch job" do
       block = block_fixture(%{height: 201, hash: "queue_hash", sync_state: "header_only"})
 
-      assert {:ok, job} = Chain.queue_transaction_fetch(block)
-      assert job.queue == "sync_blocks"
+      assert {:ok, :automatic} = Chain.queue_transaction_fetch(block.hash)
+      refute Repo.exists?(Oban.Job)
     end
   end
 

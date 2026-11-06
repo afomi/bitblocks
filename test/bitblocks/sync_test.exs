@@ -484,6 +484,7 @@ defmodule Bitblocks.SyncTest do
     end
 
     test "shrinking lets live blocks finish and refills nothing until a slot frees" do
+      Sync.set_concurrency(2)
       for h <- 0..3, do: block_at(h, "header_only")
       assert Sync.dispatch(2) == 2
       assert Sync.dispatch(1) == 0

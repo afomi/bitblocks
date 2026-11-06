@@ -14,6 +14,8 @@ A missing header counts as incomplete.
 /syncing, /sync, /status and `Release.sync_status()` all say "Complete through block X of N known", where N is our highest stored header.
 
 `complete_through` is computed, never stored.
+The underlying completion records are durable: restarting the app recomputes the position from them without fetching completed blocks again.
+This avoids a separate saved cursor getting ahead of the actual data after a repair or reorg.
 The lowest incomplete block comes from one lateral probe per state on `blocks_sync_state_height_index`.
 A header gap below it is found by an index-only count of heights, and only searched for when the count is short.
 
@@ -26,6 +28,8 @@ A header gap below it is found by an index-only count of heights, and only searc
    The coordinator gives each free worker slot the lowest incomplete block that has no live job.
    Nothing is skipped and nothing is worked out of order: a block that keeps failing keeps its slot and stays first in line.
    With more than one slot, higher blocks can finish first; `complete_through` only moves when the lowest incomplete block completes.
+   Dispatch is confined to a window starting at that checkpoint: worker slots × maximum blocks per run.
+   A missing header ends the window, and a stalled block prevents another slot from running arbitrarily far ahead.
 3. **One owner per block, sequential within it.**
    Each block belongs to one `FetchTransactionsWorker` job on the `:sync_blocks` queue, unique on the block hash across queued, running and backing-off states, so two processes never hold the same block.
    The job walks the block's transactions in chunks of 100, in order, one request in flight.
@@ -61,7 +65,9 @@ A header gap below it is found by an index-only count of heights, and only searc
 
 `Bitblocks.Sync.Coordinator` runs on every node and acts only while its node is Oban's leader (`Oban.Peer.leader?/0`, checked every second).
 It owns the cursor, dispatch, the concurrency setting, and the state broadcast.
-When leadership moves, the old leader stands down at its next tick and the new one takes over at its own; dispatch only inserts jobs that are unique per block, so a moment of overlap can't assign a block twice.
+When leadership moves, the old leader stands down at its next tick and the new one takes over at its own.
+A short database transaction lock serializes capacity checks and job insertion across instances, including every member of a small-block run.
+Dispatch reads the persisted pause and concurrency inside that lock, so direct calls obey the same controls as coordinator ticks.
 `Bitblocks.Workers.SyncWorker`, on the per-minute cron, only makes sure the coordinator is running.
 
 Workers are Oban jobs rather than tasks under the coordinator: a deploy or crash leaves them in the database, and they resume from their saved offset on whichever node picks them up.
@@ -79,6 +85,7 @@ The setting is clamped to `Sync.concurrency_limit/0`, the smallest of:
 /syncing names the binding limit, e.g. "Max 2 — CPU cores".
 Without a saved choice the default is `:sync_workers`: 1 in dev and test, 2 in prod (a t3.medium has 2 vCPUs; POOL_SIZE 10 leaves 5; the RPC limit is 4).
 The coordinator scales the `:sync_blocks` queue on every node to the setting; dispatch is what bounds the cluster to it.
+The legacy `Chain.queue_transaction_fetch/1` entry point only nudges the coordinator; it cannot allocate a worker outside the ordered loop.
 
 ## Pausing
 

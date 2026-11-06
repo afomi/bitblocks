@@ -14,6 +14,10 @@
       Not complete from genesis yet
     <% end %>
   </h2>
+  <p class="mb-2 text-sm text-gray-700 dark:text-gray-300">
+    Complete means every block from genesis has a verified transaction list and all its transactions stored.
+    Restarts resume from the first incomplete block; completed blocks are kept.
+  </p>
   <%= if @sync do %>
     <p
       id={"#{@id}-concurrency"}

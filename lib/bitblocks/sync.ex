@@ -27,6 +27,7 @@ defmodule Bitblocks.Sync do
   @worker "Bitblocks.Workers.FetchTransactionsWorker"
   @live_states ~w(available scheduled executing retryable)
   @control_topic "sync:control"
+  @dispatch_lock 728_193_042
 
   # Every state but "completed". A lateral probe per state on
   # blocks_sync_state_height_index finds the lowest incomplete blocks in
@@ -295,11 +296,14 @@ defmodule Bitblocks.Sync do
     applied = clamp(n)
     now = NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second)
 
-    Repo.insert!(
-      %Settings{id: 1, concurrency: applied, inserted_at: now, updated_at: now},
-      on_conflict: [set: [concurrency: applied, updated_at: now]],
-      conflict_target: :id
-    )
+    {:ok, _} =
+      serialize_dispatch(fn ->
+        Repo.insert!(
+          %Settings{id: 1, concurrency: applied, inserted_at: now, updated_at: now},
+          on_conflict: [set: [concurrency: applied, updated_at: now]],
+          conflict_target: :id
+        )
+      end)
 
     Phoenix.PubSub.broadcast(Bitblocks.PubSub, @control_topic, {:concurrency, applied})
     {:ok, applied}
@@ -335,17 +339,20 @@ defmodule Bitblocks.Sync do
   def set_paused(paused) when is_boolean(paused) do
     now = NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second)
 
-    Repo.insert!(
-      %Settings{
-        id: 1,
-        concurrency: concurrency(),
-        paused: paused,
-        inserted_at: now,
-        updated_at: now
-      },
-      on_conflict: [set: [paused: paused, updated_at: now]],
-      conflict_target: :id
-    )
+    {:ok, _} =
+      serialize_dispatch(fn ->
+        Repo.insert!(
+          %Settings{
+            id: 1,
+            concurrency: concurrency(),
+            paused: paused,
+            inserted_at: now,
+            updated_at: now
+          },
+          on_conflict: [set: [paused: paused, updated_at: now]],
+          conflict_target: :id
+        )
+      end)
 
     Phoenix.PubSub.broadcast(Bitblocks.PubSub, @control_topic, {:paused, paused})
     {:ok, paused}
@@ -430,8 +437,29 @@ defmodule Bitblocks.Sync do
   worked one at a time, so the limits keep runs short, not memory low.
   Near height 157,000 the median block has 31 txs and the largest 379.
   """
-  @spec dispatch(pos_integer()) :: non_neg_integer()
-  def dispatch(n \\ concurrency()) do
+  @spec dispatch(pos_integer() | nil) :: non_neg_integer()
+  def dispatch(requested \\ nil) do
+    # A leader handover can overlap. Count capacity and insert whole runs in
+    # one transaction, across all instances, rather than relying on uniqueness
+    # of a run's first block to protect the rest of its members.
+    {:ok, count} =
+      serialize_dispatch(fn ->
+        chosen = concurrency()
+        slots = if is_integer(requested), do: min(max(requested, 1), chosen), else: chosen
+        if paused?(), do: 0, else: dispatch_window(slots)
+      end)
+
+    count
+  end
+
+  defp serialize_dispatch(fun) do
+    Repo.transaction(fn ->
+      Repo.query!("SELECT pg_advisory_xact_lock($1)", [@dispatch_lock])
+      fun.()
+    end)
+  end
+
+  defp dispatch_window(n) do
     live = live_jobs()
     free = n - length(live)
 
@@ -441,8 +469,8 @@ defmodule Bitblocks.Sync do
       held = live |> Enum.flat_map(& &1.held) |> MapSet.new()
       free_slots = Enum.to_list(1..n) -- Enum.map(live, & &1.slot)
 
-      (free * run_limits().max_blocks + MapSet.size(held))
-      |> lowest_incomplete()
+      n
+      |> candidates_in_window()
       |> Enum.reject(&MapSet.member?(held, &1.hash))
       |> plan_runs(free, run_limits())
       |> Enum.zip(free_slots)
@@ -450,6 +478,25 @@ defmodule Bitblocks.Sync do
         match?({:ok, %{conflict?: false}}, Oban.insert(job_for(run, slot)))
       end)
     end
+  end
+
+  # Pin the window to the contiguous checkpoint, including blocks already
+  # held by jobs. A faster slot must not keep moving away from a stalled one.
+  # Only this bounded height range is read, and a missing header ends it.
+  defp candidates_in_window(slots) do
+    first = complete_through() + 1
+    last = first + slots * run_limits().max_blocks - 1
+
+    from(b in Block,
+      where: b.height >= ^first and b.height <= ^last,
+      order_by: b.height,
+      select: %{height: b.height, hash: b.hash, num_tx: b.num_tx, sync_state: b.sync_state}
+    )
+    |> Repo.all()
+    |> Enum.with_index(first)
+    |> Enum.take_while(fn {block, expected} -> block.height == expected end)
+    |> Enum.map(&elem(&1, 0))
+    |> Enum.reject(&(&1.sync_state == "completed"))
   end
 
   defp job_for([%{hash: hash}], slot),

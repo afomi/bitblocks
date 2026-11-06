@@ -438,21 +438,17 @@ defmodule Bitblocks.Chain do
   def block_transactions_downloaded?(_), do: false
 
   @doc """
-  Queues a fetch of `block`'s transactions now, in the sync loop's block
-  queue, and marks it `txs_queued`. A no-op for a block that already has a
-  live job. Accepts a Block or a block hash.
+  Nudges the automatic sync loop, which reaches this block in height order.
+  Does not bypass a pause or allocate another worker slot.
+  Accepts a Block or a block hash; returns `{:ok, :automatic}`.
   """
-  def queue_transaction_fetch(%Block{hash: hash} = block) do
-    {:ok, updated_block} =
-      block
-      |> Ecto.Changeset.change(%{sync_state: "txs_queued"})
-      |> Repo.update()
-
-    broadcast_block_update(updated_block)
-
-    %{block_hash: hash}
-    |> Bitblocks.Workers.FetchTransactionsWorker.new()
-    |> Oban.insert()
+  @spec queue_transaction_fetch(Block.t() | String.t()) ::
+          {:ok, :automatic} | {:error, :block_not_found}
+  def queue_transaction_fetch(%Block{}) do
+    # Compatibility for callers of the old per-block enqueuer. Only the
+    # coordinator assigns work, in height order and within the shared limit.
+    Bitblocks.Sync.Coordinator.ensure_running()
+    {:ok, :automatic}
   end
 
   def queue_transaction_fetch(block_hash) when is_binary(block_hash) do
