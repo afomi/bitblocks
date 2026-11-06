@@ -51,17 +51,6 @@ defmodule BitblocksWeb.TransactionLive.Index do
   end
 
   @impl true
-  def handle_event("delete", %{"id" => id}, socket) do
-    transaction = Chain.get_transaction!(id)
-    {:ok, _} = Chain.delete_transaction(transaction)
-
-    {transactions, next_cursor} =
-      Chain.list_transactions_paginated(socket.assigns.cursor, @per_page, socket.assigns.filters)
-
-    {:noreply, socket |> assign(:transactions, transactions) |> assign(:next_cursor, next_cursor)}
-  end
-
-  @impl true
   def handle_event("toggle_filters", _params, socket) do
     {:noreply, assign(socket, :show_filters, !socket.assigns.show_filters)}
   end

@@ -51,14 +51,6 @@ defmodule BitblocksWeb.BlockLive.Index do
     |> assign(:block, nil)
   end
 
-  @impl true
-  def handle_event("delete", %{"id" => id}, socket) do
-    block = Chain.get_block!(id)
-    {:ok, _} = Chain.delete_block(block)
-
-    {:noreply, assign(socket, :blocks, list_blocks(socket.assigns.page, socket.assigns.per_page))}
-  end
-
   defp list_blocks(page, per_page) do
     Chain.list_blocks(page: page, per_page: per_page)
   end
