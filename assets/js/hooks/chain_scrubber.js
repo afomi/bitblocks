@@ -36,6 +36,7 @@ const COLORS = {
   current: new THREE.Color(0xf59e0b),
   reorg: new THREE.Color(0x8b5cf6),
   loss: new THREE.Color(0xef4444),
+  burn: new THREE.Color(0xf97316),
   event: new THREE.Color(0xffffff),
   // The scene stays near-black in light and dark mode: it is the one dark
   // region on the page, framed by site-style chrome (DESIGN.md). Keep it in
@@ -56,10 +57,10 @@ const EVENT_COLORS = {
   note: new THREE.Color(0x60a5fa)
 }
 
-const MARKER_KINDS = ["reorg", "loss", "event"]
+const MARKER_KINDS = ["reorg", "loss", "burn", "event"]
 
 function markerKind(kind) {
-  return kind === "reorg" || kind === "loss" ? kind : "event"
+  return kind === "reorg" || kind === "loss" || kind === "burn" ? kind : "event"
 }
 
 const MARK_COLORS = {
@@ -135,7 +136,7 @@ export default {
     this.queue = []
     this.inFlight = 0
     this.annotations = []
-    this.markerRefs = {reorg: [], loss: [], event: []}
+    this.markerRefs = {reorg: [], loss: [], burn: [], event: []}
     this.instanceHeights = [] // instance index -> record height
     this.instanceBaseColors = [] // instance index -> THREE.Color
     this.highlightedInstance = -1
@@ -236,6 +237,7 @@ export default {
     if (this.markers) {
       this.disposeInstanced(this.markers.reorg)
       this.disposeInstanced(this.markers.loss)
+      this.disposeInstanced(this.markers.burn)
       this.disposeInstanced(this.markers.event)
     }
     if (this.cursor) {
@@ -291,6 +293,7 @@ export default {
     this.markers = {
       reorg: new THREE.InstancedMesh(diamond, new THREE.MeshLambertMaterial({color: COLORS.reorg}), 1),
       loss: new THREE.InstancedMesh(diamond.clone(), new THREE.MeshLambertMaterial({color: COLORS.loss}), 1),
+      burn: new THREE.InstancedMesh(diamond.clone(), new THREE.MeshLambertMaterial({color: COLORS.burn}), 1),
       event: new THREE.InstancedMesh(diamond.clone(), new THREE.MeshLambertMaterial({color: COLORS.event}), 1)
     }
     for (const m of Object.values(this.markers)) {
@@ -730,8 +733,8 @@ export default {
     const span = tiles.spanOf(this.level)
     const unit = WIDTH / (h1 - h0 + 1)
     const size = Math.min(Math.max(unit * span * 0.6, 0.5), 1.4)
-    const counts = {reorg: 0, loss: 0, event: 0}
-    this.markerRefs = {reorg: [], loss: [], event: []}
+    const counts = {reorg: 0, loss: 0, burn: 0, event: 0}
+    this.markerRefs = {reorg: [], loss: [], burn: [], event: []}
     for (const a of this.annotations) {
       if (a.height < h0 || a.height > h1) continue
       const mesh = this.markers[a.kind]

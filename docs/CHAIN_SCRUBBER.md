@@ -85,7 +85,9 @@ No new `transactions` index; no `OFFSET`.
 
 ## Annotations
 
-`Bitblocks.ChainScrubber.annotations/0`: every `reorgs` row at its `fork_height` (evidence `/reorgs`) and every classified loss at the spending tx's height (evidence `/transactions/:txid`, plus the field note URL).
+`Bitblocks.ChainScrubber.annotations/0`: every `reorgs` row at its `fork_height` (evidence `/reorgs`), every classified loss at the spending tx's height (evidence `/transactions/:txid`, plus the field note URL), the 100 blocks that burned the most (evidence `/blocks/:height`), and each placed chain annotation.
+A burn is sats locked in OP_RETURN outputs, read from `blocks.burned`, which the `block_totals` step sums: exact rather than classified, and only as far as completed blocks reach.
+Reading `blocks` keeps the layer off `transactions`; a read over 5 seconds drops the layer and logs it.
 The client draws them as markers above the column; a click opens the evidence.
 
 ## Ops

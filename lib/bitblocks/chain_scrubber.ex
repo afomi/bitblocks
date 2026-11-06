@@ -17,6 +17,8 @@ defmodule Bitblocks.ChainScrubber do
 
   import Ecto.Query
 
+  require Logger
+
   alias Bitblocks.Annotations
   alias Bitblocks.Chain.{Block, Transaction}
   alias Bitblocks.ChainScrubber.Losses
@@ -205,9 +207,10 @@ defmodule Bitblocks.ChainScrubber do
 
   @doc """
   Marks for what the chain doesn't announce: recorded reorgs, classified
-  losses and the chain annotations an admin placed (`Bitblocks.Annotations`:
-  `kind: "event"`, with the annotation's own kind in `event_kind`), each with
-  the height it happened at and a link to its evidence.
+  losses, the blocks that burned the most sats (`burns/0`) and the chain
+  annotations an admin placed (`Bitblocks.Annotations`: `kind: "event"`, with
+  the annotation's own kind in `event_kind`), each with the height it
+  happened at and a link to its evidence.
   """
   @spec annotations() :: [map()]
   def annotations do
@@ -246,7 +249,44 @@ defmodule Bitblocks.ChainScrubber do
         }
       end
 
-    Enum.sort_by(reorgs ++ losses ++ events, & &1.height)
+    Enum.sort_by(reorgs ++ losses ++ burns() ++ events, & &1.height)
+  end
+
+  @burn_marks 100
+  @burn_timeout_ms 5_000
+
+  @doc """
+  The #{@burn_marks} blocks that burned the most, as marks. A burn is sats
+  locked in OP_RETURN outputs, summed per block by the `block_totals` step:
+  exact, not a classification, so it reaches only as far as completed blocks.
+  Reads `blocks`, never `transactions`, and a slow read drops the layer rather
+  than holding the page.
+  """
+  @spec burns() :: [map()]
+  def burns do
+    from(b in Block,
+      where: b.burned > 0,
+      order_by: [desc: b.burned],
+      limit: @burn_marks,
+      select: {b.height, b.burned}
+    )
+    |> Repo.all(timeout: @burn_timeout_ms)
+    |> Enum.map(fn {height, burned} ->
+      amount = BitblocksWeb.Sats.bsv(burned)
+
+      %{
+        kind: "burn",
+        height: height,
+        label: "#{amount} burned at #{height}",
+        detail:
+          "Block #{height} locked #{amount} in OP_RETURN outputs, which can never be spent.",
+        evidence_url: "/blocks/#{height}"
+      }
+    end)
+  rescue
+    error in [DBConnection.ConnectionError, Postgrex.Error] ->
+      Logger.warning("chain scrubber: burns unavailable: #{Exception.message(error)}")
+      []
   end
 
   defp event_evidence(%{source_url: url}) when is_binary(url), do: url

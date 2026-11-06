@@ -223,6 +223,15 @@ defmodule Bitblocks.ChainScrubberTest do
              ] = events
     end
 
+    test "the blocks that burned most appear at their height, linked to the block" do
+      block_fixture(%{height: 20, burned: 150_000_000, sync_state: "completed"})
+      block_fixture(%{height: 21, burned: 0, sync_state: "completed"})
+
+      burns = Enum.filter(ChainScrubber.annotations(), &(&1.kind == "burn"))
+
+      assert [%{height: 20, evidence_url: "/blocks/20", label: "1.5 BSV burned at 20"}] = burns
+    end
+
     test "only classified losses appear; tracing doubts stay off the layer" do
       note_data =
         "docs/field-notes/data/rexxies-spent-outside-run-2026-11-02.json"
