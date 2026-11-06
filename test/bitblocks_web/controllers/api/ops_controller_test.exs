@@ -244,6 +244,7 @@ defmodule BitblocksWeb.Api.OpsControllerTest do
       assert body["num_tx"] == 2
       assert body["stored_txs"] == 2
       assert body["sync_state"] == "completed"
+      assert body["raw_object_stored_at"] == nil
       assert %{"source" => "rest", "bytes" => 1_000, "ms" => 12} = body["last_fetch"]
       assert [%{"fork_height" => 6, "summary" => "A two-block reorg."}] = body["reorgs"]
       assert_clean(body)

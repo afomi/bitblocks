@@ -349,7 +349,8 @@ defmodule Bitblocks.Ops do
             attempts: b.tx_sync_attempts,
             error: b.tx_sync_error,
             started_at: b.tx_sync_started_at,
-            completed_at: b.tx_sync_completed_at
+            completed_at: b.tx_sync_completed_at,
+            raw_object_stored_at: b.raw_object_stored_at
           }
         )
       )

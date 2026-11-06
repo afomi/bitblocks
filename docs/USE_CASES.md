@@ -495,12 +495,12 @@ Personas: existing Explorer, Developer, Operator, Protocol Author; plus two emer
 **Application Operator** — runs a db-backed product (qart, votesmash, a niche ledger) that hydrates from Bitblocks.
 **App User** — a person who uses more than one such product, holding keys in a wallet.
 
-Stories are planned, not built.
+Each story's status says what exists today (2026-11-05).
 Acceptance criteria are the contract a later implementation must meet.
 
 ### US-23-app-registry: Register an application by definition hash
 
-**Status: Not started.**
+**Status: Part built.** Definition hashes and registration exist as projections (#29); publishing one on chain and `GET /api/v1/apps` do not.
 **Persona:** Application Operator / Protocol Author
 
 As an **Application Operator**,
@@ -527,7 +527,7 @@ Then both tags are present — matches are independent.
 
 ### US-24-unmatched: Surface unregistered templates
 
-**Status: Not started.**
+**Status: Part built.** Every output is typed, with unmatched as `custom` (#49); the report of recurring unmatched shapes is #51.
 **Persona:** Protocol Author / Developer
 
 As a **Protocol Author**,
@@ -546,7 +546,7 @@ Then those transactions appear in that application's feed and drop off (or recat
 
 ### US-25-hydrate-initial: First-time filtered hydrate
 
-**Status: Not started.**
+**Status: Built for registered projections** (`GET /api/v1/projections/:id/txs`, #29). Filtering by a raw definition without registering it is not.
 **Persona:** Application Operator
 
 As an **Application Operator**,
@@ -573,7 +573,7 @@ Then I receive an empty set and a cursor at `snapshot_height` — not an error.
 
 ### US-26-hydrate-follow: Catch-up and follow
 
-**Status: Not started.**
+**Status: Part built.** Webhook follow with signed deliveries, retries and reorg rewinds exists (#29); SSE follow is step 6 of #29.
 **Persona:** Application Operator
 
 As an **Application Operator**,
@@ -600,7 +600,7 @@ Then catch-up from stored cursor recovers without a full re-hydrate.
 
 ### US-27-identity-chip: Identity on a transaction
 
-**Status: Not started.**
+**Status: Part built.** The identity behind a key can be read from `GET /api/v1/bap/:bap_id` and `?address=` (#32, `docs/BAP.md`); no page shows the chip yet.
 **Persona:** Explorer / App User
 
 As an **Explorer**,
@@ -623,7 +623,7 @@ Then I see the key/address — I do not see a guessed "person" cluster.
 
 ### US-28-identity-across-apps: Activity of a key across applications
 
-**Status: Not started.**
+**Status: Part built.** `aip_signers` is tagged at ingest and a projection can filter on it (#29), and `GET /api/v1/bap?address=` ties addresses to an identity; one view across applications is not built.
 **Persona:** App User / Explorer
 
 As an **App User**,
@@ -646,7 +646,7 @@ Then I see tagged events and "encrypted" — not decrypted fields.
 
 ### US-29-filter-backfill: New filter over history
 
-**Status: Not started.**
+**Status: Built for tag columns.** A filter over the GIN tag columns reads history at once, with no re-index (#29). A filter on anything else is not.
 **Persona:** Operator / Application Operator
 
 As an **Operator**,
@@ -669,7 +669,7 @@ Then tagged counts match re-running the filter on stored txs for the claimed ran
 
 ### US-30-unfiltered-is-bitblocks: Full-chain hydrate is running the explorer
 
-**Status: Not started (policy + docs; little new code).**
+**Status: Waiting on a decision.** The rate tiers exist; what stays public, and what asks for a key, is #12.
 **Persona:** Developer
 
 As a **Developer**,
