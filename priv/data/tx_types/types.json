@@ -79,6 +79,40 @@
       }
     },
     {
+      "id": "p2pk",
+      "title": "Pay to public key",
+      "short": "P2PK",
+      "group": "cash",
+      "summary": "The first payment. The lock holds the public key itself, and only that key can spend it.",
+      "description": [
+        "A P2PK output locks sats to a whole public key, with no hash in between.",
+        "To spend it, the owner signs the spending transaction with that key.",
+        "It has no address of its own, though tools often show the P2PKH address of the same key."
+      ],
+      "history": [
+        "P2PK is the oldest payment on chain: the genesis coinbase and the coinbases of Bitcoin's first years pay this way.",
+        "P2PKH took over as the standard, because a hash is shorter to share and keeps the key private until the first spend."
+      ],
+      "spec": {
+        "label": "The Bitcoin whitepaper",
+        "url": "https://bitcoin.org/bitcoin.pdf"
+      },
+      "pattern": {
+        "parts": [
+          {"token": "<public key>", "label": "The owner's key: 65 bytes uncompressed, or 33 compressed."},
+          {"token": "OP_CHECKSIG", "label": "Checks the spender's signature against the key."}
+        ],
+        "note": "67 or 35 bytes in all."
+      },
+      "spendable": true,
+      "spend": "A signature from the key in the lock: <signature>.",
+      "related": ["p2pkh", "multisig"],
+      "examples": {
+        "kind": "none",
+        "reason": "These cluster in the chain's early blocks, and a latest-first query would walk most of the index to reach them. The genesis coinbase is one."
+      }
+    },
+    {
       "id": "1sat-output",
       "title": "Bare 1-sat output",
       "short": "1 sat",
@@ -498,6 +532,42 @@
       "examples": {
         "kind": "none",
         "reason": "Our protocol detector does not tag SIGMA yet."
+      }
+    },
+    {
+      "id": "p2sh",
+      "title": "Pay to script hash",
+      "short": "P2SH",
+      "group": "conditions",
+      "summary": "Locks to the hash of a script, which the spender reveals. Retired from Bitcoin at the Genesis upgrade.",
+      "description": [
+        "A P2SH output holds the hash of a script, not the script itself.",
+        "From 2012, a spender showed the matching script and met its conditions, and nodes ran that script as an extra step.",
+        "Since the Genesis upgrade in 2020, nodes no longer take that extra step for new outputs, so this shape only checks the hash."
+      ],
+      "history": [
+        "BIP 16 added P2SH in 2012, so that multisig and other long scripts could fit behind a short address.",
+        "Genesis restored the original script rules at block 620,538, and P2SH was retired with that change.",
+        "Outputs created before Genesis still spend by the old rule."
+      ],
+      "spec": {
+        "label": "BIP 16",
+        "url": "https://github.com/bitcoin/bips/blob/master/bip-0016.mediawiki"
+      },
+      "pattern": {
+        "parts": [
+          {"token": "OP_HASH160", "label": "Hashes the script the spender supplies."},
+          {"token": "<script hash>", "label": "20 bytes: the hash the script must match."},
+          {"token": "OP_EQUAL", "label": "Succeeds only when the two hashes match."}
+        ],
+        "note": "23 bytes in all."
+      },
+      "spendable": true,
+      "spend": "Before Genesis: the script's own unlock data, then the script. After it: the bytes that hash to the value in the lock.",
+      "related": ["multisig", "p2pkh", "custom"],
+      "examples": {
+        "kind": "none",
+        "reason": "Their heights are spread unevenly, and a latest-first query could walk most of the index to reach them. Examples need an index of their own."
       }
     },
     {

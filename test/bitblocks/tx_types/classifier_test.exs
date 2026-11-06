@@ -76,8 +76,8 @@ defmodule Bitblocks.TxTypes.ClassifierTest do
     end
 
     test "an output no type matches is custom" do
-      p2pk = %BSV.Script{chunks: [@pubkey, :OP_CHECKSIG]}
-      assert Classifier.output_type(p2pk, 5_000_000_000) == "custom"
+      contract = %BSV.Script{chunks: [:OP_ADD, :OP_EQUAL]}
+      assert Classifier.output_type(contract, 5_000_000_000) == "custom"
       assert Classifier.output_type(%BSV.Script{chunks: []}, 0) == "custom"
     end
 
@@ -139,10 +139,33 @@ defmodule Bitblocks.TxTypes.ClassifierTest do
     test "a tx with an unmatched output includes custom" do
       tx = %BSV.Tx{
         inputs: [input([@sig, @pubkey])],
-        outputs: [out([@pubkey, :OP_CHECKSIG], 1000), out(vector("p2pkh"))]
+        outputs: [out([:OP_ADD, :OP_EQUAL], 1000), out(vector("p2pkh"))]
       }
 
       assert %{outputs: ["custom", "p2pkh"], types: ["p2pkh", "custom"]} = Classifier.classify(tx)
+    end
+
+    test "the genesis coinbase is P2PK, not custom" do
+      raw =
+        "01000000010000000000000000000000000000000000000000000000000000000000000000ffffffff4d04ffff001d0104455468652054696d65732030332f4a616e2f32303039204368616e63656c6c6f72206f6e206272696e6b206f66207365636f6e64206261696c6f757420666f722062616e6b73ffffffff0100f2052a01000000434104678afdb0fe5548271967f1a67130b7105cd6a828e03909a67962e0ea1f61deb649f6bc3f4cef38c4f35504e51ec112de5c384df7ba0b8d578a4c702b6bf11d5fac00000000"
+
+      assert {:ok, %{outputs: ["p2pk"], types: ["p2pk"]}} = Classifier.classify_raw(raw)
+    end
+
+    test "a compressed key is P2PK too; a push of any other size is custom" do
+      compressed = out([<<2, 0::256>>, :OP_CHECKSIG], 1000)
+      odd_size = out([:binary.copy(<<2>>, 20), :OP_CHECKSIG], 1000)
+      tx = %BSV.Tx{inputs: [input([@sig])], outputs: [compressed, odd_size]}
+
+      assert %{outputs: ["p2pk", "custom"]} = Classifier.classify(tx)
+    end
+
+    test "the script-hash shape is P2SH, and only with a 20-byte hash" do
+      p2sh = out([:OP_HASH160, :binary.copy(<<7>>, 20), :OP_EQUAL], 1000)
+      long = out([:OP_HASH160, :binary.copy(<<7>>, 32), :OP_EQUAL], 1000)
+      tx = %BSV.Tx{inputs: [input([@sig])], outputs: [p2sh, long]}
+
+      assert %{outputs: ["p2sh", "custom"]} = Classifier.classify(tx)
     end
 
     test "a Metanet root needs no parent signature" do

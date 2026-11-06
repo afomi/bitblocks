@@ -20,8 +20,10 @@ defmodule Bitblocks.TxTypes.Classifier do
        when a MAP record follows an `OP_RETURN` after the envelope; else
        `1sat-inscription`.
     3. **Lock**: P2PKH holding exactly 1 sat is `1sat-output`, any other
-       P2PKH is `p2pkh`; the cosign shape is `cosign`; bare m-of-n is
-       `multisig`; `OP_1` alone is `anyone-can-spend`; and a script whose
+       P2PKH is `p2pkh`; a public key and `OP_CHECKSIG` is `p2pk`;
+       `OP_HASH160 <20 bytes> OP_EQUAL` is `p2sh`; the cosign shape is
+       `cosign`; bare m-of-n is `multisig`; `OP_1` alone is
+       `anyone-can-spend`; and a script whose
        template hash (`Bitblocks.Script.template_hash/1`) a type lists
        under `examples.template_hashes` is that type (`ordlock`,
        `timelock`).
@@ -53,7 +55,9 @@ defmodule Bitblocks.TxTypes.Classifier do
   alias Bitblocks.Chain.RawTx
   alias Bitblocks.{Bsv20Parser, TxTypes}
 
-  @version 1
+  # v2 (#49): P2PK and P2SH get their own types, so early coinbases stop
+  # reading `custom`.
+  @version 2
 
   @b "19HxigV4QyBv3tHpQVcUEQyq1pzZVdoAut"
   @map "1PuQa7K62MiKCtssSLKy1kh56WWU7MtUR5"
@@ -62,7 +66,7 @@ defmodule Bitblocks.TxTypes.Classifier do
 
   # Types matched by their own rule in lock_type/2, not by template hash
   # (their listed hash covers one shape of many, or needs the value too).
-  @own_rule ~w(p2pkh 1sat-output multisig cosign anyone-can-spend)
+  @own_rule ~w(p2pkh p2pk p2sh 1sat-output multisig cosign anyone-can-spend)
 
   # The other script shapes a type names by template hash.
   @by_template_hash for %{examples: %{kind: "template", template_hashes: hashes}, id: id} <-
@@ -234,6 +238,12 @@ defmodule Bitblocks.TxTypes.Classifier do
     case chunks do
       [:OP_DUP, :OP_HASH160, <<_::binary-20>>, :OP_EQUALVERIFY, :OP_CHECKSIG] ->
         if satoshis == 1, do: "1sat-output", else: "p2pkh"
+
+      [pubkey, :OP_CHECKSIG] when is_binary(pubkey) and byte_size(pubkey) in [33, 65] ->
+        "p2pk"
+
+      [:OP_HASH160, <<_::binary-20>>, :OP_EQUAL] ->
+        "p2sh"
 
       [
         :OP_DUP,

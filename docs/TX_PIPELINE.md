@@ -77,7 +77,7 @@ An output's type is the first rule that matches:
 
 1. A data output (`OP_RETURN …` or `OP_FALSE OP_RETURN …`) takes the protocol of its first segment: `b`, `map`, `aip`, `sigma`, `metanet`, `run`, else `op-return`.
 2. An inscription envelope makes it `bsv-21` or `bsv-20` (a valid token operation), `inscription-map` (a MAP record after the envelope), else `1sat-inscription`.
-3. A lock: P2PKH (`1sat-output` when it holds exactly 1 sat), cosign, bare multisig, `OP_1` alone (`anyone-can-spend`), or a shape a type lists by template hash (`ordlock`, `timelock`).
+3. A lock: P2PKH (`1sat-output` when it holds exactly 1 sat), P2PK, P2SH, cosign, bare multisig, `OP_1` alone (`anyone-can-spend`), or a shape a type lists by template hash (`ordlock`, `timelock`).
 4. Anything else is `custom`, so the `custom` count measures what is left to type.
 
 The tx's type also takes the known protocols after a pipe in its data outputs (B then MAP is `b` and `map`).

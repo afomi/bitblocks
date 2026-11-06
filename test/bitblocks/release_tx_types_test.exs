@@ -92,7 +92,7 @@ defmodule Bitblocks.ReleaseTxTypesTest do
 
     assert Chain.get_transaction!(ctx.pay).tx_types == ["p2pkh"]
     assert Chain.get_transaction!(ctx.memo).tx_types == ["p2pkh", "op-return"]
-    assert Chain.get_transaction!(ctx.odd).tx_types == ["custom"]
+    assert Chain.get_transaction!(ctx.odd).tx_types == ["p2pk"]
 
     for txid <- [ctx.pay, ctx.memo, ctx.odd] do
       assert Chain.get_transaction!(txid).tx_types_version == TxPipeline.version(:tx_types)
@@ -104,7 +104,7 @@ defmodule Bitblocks.ReleaseTxTypesTest do
     assert %{type_counts: %{"p2pkh" => 1}} = Repo.reload!(ctx.a)
 
     b = Repo.reload!(ctx.b)
-    assert b.type_counts == %{"p2pkh" => 1, "op-return" => 1, "custom" => 1}
+    assert b.type_counts == %{"p2pkh" => 1, "op-return" => 1, "p2pk" => 1}
     assert b.type_counts_version == TxPipeline.version(:type_counts)
 
     rerun = quietly(fn -> Release.backfill_tx_types(0, 100) end)

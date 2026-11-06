@@ -42,7 +42,7 @@ Removing a step would lower it, so a removal also bumps a remaining step of the 
 | `burned` | chunk | 1 | `tallies` | `burned_satoshis` |
 | `sats_in` | chunk | 1 | `tallies` | `total_input_satoshis` |
 | `fee` | chunk | 1 | `tallies` | `fee_satoshis` |
-| `classify_outputs` | chunk | 1 | `tx_types`, `type_counts` | `tx_types` |
+| `classify_outputs` | chunk | 2 | `tx_types`, `type_counts` | `tx_types` |
 | `record_spends` | tx | 1 | none | `spend_index` rows |
 | `index_tokens` | tx | 2 | none | `protocol_instances`, the token index, with each BSV-21 transfer's validation status |
 | `index_bitcom` | tx | 1 | none | `bitcom_commands` |
@@ -54,6 +54,7 @@ v7 (#49) names each opcode byte once in `output_template_hashes` (`Bitblocks.Scr
 Before it, a shape holding byte 81, 177 or 178 got whichever name `BSV.OpCode` picked at boot, so one shape could carry two hashes.
 On the dev DB, 1,186 of 7,641 decodable txs hold such a shape (13 shapes), and 65 of them were stamped with a hash v7 no longer produces.
 Until the v7 backfill has run, `TxTypes.template_hash_variants/1` still matches both names.
+`classify_outputs` v2 (#49) adds the `p2pk` and `p2sh` types, so early coinbases stop reading `custom`.
 `block_totals` v2 stamps a block only once its coinbase is known; v1 stamped blocks whose rows hadn't been through script analysis, leaving `miner_reward` and `fees_verified` nil and the coinbase counted in `sats_out`.
 A block left unstamped stays below the version, so the tally backfill finds it again after script analysis has run, and reports it under `reward_unknown` until then.
 
@@ -64,10 +65,10 @@ A block left unstamped stays below the version, so the tally backfill finds it a
 | `script_analysis` | `script_analysis` | 7 | `transactions.script_analysis_version` | `Release.backfill_script_analysis/3` |
 | `tallies` | `sats_out`, `burned`, `sats_in`, `fee` | 4 | `transactions.tallies_version` | `Release.backfill_tx_tallies/3` |
 | `block_totals` | `block_totals` | 2 | `blocks.tallies_version` | `Release.backfill_tx_tallies/3` |
-| `tx_types` | `classify_outputs` | 1 | `transactions.tx_types_version` | `Release.backfill_tx_types/3` |
-| `type_counts` | `classify_outputs`, `type_counts` | 2 | `blocks.type_counts_version` | `Release.backfill_tx_types/3` |
+| `tx_types` | `classify_outputs` | 2 | `transactions.tx_types_version` | `Release.backfill_tx_types/3` |
+| `type_counts` | `classify_outputs`, `type_counts` | 3 | `blocks.type_counts_version` | `Release.backfill_tx_types/3` |
 
-Stage versions today: chunk 12, tx 4, block 3.
+Stage versions today: chunk 13, tx 4, block 3.
 `GET /api/v1/status/derivations` answers all of these live.
 
 `type_counts` sums the classifier's version with its own, because a block's counts change when the classifier does: a classifier bump marks every block's counts below the version too, and the one backfill re-types the txs and rewrites the counts.

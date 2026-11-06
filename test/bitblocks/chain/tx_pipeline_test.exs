@@ -139,16 +139,15 @@ defmodule Bitblocks.Chain.TxPipelineTest do
 
       assert :ok = FetchTransactionsWorker.perform(%Oban.Job{args: %{"block_hash" => block.hash}})
 
-      # 2009: both txs pay to a bare public key (P2PK), which no type in
-      # types.json names yet, so both are custom.
+      # 2009: both txs pay to a bare public key.
       for txid <- [@hal_payment, @block170_coinbase] do
         tx = Chain.get_transaction!(txid)
-        assert tx.tx_types == ["custom"]
+        assert tx.tx_types == ["p2pk"]
         assert tx.tx_types_version == TxPipeline.version(:tx_types)
       end
 
       completed = Chain.get_block!(170)
-      assert completed.type_counts == %{"custom" => 2}
+      assert completed.type_counts == %{"p2pk" => 2}
       assert completed.type_counts_version == TxPipeline.version(:type_counts)
     end
 
