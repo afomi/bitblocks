@@ -1,68 +1,70 @@
 <div class="container mx-auto px-4 py-8 max-w-6xl">
   <% {raw_hex, raw_bytes} = BitblocksWeb.TransactionLive.Show.raw_shown(@transaction.raw) %>
-  <div
-    :if={raw_bytes > 0}
-    id="tx-raw-actions"
-    class="float-right ml-4 mb-3 flex flex-wrap items-center justify-end gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 shadow-sm dark:border-gray-700 dark:bg-gray-800"
-  >
-    <span
-      id="tx-raw-bytes"
-      class="font-mono text-sm tabular-nums text-gray-800 dark:text-gray-200"
-    >
-      <%= BitblocksWeb.Sats.delimit(raw_bytes) %> bytes
-    </span>
-    <%= if @current_user || @admin? do %>
-      <a
-        id="tx-raw-download-hex"
-        href={Bitblocks.TxStore.hex_url(@transaction.txid)}
-        download={"#{@transaction.txid}.hex"}
-        class="rounded bg-blue-600 px-3 py-1 text-sm font-medium text-white hover:bg-blue-700"
-      >
-        Hex
-      </a>
-      <a
-        id="tx-raw-download"
-        href={Bitblocks.TxStore.download_url(@transaction.txid)}
-        download={"#{@transaction.txid}.bin"}
-        class="rounded border border-gray-300 px-3 py-1 text-sm font-medium text-gray-800 hover:bg-gray-100 dark:border-gray-600 dark:text-gray-100 dark:hover:bg-gray-700"
-      >
-        Binary
-      </a>
-    <% else %>
-      <a
-        id="tx-raw-sign-in"
-        href={~p"/sign-in?#{[return_to: "/transactions/#{@transaction.txid}"]}"}
-        class="text-sm font-medium text-blue-700 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
-      >
-        Sign in to download
-      </a>
-    <% end %>
-  </div>
-
   <div class="mb-6">
     <h1 class="text-3xl font-bold mb-2 text-gray-900 dark:text-white">
       Transaction
     </h1>
 
-    <%= if @block do %>
-      <div class="flex items-center gap-2 text-sm">
-        <span class="text-gray-600 dark:text-gray-400">
-          Block:
-        </span>
-        <.link
-          navigate={~p"/blocks/#{@block.height}"}
-          class="text-blue-700 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300 font-semibold font-mono tabular-nums"
-        >
-          <%= @block.height %>
-        </.link>
+    <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+      <%= if @block do %>
+        <div class="flex items-center gap-2 text-sm">
+          <span class="text-gray-600 dark:text-gray-400">
+            Block:
+          </span>
+          <.link
+            navigate={~p"/blocks/#{@block.height}"}
+            class="text-blue-700 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300 font-semibold font-mono tabular-nums"
+          >
+            <%= @block.height %>
+          </.link>
+          <span
+            :if={@block.time}
+            class="text-gray-600 dark:text-gray-400"
+          >
+            mined <%= DateTime.from_unix!(@block.time) |> Calendar.strftime("%Y-%m-%d %H:%M UTC") %>
+          </span>
+        </div>
+      <% end %>
+
+      <div
+        :if={raw_bytes > 0}
+        id="tx-raw-actions"
+        class="ml-auto flex items-center gap-2"
+      >
         <span
-          :if={@block.time}
-          class="text-gray-600 dark:text-gray-400"
+          id="tx-raw-bytes"
+          class="font-mono text-xs tabular-nums text-gray-600 dark:text-gray-400"
         >
-          mined <%= DateTime.from_unix!(@block.time) |> Calendar.strftime("%Y-%m-%d %H:%M UTC") %>
+          <%= BitblocksWeb.Sats.delimit(raw_bytes) %> bytes
         </span>
+        <%= if @current_user || @admin? do %>
+          <a
+            id="tx-raw-download-hex"
+            href={Bitblocks.TxStore.hex_url(@transaction.txid)}
+            download={"#{@transaction.txid}.hex"}
+            class="rounded bg-blue-600 px-2 py-0.5 text-xs font-medium text-white hover:bg-blue-700"
+          >
+            Hex
+          </a>
+          <a
+            id="tx-raw-download"
+            href={Bitblocks.TxStore.download_url(@transaction.txid)}
+            download={"#{@transaction.txid}.bin"}
+            class="rounded border border-gray-300 px-2 py-0.5 text-xs font-medium text-gray-800 hover:bg-gray-100 dark:border-gray-600 dark:text-gray-100 dark:hover:bg-gray-700"
+          >
+            Binary
+          </a>
+        <% else %>
+          <a
+            id="tx-raw-sign-in"
+            href={~p"/sign-in?#{[return_to: "/transactions/#{@transaction.txid}"]}"}
+            class="text-xs font-medium text-blue-700 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
+          >
+            Sign in to download
+          </a>
+        <% end %>
       </div>
-    <% end %>
+    </div>
   </div>
 
   <%= if @live_action in [:edit] do %>
