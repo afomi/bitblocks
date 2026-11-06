@@ -57,7 +57,7 @@ The cross-transaction supply aggregation (mint progress vs `max`, ticker de-dupl
 
 1. **Detect** — `TransactionParser.analyze/1` scans every output's locking script (via `Bsv20Parser.token_inscription?/1`) and tags the transaction `"BSV20"` when it carries an `application/bsv-20` inscription. This runs alongside the existing `OP_RETURN` protocol detection.
 2. **Parse** — `Bitblocks.Bsv20Parser.parse/1` extracts the inscription body from the envelope, `Jason.decode`s it, and normalizes it to a token map (`standard`, `op`, `token_id | tick`, `amt`, `sym`, `dec`, …). Bodies over 4 KB are rejected without decoding.
-3. **Index** — on ingest, the tx pipeline's `index_tokens` step calls `Chain.index_tokens/1` (a no-op unless the tx was tagged `"BSV20"`), after `record_spends` has stored the tx's inputs. For each token output it resolves the recipient address from the stored output JSON, or else from the P2PKH lock after the inscription envelope, and routes it to `Bitblocks.Tokens.index/1`.
+3. **Index** — on ingest, the tx pipeline's `index_tokens` step calls `Chain.index_tokens/1` (a no-op unless the tx was tagged `"BSV20"`), after `record_spends` has stored the tx's inputs. For each token output it resolves the recipient (see Who holds an output) and routes it to `Bitblocks.Tokens.index/1`.
    Then it validates the tx's transfers once (see Transfer validation).
 4. **Store** — tokens are `protocol_instances` under the seeded `BSV20` protocol. `parsed_data` holds the token fields; `state` holds `%{supply, minted}` for a mint and `%{status, reason, burned}` for a transfer. Idempotent via the `[:txid, :vout]` unique constraint.
 
@@ -69,7 +69,46 @@ Rows in `protocol_instances` (`protocol_id` → the `BSV20` protocol):
 - `transfer` — `parsed_data.token_id` = the referenced token, `parsed_data.recipient` = the crediting address.
 - classic ops — stored raw with `standard: "bsv-20"`.
 
+Every token row also carries `parsed_data.lock` and the stamp `recipient_version` (see Who holds an output).
+
 Partial JSON indexes on `parsed_data->>'token_id'` (per op) and `parsed_data->>'tick'` back the queries.
+
+## Who holds an output
+
+The node and `RawBlock.tx_json/2` both call an inscribed script nonstandard and name no address, so the address comes from the lock in the script (`Ordinals.Inscription.lock/1`).
+The envelope can sit on either side of the lock, and real outputs do both: past a P2PKH the envelope is skipped data, so `<P2PKH> OP_FALSE OP_IF "ord" … OP_ENDIF` spends like a plain P2PKH.
+
+| `lock` | `recipient` | `recipient_status` |
+| --- | --- | --- |
+| `p2pkh` | the address | `known` |
+| `cosign` | the owner's address, with the cosigner's public key in `cosigner` | `known` |
+| `other` | none | `unknown` |
+
+**A cosign lock is held by its owner.**
+MNEE locks are this shape: P2PKH for the owner, then a check against one fixed public key.
+The owner must sign every spend, and the cosigner can approve a spend but can't start one, so the balance is the owner's and counts toward their holdings.
+The cosigner is recorded beside it, because the owner can't move the output alone.
+
+**Any other lock is `unknown`, not a guess.**
+A sale contract or a custom script names no address we can read in general, so `recipient` stays empty and `recipient_status` says `unknown`.
+Such an output is in no holder's balance.
+On the API, a row older than the re-index also reads `unknown`, with no `lock`.
+
+Rows stored before this are filled by the re-index, a dry run unless given `apply: true`.
+A token row is written once, so nothing else revisits it.
+
+```bash
+bin/bitblocks rpc 'Bitblocks.Release.backfill_token_recipients(0, 980_000)'
+bin/bitblocks rpc 'Bitblocks.Release.backfill_token_recipients(0, 980_000, apply: true)'
+
+# The same as Oban jobs, one range at a time
+bin/bitblocks rpc 'Bitblocks.Release.start_backfill("token_recipients", 0, 980_000)'
+bin/bitblocks rpc 'Bitblocks.Release.start_backfill("token_recipients", 0, 980_000, apply: true)'
+```
+
+It reads each row's tx (or the tx store, when the bytes have left the row) and goes through the same `Chain.token_outputs/1` as ingest.
+A rerun finds nothing: every row it could read is stamped, unknown locks included.
+Rows whose tx can't be read stay below the version and count under `no_raw`.
 
 ## Transfer validation
 
@@ -113,7 +152,7 @@ Classic BSV-20 supply aggregation (mint-progress vs `max`) is still deferred, so
 
 ```
 GET /api/v1/tokens                  — indexed tokens (?standard=bsv-21|bsv-20 &sym= &cursor= &per_page=)
-GET /api/v1/tokens/:id              — token by token_id ("<txid>_<vout>") or ticker; holders counted live
+GET /api/v1/tokens/:id              — token by token_id ("<txid>_<vout>") or ticker; holders counted live; recipient, recipient_status (known | unknown), lock, cosigner
 GET /api/v1/tokens/:id/holders      — net holder balances (unspent mint and valid transfer outputs), plus transfers: {valid, invalid, pending}
 GET /api/v1/addresses/:address/tokens — unspent mint and valid transfer outputs held by an address (?standard= &token_id=)
 GET /api/v1/tokens/:id/transfers    — transfer history, each with validated, status and reason

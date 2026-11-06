@@ -44,7 +44,7 @@ Removing a step would lower it, so a removal also bumps a remaining step of the 
 | `fee` | chunk | 1 | `tallies` | `fee_satoshis` |
 | `classify_outputs` | chunk | 2 | `tx_types`, `type_counts` | `tx_types` |
 | `record_spends` | tx | 1 | none | `spend_index` rows |
-| `index_tokens` | tx | 2 | none | `protocol_instances`, the token index, with each BSV-21 transfer's validation status |
+| `index_tokens` | tx | 3 | `token_recipients` | `protocol_instances`, the token index, with who holds each output and each BSV-21 transfer's validation status |
 | `index_bitcom` | tx | 1 | none | `bitcom_commands` |
 | `index_bap` | tx | 1 | none | `bap_records` |
 | `block_totals` | block | 2 | `block_totals` | `blocks.sats_out`, `fees`, `miner_reward`, `subsidy`, `burned`, `fees_verified` |
@@ -58,6 +58,7 @@ Until the v7 backfill has run, `TxTypes.template_hash_variants/1` still matches 
 `classify_outputs` v2 (#49) adds the `p2pk` and `p2sh` types, so early coinbases stop reading `custom`.
 `block_totals` v2 stamps a block only once its coinbase is known; v1 stamped blocks whose rows hadn't been through script analysis, leaving `miner_reward` and `fees_verified` nil and the coinbase counted in `sats_out`.
 A block left unstamped stays below the version, so the tally backfill finds it again after script analysis has run, and reports it under `reward_unknown` until then.
+`index_tokens` v3 (#69) reads the lock on either side of the inscription envelope, names a cosign lock's owner, and records holders on classic deploys and mints too.
 
 ### Derivations
 
@@ -68,8 +69,9 @@ A block left unstamped stays below the version, so the tally backfill finds it a
 | `block_totals` | `block_totals` | 2 | `blocks.tallies_version` | `Release.backfill_tx_tallies/3` |
 | `tx_types` | `classify_outputs` | 2 | `transactions.tx_types_version` | `Release.backfill_tx_types/3` |
 | `type_counts` | `classify_outputs`, `type_counts` | 3 | `blocks.type_counts_version` | `Release.backfill_tx_types/3` |
+| `token_recipients` | `index_tokens` | 3 | `protocol_instances.recipient_version` | `Release.backfill_token_recipients/3` |
 
-Stage versions today: chunk 13, tx 5, block 3.
+Stage versions today: chunk 13, tx 6, block 3.
 `GET /api/v1/status/derivations` answers all of these live.
 
 `type_counts` sums the classifier's version with its own, because a block's counts change when the classifier does: a classifier bump marks every block's counts below the version too, and the one backfill re-types the txs and rewrites the counts.
@@ -112,10 +114,11 @@ A backfill run is dated exactly, in `derivation_runs`.
 | `blocks.type_counts` | `type_counts` | the block's `tx_types` | `blocks.type_counts_version` | one aggregate on the `block_hash` index | `Release.backfill_tx_types/3` |
 | `spend_index` rows | `record_spends` | the tx's inputs | none yet | one insert per input | none: written at ingest only |
 | `protocol_instances` (tokens) | `index_tokens` | BSV-20/21 inscriptions; for a transfer, the token rows its spent outpoints hold | none yet | none for untagged txs; a few indexed lookups per transfer | transfer statuses: `Release.revalidate_token_transfers/1` |
+| `parsed_data` `recipient`, `lock`, `cosigner` (tokens) | `index_tokens` | the output's lock, from raw bytes | `recipient_version` | CPU: one decode per tx with a row below the version | `Release.backfill_token_recipients/3` |
 | `bitcom_commands` | `index_bitcom` | Bitcom `$` commands | none yet | none for untagged txs | re-indexed by `Release.backfill_script_analysis/3` |
 | `bap_records` | `index_bap` | BAP records with a valid AIP signature | `version` | none for a tx with no AIP signer | `Release.backfill_bap/3` |
 
-The tx steps write rows in other tables keyed by txid, so they have versions but no per-row stamp yet.
+The tx steps write rows in other tables keyed by txid, so most have versions but no per-row stamp yet.
 When one of them changes its output, it gains a stamp column and a backfill in the same change.
 
 `input_txids` and `output_addresses` are extracted from the node's JSON at insert (`TxIngest`), outside the pipeline, and carry no version.
@@ -150,6 +153,10 @@ bin/bitblocks rpc 'Bitblocks.Release.backfill_script_analysis(0, 10_000, apply: 
 bin/bitblocks rpc 'Bitblocks.Release.backfill_tx_types(0, 10_000)'
 bin/bitblocks rpc 'Bitblocks.Release.backfill_tx_types(0, 10_000, apply: true)'
 
+# Who holds each token output (#69), dry run, then apply
+bin/bitblocks rpc 'Bitblocks.Release.backfill_token_recipients(0, 980_000)'
+bin/bitblocks rpc 'Bitblocks.Release.backfill_token_recipients(0, 980_000, apply: true)'
+
 # The runs, newest first
 bin/bitblocks rpc 'Bitblocks.Release.derivation_runs()'
 ```
@@ -181,7 +188,7 @@ Every backfill run writes one row, dry runs included (`Bitblocks.Derivations.Run
 
 | Column | Meaning |
 | --- | --- |
-| `derivation` | `tallies`, `script_analysis`, `tx_types`, `tx_steps`, `tx_size` or `bap` |
+| `derivation` | `tallies`, `script_analysis`, `tx_types`, `tx_steps`, `tx_size`, `bap` or `token_recipients` |
 | `version` | the version the run brought rows up to |
 | `from_height`, `to_height` | the inclusive height range; nil for a run over every stored tx |
 | `applied` | false for a dry run |
@@ -189,7 +196,7 @@ Every backfill run writes one row, dry runs included (`Bitblocks.Derivations.Run
 | `rows_changed` | rows it stamped, or in a dry run would stamp |
 | `rows_below_version` | rows in the range still below the version when it finished: 0 for a complete applied run |
 | `blocks_examined` | blocks it walked (tallies) |
-| `details` | per-derivation counts: `values_changed`, `sats_in_unknown`, `blocks_changed`, `blocks_below_version`, `unverified`; `undecodable` for script analysis; `types_changed`, `undecodable`, `blocks_changed`, `blocks_below_version` for tx types |
+| `details` | per-derivation counts: `values_changed`, `sats_in_unknown`, `blocks_changed`, `blocks_below_version`, `unverified`; `undecodable` for script analysis; `types_changed`, `undecodable`, `blocks_changed`, `blocks_below_version` for tx types; `recipients_filled`, `cosign`, `unknown_lock`, `no_raw` for token recipients |
 | `outcome` | `running`, `ok`, `partial`, `failed` or `abandoned` |
 | `error` | what stopped a partial or failed run |
 | `command` | the command as typed |
@@ -265,3 +272,5 @@ Two kinds of row are stamped without a full answer, by design:
 - A tx that doesn't decode keeps its old script analysis stamp, so it stays below the version; the run counts these under `undecodable`.
   So the script analysis acceptance check is rows below the version equal to `undecodable`, every one of them a decode failure.
   These are real txs whose scripts `BSV.Tx.from_binary` can't parse as opcodes (on dev, 6 of 4,527, all `:decode_raised`); an analyzer that reads outputs by bytes would stamp them, with a version bump.
+- A token output under a lock that names no address is stamped with `lock: "other"`: the version computed it as unknown, and the run counts these under `unknown_lock`.
+  A token output whose tx can't be read keeps its old stamp and counts under `no_raw`, so the acceptance check for token recipients is rows below the version equal to `no_raw`.

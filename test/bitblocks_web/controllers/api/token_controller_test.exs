@@ -121,6 +121,39 @@ defmodule BitblocksWeb.Api.TokenControllerTest do
       resp = conn |> get(~p"/api/v1/tokens/#{token.token_id}") |> json_response(200)
       assert %{"holders" => 1, "validated" => true, "status" => "valid"} = resp["data"]
     end
+
+    test "says when a mint's recipient is unknown, and names a cosigner", %{conn: conn} do
+      token = %{standard: "bsv-21", op: "deploy+mint", token_id: nil, amt: "10", sym: "L"}
+
+      {:ok, other} =
+        Tokens.index_token(%{
+          txid: "ac" <> String.duplicate("0", 62),
+          vout: 0,
+          lock: %{type: "other", owner: nil, cosigner: nil},
+          token: token
+        })
+
+      {:ok, cosign} =
+        Tokens.index_token(%{
+          txid: "ad" <> String.duplicate("0", 62),
+          vout: 0,
+          recipient: "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa",
+          lock: %{type: "cosign", owner: "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa", cosigner: "02cc"},
+          token: token
+        })
+
+      assert %{"recipient" => nil, "recipient_status" => "unknown", "lock" => "other"} =
+               conn
+               |> get(~p"/api/v1/tokens/#{other.token_id}")
+               |> json_response(200)
+               |> Map.get("data")
+
+      assert %{"recipient_status" => "known", "lock" => "cosign", "cosigner" => "02cc"} =
+               conn
+               |> get(~p"/api/v1/tokens/#{cosign.token_id}")
+               |> json_response(200)
+               |> Map.get("data")
+    end
   end
 
   defp transfer_attrs(txid, recipient, token_id, amt) do

@@ -1369,22 +1369,19 @@ defmodule Bitblocks.Chain do
 
   def index_bitcom(_), do: 0
 
-  defp index_token_outputs(%Transaction{raw: raw} = tx) when is_binary(raw) do
-    case Bitblocks.ProtocolParser.token_outputs(raw) do
+  defp index_token_outputs(%Transaction{} = tx) do
+    case token_outputs(tx) do
       {:ok, token_outputs} ->
-        addresses = output_addresses_by_vout(tx.outputs)
-
         indexed =
-          Enum.count(token_outputs, fn %{vout: vout, token: token} = output ->
+          Enum.count(token_outputs, fn output ->
             attrs = %{
               txid: tx.txid,
-              vout: vout,
+              vout: output.vout,
               block_height: tx.block_height,
               block_hash: tx.block_hash,
-              # The output JSON names no address for an inscribed script
-              # (not a bare P2PKH), so fall back to the lock after the envelope.
-              recipient: Map.get(addresses, vout) || output[:owner],
-              token: token,
+              recipient: output.recipient,
+              lock: output.lock,
+              token: output.token,
               # Transfers are validated together, once every output is in.
               validate: false
             }
@@ -1405,7 +1402,26 @@ defmodule Bitblocks.Chain do
     end
   end
 
-  defp index_token_outputs(_), do: 0
+  @doc """
+  The token outputs of a stored tx, each with `vout`, `token`, its `lock`
+  (`Bitblocks.Ordinals.Inscription.lock/1`) and `recipient`: the address the
+  output JSON names, else the lock's owner, else nil. The node and
+  `RawBlock.tx_json/2` both name no address for an inscribed script, so the
+  lock is what answers there.
+  """
+  @spec token_outputs(Transaction.t()) :: {:ok, [map()]} | {:error, atom()}
+  def token_outputs(%Transaction{raw: raw} = tx) when is_binary(raw) do
+    with {:ok, outputs} <- Bitblocks.ProtocolParser.token_outputs(raw) do
+      addresses = output_addresses_by_vout(tx.outputs)
+
+      {:ok,
+       Enum.map(outputs, fn %{vout: vout, lock: lock} = output ->
+         Map.put(output, :recipient, Map.get(addresses, vout) || lock.owner)
+       end)}
+    end
+  end
+
+  def token_outputs(_), do: {:error, :invalid_raw}
 
   # Map output index -> first address in that output's stored JSON.
   defp output_addresses_by_vout(outputs) when is_list(outputs) do

@@ -688,6 +688,61 @@ defmodule Bitblocks.Release do
     end)
   end
 
+  @doc """
+  Re-reads who holds each token output of heights `from_height` to `to_height`
+  below the current version, from the output's lock, and fills `recipient`,
+  `lock` and `cosigner`. Records the run in `derivation_runs`. See
+  `Bitblocks.Chain.TxPipeline.TokenRecipientsBackfill` (#69).
+
+  **Dry run by default**; `apply: true` writes.
+
+      bin/bitblocks rpc 'Bitblocks.Release.backfill_token_recipients(0, 980_000)'
+      bin/bitblocks rpc 'Bitblocks.Release.backfill_token_recipients(0, 980_000, apply: true)'
+  """
+  def backfill_token_recipients(from_height, to_height, opts \\ [])
+      when is_integer(from_height) and is_integer(to_height) do
+    command = command("backfill_token_recipients", [from_height, to_height], opts)
+
+    with_running_repo(fn ->
+      report =
+        Bitblocks.Chain.TxPipeline.TokenRecipientsBackfill.run(
+          from_height,
+          to_height,
+          opts
+          |> Keyword.put_new(:on_batch, &print_progress/1)
+          |> Keyword.put(:command, command)
+        )
+
+      print_token_recipients_backfill(report)
+      report
+    end)
+  end
+
+  defp print_token_recipients_backfill(r) do
+    print_run_header(r, "token recipients")
+    d = r.details
+
+    IO.puts(
+      "  #{r.rows_changed} token output(s) #{if r.applied, do: "stamped", else: "to stamp"}"
+    )
+
+    IO.puts(
+      "  #{d.recipients_filled} recipient(s) #{if r.applied, do: "filled", else: "to fill"}"
+    )
+
+    IO.puts("  #{d.cosign} under a cosign lock, held by the owner")
+    IO.puts("  #{d.unknown_lock} under another lock, recipient unknown")
+
+    if d.no_raw > 0 do
+      IO.puts(
+        "  #{d.no_raw} token output(s) NOT READ: no bytes for the tx, left below the version"
+      )
+    end
+
+    IO.puts("  #{r.rows_below_version} token output(s) below the version in the range")
+    print_run_footer(r)
+  end
+
   defp print_tx_steps_backfill(r) do
     print_run_header(r, "tx steps for stored blocks")
     IO.puts("  #{r.blocks_examined} block(s) walked")
@@ -749,7 +804,8 @@ defmodule Bitblocks.Release do
   Starts a backfill as a chain of Oban jobs, one range at a time
   (`Bitblocks.BackfillChains`): it needs no open connection and carries on
   across a deploy. `derivation` is `"script_analysis"`, `"tx_steps"`,
-  `"tallies"` or `"tx_types"` over heights `from..to`.
+  `"tallies"`, `"tx_types"`, `"bap"` or `"token_recipients"` over heights
+  `from..to`.
 
   **Dry run by default**; `apply: true` writes. `step:` sets the range one job
   takes (10,000); the other options are the backfill's own.
