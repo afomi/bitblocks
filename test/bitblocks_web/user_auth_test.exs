@@ -85,6 +85,7 @@ defmodule BitblocksWeb.UserAuthTest do
 
       assert html =~ txid(1)
       refute html =~ ~s(id="tx-raw-download")
+      assert html =~ ~s(id="tx-raw-sign-in")
       refute html =~ "/show/edit"
     end
 

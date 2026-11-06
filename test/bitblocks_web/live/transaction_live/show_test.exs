@@ -228,6 +228,17 @@ defmodule BitblocksWeb.TransactionLive.ShowTest do
              )
     end
 
+    test "the bytes and downloads sit at the top of the page", %{conn: conn} do
+      insert_tx(@genesis_raw, @genesis_txid)
+
+      {:ok, view, html} = live(conn, ~p"/transactions/#{@genesis_txid}")
+
+      assert has_element?(view, "#tx-raw-bytes", "204 bytes")
+      [above_summary | _] = String.split(html, ~s(id="tx-summary"))
+      assert above_summary =~ ~s(id="tx-raw-download-hex")
+      assert above_summary =~ ~s(id="tx-raw-download")
+    end
+
     test "shows a small tx's raw hex whole", %{conn: conn} do
       insert_tx(@genesis_raw, @genesis_txid)
 
