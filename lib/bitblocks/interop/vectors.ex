@@ -12,6 +12,10 @@ defmodule Bitblocks.Interop.Vectors do
   @path Path.expand("../../../priv/data/interop/vectors_v1.json", __DIR__)
   @external_resource @path
 
+  @license_path Path.expand("../../../priv/data/interop/OPEN-BSV-LICENSE.txt", __DIR__)
+  @external_resource @license_path
+
+  @license File.read!(@license_path)
   @body File.read!(@path)
   @sha256 :crypto.hash(:sha256, @body) |> Base.encode16(case: :lower)
 
@@ -25,6 +29,10 @@ defmodule Bitblocks.Interop.Vectors do
     beef: Enum.count(@decoded["vectors"], &(&1["kind"] == "beef")),
     bump: Enum.count(@decoded["vectors"], &(&1["kind"] == "bump"))
   }
+
+  @doc "The Open BSV License, as `@bsv/sdk` 2.4.0 ships it."
+  @spec license() :: String.t()
+  def license, do: @license
 
   @doc "The published JSON, exactly as served."
   @spec body() :: String.t()

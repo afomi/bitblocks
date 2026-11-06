@@ -250,6 +250,11 @@ defmodule BitblocksWeb.Router do
     get "/interop/vectors/v1.json", InteropController, :vectors
   end
 
+  # Own scope, no pipeline: :open_api only accepts json.
+  scope "/", BitblocksWeb do
+    get "/interop/vectors/LICENSE.txt", InteropController, :license
+  end
+
   pipeline :metrics do
     plug :accepts, ["text"]
   end

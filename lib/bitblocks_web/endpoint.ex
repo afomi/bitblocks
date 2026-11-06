@@ -15,7 +15,12 @@ defmodule BitblocksWeb.Endpoint do
   plug :healthz
 
   socket "/live", Phoenix.LiveView.Socket,
-    websocket: [connect_info: [session: @session_options], timeout: 45_000],
+    # 12 MB: the /start/interop paste at its 4 MB limit is 8 MB of hex, plus framing.
+    websocket: [
+      connect_info: [session: @session_options],
+      timeout: 45_000,
+      max_frame_size: 12_000_000
+    ],
     longpoll: [connect_info: [session: @session_options]]
 
   # Serve at "/" the static files from "priv/static" directory.

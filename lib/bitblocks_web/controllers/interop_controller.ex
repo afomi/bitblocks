@@ -8,6 +8,15 @@ defmodule BitblocksWeb.InteropController do
 
   alias Bitblocks.Interop.Vectors
 
+  @doc "GET /interop/vectors/LICENSE.txt, the licence the file's notice names."
+  def license(conn, _params) do
+    conn
+    |> put_resp_header("cache-control", "public, max-age=86400")
+    |> put_resp_header("x-content-type-options", "nosniff")
+    |> put_resp_content_type("text/plain")
+    |> send_resp(200, Vectors.license())
+  end
+
   @doc "GET /interop/vectors/v1.json"
   def vectors(conn, _params) do
     etag = ~s("#{Vectors.sha256()}")

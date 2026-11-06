@@ -887,6 +887,9 @@ doc =
     claim:
       "These vectors cover inclusion in a block. They say whether a transaction's bytes sit under a merkle root in a header. They don't say a transaction is valid, its scripts pass, its inputs were unspent, a token is genuine or a payment was made.",
     not_checked: ~w(scripts signatures input_amounts double_spends token_validity payment_terms),
+    licence_notice:
+      "© BSV Association. Vectors from BRCs and @bsv/sdk fall under the Open BSV License, full text at the licence URL. Each source below says which applies.",
+    licence_url: "https://bitblocks.app/interop/vectors/LICENSE.txt",
     tried_against:
       "One SDK, @bsv/sdk 2.4.0, in a one-off run, and no live wallet. Nothing in this file says any wallet, SDK or project conforms to it or endorses it.",
     how_to_use: [
