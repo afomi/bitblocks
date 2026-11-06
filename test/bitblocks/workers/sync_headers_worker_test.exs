@@ -263,6 +263,145 @@ defmodule Bitblocks.Workers.SyncHeadersWorkerTest do
     end
   end
 
+  describe "the node's best hash, when it isn't ahead of us (#34)" do
+    alias Bitblocks.Reorgs
+    alias BitblocksWeb.RpcStub
+
+    import Swoosh.TestAssertions
+
+    setup do
+      RpcStub.setup()
+      RpcStub.clear()
+      block_fixture(%{height: 500, hash: "common_500", chainwork: "10"})
+      block_fixture(%{height: 501, hash: "ours_501", chainwork: "20"})
+      Phoenix.PubSub.subscribe(Bitblocks.PubSub, "blocks")
+      :ok
+    end
+
+    defp node_at(height, hash, chainwork \\ "20") do
+      RpcStub.stub_getblockchaininfo(%{"blocks" => height, "bestblockhash" => hash})
+
+      RpcStub.stub_getblockheader(hash, %{
+        "hash" => hash,
+        "height" => height,
+        "previousblockhash" => "common_500",
+        "chainwork" => chainwork
+      })
+
+      %{"blocks" => height, "bestblockhash" => hash}
+    end
+
+    test "the same hash at the same height changes nothing" do
+      info = node_at(501, "ours_501")
+
+      assert :ok = SyncHeadersWorker.sync_tip(info)
+
+      assert Chain.get_block_at_height(501).hash == "ours_501"
+      assert Reorgs.list_reorgs() == []
+    end
+
+    test "a same-height replacement is a reorg: orphan out, event sent, row written" do
+      info = node_at(501, "node_501")
+
+      assert :ok = SyncHeadersWorker.sync_tip(info)
+
+      assert Chain.get_block_at_height(501) == nil
+      assert [%{outcome: "resolved", fork_point: 500, orphan_count: 1}] = Reorgs.list_reorgs()
+
+      assert_receive {:reorg, %{fork_point: 500, fork_height: 501, orphans: ["ours_501"]}}
+
+      assert_enqueued(
+        worker: Bitblocks.Workers.ReconcileOrphanWorker,
+        args: %{"orphan_hash" => "ours_501"}
+      )
+    end
+
+    test "a stale cached hash is checked with the node before anything changes" do
+      stale = %{"blocks" => 501, "bestblockhash" => "cached_stale"}
+      node_at(501, "ours_501")
+
+      assert :ok = SyncHeadersWorker.sync_tip(stale)
+
+      assert Chain.get_block_at_height(501).hash == "ours_501"
+      assert Reorgs.list_reorgs() == []
+    end
+
+    test "a lower tip on our chain is a node behind, not a reorg" do
+      info = node_at(500, "common_500")
+
+      assert :ok = SyncHeadersWorker.sync_tip(info)
+
+      assert Chain.get_block_at_height(501).hash == "ours_501"
+      assert Reorgs.list_reorgs() == []
+    end
+
+    test "a lower tip on a lighter branch rewinds nothing" do
+      block_fixture(%{height: 499, hash: "common_499", chainwork: "08"})
+      info = node_at(500, "light_500", "0f")
+
+      assert :ok = SyncHeadersWorker.sync_tip(info)
+
+      assert Chain.get_block_at_height(500).hash == "common_500"
+      assert Chain.get_block_at_height(501).hash == "ours_501"
+    end
+
+    test "a lower tip that outweighs ours rewinds every block above the fork" do
+      block_fixture(%{height: 499, hash: "common_499", chainwork: "08"})
+
+      RpcStub.stub_getblockchaininfo(%{"blocks" => 500, "bestblockhash" => "heavy_500"})
+
+      RpcStub.stub_getblockheader("heavy_500", %{
+        "hash" => "heavy_500",
+        "height" => 500,
+        "previousblockhash" => "common_499",
+        "chainwork" => "30"
+      })
+
+      info = %{"blocks" => 500, "bestblockhash" => "heavy_500"}
+
+      assert :ok = SyncHeadersWorker.sync_tip(info)
+
+      assert Chain.get_block_at_height(500) == nil
+      assert Chain.get_block_at_height(501) == nil
+      assert [%{fork_point: 499, orphan_count: 2} = reorg] = Reorgs.list_reorgs()
+      assert Reorgs.resolved_covering(501).id == reorg.id
+    end
+
+    test "a fork deeper than 10 emails once, however many tip runs meet it" do
+      # A chain of headers that never meets ours, so the walk runs out.
+      for height <- 485..499, do: block_fixture(%{height: height, hash: "ours_#{height}"})
+
+      for height <- 485..501 do
+        RpcStub.stub_getblockheader("node_#{height}", %{
+          "hash" => "node_#{height}",
+          "height" => height,
+          "previousblockhash" => "node_#{height - 1}",
+          "chainwork" => "20"
+        })
+      end
+
+      RpcStub.stub_getblockchaininfo(%{"blocks" => 501, "bestblockhash" => "node_501"})
+      info = %{"blocks" => 501, "bestblockhash" => "node_501"}
+
+      assert :ok = SyncHeadersWorker.sync_tip(info)
+      assert_email_sent(subject: "Bitblocks: reorg at 501 — manual intervention required")
+
+      # Reports at least a second apart, as two tip runs are.
+      earlier = DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.add(-60)
+
+      Bitblocks.Repo.update_all(Bitblocks.Reorgs.Reorg,
+        set: [detected_at: earlier, last_seen_at: earlier]
+      )
+
+      assert :ok = SyncHeadersWorker.sync_tip(info)
+      refute_email_sent()
+
+      assert %{fork_height: 501, outcome: "needs_attention"} = Reorgs.halted()
+      assert [_one_row] = Reorgs.list_reorgs()
+      assert Chain.get_block_at_height(501).hash == "ours_501"
+    end
+  end
+
   describe "a stored header is published (#35)" do
     @genesis "000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f"
 

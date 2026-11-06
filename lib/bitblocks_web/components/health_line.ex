@@ -59,6 +59,10 @@ defmodule BitblocksWeb.HealthLine do
   def failed_text(_), do: nil
 
   @doc false
+  def progress_text(%{index: %{halted_at: height}}) when is_integer(height),
+    do:
+      "Tip sync has halted at block #{number(height)}: a fork deeper than 10 blocks needs an operator."
+
   def progress_text(%{index: %{paused: true}}), do: "The sync is paused by an operator."
 
   def progress_text(%{index: %{stalled: "headers"}}),

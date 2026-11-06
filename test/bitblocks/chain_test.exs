@@ -93,6 +93,63 @@ defmodule Bitblocks.ChainTest do
       assert Enum.any?(transactions, fn t -> t.txid == transaction.txid end)
     end
 
+    test "confirmations/1 follows the block stored at the tx's height (#34)" do
+      block_fixture(%{hash: "done", height: 10, sync_state: "completed"})
+      block_fixture(%{hash: "headers", height: 11, sync_state: "header_only"})
+      block_fixture(%{hash: "listed", height: 12, sync_state: "txs_syncing"})
+
+      done = transaction_fixture(%{block_hash: "done", block_height: 10})
+      headers = transaction_fixture(%{block_hash: "headers", block_height: 11})
+      listed = transaction_fixture(%{block_hash: "listed", block_height: 12})
+      orphan = transaction_fixture(%{block_hash: "gone", block_height: 13})
+      moved = transaction_fixture(%{block_hash: "done", block_height: 9})
+
+      statuses = Chain.confirmations([done, headers, listed, orphan, moved])
+
+      assert statuses[done.txid] == %{confirmed: true, confirmation: "confirmed"}
+      assert statuses[headers.txid] == %{confirmed: false, confirmation: "unverified"}
+      assert statuses[listed.txid] == %{confirmed: true, confirmation: "confirmed"}
+      assert statuses[orphan.txid] == %{confirmed: false, confirmation: "orphaned"}
+      assert statuses[moved.txid] == %{confirmed: false, confirmation: "orphaned"}
+    end
+
+    test "record_spends/1 replaces a spend from an orphaned block, and only that (#34)" do
+      outpoint = Jason.encode!(%{txid: "prev", vout: 0})
+      other = Jason.encode!(%{txid: "prev", vout: 1})
+
+      block_fixture(%{hash: "canon", height: 20})
+
+      orphan_spender =
+        transaction_fixture(%{txid: "t_orphan", block_hash: "gone", inputs: [outpoint]})
+
+      live_spender =
+        transaction_fixture(%{txid: "t_live", block_hash: "canon", inputs: [other]})
+
+      Chain.record_spends(orphan_spender)
+      Chain.record_spends(live_spender)
+
+      canonical =
+        transaction_fixture(%{
+          txid: "t_canon",
+          block_hash: "canon",
+          inputs: ["{}", outpoint, other]
+        })
+
+      Chain.record_spends(canonical)
+
+      assert %{spending_txid: "t_canon", spending_vin: 1} =
+               Repo.get_by!(Bitblocks.Chain.Spend, txid: "prev", vout: 0)
+
+      assert %{spending_txid: "t_live", spending_vin: 0} =
+               Repo.get_by!(Bitblocks.Chain.Spend, txid: "prev", vout: 1)
+
+      # Re-running either tx is a no-op.
+      Chain.record_spends(canonical)
+
+      assert %{spending_txid: "t_canon"} =
+               Repo.get_by!(Bitblocks.Chain.Spend, txid: "prev", vout: 0)
+    end
+
     test "get_transaction!/1 returns the transaction with given id" do
       transaction = transaction_fixture()
       assert Chain.get_transaction!(transaction.id) == transaction

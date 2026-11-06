@@ -1223,6 +1223,8 @@ defmodule Bitblocks.Chain do
         conflict_target: [:txid, :vout]
       )
 
+    if inserted < length(entries), do: replace_orphaned_spends(entries, spending_txid)
+
     # Bridge to the order book: if any spent outpoint is a listed token UTXO,
     # this transaction is its settlement — mark the listing filled.
     Bitblocks.OrderBook.settle_spent_token_utxos(entries)
@@ -1231,6 +1233,98 @@ defmodule Bitblocks.Chain do
   end
 
   def record_spends(_), do: {0, 0}
+
+  # An outpoint is spent once on a chain, so a row here naming another spender
+  # is a spend from an orphaned block whose tx `Reorgs.Reconcile` hasn't
+  # removed yet, and this one replaces it (#34). A rival still in a stored
+  # block keeps its row.
+  defp replace_orphaned_spends(entries, spender) do
+    txids = Enum.map(entries, & &1.txid)
+    vouts = Enum.map(entries, & &1.vout)
+
+    rivals =
+      Repo.all(
+        from s in Spend,
+          where: s.spending_txid != ^spender,
+          where:
+            fragment(
+              "(?, ?) IN (SELECT * FROM unnest(?::varchar[], ?::int[]))",
+              s.txid,
+              s.vout,
+              ^txids,
+              ^vouts
+            )
+      )
+
+    on_chain =
+      Repo.all(
+        from t in Transaction,
+          join: b in Block,
+          on: b.hash == t.block_hash,
+          where: t.txid in ^Enum.map(rivals, & &1.spending_txid),
+          select: t.txid
+      )
+
+    replacements = Map.new(entries, &{{&1.txid, &1.vout}, &1})
+
+    for %Spend{} = rival <- rivals, rival.spending_txid not in on_chain do
+      entry = Map.fetch!(replacements, {rival.txid, rival.vout})
+
+      rival
+      |> Ecto.Changeset.change(spending_txid: spender, spending_vin: entry.spending_vin)
+      |> Repo.update!()
+    end
+  end
+
+  @chained_states ~w(header_synced txs_queued txs_syncing completed)
+
+  @doc """
+  Whether each of `transactions` is confirmed as far as this index knows, as
+  `%{txid => %{confirmed: boolean, confirmation: status}}` (#34). A tx is
+  confirmed only while its `block_hash` is the block stored at its height:
+
+    * `"confirmed"`: that block exists and its txid list has been checked
+      against the header (any state from `header_synced` on).
+    * `"unverified"`: that block is stored, but nothing has yet tied this tx
+      to its header (`header_only`, `pending` or `failed`).
+    * `"orphaned"`: no stored block has that hash at that height: a reorg
+      replaced it, and `Reorgs.Reconcile` hasn't settled the row yet.
+
+  One query on the unique `blocks.hash`.
+  """
+  @spec confirmations([Transaction.t()]) :: %{
+          String.t() => %{confirmed: boolean(), confirmation: String.t()}
+        }
+  def confirmations(transactions) do
+    hashes = transactions |> Enum.map(& &1.block_hash) |> Enum.uniq()
+
+    blocks =
+      Repo.all(
+        from b in Block,
+          where: b.hash in ^hashes,
+          select: {b.hash, {b.height, b.sync_state}}
+      )
+      |> Map.new()
+
+    Map.new(transactions, fn tx ->
+      status =
+        case Map.get(blocks, tx.block_hash) do
+          nil ->
+            "orphaned"
+
+          {height, _state} when tx.block_height not in [nil, height] ->
+            "orphaned"
+
+          {_height, state} when state in @chained_states ->
+            "confirmed"
+
+          _unverified ->
+            "unverified"
+        end
+
+      {tx.txid, %{confirmed: status == "confirmed", confirmation: status}}
+    end)
+  end
 
   @doc """
   Indexes any BSV-20 / BSV-21 token inscriptions carried by a transaction.

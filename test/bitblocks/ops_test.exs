@@ -287,4 +287,16 @@ defmodule Bitblocks.OpsTest do
       assert c.eta_hours == nil
     end
   end
+
+  describe "a halted fork (#34)" do
+    test "is a problem, with the height, and the health line says so" do
+      h = Ops.health(%{node: %{"blocks" => 10}, overview: %{}, now: @now, halted: 501})
+
+      assert "reorg_halted" in h.problems
+      assert h.index.halted_at == 501
+
+      assert BitblocksWeb.HealthLine.progress_text(h) =~
+               "Tip sync has halted at block 501: a fork deeper than 10 blocks needs an operator."
+    end
+  end
 end

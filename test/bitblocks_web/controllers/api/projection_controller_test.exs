@@ -15,11 +15,12 @@ defmodule BitblocksWeb.Api.ProjectionControllerTest do
         filter: %{"output_addresses" => [@donation]}
       })
 
-    block_fixture(%{height: 30})
+    for height <- [10, 20, 30], do: block_fixture(%{height: height, hash: "block_#{height}"})
 
     for {height, n} <- [{10, 1}, {20, 2}, {30, 3}] do
       transaction_fixture(%{
         block_height: height,
+        block_hash: "block_#{height}",
         txid: String.duplicate("#{n}", 64),
         output_addresses: [@donation]
       })

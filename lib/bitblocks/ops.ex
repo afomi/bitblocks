@@ -76,7 +76,8 @@ defmodule Bitblocks.Ops do
           match?({:unreachable, _}, node_state) && "node_unreachable",
           match?({:warming_up, _}, node_state) && "node_warming_up",
           stalled && "index_stalled",
-          paused && "sync_paused"
+          paused && "sync_paused",
+          facts[:halted] && "reorg_halted"
         ],
         &(&1 in [false, nil])
       )
@@ -92,6 +93,7 @@ defmodule Bitblocks.Ops do
         last_completed_at: iso(completed_at),
         stalled: stalled,
         paused: paused,
+        halted_at: facts[:halted],
         failed: failed(overview[:states])
       },
       node: %{
@@ -260,6 +262,7 @@ defmodule Bitblocks.Ops do
       last_completed_at: last_completed_at(snapshot.recent),
       blocks_in_progress: blocks_in_progress(snapshot.sync),
       paused: safe(&Bitblocks.Sync.paused?/0) == true,
+      halted: halted_fork(),
       now: DateTime.utc_now() |> DateTime.truncate(:second)
     }
   end
@@ -308,6 +311,15 @@ defmodule Bitblocks.Ops do
       "node_unreachable" in problems -> "down"
       problems != [] -> "degraded"
       true -> "ok"
+    end
+  end
+
+  # The height tip sync can't pass (#34), or nil. Nil too when the query
+  # fails: the deploy health check can answer before bin/migrate.
+  defp halted_fork do
+    case safe(&Bitblocks.Reorgs.halted/0) do
+      %{fork_height: height} -> height
+      _ -> nil
     end
   end
 

@@ -79,6 +79,25 @@ defmodule BitblocksWeb.Api.TransactionControllerTest do
       assert body["data"]["spend_depth"] == 0
     end
 
+    test "a tx in a header_only block isn't described as confirmed (#34)", %{conn: conn} do
+      block_fixture(%{hash: "header_block", height: 700, sync_state: "header_only"})
+      tx = transaction_fixture(%{block_hash: "header_block", block_height: 700})
+
+      data = conn |> get(~p"/api/v1/txs/#{tx.txid}") |> json_response(200) |> Map.fetch!("data")
+
+      assert data["confirmed"] == false
+      assert data["confirmation"] == "unverified"
+    end
+
+    test "a tx left under an orphaned block isn't confirmed (#34)", %{conn: conn} do
+      tx = transaction_fixture(%{block_hash: "orphaned_block", block_height: 700})
+
+      data = conn |> get(~p"/api/v1/txs/#{tx.txid}") |> json_response(200) |> Map.fetch!("data")
+
+      assert data["confirmed"] == false
+      assert data["confirmation"] == "orphaned"
+    end
+
     test "returns spend_depth 1 for direct child of coinbase", %{conn: conn} do
       cb = transaction_fixture(%{coinbase: true, input_txids: []})
       child = transaction_fixture(%{coinbase: false, input_txids: [cb.txid]})

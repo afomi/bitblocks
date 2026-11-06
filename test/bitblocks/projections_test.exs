@@ -107,11 +107,14 @@ defmodule Bitblocks.ProjectionsTest do
           filter: %{"output_addresses" => [@donation]}
         })
 
+      for height <- [10, 20, 30], do: block_fixture(%{height: height, hash: "block_#{height}"})
+
       # Deliberately out of order, two per height, so ties break on txid.
       txs =
         for {height, n} <- [{30, 1}, {10, 2}, {20, 3}, {10, 4}, {30, 5}] do
           transaction_fixture(%{
             block_height: height,
+            block_hash: "block_#{height}",
             txid: String.duplicate("#{n}", 64),
             output_addresses: [@donation]
           })
@@ -129,6 +132,19 @@ defmodule Bitblocks.ProjectionsTest do
       assert page_through(p, snapshot_height: 30, limit: 2) == expected
       assert {:ok, %{txs: all, next_cursor: nil}} = Projections.hydrate(p, snapshot_height: 30)
       assert Enum.map(all, & &1.txid) == expected
+    end
+
+    test "never returns a row left under an orphaned block (#34)", %{projection: p, txs: txs} do
+      transaction_fixture(%{
+        block_height: 20,
+        block_hash: "orphaned_20",
+        txid: String.duplicate("9", 64),
+        output_addresses: [@donation]
+      })
+
+      {:ok, %{txs: page}} = Projections.hydrate(p, snapshot_height: 30)
+
+      assert Enum.sort(Enum.map(page, & &1.txid)) == Enum.sort(Enum.map(txs, & &1.txid))
     end
 
     test "excludes unconfirmed txs and anything above the snapshot", %{projection: p} do
@@ -156,10 +172,8 @@ defmodule Bitblocks.ProjectionsTest do
     end
 
     test "the snapshot defaults to the highest stored block", %{projection: p} do
-      block_fixture(%{height: 20})
-
-      assert {:ok, %{snapshot_height: 20, txs: txs}} = Projections.hydrate(p)
-      assert length(txs) == 3
+      assert {:ok, %{snapshot_height: 30, txs: txs}} = Projections.hydrate(p)
+      assert length(txs) == 5
     end
 
     test "rejects a malformed cursor or one from another projection", %{projection: p} do
@@ -238,6 +252,7 @@ defmodule Bitblocks.ProjectionsTest do
       for {height, n} <- [{99, 1}, {100, 2}, {103, 3}] do
         transaction_fixture(%{
           block_height: height,
+          block_hash: "block_#{height}",
           txid: String.duplicate("#{n}", 64),
           output_addresses: [@donation]
         })
@@ -289,7 +304,9 @@ defmodule Bitblocks.ProjectionsTest do
   end
 
   defp blocks(range, sync_state) do
-    for height <- range, do: block_fixture(%{height: height, sync_state: sync_state})
+    for height <- range do
+      block_fixture(%{height: height, hash: "block_#{height}", sync_state: sync_state})
+    end
   end
 
   defp page_through(p, opts, acc \\ []) do

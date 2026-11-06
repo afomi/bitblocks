@@ -80,9 +80,14 @@ defmodule Bitblocks.Workers.SyncHeadersWorker do
   @doc """
   Stores new headers up to the node's tip, resolving a reorg if one is found.
   Returns `{:error, :node_unreachable}` when the node's tip is unknown.
+
+  When the node isn't ahead of us, its best block hash is compared with the
+  block we store at its height (#34): a same-height replacement or a rollback
+  to a heavier, shorter chain is a reorg with no new block to reveal it.
+  `info` is the node's `getblockchaininfo` answer.
   """
-  def sync_tip do
-    chain_tip = get_chain_tip()
+  def sync_tip(info \\ Bitblocks.RpcCache.get_blockchain_info()) do
+    chain_tip = get_chain_tip(info)
     our_tip = get_our_tip()
 
     cond do
@@ -103,9 +108,73 @@ defmodule Bitblocks.Workers.SyncHeadersWorker do
         :ok
 
       true ->
+        check_best_hash(info, chain_tip, our_tip)
+    end
+  end
+
+  defp check_best_hash(%{"bestblockhash" => best}, chain_tip, our_tip) when is_binary(best) do
+    case Chain.get_block_at_height(chain_tip) do
+      %Block{hash: ^best} ->
+        :ok
+
+      %Block{} ->
+        # The cache can be minutes old, so a difference is only a question:
+        # the node's live answer decides, and the cached one is dropped.
+        Bitblocks.RpcCache.invalidate_blockchain_info()
+        resolve_best_hash(rpc().getblockchaininfo(), our_tip)
+
+      nil ->
         :ok
     end
   end
+
+  defp check_best_hash(_info, _chain_tip, _our_tip), do: :ok
+
+  defp resolve_best_hash(%{"blocks" => tip, "bestblockhash" => best}, our_tip)
+       when is_integer(tip) and is_binary(best) and tip <= our_tip do
+    with %Block{hash: stored} when stored != best <- Chain.get_block_at_height(tip) do
+      if outweighs_our_tip?(best, tip, our_tip) do
+        handle_reorg(tip, best, our_tip)
+      else
+        Logger.warning(
+          "SyncHeaders: node tip #{tip} (#{best}) is on a lighter branch than ours; waiting"
+        )
+      end
+    end
+
+    :ok
+  end
+
+  # The node moved on, or didn't answer: the next run looks again.
+  defp resolve_best_hash(_info, _our_tip), do: :ok
+
+  # A node that is merely behind, or on a stale branch, must never rewind us.
+  # Equal work at equal height follows the node; a lower tip needs proof it
+  # carries at least our work.
+  defp outweighs_our_tip?(best, tip, our_tip) do
+    theirs =
+      case rpc().getblockheader(best, true) do
+        %{"chainwork" => work} -> chainwork(work)
+        _ -> nil
+      end
+
+    ours =
+      case Chain.get_block_at_height(our_tip) do
+        %Block{chainwork: work} -> chainwork(work)
+        nil -> nil
+      end
+
+    if is_integer(theirs) and is_integer(ours), do: theirs >= ours, else: tip == our_tip
+  end
+
+  defp chainwork(hex) when is_binary(hex) do
+    case Integer.parse(hex, 16) do
+      {work, ""} -> work
+      _ -> nil
+    end
+  end
+
+  defp chainwork(_hex), do: nil
 
   # Tip-mode range sync — propagates {:reorg, height, hash} up if detected.
   # Walked in batch_size() chunks, like range mode, so a catch-up after an
@@ -133,7 +202,7 @@ defmodule Bitblocks.Workers.SyncHeadersWorker do
   # Capped at @max_reorg_depth to avoid runaway deletes on a misconfigured node.
   @max_reorg_depth 10
 
-  defp handle_reorg(fork_height, node_hash) do
+  defp handle_reorg(fork_height, node_hash, top \\ nil) do
     Logger.warning("SyncHeaders: reorg detected at height #{fork_height} — resolving")
 
     case fork_point(fork_height, node_hash) do
@@ -142,12 +211,16 @@ defmodule Bitblocks.Workers.SyncHeadersWorker do
           "SyncHeaders: reorg fork point #{fork_point}, deleting orphans #{fork_point + 1}..#{fork_height}"
         )
 
-        orphans = delete_orphans(fork_point, fork_height)
+        # `top`: our own tip, when it stands above the node's.
+        orphans = delete_orphans(fork_point, max(fork_height, top || fork_height))
         orphan_count = length(orphans)
 
         Logger.warning("SyncHeaders: reorg resolved, re-syncing from #{fork_point + 1}")
-        record_reorg(fork_height, fork_point, orphan_count)
-        Bitblocks.Notifications.reorg_alert(fork_height, fork_point, orphan_count)
+
+        if record_reorg(fork_height, fork_point, orphan_count) == :first_report do
+          Bitblocks.Notifications.reorg_alert(fork_height, fork_point, orphan_count)
+        end
+
         notify_projections_of_reorg(fork_point)
 
         Chain.broadcast_reorg(%{
@@ -172,13 +245,18 @@ defmodule Bitblocks.Workers.SyncHeadersWorker do
           "SyncHeaders: reorg exceeds #{@max_reorg_depth} blocks deep — manual intervention required"
         )
 
-        record_reorg(fork_height, nil, nil)
-        Bitblocks.Notifications.reorg_alert(fork_height, nil, nil)
+        # Tip sync meets this fork every minute until an operator steps in:
+        # the reorg row refreshes each time, and one email goes out for it.
+        if record_reorg(fork_height, nil, nil) == :first_report do
+          Bitblocks.Notifications.reorg_alert(fork_height, nil, nil)
+        end
     end
   end
 
   # Phase 1 of #34: an annotation and a site notice. Transaction rows are
-  # reconciled afterwards by ReconcileOrphanWorker.
+  # reconciled afterwards by ReconcileOrphanWorker. Returns :first_report for
+  # a new row, :repeat for the same fork seen again, so a repeat sends no
+  # email. A row that couldn't be written still counts as a first report.
   defp record_reorg(fork_height, fork_point, orphan_count) do
     outcome = if is_integer(fork_point), do: "resolved", else: "needs_attention"
 
@@ -188,15 +266,17 @@ defmodule Bitblocks.Workers.SyncHeadersWorker do
            orphan_count: orphan_count,
            outcome: outcome
          }) do
-      {:ok, _reorg} ->
-        :ok
+      {:ok, reorg} ->
+        if Bitblocks.Reorgs.repeat_report?(reorg), do: :repeat, else: :first_report
 
       {:error, changeset} ->
         Logger.error("SyncHeaders: reorg record failed: #{inspect(changeset.errors)}")
+        :first_report
     end
   rescue
     exception ->
       Logger.error("SyncHeaders: reorg record failed: #{Exception.message(exception)}")
+      :first_report
   end
 
   # Webhook projections drop rows above the fork point (#29 step 4). Never
@@ -274,12 +354,8 @@ defmodule Bitblocks.Workers.SyncHeadersWorker do
     end
   end
 
-  defp get_chain_tip do
-    case Bitblocks.RpcCache.get_blockchain_info() do
-      %{"blocks" => tip} when is_integer(tip) -> tip
-      _ -> nil
-    end
-  end
+  defp get_chain_tip(%{"blocks" => tip}) when is_integer(tip), do: tip
+  defp get_chain_tip(_info), do: nil
 
   defp get_our_tip do
     case Chain.get_latest_block() do

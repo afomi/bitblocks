@@ -20,7 +20,7 @@ A header gap below it is found by an index-only count of heights, and only searc
 ## The loop
 
 1. **Headers stay current.**
-   The coordinator runs header sync every minute: new headers up to the node's tip, a reorg resolved when one is found (fork point, orphans deleted, `ReconcileOrphanWorker` queued), and the lowest header gap below our tip filled, 10,000 headers a run.
+   The coordinator runs header sync every minute: new headers up to the node's tip, a reorg resolved when one is found (fork point, orphans deleted, `ReconcileOrphanWorker` queued), the node's best hash compared with ours when it isn't ahead, and the lowest header gap below our tip filled, 10,000 headers a run.
    The node's new blocks arrive as `header_only` rows, which are incomplete.
 2. **Work goes upward from `complete_through + 1`.**
    The coordinator gives each free worker slot the lowest incomplete block that has no live job.
@@ -155,9 +155,25 @@ Two things move them:
 - The tx-fetch diff (`Chain.TxIngest.existing_txids/2`) moves a stored transaction to the block being fetched when its row sits under a hash that is no longer a stored block. So a transaction mined in both blocks reports the new block's hash and height once that block's transactions are fetched.
 - `ReconcileOrphanWorker`, enqueued for each deleted orphan ten minutes after the reorg, settles every remaining row: moved to the block a source names (if we store it), or removed with its spend edges when no block holds it. It marks the reorg row reconciled once no row points at the orphan, and the reorg's summary sentence follows.
 
-Removal is a delete: no row is marked unconfirmed, because every read path treats a stored row as confirmed.
+Removal is a delete: no row is marked unconfirmed.
 A removed transaction that is mined later is fetched again with its block.
-Token, listing and other protocol rows from orphan-only transactions are not rewound yet.
+
+Until a row is settled, nothing describes it as confirmed:
+
+- `GET /api/v1/txs` and `GET /api/v1/txs/:txid` carry `confirmed` and `confirmation` (`Chain.confirmations/1`): `confirmed` while the tx's `block_hash` is the block stored at its height and that block's txid list has been checked, `unverified` for a `header_only` block, `orphaned` when no stored block has that hash at that height.
+- Merkle proofs answer 409 for such a row, address and script balances count it as `unknown` (`Chain.Utxos`), and projection hydrate leaves it out.
+- `Chain.record_spends/1` replaces a spend whose spender isn't in a stored block, so the real chain's spender of an outpoint takes the row as soon as its block is fetched.
+
+Tip sync also finds the reorgs no new block reveals.
+When the node isn't ahead of us, its best block hash is compared with the block we store at its height; a difference is checked against the node's live answer, then resolved.
+A node on our chain but behind us is not a reorg, and a node on a shorter branch rewinds us only when its chainwork is at least ours.
+
+The stream sends `reorg` (`fork_point`, `fork_height`, `orphans`) on `GET /api/v1/stream/blocks`, and webhook projections get their `reorg` event.
+
+A fork deeper than 10 blocks stops tip sync at that height: the reorg row stays `needs_attention`, `Reorgs.halted/0` names it, `/syncing` and `/status` say so, `GET /api/v1/status` lists `reorg_halted`, and one email goes out for the fork, however many tip runs meet it.
+
+Token, listing, collection and Bitcom rows from orphan-only transactions are not rewound.
+Most protocol state on the chain is bespoke, so each protocol's rewind is its own piece of work, not one pass over every derived table (Ryan, 2026-10-31).
 
 For a reorg from before this shipped, run the same reconcile by hand, dry run first:
 

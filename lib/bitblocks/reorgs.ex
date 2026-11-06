@@ -4,8 +4,9 @@ defmodule Bitblocks.Reorgs do
 
   Phase 1 of #34: write an annotation when tip sync sees a fork, and surface
   the recent one as a site notice. Transaction rows and their spend edges are
-  reconciled after the fact (`Bitblocks.Reorgs.Reconcile`); token, listing and
-  other protocol rows are a later phase.
+  reconciled after the fact (`Bitblocks.Reorgs.Reconcile`). Token, listing and
+  other protocol rows aren't rewound here: each protocol's state is its own,
+  and takes its own pass.
 
   `summary` is stored for the views, but always computed from the row's
   fields by `summary/1`, and rewritten whenever those fields change, so the
@@ -62,6 +63,14 @@ defmodule Bitblocks.Reorgs do
   end
 
   @doc """
+  True when `reorg` came back from `record_observed/2` as a refresh of an
+  existing row: the same fork, reported again.
+  """
+  @spec repeat_report?(Reorg.t()) :: boolean()
+  def repeat_report?(%Reorg{detected_at: first, last_seen_at: last}),
+    do: DateTime.compare(last, first) == :gt
+
+  @doc """
   Corrects a reorg row after its transaction rows were reconciled, and
   rewrites its summary to match.
 
@@ -82,14 +91,17 @@ defmodule Bitblocks.Reorgs do
 
   @doc """
   The most recent resolved reorg whose replaced heights include `height`
-  (above its fork point, up to its fork height), or nil.
+  (above its fork point, up to its fork height or the last block it set
+  aside, whichever is higher), or nil.
   """
   @spec resolved_covering(integer()) :: Reorg.t() | nil
   def resolved_covering(height) when is_integer(height) do
     Repo.one(
       from(r in Reorg,
         where: r.outcome == "resolved",
-        where: r.fork_point < ^height and r.fork_height >= ^height,
+        where:
+          r.fork_point < ^height and
+            (r.fork_height >= ^height or r.fork_point + r.orphan_count >= ^height),
         order_by: [desc: r.detected_at, desc: r.id],
         limit: 1
       )
@@ -135,32 +147,9 @@ defmodule Bitblocks.Reorgs do
   @spec active_notice(DateTime.t()) :: Reorg.t() | nil
   def active_notice(now \\ DateTime.utc_now()) do
     now = DateTime.truncate(now, :second)
-    attention_cutoff = DateTime.add(now, -@attention_seconds, :second)
     resolved_cutoff = DateTime.add(now, -@resolved_notice_seconds, :second)
 
-    # A fork that a later run resolved no longer needs a person, even inside
-    # the attention window.
-    resolved_since =
-      from(s in Reorg,
-        where: s.outcome == "resolved",
-        where: s.fork_height >= parent_as(:attention).fork_height,
-        where: s.detected_at >= parent_as(:attention).last_seen_at,
-        select: 1
-      )
-
-    attention =
-      Repo.one(
-        from(r in Reorg,
-          as: :attention,
-          where: r.outcome == "needs_attention",
-          where: r.last_seen_at >= ^attention_cutoff,
-          where: not exists(resolved_since),
-          order_by: [desc: r.last_seen_at, desc: r.id],
-          limit: 1
-        )
-      )
-
-    case attention do
+    case halted(now) do
       %Reorg{} = reorg ->
         reorg
 
@@ -174,6 +163,38 @@ defmodule Bitblocks.Reorgs do
           )
         )
     end
+  end
+
+  @doc """
+  The fork holding tip sync back right now, or nil: a `needs_attention` row
+  tip sync is still reporting, with no later run having resolved it. New
+  headers stop at its `fork_height` until an operator steps in.
+  """
+  @spec halted(DateTime.t()) :: Reorg.t() | nil
+  def halted(now \\ DateTime.utc_now()) do
+    attention_cutoff =
+      now |> DateTime.truncate(:second) |> DateTime.add(-@attention_seconds, :second)
+
+    # A fork that a later run resolved no longer needs a person, even inside
+    # the attention window.
+    resolved_since =
+      from(s in Reorg,
+        where: s.outcome == "resolved",
+        where: s.fork_height >= parent_as(:attention).fork_height,
+        where: s.detected_at >= parent_as(:attention).last_seen_at,
+        select: 1
+      )
+
+    Repo.one(
+      from(r in Reorg,
+        as: :attention,
+        where: r.outcome == "needs_attention",
+        where: r.last_seen_at >= ^attention_cutoff,
+        where: not exists(resolved_since),
+        order_by: [desc: r.last_seen_at, desc: r.id],
+        limit: 1
+      )
+    )
   end
 
   defp recent_match(fork_height, fork_point, outcome, now) do
@@ -201,9 +222,9 @@ defmodule Bitblocks.Reorgs do
   @doc """
   The sentence for a reorg row, computed from its fields.
 
-  `fork_height` is the node's first block that did not build on this index's
-  chain, so it is never one of ours: the blocks set aside sit above
-  `fork_point` and below `fork_height`.
+  `fork_height` is the node's block that did not build on this index's chain:
+  the first new block, or the node's tip when the node stopped at or below
+  ours. The blocks set aside sit above `fork_point`.
   """
   @spec summary(Reorg.t()) :: String.t()
   def summary(%Reorg{outcome: "resolved"} = reorg) do

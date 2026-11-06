@@ -208,6 +208,11 @@ defmodule Bitblocks.Projections do
   defp fetch_page(projection, snapshot, after_key, limit) do
     projection
     |> query()
+    # A row left under an orphan until `Reorgs.Reconcile` settles it (#34)
+    # joins no stored block, so hydrate never returns it.
+    |> join(:inner, [t], b in Bitblocks.Chain.Block,
+      on: b.hash == t.block_hash and b.height == t.block_height
+    )
     |> where([t], t.block_height >= ^projection.from_height and t.block_height <= ^snapshot)
     |> after_key(after_key)
     |> order_by([t], asc: t.block_height, asc: t.txid)
@@ -218,7 +223,7 @@ defmodule Bitblocks.Projections do
   defp after_key(query, nil), do: query
 
   defp after_key(query, {height, txid}),
-    do: where(query, [t], fragment("(?, ?) > (?, ?)", t.block_height, t.txid, ^height, ^txid))
+    do: where(query, [t, _b], fragment("(?, ?) > (?, ?)", t.block_height, t.txid, ^height, ^txid))
 
   # A cursor is opaque to tenants: base64url JSON of
   # [projection_id, snapshot_height, last_block_height, last_txid].

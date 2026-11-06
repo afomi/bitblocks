@@ -29,7 +29,7 @@ defmodule BitblocksWeb.Api.TransactionController do
         {txs, next_cursor} = Chain.list_transactions_paginated(cursor, per_page, filters)
 
         json(conn, %{
-          data: Enum.map(txs, &tx_to_json/1),
+          data: with_confirmation(txs),
           meta:
             filters
             |> Chain.tx_list_coverage()
@@ -60,8 +60,14 @@ defmodule BitblocksWeb.Api.TransactionController do
             {:error, reason} -> %{error: reason}
           end
 
-        json(conn, %{data: Map.put(tx_to_json(tx), :spend_depth, spend_depth)})
+        [data] = with_confirmation([tx])
+        json(conn, %{data: Map.put(data, :spend_depth, spend_depth)})
     end
+  end
+
+  defp with_confirmation(txs) do
+    confirmations = Chain.confirmations(txs)
+    Enum.map(txs, &Map.merge(tx_to_json(&1), Map.fetch!(confirmations, &1.txid)))
   end
 
   defp tx_to_json(tx) do
