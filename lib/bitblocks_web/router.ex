@@ -359,6 +359,11 @@ defmodule BitblocksWeb.Router do
       live "/chain-scrubber", ChainScrubberLive
       live "/annotations", AnnotationLive
 
+      # Builder onboarding: admin only until published (docs/DEMOS_CAMPAIGN.md).
+      live "/start", StartLive.Index
+      live "/start/api", StartLive.Api
+      live "/start/guidance", StartLive.Guidance
+
       # A browse list over the whole table; detail pages cover a shared link.
       live "/transactions", TransactionLive.Index, :index
 

@@ -1,0 +1,236 @@
+<.start_page current="api">
+  <section
+    id="api-lede"
+    class="mb-10"
+  >
+    <h1 class="mb-3 text-3xl font-semibold tracking-tight text-gray-900 dark:text-white">
+      The Bitblocks API
+    </h1>
+    <p class="text-lg leading-relaxed text-gray-700 dark:text-gray-300">
+      JSON over HTTP, from <code class="font-mono text-base">https://bitblocks.app/api/v1</code>.
+      This page covers how to call it and the endpoints to start with.
+      The linked examples open in a signed-in browser; signed out, they answer 401.
+    </p>
+  </section>
+
+  <section
+    id="access"
+    aria-labelledby="access-heading"
+    class="mb-12"
+  >
+    <.strand_heading id="access-heading">
+      Who can call what
+    </.strand_heading>
+    <div class="overflow-x-auto">
+      <table
+        id="access-table"
+        class="w-full text-left text-sm"
+      >
+        <thead>
+          <tr class="border-b border-gray-200 text-gray-600 dark:border-gray-700 dark:text-gray-400">
+            <th
+              scope="col"
+              class="py-2 pr-4 font-medium"
+            >
+              Caller
+            </th>
+            <th
+              scope="col"
+              class="py-2 pr-4 font-medium"
+            >
+              Reaches
+            </th>
+            <th
+              scope="col"
+              class="py-2 pr-4 font-medium"
+            >
+              Requests a minute
+            </th>
+            <th
+              scope="col"
+              class="py-2 font-medium"
+            >
+              State
+            </th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-200 text-gray-700 dark:divide-gray-700 dark:text-gray-300">
+          <tr>
+            <td class="py-2 pr-4">
+              Anyone
+            </td>
+            <td class="py-2 pr-4">
+              <code class="font-mono text-xs">/status</code>,
+              <code class="font-mono text-xs">/price/bsv</code>,
+              <code class="font-mono text-xs">/support</code>
+              and the Bitcom registry exports
+            </td>
+            <td class="py-2 pr-4 font-mono tabular-nums">
+              {@rate_limits.anonymous}, per IP
+            </td>
+            <td class="py-2">
+              <.status kind="today" />
+            </td>
+          </tr>
+          <tr>
+            <td class="py-2 pr-4">
+              <.text_link href="/sign-in">Signed in with GitHub</.text_link>
+            </td>
+            <td class="py-2 pr-4">
+              The whole API, from the browser you signed in with
+            </td>
+            <td class="py-2 pr-4 font-mono tabular-nums">
+              {@rate_limits.signed_in}, per user
+            </td>
+            <td class="py-2">
+              <.status kind="signed_in" />
+            </td>
+          </tr>
+          <tr>
+            <td class="py-2 pr-4">
+              A key
+            </td>
+            <td class="py-2 pr-4">
+              The whole API, from your own server
+            </td>
+            <td class="py-2 pr-4">
+              The key's own budget
+            </td>
+            <td class="py-2">
+              <.status kind="coming" />
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="mt-4 space-y-3 text-sm leading-relaxed text-gray-700 dark:text-gray-300">
+      <p>
+        Getting a key for yourself is coming, and keys are issued by hand for now.
+        A key goes in the header, as <code class="font-mono text-xs">Authorization: Bearer bbk_...</code>
+        or <code class="font-mono text-xs">x-api-key: bbk_...</code>.
+      </p>
+      <p>
+        <.text_link href="/pricing">Pricing</.text_link> covers what comes after the free tier.
+      </p>
+      <p>
+        Block and transaction pages are open to anyone, so a link you share simply works.
+        The JSON behind them is the API, and needs a session or a key.
+      </p>
+    </div>
+  </section>
+
+  <section
+    id="responses"
+    aria-labelledby="responses-heading"
+    class="mb-12"
+  >
+    <.strand_heading id="responses-heading">
+      Reading a response
+    </.strand_heading>
+    <div class="space-y-3 text-sm leading-relaxed text-gray-700 dark:text-gray-300">
+      <p>
+        Most answers carry the result in <code class="font-mono text-xs">data</code>.
+        A list adds <code class="font-mono text-xs">meta</code>, and you page by passing
+        <code class="font-mono text-xs">next_cursor</code>
+        back as <code class="font-mono text-xs">?cursor=</code>.
+      </p>
+      <.code_panel
+        label="A page of transactions, abridged"
+        code={envelope_example()}
+      />
+      <p>
+        <code class="font-mono text-xs">meta.complete</code>
+        is false while any block in a listing's range is still syncing, so an empty page isn't always the end of the story.
+      </p>
+      <.code_panel
+        label="Without a session or key: 401"
+        code={unauthorized_example()}
+      />
+      <p>
+        Too many requests in a minute gets a 429 with a <code class="font-mono text-xs">Retry-After</code> header, and an unknown or revoked key gets a 401.
+        A transaction we don't hold gets a 404, which can simply mean the sync hasn't reached its block yet.
+      </p>
+    </div>
+  </section>
+
+  <section
+    id="partial-answers"
+    aria-labelledby="partial-answers-heading"
+    class="mb-12 rounded-lg border border-gray-200 p-4 dark:border-gray-700"
+  >
+    <h2
+      id="partial-answers-heading"
+      class="mb-2 text-sm font-semibold text-gray-900 dark:text-white"
+    >
+      Answers that say how sure they are
+    </h2>
+    <div class="space-y-3 text-sm leading-relaxed text-gray-700 dark:text-gray-300">
+      <p>
+        An output is known to be unspent only once the index reaches the tip, so address and script answers carry a status: <code class="font-mono text-xs">exact</code>,
+        <code class="font-mono text-xs">partial</code>
+        or <code class="font-mono text-xs">unknown</code>.
+        While the sync climbs, expect the last two, and treat unknown as unknown.
+      </p>
+      <p>
+        If you need a whole-chain balance today, <.text_link href="https://docs.whatsonchain.com/">WhatsOnChain's API</.text_link> is the place to look.
+      </p>
+    </div>
+  </section>
+
+  <section
+    :for={group <- @groups}
+    id={group.id}
+    aria-labelledby={"#{group.id}-heading"}
+    class="mb-12"
+  >
+    <.strand_heading id={"#{group.id}-heading"}>
+      {group.title}
+    </.strand_heading>
+    <p class="mb-2 text-sm text-gray-600 dark:text-gray-400">
+      {group.lede}
+    </p>
+    <dl class="divide-y divide-gray-200 border-y border-gray-200 dark:divide-gray-700 dark:border-gray-700">
+      <div
+        :for={row <- group.rows}
+        class="py-3"
+      >
+        <dt class="font-mono text-xs break-all text-gray-900 dark:text-white">
+          {row.method} {row.path}
+          <span
+            :if={row.access == :open}
+            class="ml-2 font-sans font-semibold text-green-700 dark:text-green-400"
+          >
+            open
+          </span>
+        </dt>
+        <dd class="mt-1 text-sm text-gray-700 dark:text-gray-300">
+          {row.does}
+          <a
+            :if={row.example}
+            href={row.example}
+            class="mt-1 block font-mono text-xs break-all text-blue-700 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
+          >
+            {row.example}
+          </a>
+        </dd>
+      </div>
+    </dl>
+  </section>
+
+  <section
+    id="more"
+    aria-labelledby="more-heading"
+    class="mb-8"
+  >
+    <.strand_heading id="more-heading">
+      Going further
+    </.strand_heading>
+    <p class="text-sm leading-relaxed text-gray-700 dark:text-gray-300">
+      This list is the core of the API, and
+      <.text_link href="https://github.com/afomi/bitblocks">the code is open</.text_link>
+      if you want to see all of it.
+      Proofs are explained in full in
+      <.text_link href="https://github.com/afomi/bitblocks/blob/develop/docs/MERKLE_PROOFS.md">the merkle proofs doc</.text_link>.
+    </p>
+  </section>
+</.start_page>
