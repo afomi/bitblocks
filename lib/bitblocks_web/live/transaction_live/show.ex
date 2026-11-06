@@ -2,6 +2,7 @@ defmodule BitblocksWeb.TransactionLive.Show do
   use BitblocksWeb, :live_view
 
   alias Bitblocks.{Chain, TransactionParser, Collections}
+  alias Bitblocks.Bitcom.BFile
   alias Bitblocks.Script.{Descriptor, Templates}
   alias BitblocksWeb.TxSummary
 
@@ -21,6 +22,7 @@ defmodule BitblocksWeb.TransactionLive.Show do
        nft_facts: nil,
        tx_state: :not_downloaded,
        protocol_links: [],
+       has_b_file: false,
        descriptors_by_vout: %{}
      )}
   end
@@ -149,6 +151,7 @@ defmodule BitblocksWeb.TransactionLive.Show do
      |> assign(:nft_facts, nft_facts)
      |> assign(:tx_state, TxSummary.state(transaction, decoded_tx))
      |> assign(:protocol_links, protocol_links)
+     |> assign(:has_b_file, match?(%BSV.Tx{}, decoded_tx) and BFile.parse(decoded_tx) != :error)
      |> assign(:descriptors_by_vout, Map.new(output_descriptors, &{&1.vout, &1}))}
   end
 

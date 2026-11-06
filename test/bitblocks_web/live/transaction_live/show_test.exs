@@ -150,6 +150,18 @@ defmodule BitblocksWeb.TransactionLive.ShowTest do
       assert has_element?(view, "#tx-protocols a[href^='/bitcom']", "Bitcom")
     end
 
+    test "a B:// tx links to its file", %{conn: conn} do
+      script = %BSV.Script{
+        chunks: [:OP_FALSE, :OP_RETURN, "19HxigV4QyBv3tHpQVcUEQyq1pzZVdoAut", "hi", "text/plain"]
+      }
+
+      tx = insert_tx(raw_hex_with_output(script, 0), "bfile#{System.unique_integer([:positive])}")
+
+      {:ok, view, _html} = live(conn, ~p"/transactions/#{tx.txid}")
+
+      assert has_element?(view, ~s(#tx-b-file[href="/b/#{tx.txid}"]))
+    end
+
     test "the outputs table names who was paid", %{conn: conn} do
       hash = :binary.copy(<<7>>, 20)
 

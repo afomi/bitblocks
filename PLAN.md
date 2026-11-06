@@ -18,12 +18,12 @@ What to measure: the header totals, which say what the whole chain costs to hold
 Current system doc: `docs/BITCOM.md`.
 
 Closed 2026-11-04: #36 · #37 · #40 · #41 · #43 · #44 · #46.
-`/sync` has a durable pause, and `/sync` and `/status` lead with one health line (`BitblocksWeb.HealthLine`, from `Ops.health/0`).
+`/syncing` has a durable pause, and `/syncing` and `/status` lead with one health line (`BitblocksWeb.HealthLine`, from `Ops.health/0`).
 
-Ryan's ops queue: **#1 OPS-ROLLOUT**. The code is deployed (b8b7757, 2026-10-21).
-Run one `Release.analyze_transactions/1` pass on prod to reach v6; it also indexes Bitcom commands, so `/bitcom` gains proofs, files and routes.
-It runs for hours, so start it detached (see #1).
-Then run the completeness audit and repair, and confirm zero deficit blocks.
+Ops queue: **#1 OPS-ROLLOUT**.
+Script analysis to v7 runs as backfill chain #1 on prod (`Release.start_backfill`, [docs/DERIVED_DATA.md](docs/DERIVED_DATA.md#backfill-chains)), which also indexes Bitcom commands, so `/bitcom` gains proofs, files and routes as it goes.
+Watch it with `Release.backfill_status(1)` and `GET /api/v1/status/derivations`.
+When it finishes, run the completeness audit and repair (commands in #1); #1 closes when the audit reports zero deficit blocks.
 
 Sync (2026-11-04): one loop, led by `Sync.Coordinator`, works upward from genesis and reports "Complete through block X of N known" ([docs/SYNCING.md](docs/SYNCING.md)).
 Blocks up to 32 MB are one raw-block request each (node REST, `rest=1`); the 768 failed blocks and the gap above 957,301 are reached in order with no manual steps.
@@ -33,11 +33,13 @@ Follow-up: stream blocks over 32 MB through a bounded parser instead of the per-
 
 #2 · #3 · #4 · #5 · #6 · #7 · #8 · #10 · #11 · #19 · #20 · #23.
 
-Partly built: #21 export (snapshot anchoring needs a bitblocks-owned address) · #22 bit:// resolver (acting as a provider needs #15 and that address) · #26 sponsorship: the ask moved off-site; bitblocks serves live numbers at `GET /api/v1/support` and a footer link (next steps in [docs/DONATION_ADDRESS.md](docs/DONATION_ADDRESS.md#fundraising-next-steps)).
+Partly built: #21 export, with versioned snapshots at `/api/v1/bitcom/snapshots` (anchoring a hash needs a bitblocks-owned funded address) · #22 bit:// resolver and `GET /b/:txid` (adding the route needs that address) · #26 sponsorship: the ask moved off-site; bitblocks serves live numbers at `GET /api/v1/support` and a footer link (next steps in [docs/DONATION_ADDRESS.md](docs/DONATION_ADDRESS.md#fundraising-next-steps)).
 
 ## Needs decision
 
-#9 seeded protocols vs. on-chain proof (/bitcom already derives tiers from proof; decide whether /protocols follows) · #12 API-SURFACE · #13 EDGE-RATE.
+#12 API-SURFACE · #13 EDGE-RATE.
+#38: signed-out read-only block and transaction pages (the pages are built; the gate is Ryan's call).
+A bitblocks-owned funded address (#21, #22, #26): the code is ready for it ([docs/BITCOM.md](docs/BITCOM.md#waiting-on-a-bitblocks-owned-funded-address)).
 
 ## Next
 
@@ -55,11 +57,12 @@ Queued after #30: #32 BAP identity index (qart request).
 #49 TYPES: a public page per transaction type, then every tx typed (unmatched is `custom`), then types as CRUD resources.
 Phase 1 is built: `/types`, `/types/:id` and `/api/v1/types`, with examples read only from existing indexes, and token and collection badges linking to their type.
 Phase 2 is built (2026-11-04): stable template hashes (script analysis v7), `Bitblocks.TxTypes.Classifier` passing every vector in `priv/data/tx_types/output_types_v1.json`, the `classify_outputs` and `type_counts` pipeline steps, and counts per type (with `custom`) on `/types` and `/api/v1/types`.
-Needs on prod, with Ryan's OK: `Release.backfill_script_analysis` to v7 (re-decodes every row) and `Release.backfill_tx_types` over completed blocks; until then `/types` says no block is typed yet.
-Open: P2PK and P2SH types (early coinbases read `custom` until they exist), named combinations such as a listing, and the canonical opcode names agreed with the wallet project.
+P2PK and P2SH are types (classifier v2), so early coinbases no longer read `custom`.
+Needs on prod, with Ryan's OK: the tx_types backfill (`Release.start_backfill("tx_types", ...)`) over completed blocks, once script analysis chain #1 finishes; until then `/types` says no block is typed yet.
+Open: named combinations such as a listing, and the canonical opcode names agreed with the wallet project.
 #48 SCRUBBER: admin three.js scrub from genesis to tip, and the first surface for accounting for misspends and burns.
-Built in the working tree (2026-11-03): tile pyramid, incremental builds, `/chain-scrubber`, reorg and classified-loss layers ([docs/CHAIN_SCRUBBER.md](docs/CHAIN_SCRUBBER.md)).
-Needs on prod, after deploy: `Release.build_chain_tiles()` once; a browser pass on the WebGL scene.
+Built: tile pyramid, incremental builds, `/chain-scrubber`, and reorg, classified-loss and burn layers ([docs/CHAIN_SCRUBBER.md](docs/CHAIN_SCRUBBER.md)).
+Needs on prod: `Release.build_chain_tiles()` once, then a browser pass on the WebGL scene.
 Shipped (2026-11-04): `/tx-graph` is the transaction flow space (every input an arc, scrubbed by a playhead), and `/annotations` places events on the chain, with an admin API ([docs/TX_FLOW.md](docs/TX_FLOW.md)).
 Next: binary flow tiles for ranges past 50,000 txs, and growing the scene as new blocks complete.
 
