@@ -11,9 +11,8 @@ Supporting Ryan personally through Civic Studio or Open Collective is a separate
 Goal: sponsors cover the ~$1,000/month full node.
 Do these in order; each one is small.
 
-1. **Ship what's built.**
-   Commit and deploy the working tree, then run #1 (`Release.analyze_transactions/1`).
-   - [ ] `GET https://bitblocks.app/api/v1/support` returns 200 with `monthly_target_usd: 1000`.
+1. **Ship what's built.** Done.
+   - [x] `GET https://bitblocks.app/api/v1/support` returns 200 with `monthly_target_usd: 1000`.
 2. **Derive the donation address** (see [Steps](#steps) below) and set `bsv_address` in `config :bitblocks, :support`.
    - [ ] The xpub check prints the same address the wallet shows.
    - [ ] `/api/v1/support` returns that `bsv_address`, and `received_sats_total` is not null.
