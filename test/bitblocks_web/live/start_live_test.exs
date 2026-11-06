@@ -46,6 +46,16 @@ defmodule BitblocksWeb.StartLiveTest do
     )
   end
 
+  defp user!(attrs \\ []) do
+    id = System.unique_integer([:positive])
+
+    Bitblocks.Repo.insert!(
+      struct!(%Bitblocks.Accounts.User{github_id: id, login: "user#{id}"}, attrs)
+    )
+  end
+
+  defp as(conn, user), do: init_test_session(conn, %{"user_id" => user.id})
+
   defp with_gate(fun) do
     Application.put_env(:bitblocks, :admin_auth, enabled: true)
     on_exit(fn -> Application.put_env(:bitblocks, :admin_auth, enabled: false) end)
@@ -53,25 +63,72 @@ defmodule BitblocksWeb.StartLiveTest do
   end
 
   describe "not published yet" do
-    test "every page is served, and asks not to be indexed", %{conn: conn} do
+    test "every page asks not to be indexed", %{conn: conn} do
       for path <- @pages do
         html = conn |> get(path) |> html_response(200)
         assert html =~ ~s(content="noindex, nofollow")
       end
     end
 
-    test "nothing public links to them", %{conn: conn} do
-      refute Enum.any?(SitemapController.public_paths(), &String.starts_with?(&1, "/start"))
-      refute conn |> get(~p"/") |> html_response(200) =~ ~s(href="/start)
-      refute File.read!("priv/static/robots.txt") =~ "/start"
-    end
+    test "a signed-out visitor can't reach them", %{conn: conn} do
+      previous = Application.get_env(:ueberauth, Ueberauth.Strategy.Github.OAuth, [])
 
-    test "a signed-out visitor can reach all of them", %{conn: conn} do
+      Application.put_env(
+        :ueberauth,
+        Ueberauth.Strategy.Github.OAuth,
+        client_id: "id",
+        client_secret: "secret"
+      )
+
+      on_exit(fn ->
+        Application.put_env(:ueberauth, Ueberauth.Strategy.Github.OAuth, previous)
+      end)
+
       with_gate(fn ->
         for path <- @pages do
-          assert conn |> get(path) |> html_response(200)
+          assert conn |> get(path) |> redirected_to() =~ "/sign-in"
         end
       end)
+    end
+
+    test "a signed-in visitor who isn't an admin can't reach them", %{conn: conn} do
+      with_gate(fn ->
+        for path <- @pages do
+          assert conn |> as(user!()) |> get(path) |> response(403)
+        end
+      end)
+    end
+
+    test "an admin can", %{conn: conn} do
+      with_gate(fn ->
+        for path <- @pages do
+          assert conn |> as(user!(admin: true)) |> get(path) |> html_response(200)
+        end
+      end)
+    end
+
+    test "the websocket holds the same line" do
+      for path <- @pages do
+        %{phoenix_live_view: {_view, _action, _opts, live_session}} =
+          Phoenix.Router.route_info(BitblocksWeb.Router, "GET", path, "")
+
+        assert live_session.name == :admin
+      end
+    end
+
+    test "they aren't in the nav, for anyone", %{conn: conn} do
+      with_gate(fn ->
+        for viewer <- [nil, user!(), user!(admin: true)], path <- ~w(/ /about) do
+          viewer_conn = if viewer, do: as(conn, viewer), else: conn
+
+          refute viewer_conn |> get(path) |> html_response(200) =~ ~s(href="/start)
+        end
+      end)
+    end
+
+    test "the sitemap and robots.txt don't name them" do
+      refute Enum.any?(SitemapController.public_paths(), &String.starts_with?(&1, "/start"))
+      refute File.read!("priv/static/robots.txt") =~ "/start"
     end
   end
 
@@ -97,32 +154,40 @@ defmodule BitblocksWeb.StartLiveTest do
 
       assert steps == ~w(
                step-first-request
-               step-sign-in
                step-read-a-transaction
                step-prove-it
+               step-sign-in
                step-get-a-key
              )
 
-      assert has_element?(view, "#step-first-request", "Works today, no account needed")
+      for step <- ~w(step-first-request step-read-a-transaction step-prove-it) do
+        assert has_element?(view, "##{step}", "Works today, no account needed")
+      end
+
       assert has_element?(view, "#step-get-a-key", "Coming")
       assert has_element?(view, "#step-get-a-key", "issued by hand")
     end
 
-    test "warns a signed-out visitor before a link that needs sign-in", %{conn: conn} do
+    test "links to the transaction page with no sign-in warning", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/start")
+
+      assert has_element?(view, "#start-tx-page[href^='/transactions/']")
+      refute has_element?(view, "#step-read-a-transaction", "sign")
+    end
+
+    test "offers sign-in, and keeps API links for after it", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/start")
 
       assert has_element?(view, "#start-sign-in[href*='return_to']")
-      assert has_element?(view, "#step-read-a-transaction", "answers 401")
+      refute has_element?(view, "#start-tx-link")
     end
 
     test "knows a signed-in visitor has done that step", %{conn: conn} do
-      user = Bitblocks.Repo.insert!(%Bitblocks.Accounts.User{github_id: 4242, login: "builder"})
-
-      {:ok, view, _html} = conn |> init_test_session(%{"user_id" => user.id}) |> live(~p"/start")
+      {:ok, view, _html} = conn |> as(user!(login: "builder")) |> live(~p"/start")
 
       assert has_element?(view, "#start-signed-in", "builder")
+      assert has_element?(view, "#start-tx-link")
       refute has_element?(view, "#start-sign-in")
-      refute has_element?(view, "#step-read-a-transaction", "answers 401")
     end
 
     test "the proof it teaches climbs to the root it shows" do
@@ -195,7 +260,9 @@ defmodule BitblocksWeb.StartLiveTest do
           assert conn |> get(row.path) |> response(401)
         end
 
-        assert conn |> get(~p"/api/v1/status") |> response(200)
+        for group <- Api.groups(), %{access: :open} = row <- group.rows do
+          refute get(conn, row.path).status == 401, "#{row.path} asked for a caller"
+        end
       end)
     end
 

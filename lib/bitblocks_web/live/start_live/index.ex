@@ -4,8 +4,8 @@ defmodule BitblocksWeb.StartLive.Index do
   second and third, each step with a real example, then what's been built,
   where to start from, and how to write with Qart.
 
-  Not published yet: no sitemap entry, nav link or home link, and `noindex`
-  (see `docs/DEMOS_CAMPAIGN.md`). Figures are read from the sync snapshot and
+  Not published yet: admin only, `noindex`, and no sitemap entry, nav link or
+  home link (see `docs/DEMOS_CAMPAIGN.md`). Figures are read from the sync snapshot and
   the collections index when the page loads, never written into the copy.
   """
   use BitblocksWeb, :live_view

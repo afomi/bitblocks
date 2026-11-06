@@ -4,7 +4,7 @@ defmodule BitblocksWeb.StartLive.Api do
   the API and which endpoints matter first. The endpoint list is data, so a test
   can hold every row to the router and to the access it states.
 
-  Not published yet, like `/start`.
+  Admin only until published, like `/start`.
   """
   use BitblocksWeb, :live_view
 
@@ -154,6 +154,13 @@ defmodule BitblocksWeb.StartLive.Api do
             "/api/v1/collections/rexxies/items"
           ),
           row("GET", "/api/v1/bitcom", :caller, "The Bitcom registry, with txids to check."),
+          row(
+            "GET",
+            "/bitcom.json",
+            :open,
+            "The Bitcom registry export, to check without trusting us."
+          ),
+          row("GET", "/api/v1/bitcom/snapshots", :open, "Versioned snapshots of that export."),
           row(
             "GET",
             "/api/v1/metanet/:txid",

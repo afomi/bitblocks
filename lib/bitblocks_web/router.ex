@@ -307,9 +307,6 @@ defmodule BitblocksWeb.Router do
       live "/types/:id", TypeLive.Show
       live "/about", AboutLive
       live "/pricing", PricingLive
-      live "/start", StartLive.Index
-      live "/start/api", StartLive.Api
-      live "/start/guidance", StartLive.Guidance
       live "/guide", GuideLive
       live "/reorgs", ReorgLive
       live "/did", DIDLive
@@ -356,6 +353,11 @@ defmodule BitblocksWeb.Router do
       live "/shape-layers", ShapeLayerLive
       live "/chain-scrubber", ChainScrubberLive
       live "/annotations", AnnotationLive
+
+      # Builder onboarding: admin only until published (docs/DEMOS_CAMPAIGN.md).
+      live "/start", StartLive.Index
+      live "/start/api", StartLive.Api
+      live "/start/guidance", StartLive.Guidance
 
       # A browse list over the whole table; detail pages cover a shared link.
       live "/transactions", TransactionLive.Index, :index

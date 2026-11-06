@@ -5,7 +5,7 @@ defmodule BitblocksWeb.StartLive.Guidance do
   labelled as ours, says why, and carries a date; a `draft` is still to be
   confirmed by Ryan (`docs/DEMOS_CAMPAIGN.md` lists them).
 
-  Not published yet, like `/start`.
+  Admin only until published, like `/start`.
   """
   use BitblocksWeb, :live_view
 

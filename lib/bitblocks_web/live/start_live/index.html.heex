@@ -54,7 +54,7 @@
     </.strand_heading>
     <p class="mb-6 text-sm text-gray-600 dark:text-gray-400">
       Five steps.
-      The first takes one command, and the fourth runs on your own machine.
+      The first three need no account.
     </p>
     <ol
       role="list"
@@ -86,84 +86,35 @@
       </.step>
 
       <.step
-        id="step-sign-in"
-        n={2}
-        title="Sign in with GitHub"
-        status="signed_in"
-      >
-        <p
-          :if={@current_user}
-          id="start-signed-in"
-        >
-          You're signed in as <span class="font-mono">{@current_user.login}</span>, so this step is done.
-        </p>
-        <p :if={!@current_user}>
-          <.text_link
-            id="start-sign-in"
-            href={@sign_in_path}
-          >
-            Sign in with GitHub
-          </.text_link>
-          and you'll come back here.
-          Bitblocks asks GitHub for your public profile and nothing more.
-        </p>
-        <p>
-          Signing in opens block and transaction pages, and the API in the same browser, at
-          <span class="font-mono tabular-nums">{format_number(@rate_limits.signed_in)}</span>
-          requests a minute.
-          It's free, and <.text_link href="/pricing">pricing</.text_link> says what comes after.
-        </p>
-      </.step>
-
-      <.step
         id="step-read-a-transaction"
-        n={3}
+        n={2}
         title="Read a transaction"
-        status="signed_in"
+        status="today"
       >
         <p>
           The first spend ever made is in block 170: 10 coins to Hal Finney, and 40 back to Satoshi.
-          Signed in, the API is a URL you can open in a tab.
-        </p>
-        <p>
           <.text_link
-            id="start-tx-link"
-            href={tx_path()}
+            id="start-tx-page"
+            href={"/transactions/#{@example_txid}"}
           >
-            Open the transaction as JSON
+            Open it on Bitblocks
           </.text_link>
-          <span :if={!@current_user}>
-            (needs step 2; signed out, it answers 401 and says how to sign in)
-          </span>
-        </p>
-        <.code_panel
-          label="The response, abridged"
-          code={tx_example()}
-        />
-        <p>
-          The same record reads as a page at
-          <.text_link href={"/transactions/#{@example_txid}"}>/transactions</.text_link>, which also needs sign-in.
+          and read it for yourself.
         </p>
       </.step>
 
       <.step
         id="step-prove-it"
-        n={4}
+        n={3}
         title="Prove it yourself"
-        status="signed_in"
+        status="today"
       >
         <p>
           A proof lets you check a transaction is in a block without trusting Bitblocks.
-          <.text_link
-            id="start-proof-link"
-            href={proof_path()}
-          >
-            Fetch the proof
-          </.text_link>
-          once you're signed in, or use this one.
+          Here is the proof for that transaction.
         </p>
         <.code_panel
-          label="The response, abridged"
+          label="The API's response, abridged"
           code={proof_example()}
         />
         <p>
@@ -182,6 +133,56 @@
       </.step>
 
       <.step
+        id="step-sign-in"
+        n={4}
+        title="Sign in and call the API"
+        status="signed_in"
+      >
+        <p
+          :if={@current_user}
+          id="start-signed-in"
+        >
+          You're signed in as <span class="font-mono">{@current_user.login}</span>, so the API is open in this browser.
+        </p>
+        <p :if={!@current_user}>
+          <.text_link
+            id="start-sign-in"
+            href={@sign_in_path}
+          >
+            Sign in with GitHub
+          </.text_link>
+          and you'll come back here.
+          Bitblocks asks GitHub for your public profile and nothing more.
+        </p>
+        <p>
+          Signed in, the whole API is a URL you can open in a tab, at
+          <span class="font-mono tabular-nums">{format_number(@rate_limits.signed_in)}</span>
+          requests a minute.
+          It's free, and <.text_link href="/pricing">pricing</.text_link> says what comes after.
+        </p>
+        <p :if={@current_user}>
+          Try
+          <.text_link
+            id="start-tx-link"
+            href={tx_path()}
+          >
+            the transaction as JSON
+          </.text_link>
+          and
+          <.text_link
+            id="start-proof-link"
+            href={proof_path()}
+          >
+            its proof
+          </.text_link>.
+        </p>
+        <.code_panel
+          label="GET /api/v1/txs/:txid, abridged"
+          code={tx_example()}
+        />
+      </.step>
+
+      <.step
         id="step-get-a-key"
         n={5}
         title="Get a key"
@@ -194,7 +195,7 @@
         </p>
         <p>
           That isn't built yet, and keys are issued by hand for now.
-          Until then, everything above works in a signed-in browser.
+          Until then, everything above works in a browser.
         </p>
         <.code_panel
           label="How a key is sent"

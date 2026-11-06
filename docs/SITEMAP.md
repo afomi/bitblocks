@@ -22,16 +22,6 @@ Search engines get the public subset at `/sitemap.xml` (`BitblocksWeb.SitemapCon
 | `/wall` | Block wall visualization |
 | `/reward_wall` | Mining reward visualization |
 
-## Public, Unlisted
-
-Served, `noindex`, and linked from nowhere until they're published ([docs/DEMOS_CAMPAIGN.md](DEMOS_CAMPAIGN.md)).
-
-| Path | Description |
-|------|-------------|
-| `/start` | Onboarding path for builders, with demos, references and Qart |
-| `/start/api` | API reference |
-| `/start/guidance` | Our dated views on building on Bitcoin |
-
 ## Admin / Dev Pages
 
 For admins: a GitHub user marked admin; the gate runs in every env and is off only in the test config.
@@ -42,6 +32,9 @@ For admins: a GitHub user marked admin; the gate runs in every env and is off on
 | `/blocks/:id` | Block detail by height or hash |
 | `/transactions` | Transaction list (paginated) |
 | `/transactions/:id` | Transaction detail by txid |
+| `/start` | Builder onboarding, admin only until published ([DEMOS_CAMPAIGN.md](DEMOS_CAMPAIGN.md)) |
+| `/start/api` | API reference, admin only until published |
+| `/start/guidance` | Our dated views on building on Bitcoin, admin only until published |
 | `/config` | Application configuration viewer |
 | `/debug` | Debug info |
 | `/graph` | Transaction graph visualization |

@@ -1,9 +1,9 @@
 # Start campaign: building on Bitcoin
 
-Status: built on a branch, unpublished, and not yet seen in a browser (2026-11-05).
+Status: built on a branch, admin only so Ryan can read it on production, and not yet seen in a browser (2026-11-05).
 Ryan's direction: think of this as `/start`, onboarding from a user's standpoint, with developer docs as a first-class part and our own guidance alongside.
 
-**To publish:** remove `meta_robots: "noindex, nofollow"` from the three `BitblocksWeb.StartLive` modules, add the paths to `@public_paths` in `SitemapController`, add a link on the home page and in the nav, and update the "not published yet" tests in `test/bitblocks_web/live/start_live_test.exs`.
+**To publish:** move the three `/start` routes from the router's `:admin` scope and live_session to `:public`, remove `meta_robots: "noindex, nofollow"` from the three `BitblocksWeb.StartLive` modules, add the paths to `@public_paths` in `SitemapController`, add a link on the home page and in the nav, and update the "not published yet" tests in `test/bitblocks_web/live/start_live_test.exs`.
 
 ## Audience
 
@@ -19,9 +19,9 @@ It reads the chain for you, says plainly how far it reaches, and points to the b
 
 | Route | Job | Access |
 | --- | --- | --- |
-| `/start` | The path: what to do first, second and third, then demos, references and Qart | Public, unlisted |
-| `/start/api` | The developer reference a builder comes back to | Public, unlisted |
-| `/start/guidance` | Our dated opinions on seven topics | Public, unlisted |
+| `/start` | The path: what to do first, second and third, then demos, references and Qart | Admin only for now |
+| `/start/api` | The developer reference a builder comes back to | Admin only for now |
+| `/start/guidance` | Our dated opinions on seven topics | Admin only for now |
 
 The two sub-pages earn their place.
 A path is read once, a reference is revisited, and opinions need room for their reasons.
@@ -30,9 +30,9 @@ A path is read once, a reference is revisited, and opinions need room for their 
 
 - **What's here today:** we say how far the index reaches, from the live sync snapshot, before asking anyone to rely on it.
 - **Step 1, first request:** something real works with one command and no account.
-- **Step 2, sign in:** the free tier is a GitHub sign-in, and the page knows when you've done it.
-- **Step 3, read a transaction:** the data is real, using the first spend in block 170, which sits inside the complete range.
-- **Step 4, prove it:** you needn't trust us, because a short script checks the proof on your own machine.
+- **Step 2, read a transaction:** the data is real, using the first spend in block 170, which sits inside the complete range and opens with no account.
+- **Step 3, prove it:** you needn't trust us, because a short script checks the proof on your own machine.
+- **Step 4, sign in:** the free tier is a GitHub sign-in, and it opens the whole API in that browser.
 - **Step 5, get a key:** the trial's last step, marked Coming.
 - **See what's been built:** Rexxies lead, with counts and pictures from the index, and an honest note on where the data comes from.
 - **Start from these:** we point out to other people's work, with plain links.
@@ -44,9 +44,9 @@ A path is read once, a reference is revisited, and opinions need room for their 
 
 | Thing | State |
 | --- | --- |
-| `/api/v1/status`, `/price/bsv`, `/support` with no account | Real |
+| `/api/v1/status`, `/price/bsv`, `/support` and the Bitcom registry exports with no account | Real |
+| Block and transaction pages with no account | Real |
 | GitHub sign-in, and the API from that browser | Real |
-| Block and transaction pages signed in | Real |
 | Merkle proofs and BEEF | Real |
 | Rexxies, Grand Tardinians and their API | Real, imported on their own ahead of the sync |
 | Address and script balances | Real, and mostly `partial` or `unknown` until the index reaches the tip |
@@ -64,12 +64,9 @@ A test holds every listed endpoint to the router and to the access it claims, an
   `/api/v1` needs a key or a signed-in session, and `Release.create_api_key` is operator-only.
   The path uses the signed-in browser and marks step 5 Coming.
   Recommendation: a signed-in user gets one key with a small budget, as a separate decision, because it touches `lib/bitblocks/api_keys.ex`.
-- **`curl` beyond the three open endpoints fails for a newcomer.**
-  Only step 1 uses `curl`, and steps 3 and 4 use a browser tab.
-  The proof example is printed on the page, so step 4's script runs with no account.
-- **Block and transaction pages need sign-in (#38).**
-  Links to them say so before you follow them, and access is unchanged.
-  Recommendation: opening them would remove a step from the path, and that's Ryan's call.
+- **`curl` beyond the open endpoints fails for a newcomer.**
+  Only step 1 uses `curl`, step 2 uses a page, and step 4 uses a browser tab.
+  The proof example is printed on the page, so step 3's script runs with no account.
 - **Pricing was just rewritten.**
   `/start` links to `/pricing` and repeats none of its plans.
 - **The sync is partway up the chain.**
@@ -79,12 +76,11 @@ A test holds every listed endpoint to the router and to the access it claims, an
 
 ## Order to ship
 
-1. Ryan and someone with a browser read all three pages, light and dark, signed in and signed out.
+1. Ryan reads all three pages on production as an admin, light and dark, then checks the signed-out view of step 4 once the routes flip.
 2. Ryan confirms or rewrites the Draft views in guidance.
 3. Decide self-serve keys, then build them and turn step 5 on.
-4. Decide #38.
-5. Publish with the line at the top.
-6. Add a demo walkthrough page only if a demo proves worth its own page.
+4. Publish with the line at the top.
+5. Add a demo walkthrough page only if a demo proves worth its own page.
 
 ## Sources for guidance
 
