@@ -3,6 +3,8 @@
 What happens after a transaction comes in.
 This doc depicts `Bitblocks.Chain.TxPipeline`; the list in `TxPipeline.steps/0` is the source of truth, and `test/bitblocks/chain/tx_pipeline_doc_test.exs` fails when this doc lists anything else.
 
+Drawn in [TX_PIPELINE.tldr](TX_PIPELINE.tldr).
+
 Related: `docs/SYNCING.md` (how blocks and their txs arrive), `docs/TYPING_PIPELINE.md` (typing: what is built and what comes next), `docs/DERIVED_DATA.md` (each step's version, the stamps on each row, and the backfills).
 
 ## Where it runs
