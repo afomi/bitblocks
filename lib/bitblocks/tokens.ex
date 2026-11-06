@@ -26,6 +26,7 @@ defmodule Bitblocks.Tokens do
 
   import Ecto.Query, warn: false
 
+  alias Bitblocks.Chain.TxPipeline.Steps.IndexTokens
   alias Bitblocks.Repo
   alias Bitblocks.ProtocolRegistry
   alias Bitblocks.ProtocolRegistry.Instance
@@ -70,7 +71,7 @@ defmodule Bitblocks.Tokens do
         token
         |> stringify_token()
         |> Map.put("token_id", token_id)
-        |> put_present("recipient", attrs[:recipient] || attrs["recipient"])
+        |> put_holder(attrs)
 
       instance_attrs = %{
         protocol_id: protocol_id,
@@ -79,6 +80,7 @@ defmodule Bitblocks.Tokens do
         block_height: attrs[:block_height] || attrs["block_height"],
         block_hash: attrs[:block_hash] || attrs["block_hash"],
         parsed_data: parsed_data,
+        recipient_version: recipient_version(attrs),
         state: %{"supply" => token.amt, "minted" => token.amt}
       }
 
@@ -118,12 +120,11 @@ defmodule Bitblocks.Tokens do
     with protocol_id when not is_nil(protocol_id) <- get_protocol_id() do
       txid = attrs[:txid] || attrs["txid"]
       vout = attrs[:vout] || attrs["vout"] || 0
-      recipient = attrs[:recipient] || attrs["recipient"]
 
       parsed_data =
         token
         |> stringify_token()
-        |> Map.put("recipient", recipient)
+        |> put_holder(attrs)
 
       instance_attrs = %{
         protocol_id: protocol_id,
@@ -132,6 +133,7 @@ defmodule Bitblocks.Tokens do
         block_height: attrs[:block_height] || attrs["block_height"],
         block_hash: attrs[:block_hash] || attrs["block_hash"],
         parsed_data: parsed_data,
+        recipient_version: recipient_version(attrs),
         state: %{"status" => "pending"}
       }
 
@@ -163,7 +165,8 @@ defmodule Bitblocks.Tokens do
   @doc """
   Indexes a classic BSV-20 op (`deploy` / `mint`) for visibility (detect-only).
 
-  Stored raw with `standard: "bsv-20"`; no supply aggregation in v1.
+  Stored raw with `standard: "bsv-20"`, with who holds the output; no supply
+  aggregation in v1.
   """
   def index_classic(%{token: %{standard: "bsv-20", op: op} = token} = attrs)
       when op in ["deploy", "mint"] do
@@ -174,7 +177,8 @@ defmodule Bitblocks.Tokens do
         vout: attrs[:vout] || attrs["vout"] || 0,
         block_height: attrs[:block_height] || attrs["block_height"],
         block_hash: attrs[:block_hash] || attrs["block_hash"],
-        parsed_data: stringify_token(token),
+        parsed_data: token |> stringify_token() |> put_holder(attrs),
+        recipient_version: recipient_version(attrs),
         state: %{}
       }
 
@@ -202,6 +206,25 @@ defmodule Bitblocks.Tokens do
     do: index_classic(attrs)
 
   def index(_), do: {:ok, :ignored}
+
+  @doc """
+  Writes who holds an output into `parsed_data`: `recipient`, `lock` and, for a
+  cosign lock, `cosigner` (docs/BSV20_TOKENS.md). Takes `attrs` as `index/1`
+  does, and leaves a field alone when `attrs` has nothing for it.
+  """
+  @spec put_holder(map(), map()) :: map()
+  def put_holder(parsed_data, attrs) do
+    lock = attrs[:lock] || %{}
+
+    parsed_data
+    |> put_present("recipient", attrs[:recipient] || attrs["recipient"])
+    |> put_present("lock", lock[:type])
+    |> put_present("cosigner", lock[:cosigner])
+  end
+
+  # A row is stamped only when its lock was read.
+  defp recipient_version(%{lock: %{}}), do: IndexTokens.version()
+  defp recipient_version(_attrs), do: nil
 
   # -- Validation (#41) -------------------------------------------------------
   #
@@ -976,6 +999,9 @@ defmodule Bitblocks.Tokens do
       dec: pd["dec"],
       icon: pd["icon"],
       recipient: pd["recipient"],
+      recipient_status: if(pd["recipient"], do: "known", else: "unknown"),
+      lock: pd["lock"],
+      cosigner: pd["cosigner"],
       supply: state["supply"],
       minted: state["minted"],
       holders: nil,

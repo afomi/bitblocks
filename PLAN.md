@@ -41,6 +41,7 @@ BEEF from anyone at `POST /api/v1/beef/verify` (inclusion only), and headers at 
 Interop kit, first version: open test vectors at `/interop/vectors/v1.json`, an admin check page at `/start/interop` and the pattern ([docs/INTEROP_KIT.md](docs/INTEROP_KIT.md)).
 #15 BCat files at `/content/bcat/:txid`, read against real heads from the chain.
 #24 `Release.discover_bitcom`: built, for an operator to run.
+#69 token holders read from the lock on either side of the envelope, with `Release.backfill_token_recipients`: built, for an operator to run.
 #51 first seen and adoption per type on `/types/:id`, and `Release.type_candidates`: `propose_type` and the research export are still to come.
 
 ## Needs decision

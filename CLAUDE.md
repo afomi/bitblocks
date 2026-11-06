@@ -245,6 +245,10 @@ bin/bitblocks rpc 'Bitblocks.Release.discover_bitcom("<address>", apply: true)'
 # The shapes behind `custom`, ranked (#51): reads raw bytes in the range, stores nothing
 bin/bitblocks rpc 'Bitblocks.Release.type_candidates(0, 100_000) |> IO.inspect(limit: :infinity)'
 
+# Who holds each token output (#69, docs/BSV20_TOKENS.md): dry run first, then add apply: true
+bin/bitblocks rpc 'Bitblocks.Release.backfill_token_recipients(0, 980_000)'
+bin/bitblocks rpc 'Bitblocks.Release.start_backfill("token_recipients", 0, 980_000)'
+
 # BAP records on stored rows (docs/BAP.md): dry run first, then add apply: true
 bin/bitblocks rpc 'Bitblocks.Release.backfill_bap(600_000, 650_000)'
 bin/bitblocks rpc 'Bitblocks.Release.import_bap(["<txid>"]) |> IO.inspect()'
@@ -306,7 +310,7 @@ GET /api/v1/order-book/sellers/:address — listings by seller
 GET /api/v1/order-book/stats    — order book aggregate statistics
 GET /api/v1/stream/order-book   — SSE stream of order book events
 GET /api/v1/tokens              — indexed BSV-20/BSV-21 tokens (filters: standard, sym)
-GET /api/v1/tokens/:id          — token by token_id (<txid>_<vout>) or ticker
+GET /api/v1/tokens/:id          — token by token_id (<txid>_<vout>) or ticker; recipient, recipient_status (known | unknown), lock (p2pkh | cosign | other), cosigner; a cosign lock's recipient is its owner
 GET /api/v1/tokens/:id/holders  — holder balances for a token: the mint and validated transfers only (#41), with transfer counts by status
 GET /api/v1/tokens/:id/transfers — transfer history for a token
 GET /api/v1/tokens/stats        — token aggregate statistics

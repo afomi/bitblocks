@@ -10,6 +10,10 @@ defmodule Bitblocks.Ordinals.Inscription do
       OP_ENDIF
       <lock, e.g. P2PKH: the owner>
 
+  The lock can as well come first, with the envelope after it: past a P2PKH the
+  envelope is skipped data, so the output spends the same way. Real BSV-20
+  outputs are built both ways.
+
   Fields may appear in any order. Numbered fields are keyed by number and
   others by their tag bytes, so unknown fields are kept rather than dropped
   (unlike `Bsv20Parser`, which reads only what BSV-20 needs).
@@ -25,6 +29,12 @@ defmodule Bitblocks.Ordinals.Inscription do
           owner: String.t() | nil
         }
 
+  @type lock :: %{
+          type: String.t(),
+          owner: String.t() | nil,
+          cosigner: String.t() | nil
+        }
+
   @doc "Parses an inscription from a script (binary or `%BSV.Script{}`)."
   @spec parse(binary() | BSV.Script.t()) :: {:ok, t()} | {:error, :no_inscription}
   def parse(%BSV.Script{chunks: chunks}), do: parse_chunks(chunks)
@@ -37,29 +47,85 @@ defmodule Bitblocks.Ordinals.Inscription do
   end
 
   defp parse_chunks(chunks) do
-    with {:ok, fields, after_envelope} <- envelope(chunks) do
+    with {:ok, fields, _after_envelope} <- envelope(chunks) do
       {:ok,
        %{
          content_type: text(fields[1]),
          content: fields[0],
          parent: parent(fields[3]),
          map: decode_map(fields[@map_prefix]),
-         owner: p2pkh_owner(after_envelope)
+         owner: lock_owner(%BSV.Script{chunks: chunks})
        }}
     end
   end
 
   @doc """
-  The P2PKH address locking an output, whether or not an inscription precedes
-  the lock; nil for any other lock (e.g. a sale contract).
+  The P2PKH address locking an output, with an inscription before the lock,
+  after it or not at all; nil for any other lock (e.g. a sale contract).
   """
   @spec lock_owner(BSV.Script.t()) :: String.t() | nil
-  def lock_owner(%BSV.Script{chunks: chunks}) do
-    case envelope(chunks) do
-      {:ok, _fields, after_envelope} -> p2pkh_owner(after_envelope)
-      _ -> p2pkh_owner(chunks)
+  def lock_owner(%BSV.Script{} = script) do
+    case lock(script) do
+      %{type: "p2pkh", owner: owner} -> owner
+      _ -> nil
     end
   end
+
+  @doc """
+  Who an output's lock answers to, read from the script either side of an
+  inscription envelope:
+
+    * `p2pkh`: `owner` is the address;
+    * `cosign`: `owner` is the address that must sign, and `cosigner` the hex
+      public key that must sign with it. The owner holds it: the cosigner can
+      approve a spend and can't start one (`priv/data/tx_types/types.json`);
+    * `other`: a contract or any other script, with no address to name.
+  """
+  @spec lock(BSV.Script.t()) :: lock()
+  def lock(%BSV.Script{chunks: chunks}) do
+    chunks
+    |> lock_parts()
+    |> Enum.find_value(%{type: "other", owner: nil, cosigner: nil}, &read_lock/1)
+  end
+
+  # The script after the envelope, then the script before it.
+  defp lock_parts(chunks), do: lock_parts(chunks, [])
+
+  defp lock_parts([marker, :OP_IF, "ord" | _] = rest, before)
+       when marker in [:OP_FALSE, :OP_0] do
+    case envelope(rest) do
+      {:ok, _fields, after_envelope} -> [after_envelope, Enum.reverse(before)]
+      _ -> [Enum.reverse(before) ++ rest]
+    end
+  end
+
+  defp lock_parts([chunk | rest], before), do: lock_parts(rest, [chunk | before])
+  defp lock_parts([], before), do: [Enum.reverse(before)]
+
+  defp read_lock(chunks) do
+    case {p2pkh_owner(chunks), cosign(chunks)} do
+      {owner, _} when is_binary(owner) -> %{type: "p2pkh", owner: owner, cosigner: nil}
+      {_, {owner, cosigner}} -> %{type: "cosign", owner: owner, cosigner: cosigner}
+      _ -> nil
+    end
+  end
+
+  # The cosign shape `TxTypes.Classifier` types, with the same OP_RETURN note
+  # allowed after it as P2PKH.
+  defp cosign([
+         :OP_DUP,
+         :OP_HASH160,
+         <<pkh::binary-20>>,
+         :OP_EQUALVERIFY,
+         :OP_CHECKSIGVERIFY,
+         <<cosigner::binary-33>>,
+         :OP_CHECKSIG | rest
+       ])
+       when rest == [] or hd(rest) == :OP_RETURN do
+    {BSV.Address.to_string(%BSV.Address{pubkey_hash: pkh}), Base.encode16(cosigner, case: :lower)}
+  end
+
+  defp cosign(_), do: nil
 
   defp envelope([marker, :OP_IF, "ord" | rest]) when marker in [:OP_FALSE, :OP_0],
     do: read_fields(rest, %{})

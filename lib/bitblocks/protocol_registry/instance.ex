@@ -25,6 +25,10 @@ defmodule Bitblocks.ProtocolRegistry.Instance do
     field :spent, :boolean, default: false
     field :spent_txid, :string
 
+    # Token rows: the index_tokens version that read this output's lock, which
+    # fills parsed_data's recipient, lock and cosigner. Nil on other protocols.
+    field :recipient_version, :integer
+
     timestamps()
   end
 
@@ -40,7 +44,8 @@ defmodule Bitblocks.ProtocolRegistry.Instance do
       :parsed_data,
       :state,
       :spent,
-      :spent_txid
+      :spent_txid,
+      :recipient_version
     ])
     |> validate_required([:protocol_id, :txid, :vout])
     |> unique_constraint([:txid, :vout])
