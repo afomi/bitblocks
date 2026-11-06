@@ -52,7 +52,7 @@ defmodule Bitblocks.Chain.MerkleProof do
 
   alias Bitblocks.Repo
   alias Bitblocks.Chain
-  alias Bitblocks.Chain.{Block, MerkleVerifier, TxidSource}
+  alias Bitblocks.Chain.{Block, Headers, MerkleVerifier, TxidSource}
   alias Bitblocks.Sync
   alias BSV.Hash
 
@@ -127,15 +127,8 @@ defmodule Bitblocks.Chain.MerkleProof do
     end
   end
 
-  defp child_builds_on?(%Block{height: height, hash: hash}) do
-    case Repo.one(
-           from b in Block, where: b.height == ^(height + 1), select: b.prevblockhash, limit: 1
-         ) do
-      nil -> true
-      ^hash -> true
-      _other -> false
-    end
-  end
+  defp child_builds_on?(%Block{height: height, hash: hash}),
+    do: Headers.child_builds_on?(height, hash)
 
   defp header_root(%Block{merkleroot: root}) when is_binary(root) do
     case Base.decode16(root, case: :mixed) do

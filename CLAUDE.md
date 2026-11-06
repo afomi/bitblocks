@@ -276,6 +276,10 @@ GET /api/v1/txs                 — transactions newest confirmation first, keys
 GET /api/v1/txs/:txid           — single transaction by txid; confirmed (true | false) and confirmation: confirmed | unverified | orphaned (`Chain.confirmations/1`), also on the list
 GET /api/v1/txs/:txid/proof     — merkle proof for a transaction
 GET /api/v1/txs/:txid/beef      — BRC-62 BEEF as hex: the tx with its own BUMP, its parents first (up to 25; parents_missing, complete); same errors as /proof
+GET /api/v1/txs/:txid/beef      — BEEF (BRC-62) as hex, the tx last with its own BUMP, its parents ahead of it; ?format=atomic for Atomic BEEF (BRC-95), the tx and its BUMP alone
+POST /api/v1/beef/verify        — checks a BEEF V1, V2 or Atomic BEEF from anyone against our headers (octet-stream, or {"beef": "<hex>"}; 4 MB): each tx proven | anchored | unknown | failed, at what height and root, with reasons. The claim is inclusion in a block; no script runs, and an unknown height is unknown (docs/MERKLE_PROOFS.md)
+GET /api/v1/headers/:height     — one header: raw 80 bytes as hex, hash, height, merkleroot, verified, canonical; rely on it only when both are true
+GET /api/v1/headers             — ?from=&limit= up to 2,000 headers by the height index; meta.tip_height says what they cover, meta.missing what we lack below it
 GET /api/v1/txs/:txid/raw       — the tx's exact bytes (octet-stream), verified against the txid, immutable; the CDN origin (docs/TX_STORAGE.md)
 GET /content/:outpoint          — inscription body parsed from the raw tx on the fly (1Sat convention; immutable, nosniff, sandbox CSP)
 GET /content/bcat/:txid         — a BCat file, its chunks joined in order, each checked against the txid its head names; ?download=1; a short file is an error naming missing_chunks (up to 256 chunks, 32 MB)
