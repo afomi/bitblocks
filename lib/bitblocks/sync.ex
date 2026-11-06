@@ -20,7 +20,7 @@ defmodule Bitblocks.Sync do
   import Ecto.Query
 
   alias Bitblocks.Repo
-  alias Bitblocks.Chain.Block
+  alias Bitblocks.Chain.{Block, Transaction}
   alias Bitblocks.Sync.Settings
   alias Bitblocks.Workers.FetchTransactionsWorker
 
@@ -71,6 +71,118 @@ defmodule Bitblocks.Sync do
       end
 
     first_missing_below(bound) - 1
+  end
+
+  # Short of rows by design: genesis's coinbase isn't served as a tx, and these
+  # two duplicate the coinbases of 91,880 and 91,842, which a unique txid can't
+  # hold twice (BIP30).
+  @short_by_design [0, 91_722, 91_812]
+  @reopen_batch 500
+
+  @doc """
+  Reopens `completed` blocks in `from..to` that hold fewer rows than their
+  `num_tx`, so the sync loop refills them when it reaches them, in order.
+  Blocks above `complete_through` wait their turn and cost nothing until then;
+  reopening one below it pulls `complete_through` back to it.
+
+  A dry run unless `apply: true`. Reads by height and `block_hash` through
+  their indexes, `#{@reopen_batch}` blocks at a time, so a range is cheap
+  whatever the size of `transactions`. A range is required: the three heights
+  in `@short_by_design` are skipped, but anything else short gets reopened.
+  """
+  @spec reopen_short_blocks(integer(), integer(), keyword()) :: %{
+          applied: boolean(),
+          examined: non_neg_integer(),
+          short: non_neg_integer(),
+          rows_missing: non_neg_integer(),
+          reopened: non_neg_integer(),
+          lowest: integer() | nil,
+          highest: integer() | nil
+        }
+  def reopen_short_blocks(from, to, opts \\ []) when from <= to do
+    applied = Keyword.get(opts, :apply, false)
+
+    report = %{
+      applied: applied,
+      examined: 0,
+      short: 0,
+      rows_missing: 0,
+      reopened: 0,
+      lowest: nil,
+      highest: nil
+    }
+
+    reopen_batch(from, to, applied, report)
+  end
+
+  defp reopen_batch(from, to, applied, report) do
+    blocks =
+      Repo.all(
+        from(b in Block,
+          where: b.height >= ^from and b.height <= ^to,
+          where: b.sync_state == "completed",
+          where: b.height not in @short_by_design,
+          order_by: b.height,
+          limit: @reopen_batch,
+          select: %{hash: b.hash, height: b.height, num_tx: b.num_tx}
+        )
+      )
+
+    case blocks do
+      [] ->
+        report
+
+      _ ->
+        stored = stored_counts(blocks)
+        short = Enum.filter(blocks, &(Map.get(stored, &1.hash, 0) < (&1.num_tx || 0)))
+        report = tally(report, blocks, short, stored, applied)
+        reopen_batch(List.last(blocks).height + 1, to, applied, report)
+    end
+  end
+
+  defp stored_counts(blocks) do
+    hashes = Enum.map(blocks, & &1.hash)
+
+    Repo.all(
+      from(t in Transaction,
+        where: t.block_hash in ^hashes,
+        group_by: t.block_hash,
+        select: {t.block_hash, count()}
+      )
+    )
+    |> Map.new()
+  end
+
+  defp tally(report, blocks, short, stored, applied) do
+    heights = Enum.map(short, & &1.height)
+    missing = Enum.sum(Enum.map(short, &(&1.num_tx - Map.get(stored, &1.hash, 0))))
+
+    %{
+      report
+      | examined: report.examined + length(blocks),
+        short: report.short + length(short),
+        rows_missing: report.rows_missing + missing,
+        reopened: report.reopened + if(applied, do: reopen(short), else: 0),
+        lowest: report.lowest || List.first(heights),
+        highest: List.last(heights) || report.highest
+    }
+  end
+
+  defp reopen(blocks) do
+    hashes = Enum.map(blocks, & &1.hash)
+
+    {reopened, _} =
+      Repo.update_all(
+        from(b in Block, where: b.hash in ^hashes and b.sync_state == "completed"),
+        set: [
+          sync_state: "header_synced",
+          tx_sync_completed_at: nil,
+          # chain tiles (#48) find changed blocks by updated_at
+          updated_at: NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second)
+        ]
+      )
+
+    reopened
   end
 
   @doc """

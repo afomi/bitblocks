@@ -198,6 +198,49 @@ defmodule Bitblocks.Workers.FetchTransactionsWorkerTest do
     end
   end
 
+  describe "a completed block reopened by Sync.reopen_short_blocks/3" do
+    test "refills from the node through the pipeline, and a second pass finds nothing" do
+      block =
+        block_fixture(%{
+          height: 999_006,
+          hash: "reopened_hash",
+          merkleroot: @genesis_merkleroot,
+          num_tx: 1,
+          tx: [],
+          sync_state: "completed"
+        })
+
+      RpcStub.stub_getblock(block.hash, 1, %{"hash" => block.hash, "tx" => [@genesis_txid]})
+
+      RpcStub.stub_getrawtransaction(@genesis_txid, 1, %{
+        "txid" => @genesis_txid,
+        "hex" => @genesis_raw,
+        "blockhash" => block.hash,
+        "height" => block.height,
+        "version" => 1,
+        "vin" => [%{"coinbase" => "04ffff001d0104", "sequence" => 4_294_967_295}],
+        "vout" => []
+      })
+
+      assert %{reopened: 1} =
+               Bitblocks.Sync.reopen_short_blocks(block.height, block.height, apply: true)
+
+      assert :ok =
+               FetchTransactionsWorker.perform(%Oban.Job{args: %{"block_hash" => block.hash}})
+
+      refilled = Chain.get_block!(block.height)
+      assert refilled.sync_state == "completed"
+      assert refilled.tallies_version
+
+      tx = Repo.get_by!(Chain.Transaction, txid: @genesis_txid)
+      assert tx.block_hash == block.hash
+      assert tx.script_analysis_version
+
+      assert %{short: 0, reopened: 0} =
+               Bitblocks.Sync.reopen_short_blocks(block.height, block.height, apply: true)
+    end
+  end
+
   describe "progress for /syncing" do
     test "the fetch reports synced and processed counts as it walks the block" do
       block =

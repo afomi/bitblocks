@@ -193,20 +193,11 @@
         >
           <%= if @audit_running, do: "Running…", else: "Run Audit" %>
         </button>
-        <button
-          :if={@audit && @audit.count > 0}
-          phx-click="repair_incomplete"
-          disabled={@audit_running}
-          data-confirm="Reopen flagged completed blocks for the sync loop to refill?"
-          class="px-3 py-1 text-xs bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300 rounded hover:bg-amber-200 disabled:opacity-50"
-        >
-          Repair
-        </button>
       </div>
     </div>
     <p class="text-sm text-gray-500 dark:text-gray-400 mb-3">
       Compares stored transaction rows to each block's num_tx — catches blocks marked completed with missing transactions.
-      Repair reopens flagged completed blocks; the sync loop refills only what they're missing, in order.
+      To refill a block, reopen it by range with `Release.reopen_short_blocks/3`.
     </p>
     <%= cond do %>
       <% @audit == nil -> %>

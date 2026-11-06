@@ -81,13 +81,6 @@ defmodule BitblocksWeb.SyncingLive do
      |> start_async(:audit, fn -> Release.audit_completeness(limit: 50) end)}
   end
 
-  def handle_event("repair_incomplete", _params, %{assigns: %{admin?: true}} = socket) do
-    {:noreply,
-     socket
-     |> assign(audit_running: true)
-     |> start_async(:repair, fn -> Release.repair_incomplete_blocks() end)}
-  end
-
   def handle_event(_event, _params, socket) do
     {:noreply, put_flash(socket, :error, "That's for admins.")}
   end
@@ -102,24 +95,6 @@ defmodule BitblocksWeb.SyncingLive do
      socket
      |> assign(audit_running: false)
      |> put_flash(:error, "Audit failed: #{inspect(reason)}")}
-  end
-
-  def handle_async(:repair, {:ok, {:ok, %{reset: reset}}}, socket) do
-    {:noreply,
-     socket
-     |> put_flash(
-       :info,
-       "Repair: reopened #{reset} block(s); the sync loop refills them in order"
-     )
-     |> start_async(:audit, fn -> Release.audit_completeness(limit: 50) end)
-     |> assign_operator()}
-  end
-
-  def handle_async(:repair, {:exit, reason}, socket) do
-    {:noreply,
-     socket
-     |> assign(audit_running: false)
-     |> put_flash(:error, "Repair failed: #{inspect(reason)}")}
   end
 
   @impl true

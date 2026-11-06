@@ -109,7 +109,7 @@ There is nothing to start, retry or repair by hand after an outage: the loop rea
 ```bash
 bin/bitblocks rpc 'Bitblocks.Release.sync_status()'              # complete through, last known block, target, jobs
 bin/bitblocks rpc 'Bitblocks.Release.audit_completeness()'       # stored rows vs num_tx, any state
-bin/bitblocks rpc 'Bitblocks.Release.repair_incomplete_blocks()' # reopen completed blocks the audit flags
+bin/bitblocks rpc 'Bitblocks.Release.reopen_short_blocks(9, 99)' # dry run; apply: true reopens short completed blocks in a range
 bin/bitblocks rpc 'Bitblocks.Release.sync_headers(0, 100_000)'   # headers for a range, by hand
 ```
 

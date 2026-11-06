@@ -69,46 +69,75 @@ defmodule Bitblocks.ReleaseAuditTest do
     end
   end
 
-  describe "repair_incomplete_blocks/1" do
-    test "reopens completed blocks with missing txs; other states are left for the loop" do
-      completed_deficit =
-        block_fixture(%{
-          height: 700_020,
-          hash: "repair_completed",
-          num_tx: 2,
-          sync_state: "completed"
-        })
+  describe "reopen_short_blocks/3" do
+    defp short_block(height, state \\ "completed") do
+      block_fixture(%{height: height, hash: "short_#{height}", num_tx: 2, sync_state: state})
+    end
 
-      failed =
-        block_fixture(%{
-          height: 700_021,
-          hash: "repair_failed",
-          num_tx: 1,
-          sync_state: "failed"
-        })
+    test "a dry run reports the short blocks and changes nothing" do
+      block = short_block(700_020)
+      transaction_fixture(%{block_hash: block.hash})
 
-      {result, _io} = with_io(fn -> Release.repair_incomplete_blocks() end)
+      {report, io} = with_io(fn -> Release.reopen_short_blocks(700_000, 700_100) end)
 
-      assert {:ok, %{reset: 1}} = result
-      assert Repo.reload!(completed_deficit).sync_state == "header_synced"
+      assert %{applied: false, short: 1, rows_missing: 1, reopened: 0} = report
+      assert %{lowest: 700_020, highest: 700_020} = report
+      assert io =~ "(dry run)"
+      assert Repo.reload!(block).sync_state == "completed"
+    end
+
+    test "apply reopens short completed blocks, and leaves other states to the loop" do
+      short = short_block(700_020)
+      failed = short_block(700_021, "failed")
+
+      {report, _io} =
+        with_io(fn -> Release.reopen_short_blocks(700_000, 700_100, apply: true) end)
+
+      assert %{short: 1, reopened: 1} = report
+      assert %{sync_state: "header_synced", tx_sync_completed_at: nil} = Repo.reload!(short)
       assert Repo.reload!(failed).sync_state == "failed"
       assert Repo.all(Oban.Job) == []
     end
 
-    test "is a no-op when the audit is clean" do
-      block =
-        block_fixture(%{
-          height: 700_023,
-          hash: "repair_clean",
-          num_tx: 1,
-          sync_state: "completed"
-        })
+    test "leaves a block with all its rows, and blocks outside the range" do
+      whole = block_fixture(%{height: 700_023, hash: "whole", num_tx: 1, sync_state: "completed"})
+      transaction_fixture(%{block_hash: whole.hash})
+      outside = short_block(700_200)
 
-      transaction_fixture(%{block_hash: block.hash})
+      {report, _io} =
+        with_io(fn -> Release.reopen_short_blocks(700_000, 700_100, apply: true) end)
 
-      {result, _io} = with_io(fn -> Release.repair_incomplete_blocks() end)
+      assert %{examined: 1, short: 0, reopened: 0} = report
+      assert Repo.reload!(whole).sync_state == "completed"
+      assert Repo.reload!(outside).sync_state == "completed"
+    end
 
-      assert {:ok, %{reset: 0}} = result
+    test "never reopens the heights short by design" do
+      blocks =
+        for height <- [0, 91_722, 91_812] do
+          block_fixture(%{height: height, hash: "design_#{height}", sync_state: "completed"})
+          |> Ecto.Changeset.change(num_tx: 2)
+          |> Repo.update!()
+        end
+
+      {report, _io} = with_io(fn -> Release.reopen_short_blocks(0, 100_000, apply: true) end)
+
+      assert %{examined: 0, reopened: 0} = report
+      assert Enum.all?(blocks, &(Repo.reload!(&1).sync_state == "completed"))
+    end
+
+    test "walks past a batch of whole blocks to a short one" do
+      for height <- 700_300..700_810 do
+        block_fixture(%{height: height, hash: "b#{height}", num_tx: 0, sync_state: "completed"})
+      end
+
+      short = short_block(700_900)
+
+      {report, _io} =
+        with_io(fn -> Release.reopen_short_blocks(700_300, 700_900, apply: true) end)
+
+      assert %{examined: 512, short: 1, reopened: 1} = report
+      assert Repo.reload!(short).sync_state == "header_synced"
     end
   end
 

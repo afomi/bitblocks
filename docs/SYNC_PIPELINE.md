@@ -90,7 +90,7 @@
 │  └───────────────────────────────────┘  └────────────────────────────┘  │
 │   Two separate concurrency-1 lanes: tip never starved, backfill never    │
 │   competes. Completeness audit: Release.audit_completeness/1 +           │
-│   repair_incomplete_blocks/1 (also on /syncing).                            │
+│   reopen_short_blocks/3, by range.                                       │
 └─────────────────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────────────────┐

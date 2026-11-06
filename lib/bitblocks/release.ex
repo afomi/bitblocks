@@ -207,39 +207,24 @@ defmodule Bitblocks.Release do
   end
 
   @doc """
-  Reopen `completed` blocks the completeness audit flags, so the sync loop
-  fetches their missing transactions.
-
-  Only `completed` blocks need this: every other state is already
-  incomplete, and the loop reaches it in order. Reopening pulls
-  `complete_through` back below the lowest one. Idempotent.
+  Reopens `completed` blocks in `from..to` that hold fewer rows than `num_tx`
+  (`Bitblocks.Sync.reopen_short_blocks/3`). Dry run by default.
 
   ## Usage
 
-      bin/bitblocks rpc 'Bitblocks.Release.repair_incomplete_blocks()'
+      bin/bitblocks rpc 'Bitblocks.Release.reopen_short_blocks(944_000, 958_000)'
+      bin/bitblocks rpc 'Bitblocks.Release.reopen_short_blocks(944_000, 958_000, apply: true)'
   """
-  def repair_incomplete_blocks(opts \\ []) do
-    import Ecto.Query
-
-    %{deficits: deficits} = audit_completeness(limit: Keyword.get(opts, :limit, 10_000))
-    hashes = for %{sync_state: "completed", hash: hash} <- deficits, do: hash
-
-    {reset, _} =
-      from(b in Bitblocks.Chain.Block, where: b.hash in ^hashes)
-      |> Bitblocks.Repo.update_all(
-        set: [
-          sync_state: "header_synced",
-          # chain tiles (#48) find changed blocks by updated_at
-          updated_at: NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second)
-        ]
-      )
+  def reopen_short_blocks(from, to, opts \\ []) do
+    report = Bitblocks.Sync.reopen_short_blocks(from, to, opts)
 
     IO.puts(
-      "repair_incomplete_blocks: reopened #{reset} completed block(s); " <>
-        "the sync loop fetches what they're missing, in order"
+      "reopen_short_blocks #{from}..#{to}: #{report.short} short of #{report.examined} completed, " <>
+        "#{report.rows_missing} rows missing, #{report.reopened} reopened" <>
+        if(report.applied, do: "", else: " (dry run)")
     )
 
-    {:ok, %{reset: reset}}
+    report
   end
 
   @doc """

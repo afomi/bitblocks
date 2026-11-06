@@ -193,8 +193,10 @@ bin/bitblocks rpc 'Bitblocks.Release.sync_status()'
 # Store headers for a range by hand (the loop also fills header gaps)
 bin/bitblocks rpc 'Bitblocks.Release.sync_headers(0, 100_000)'
 
-# Reopen completed blocks the audit finds short of transactions
-bin/bitblocks rpc 'Bitblocks.Release.repair_incomplete_blocks()'
+# Refill completed blocks short of transactions, by range: from the node through the
+# pipeline, keeping rows already stored. Dry run first; below complete_through it pulls that back.
+bin/bitblocks rpc 'Bitblocks.Release.reopen_short_blocks(120_160, 120_160)'
+bin/bitblocks rpc 'Bitblocks.Release.reopen_short_blocks(120_160, 120_160, apply: true)'
 
 # Check gaps and status
 bin/bitblocks rpc 'Bitblocks.Release.gaps()'

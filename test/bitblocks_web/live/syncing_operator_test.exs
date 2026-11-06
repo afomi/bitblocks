@@ -57,26 +57,6 @@ defmodule BitblocksWeb.SyncingOperatorTest do
 
       assert html =~ "No deficits"
     end
-
-    test "repair reopens flagged completed blocks for the sync loop", %{conn: conn} do
-      block =
-        block_fixture(%{
-          height: 810_003,
-          hash: "sync_live_repair",
-          num_tx: 2,
-          sync_state: "completed"
-        })
-
-      {:ok, view, _html} = live(conn, ~p"/syncing")
-
-      view |> element("button", "Run Audit") |> render_click()
-      render_async(view)
-
-      view |> element("button", "Repair") |> render_click()
-      render_async(view)
-
-      assert Repo.reload!(block).sync_state == "header_synced"
-    end
   end
 
   # #44: the page says what the loop and the buttons actually do.
