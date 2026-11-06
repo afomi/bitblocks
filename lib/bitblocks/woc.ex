@@ -55,6 +55,12 @@ defmodule Bitblocks.Woc do
   @spec chain_tip() :: {:ok, non_neg_integer()} | {:error, term()}
   def chain_tip, do: client().chain_tip()
 
+  @doc """
+  One page of an address's confirmed history, spends and receipts both:
+  `{:ok, %{history: [%{txid:, height:}], next_token: token | nil}}`.
+  """
+  def address_history(address, token \\ nil), do: client().address_history(address, token)
+
   defp client, do: Application.get_env(:bitblocks, :woc_client, __MODULE__.HTTP)
 
   defmodule HTTP do
@@ -114,6 +120,26 @@ defmodule Bitblocks.Woc do
         {:ok, 404, _} -> {:ok, :unspent}
         {:ok, status, body} -> {:error, {:http_status, status, body}}
         error -> error
+      end
+    end
+
+    def address_history(address, token) do
+      query = URI.encode_query(Enum.reject([limit: 1000, token: token], &is_nil(elem(&1, 1))))
+
+      case request(:get, "/address/#{address}/confirmed/history?#{query}", "") do
+        {:ok, 200, %{"result" => result} = page} when is_list(result) ->
+          {:ok,
+           %{
+             history: Enum.map(result, &%{txid: &1["tx_hash"], height: &1["height"]}),
+             next_token:
+               if(page["nextPageToken"] in [nil, ""], do: nil, else: page["nextPageToken"])
+           }}
+
+        {:ok, status, body} ->
+          {:error, {:http_status, status, body}}
+
+        error ->
+          error
       end
     end
 

@@ -8,7 +8,7 @@ defmodule BitblocksWeb.TypeLive.Show do
   use BitblocksWeb, :live_view
 
   alias Bitblocks.TxTypes
-  alias Bitblocks.TxTypes.Examples
+  alias Bitblocks.TxTypes.{Counts, Examples}
   alias BitblocksWeb.Seo
 
   @impl true
@@ -27,9 +27,24 @@ defmodule BitblocksWeb.TypeLive.Show do
      |> assign(
        type: type,
        related: TxTypes.related(type),
-       examples: Examples.for_type(type)
-     )}
+       examples: Examples.for_type(type),
+       counts: Counts.get()
+     )
+     |> assign_adoption(type)}
   end
+
+  defp assign_adoption(socket, type) do
+    summary = socket.assigns.counts
+
+    assign(socket,
+      count: Counts.count(summary, type.id),
+      adoption: Counts.adoption(summary, type.id)
+    )
+  end
+
+  @doc "A block time as a date."
+  def format_time(nil), do: nil
+  def format_time(unix), do: unix |> DateTime.from_unix!() |> Calendar.strftime("%Y-%m-%d")
 
   @doc "A block height with thousands separators."
   def format_height(nil), do: "unconfirmed"

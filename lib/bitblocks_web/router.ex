@@ -178,6 +178,8 @@ defmodule BitblocksWeb.Router do
 
     # A B:// file parsed from its tx the same way (#22).
     get "/b/:txid", ContentController, :b
+    # A BCat file reassembled from its head tx (#15).
+    get "/content/bcat/:txid", ContentController, :bcat
   end
 
   # The Bitcom registry export, at a stable top-level path.

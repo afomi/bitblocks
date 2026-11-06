@@ -269,9 +269,7 @@ defmodule BitblocksWeb.TransactionLive.Show do
 
       [_prefix, info, mime, encoding, filename, flag | txid_pushes] ->
         chunk_txids =
-          Enum.filter(txid_pushes, fn chunk ->
-            chunk.length == 32 and is_nil(chunk.utf8)
-          end)
+          Enum.filter(txid_pushes, fn chunk -> chunk.length == 32 end)
           |> Enum.map(& &1.hex)
 
         {:head,

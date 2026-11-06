@@ -32,12 +32,13 @@ defmodule BitblocksWeb.Api.TypeControllerTest do
       assert note =~ "blocks 0 to 1"
 
       by_id = Map.new(body["data"], &{&1["id"], &1["counts"]})
-      assert by_id["custom"] == %{"txs" => 3, "first_seen_height" => 0}
-      assert by_id["p2pkh"] == %{"txs" => 3, "first_seen_height" => 1}
-      assert by_id["bsv-21"] == %{"txs" => 0, "first_seen_height" => nil}
+      assert %{"txs" => 3, "first_seen_height" => 0} = by_id["custom"]
+      assert %{"txs" => 3, "first_seen_height" => 1} = by_id["p2pkh"]
+      assert %{"txs" => 0, "first_seen_height" => nil} = by_id["bsv-21"]
+      assert by_id["custom"]["per_10000_blocks"] == [%{"from_height" => 0, "txs" => 3}]
 
       show = conn |> get(~p"/api/v1/types/custom") |> json_response(200)
-      assert show["data"]["counts"] == %{"txs" => 3, "first_seen_height" => 0}
+      assert %{"txs" => 3, "first_seen_height" => 0} = show["data"]["counts"]
     end
 
     test "before the first refresh, counts are pending and null", %{conn: conn} do

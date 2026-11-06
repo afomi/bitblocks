@@ -1353,6 +1353,52 @@ defmodule Bitblocks.Release do
   end
 
   @doc """
+  The shapes behind `custom` in blocks `from..to`, ranked (#51): template
+  hash, outputs, txs, first seen, per-10,000-block counts, growth, a decoded
+  sample, protocols and example txids. Reads every `custom` tx's raw bytes in
+  the range and stores nothing, so keep ranges to what you need. `limit:` caps
+  the list (default 50). See `Bitblocks.TxTypes.Candidates`.
+
+      bin/bitblocks rpc 'Bitblocks.Release.type_candidates(0, 100_000) |> IO.inspect(limit: :infinity)'
+  """
+  def type_candidates(from, to, opts \\ []),
+    do: Bitblocks.TxTypes.Candidates.scan(from, to, opts)
+
+  @doc """
+  Finds historical Bitcom commands (#24) in an address's WhatsOnChain history:
+  the txs we hold no copy of are fetched, and any `$` commands logged.
+
+  A dry run reads the first page and says what it found, writing nothing. With
+  `apply: true` it queues the walk as Oban jobs, `pages:` pages at most
+  (default 50, 1,000 txs a page); give no address for every directory address.
+  See docs/BITCOM.md.
+
+      bin/bitblocks rpc 'Bitblocks.Release.discover_bitcom("19Hxig...") |> IO.inspect()'
+      bin/bitblocks rpc 'Bitblocks.Release.discover_bitcom("19Hxig...", apply: true)'
+      bin/bitblocks rpc 'Bitblocks.Release.discover_bitcom(:all, apply: true, pages: 5)'
+  """
+  def discover_bitcom(address \\ :all, opts \\ []) do
+    addresses =
+      if address == :all,
+        do: Enum.map(Bitblocks.Bitcom.directory(), & &1.address),
+        else: [address]
+
+    if Keyword.get(opts, :apply, false) == true do
+      pages = Keyword.get(opts, :pages, 50)
+
+      for address <- addresses do
+        {:ok, _job} =
+          Oban.insert(Bitblocks.Workers.BitcomDiscoveryWorker.job(address, nil, pages))
+
+        address
+      end
+      |> then(&{:ok, :enqueued, &1})
+    else
+      {:ok, :dry_run, Enum.map(addresses, &Bitblocks.Bitcom.Discovery.scan_page/1)}
+    end
+  end
+
+  @doc """
   Syncs a collection (#30) as Oban jobs, which survive deploys: import and
   walk the mint chain, then trace owners in checkpointed batches (a resumed
   run only does items not traced since it started). Returns at once; the last

@@ -41,6 +41,62 @@ defmodule Bitblocks.TxTypes.CountsTest do
     refute Map.has_key?(summary.types, "bsv-21")
   end
 
+  describe "adoption (#51)" do
+    test "first time and txid, and txs per 10,000 blocks, over the typed range" do
+      first = typed_block(0, %{"p2pkh" => 1})
+
+      Repo.update_all(from(b in Bitblocks.Chain.Block, where: b.id == ^first.id),
+        set: [time: 111]
+      )
+
+      typed_block(1, %{"p2pkh" => 2})
+
+      transaction_fixture(%{txid: "b_later", block_hash: first.hash, tx_types: ["p2pkh"]})
+      transaction_fixture(%{txid: "a_other", block_hash: first.hash, tx_types: ["custom"]})
+
+      summary = Counts.compute()
+
+      assert %{
+               first_txid: "b_later",
+               first_time: 111,
+               per_10000_blocks: [%{from_height: 0, txs: 3}]
+             } = Counts.adoption(summary, "p2pkh")
+    end
+
+    test "buckets split on 10,000 blocks; only the typed range counts" do
+      blocks =
+        for height <- 0..10_001 do
+          %{
+            height: height,
+            hash: "b#{height}",
+            sync_state: "completed",
+            type_counts: %{"custom" => 1},
+            type_counts_version: TxPipeline.version(:type_counts),
+            inserted_at: ~N[2026-11-05 00:00:00],
+            updated_at: ~N[2026-11-05 00:00:00],
+            tx: []
+          }
+        end
+
+      blocks
+      |> Enum.chunk_every(1_000)
+      |> Enum.each(&Repo.insert_all(Bitblocks.Chain.Block, &1))
+
+      assert %{per_10000_blocks: [%{from_height: 0, txs: 10_000}, %{from_height: 10_000, txs: 2}]} =
+               Counts.adoption(Counts.compute(), "custom")
+    end
+
+    test "a type with no first tx stored says nil, not a guess" do
+      typed_block(0, %{"custom" => 1})
+
+      assert %{first_txid: nil} = Counts.adoption(Counts.compute(), "custom")
+    end
+
+    test "no adoption without counts" do
+      assert Counts.adoption(%{status: :pending}, "custom") == nil
+    end
+  end
+
   test "stops at the first block not typed at the current version, and says so" do
     typed_block(0, %{"custom" => 1})
     typed_block(1, %{"p2pkh" => 1}, version: nil)

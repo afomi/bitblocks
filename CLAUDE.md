@@ -108,7 +108,8 @@ mix assets.deploy           # Build and minify for production
 
 - **Derived data** (authoritative: `docs/DERIVED_DATA.md`): everything `Chain.TxPipeline` adds after ingestion carries its provenance.
   Each step has a `version/0`; rows stamp the version that computed them (`transactions.script_analysis_version`, `transactions.tallies_version`, `transactions.tx_types_version`, `blocks.tallies_version`, `blocks.type_counts_version`).
-  Backfills pick rows below the current version, stamp them, and record each run (dry runs too) in `derivation_runs`; `GET /api/v1/status/derivations` shows the versions and latest runs.
+  Backfills pick rows below the current version, stamp them, and record each run (dry runs too) in `derivation_runs`; `GET /content/bcat/:txid         — a BCat file, its chunks joined in order, each checked against the txid its head names; ?download=1; a short file is an error naming missing_chunks (up to 256 chunks, 32 MB)
+GET /api/v1/status/derivations` shows the versions and latest runs.
 
 - `Bitblocks.Workers.ChainTilesWorker` — builds chain-scrubber tiles (`Bitblocks.ChainTiles`) on the `:chain_tiles` lane (concurrency 1), reading `blocks` only. Cron every 5 minutes in incremental mode: a no-op until `Release.build_chain_tiles()` has run once, and when no block changed. See `docs/CHAIN_SCRUBBER.md`.
 
@@ -142,7 +143,7 @@ mix assets.deploy           # Build and minify for production
   - `/order-book` - Open Order Book (browse BSV-20 token listings)
   - `/tokens` and `/tokens/:id` - BSV-20/BSV-21 token index (supply, holders); read-only, minting lives in qart
   - `/collections` and `/collections/:id` - BSV NFT collections index and show (`:id` is a slug or origin outpoint; one view for every collection)
-  - `/types` and `/types/:id` - transaction types glossary (#49): pattern, spend, spec and real examples per type, from `priv/data/tx_types/types.json` (`Bitblocks.TxTypes`); `/types` shows each type's tx count and first block, summed from `blocks.type_counts` over the blocks verified complete and typed, and says which range that is (`Bitblocks.TxTypes.Counts`, refreshed every 10 minutes)
+  - `/types` and `/types/:id` - transaction types glossary (#49): pattern, spend, spec and real examples per type, from `priv/data/tx_types/types.json` (`Bitblocks.TxTypes`); `/types` shows each type's tx count and first block, summed from `blocks.type_counts` over the blocks verified complete and typed, and says which range that is (`Bitblocks.TxTypes.Counts`, refreshed every 10 minutes); `/types/:id` adds first height, date and txid and txs per 10,000 blocks (#51)
   - `/bitcom` and `/bitcom/:address` - live Bitcom registry (unwriter's Bitcom): namespaces, on-chain ownership proof, files, routes, usage
   - `/syncing` - signed-in live sync view: blocks fetching on each lane with synced and processed x of y, recent completions, tips and blocks by sync_state, from one shared snapshot (`Bitblocks.SyncProgress`; `docs/SYNCING.md`); admins also get the operator panel there: pause, worker slots, node load, failed blocks, the audit. `/sync` redirects to it
   - `/chain-scrubber` - admin only: scrub the chain genesis to tip in three.js from precomputed tiles (`docs/CHAIN_SCRUBBER.md`); `/chain-scrubber/tiles/manifest` and `/chain-scrubber/tiles/:level/:idx` serve the tiles from ETS with no DB query
@@ -233,6 +234,13 @@ bin/bitblocks rpc 'Bitblocks.Release.revalidate_token_transfers()'
 # Bitcom registry snapshot (#21): writes a new version if the registry changed; a daily cron does the same
 bin/bitblocks rpc 'Bitblocks.Release.bitcom_snapshot()'
 
+# Historical Bitcom commands from WhatsOnChain address history (#24): dry run first (docs/BITCOM.md)
+bin/bitblocks rpc 'Bitblocks.Release.discover_bitcom("<address>") |> IO.inspect()'
+bin/bitblocks rpc 'Bitblocks.Release.discover_bitcom("<address>", apply: true)'
+
+# The shapes behind `custom`, ranked (#51): reads raw bytes in the range, stores nothing
+bin/bitblocks rpc 'Bitblocks.Release.type_candidates(0, 100_000) |> IO.inspect(limit: :infinity)'
+
 # Chain-scrubber tiles (#48): full build once, then the cron keeps them current
 bin/bitblocks rpc 'Bitblocks.Release.build_chain_tiles()'
 bin/bitblocks rpc 'Bitblocks.Release.chain_tiles_status()'
@@ -261,6 +269,7 @@ GET /api/v1/txs/:txid/proof     — merkle proof for a transaction
 GET /api/v1/txs/:txid/beef      — BRC-62 BEEF as hex: the tx with its own BUMP, its parents first (up to 25; parents_missing, complete); same errors as /proof
 GET /api/v1/txs/:txid/raw       — the tx's exact bytes (octet-stream), verified against the txid, immutable; the CDN origin (docs/TX_STORAGE.md)
 GET /content/:outpoint          — inscription body parsed from the raw tx on the fly (1Sat convention; immutable, nosniff, sandbox CSP)
+GET /content/bcat/:txid         — a BCat file, its chunks joined in order, each checked against the txid its head names; ?download=1; a short file is an error naming missing_chunks (up to 256 chunks, 32 MB)
 GET /api/v1/status/derivations  — each pipeline step's version, stage and derivation versions, latest backfill runs
 GET /api/v1/price/bsv           — cached BSV spot price (USD) from CoinGecko
 GET /api/v1/support             — sponsorship numbers for the off-site page: monthly costs, target, BSV received (CORS *)
@@ -287,7 +296,7 @@ GET /api/v1/addresses/:address/utxos — data: known-unspent outputs only (empty
 GET /api/v1/utxo/:txid/:vout/owner — address, spent (true | false | null), status, source: local | whatsonchain (local first; WoC only when local is unknown or the tx isn't stored)
 GET /api/v1/woc/address/:address/balance|unspent — WoC shapes, served only when exact; otherwise a 503 with status and indexed_through_height
 GET /api/v1/addresses/:address/tokens — unspent BSV-20/21 outputs held by an address (?standard=bsv-21, ?token_id=)
-GET /api/v1/types               — transaction types, each with its page URL and counts (txs, first_seen_height); top-level counts names the range they cover (CORS *)
+GET /api/v1/types               — transaction types, each with its page URL and counts (txs, first_seen_height, first_seen_txid, first_seen_time, per_10000_blocks); top-level counts names the range they cover (CORS *)
 GET|POST|PATCH|DELETE /api/v1/annotations[/:id] — admin only: chain annotations (?from=&to=, ?kind=); writes must be application/json
 GET /api/v1/types/:id           — one type with its latest examples from the index (status ok | coming | unavailable)
 GET /api/v1/bitcom              — Bitcom registry export, every namespace with re-verifiable txids (also at /bitcom.json)

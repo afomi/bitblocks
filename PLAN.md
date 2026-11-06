@@ -35,6 +35,13 @@ Follow-up: stream blocks over 32 MB through a bounded parser instead of the per-
 
 Partly built: #21 export, with versioned snapshots at `/api/v1/bitcom/snapshots` (anchoring a hash needs a bitblocks-owned funded address) · #22 bit:// resolver and `GET /b/:txid` (adding the route needs that address) · #26 sponsorship: the ask moved off-site; bitblocks serves live numbers at `GET /api/v1/support` and a footer link (next steps in [docs/DONATION_ADDRESS.md](docs/DONATION_ADDRESS.md#fundraising-next-steps)).
 
+## Built 2026-11-05, on prod once deployed
+
+#35 the block stream and confirmation-order feeds · #34 tip-hash reorgs and a tx is confirmed only while its block is the chain's · #39 one sync writer, `NODE_ROLE=reader` · #17 BEEF at `/api/v1/txs/:txid/beef`.
+#15 BCat files at `/content/bcat/:txid`: a real on-chain file is still to be checked.
+#24 `Release.discover_bitcom`: built, for an operator to run.
+#51 first seen and adoption per type on `/types/:id`, and `Release.type_candidates`: `propose_type` and the research export are still to come.
+
 ## Needs decision
 
 #12 API-SURFACE · #13 EDGE-RATE.
@@ -69,4 +76,4 @@ Next: binary flow tiles for ranges past 50,000 txs, and growing the scene as new
 
 ## Deferred
 
-#14 APP-SUPPORT · #15 BCAT-REASSEMBLE · #17 BEEF · #24 historical Bitcom discovery · #27 personal funding.
+#14 APP-SUPPORT · #27 personal funding.

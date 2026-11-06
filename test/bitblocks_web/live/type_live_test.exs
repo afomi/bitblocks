@@ -102,6 +102,26 @@ defmodule BitblocksWeb.TypeLiveTest do
       assert render(element(view, "#type-examples-list")) =~ "block 812,346"
     end
 
+    test "shows first seen and adoption, and says which range it covers", %{conn: conn} do
+      typed_block_fixture(0, %{"p2pkh" => 2})
+      typed_block_fixture(1, %{"p2pkh" => 1_233})
+      Bitblocks.TxTypes.Counts.refresh()
+
+      {:ok, view, _html} = live(conn, ~p"/types/p2pkh")
+
+      assert text(view, "#type-first-seen") =~ "First seen in block 0"
+      assert text(view, "#type-adoption-coverage") =~ "Counts cover blocks 0 to 1"
+      assert text(view, "#type-adoption-table") =~ "1,235"
+    end
+
+    test "with no counts yet, there is no adoption section", %{conn: conn} do
+      Bitblocks.TxTypes.Counts.refresh()
+
+      {:ok, view, _html} = live(conn, ~p"/types/p2pkh")
+
+      refute has_element?(view, "#type-adoption")
+    end
+
     test "an index with nothing yet says so", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/types/metanet")
       assert has_element?(view, "#type-examples-empty")

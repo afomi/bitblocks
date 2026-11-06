@@ -62,12 +62,21 @@ defmodule BitblocksWeb.Api.TypeController do
       attribution: Map.get(type, :attribution),
       url: url(~p"/types/#{type.id}"),
       api_url: url(~p"/api/v1/types/#{type.id}"),
-      counts: type_counts_json(Counts.count(summary, type.id))
+      counts: type_counts_json(Counts.count(summary, type.id), Counts.adoption(summary, type.id))
     }
   end
 
-  defp type_counts_json(nil), do: nil
-  defp type_counts_json(%{txs: txs, first_height: h}), do: %{txs: txs, first_seen_height: h}
+  defp type_counts_json(nil, _adoption), do: nil
+
+  defp type_counts_json(%{txs: txs, first_height: h}, adoption) do
+    %{
+      txs: txs,
+      first_seen_height: h,
+      first_seen_txid: adoption && adoption.first_txid,
+      first_seen_time: adoption && adoption.first_time,
+      per_10000_blocks: (adoption && adoption.per_10000_blocks) || []
+    }
+  end
 
   defp counts_json(summary) do
     %{

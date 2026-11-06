@@ -21,7 +21,7 @@ Related: `UNWRITER_SYNTHESIS.md` (what to steal), `USE_CASES.md` (product framin
 | PowPing (Jul 2020) | A social Bitcoin network. | An **application** (filter on a social protocol / MAP `app=`). | Example of a consumer app, not something Bitblocks should reimplement. Identity across apps is US-28. |
 | Bitsim (Jun 2020) | Bitcoin simulator. | Out of scope. | Educational / mempool toy. Not an indexer concern. |
 | TXT (Jun 2020) | Semantic Bitcoin storage. | **Data dictionary** + protocol instances + script decode. | "Semantic" here means labeled, queryable payloads — the dictionary is derivative of pack definitions. |
-| C.TXT (May 2020) | Find files on Bitcoin. | **Filter** on C:// / B:// / BCat; **TX_CDN** for bytes. | Search over content-addressed payloads. BCat detection exists; reassembly is deferred (`BCAT-REASSEMBLE`). |
+| C.TXT (May 2020) | Find files on Bitcoin. | **Filter** on C:// / B:// / BCat; **TX_CDN** for bytes. | Search over content-addressed payloads. BCat detection exists; `/content/bcat/:txid` reassembles a file (#15). |
 | BitPic TXT (May 2020) | BitPic search engine and transaction explorer. | Domain **explorer** over a Bitpic **protocol** filter. | Same pattern as `/tokens` or `/order-book`: one protocol, a dedicated UI. |
 | Bob and Neon Genesis Bitbus (Apr 2020) | BOB-shaped endpoint on the Bitbus crawler. | Canonical **transaction shape** + **hydrate** API. | `UNWRITER_SYNTHESIS.md` Gap 1: we still store vin/vout as opaque JSON strings. BOB is the shape a hydrate page should speak. |
 | Minercraft (Apr 2020) | Interact with Bitcoin miner APIs. | **MiningProxy** / `/api/v1/mining/*`. | Implemented (`MINING_PROXY.md`). Template + submit, not a third-party miner SDK. |

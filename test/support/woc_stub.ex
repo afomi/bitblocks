@@ -8,7 +8,9 @@ defmodule Bitblocks.WocStub do
     * `:woc_spent` — "txid_vout" => `{spending_txid, vin}`; absent means unspent;
     * `:woc_block_txids` — block hash => txid list (or `{:error, reason}`);
       absent means WoC doesn't know the block (`{:error, :not_found}`);
-    * `:woc_txs_error` — when set, `txs/1` returns `{:error, value}`.
+    * `:woc_txs_error` — when set, `txs/1` returns `{:error, value}`;
+    * `:woc_address_history` — `{address, token}` => `%{history:, next_token:}`
+      (or `{:error, reason}`); absent means no history.
   """
 
   def block_txids(hash) do
@@ -34,6 +36,14 @@ defmodule Bitblocks.WocStub do
   # The public tip is read by the long-lived SyncProgress server, not a test
   # process, so there is no per-test fixture: WoC is simply unavailable.
   def chain_tip, do: {:error, :not_stubbed}
+
+  def address_history(address, token) do
+    case Process.get(:woc_address_history, %{})[{address, token}] do
+      nil -> {:ok, %{history: [], next_token: nil}}
+      {:error, reason} -> {:error, reason}
+      %{} = page -> {:ok, page}
+    end
+  end
 
   def spent(txid, vout) do
     case Process.get(:woc_spent, %{})["#{txid}_#{vout}"] do

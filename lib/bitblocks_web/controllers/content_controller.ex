@@ -14,6 +14,11 @@ defmodule BitblocksWeb.ContentController do
 
   Inscriptions are untrusted (SVG can carry script), so responses are
   `nosniff` with a sandboxing CSP, and immutable.
+
+  `GET /content/bcat/:txid` serves the file a BCat head names, its chunks
+  joined in order (`Bitblocks.Bcat`), under the same headers; `?download=1`
+  asks for a download. A file with any chunk short is an error that names the
+  chunks, never a partial body.
   """
   use BitblocksWeb, :controller
 
@@ -22,7 +27,7 @@ defmodule BitblocksWeb.ContentController do
   alias Bitblocks.Bitcom.BFile
   alias Bitblocks.Chain.RawTx
   alias Bitblocks.Ordinals.Inscription
-  alias Bitblocks.{TxStore, Woc}
+  alias Bitblocks.{Bcat, TxStore, Woc}
 
   @csp "sandbox; default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; font-src 'self' data:"
 
@@ -88,6 +93,65 @@ defmodule BitblocksWeb.ContentController do
   defp parse_txid(raw) do
     txid = String.downcase(raw)
     if txid =~ ~r/\A[0-9a-f]{64}\z/, do: {:ok, txid}, else: {:error, :bad_txid}
+  end
+
+  def bcat(conn, %{"txid" => raw} = params) do
+    txid = String.downcase(raw)
+
+    with true <- txid =~ ~r/\A[0-9a-f]{64}\z/ || {:error, :bad_txid},
+         {:ok, file} <- Bcat.assemble(txid) do
+      conn
+      |> put_resp_content_type(bcat_type(file), nil)
+      |> put_resp_header("content-disposition", disposition(file, params["download"]))
+      |> put_resp_header("cache-control", "public, max-age=31536000, immutable")
+      |> put_resp_header("x-content-type-options", "nosniff")
+      |> put_resp_header("content-security-policy", @csp)
+      |> send_resp(200, file.data)
+    else
+      {:error, :bad_txid} ->
+        error(conn, 400, "Expected /content/bcat/<64 hex txid>")
+
+      {:error, :not_found} ->
+        error(conn, 404, "unknown transaction")
+
+      {:error, :not_bcat} ->
+        error(conn, 404, "this transaction is not a BCat head")
+
+      {:error, :no_chunks} ->
+        error(conn, 404, "this BCat head names no chunks")
+
+      {:error, :too_large} ->
+        error(conn, 413, "this BCat file is larger than this endpoint serves")
+
+      {:error, {:missing, txids}} ->
+        chunks_error(conn, 404, "chunks are missing, so the file was not assembled", txids)
+
+      {:error, {:unavailable, txids}} ->
+        chunks_error(conn, 502, "chunks could not be fetched; try again", txids)
+
+      {:error, {:fetch_failed, _}} ->
+        error(conn, 502, "could not fetch the transaction from upstream; try again")
+    end
+  end
+
+  defp chunks_error(conn, status, message, txids) do
+    conn |> put_status(status) |> json(%{error: message, missing_chunks: txids})
+  end
+
+  defp bcat_type(%{mime: mime, charset: charset}) when is_binary(charset) do
+    content_type(if mime, do: "#{mime}; charset=#{charset}")
+  end
+
+  defp bcat_type(%{mime: mime}), do: content_type(mime)
+
+  # The name is chain data: only plain filename characters reach the header.
+  defp disposition(file, download) do
+    kind = if download in ["1", "true"], do: "attachment", else: "inline"
+
+    case file.filename && String.replace(file.filename, ~r/[^A-Za-z0-9._-]/, "_") do
+      name when is_binary(name) and name != "" -> ~s(#{kind}; filename="#{name}")
+      _ -> kind
+    end
   end
 
   defp parse(raw) do

@@ -59,6 +59,10 @@ Write tools come after, behind `ops_write`, dry-run by default and recorded as c
 5. **Review in batches.** A session reviews the top candidates and drafts definitions with test vectors (`propose_type`); Ryan approves; the type gets a slug and a page, past rows are re-stamped, and new blocks are typed from then on.
    The definition history records when each type was named, beside when it first appeared on chain.
 
+Built so far (#51): `Bitblocks.TxTypes.Counts` carries each type's first height, date and txid and its txs per 10,000 blocks, on `/types/:id` and `/api/v1/types`, always over the range verified complete and typed.
+`Release.type_candidates(from, to)` (`Bitblocks.TxTypes.Candidates`) ranks the shapes behind `custom` for an operator, from raw bytes, storing nothing.
+Still to come: `propose_type` and the approval flow, and the research export.
+
 ### A taxonomy, not a list
 
 Three axes, each versioned with stable slugs:

@@ -409,7 +409,7 @@ Then it is detected and stored for visibility (detect-only) — full first-is-fi
 
 ### US-18-reassemble: BCat File Reassembly
 
-**Status: Deferred** — afomi/bitblocks#15; requires fetching N chunk txs from node or WhatsOnChain.
+**Status: Built** — afomi/bitblocks#15; `/content/bcat/:txid`, with the link on the head's transaction page. A real on-chain BCat file is still to be checked end to end.
 
 As an **Explorer**,
 I want to reassemble and view the full content of a BCat file from its head transaction,

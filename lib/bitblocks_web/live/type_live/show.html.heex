@@ -148,6 +148,78 @@
   </section>
 
   <section
+    :if={@adoption}
+    id="type-adoption"
+    aria-labelledby="type-adoption-heading"
+    class="mb-8"
+  >
+    <h2
+      id="type-adoption-heading"
+      class="text-xl font-semibold text-gray-900 dark:text-white mb-2"
+    >
+      First seen and adoption
+    </h2>
+    <p
+      id="type-first-seen"
+      class="text-gray-800 dark:text-gray-200 mb-2"
+    >
+      First seen in block
+      <.link
+        navigate={~p"/blocks/#{@count.first_height}"}
+        class="text-blue-700 hover:underline dark:text-blue-300"
+      ><%= format_height(@count.first_height) %></.link><%= if @adoption.first_time do %>, on <%= format_time(@adoption.first_time) %><% end %>.
+      <%= if @adoption.first_txid do %>
+        Its first transaction is
+        <.link
+          navigate={~p"/transactions/#{@adoption.first_txid}"}
+          class="font-mono text-sm text-blue-700 hover:underline break-all dark:text-blue-300"
+        ><%= @adoption.first_txid %></.link>.
+      <% end %>
+    </p>
+    <p
+      id="type-adoption-coverage"
+      class="text-sm text-gray-700 dark:text-gray-300 mb-2"
+    >
+      <%= Counts.coverage_note(@counts) %>
+      First seen means first seen in that range.
+    </p>
+    <table
+      id="type-adoption-table"
+      class="text-sm text-gray-800 dark:text-gray-200"
+    >
+      <caption class="sr-only">
+        Transactions of this type per 10,000 blocks
+      </caption>
+      <thead>
+        <tr>
+          <th
+            scope="col"
+            class="pr-6 text-left font-semibold"
+          >
+            From block
+          </th>
+          <th
+            scope="col"
+            class="text-right font-semibold"
+          >
+            Transactions
+          </th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr :for={bucket <- @adoption.per_10000_blocks}>
+          <td class="pr-6">
+            <%= format_height(bucket.from_height) %>
+          </td>
+          <td class="text-right">
+            <%= format_count(bucket.txs) %>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section
     id="type-examples"
     aria-labelledby="type-examples-heading"
     class="mb-8"

@@ -33,6 +33,22 @@ Non-UTF-8 pushes are stored as `0x<hex>`.
 Indexing runs at ingest (`Chain.index_bitcom/1` from `TxIngest`) and in the analyze backfill (`Release.analyze_transactions/1`).
 A valid `useradd` also sets `protocols.ownership_proof_txid` (`ProtocolRegistry.prove_ownership/2`).
 
+## Historical discovery (#24)
+
+Ingest only sees txs bitblocks has fetched, so a command in a block the sync hasn't reached is invisible until it gets there.
+`Bitblocks.Bitcom.Discovery` reads an address's WhatsOnChain history, a page of 1,000 at a time, fetches the txs we hold no copy of, and logs their commands exactly as ingest would.
+Each tx's bytes are hashed against its txid, and a command still speaks for the address that funded its tx.
+The block height is WhatsOnChain's word until the sync reaches that block.
+It writes `bitcom_commands` only, with no `transactions` row, and ingest later finds the same row and leaves it.
+
+```bash
+# Dry run: the first page, nothing written
+bin/bitblocks rpc 'Bitblocks.Release.discover_bitcom("<address>") |> IO.inspect()'
+# The walk, as Oban jobs on the collections lane: 50 pages at most by default
+bin/bitblocks rpc 'Bitblocks.Release.discover_bitcom("<address>", apply: true)'
+bin/bitblocks rpc 'Bitblocks.Release.discover_bitcom(:all, apply: true, pages: 5)'
+```
+
 ## Directory tiers
 
 Tier is derived, never stored:
