@@ -2,10 +2,8 @@ defmodule BitblocksWeb.StartLive.Index do
   @moduledoc """
   `/start`: the way in for someone building on Bitcoin. What to do first,
   second and third, each step with a real example, then what's been built,
-  where to start from, and how to write with Qart.
-
-  Not published yet: admin only, `noindex`, and no sitemap entry, nav link or
-  home link (see `docs/DEMOS_CAMPAIGN.md`). Figures are read from the sync snapshot and
+  where to start from, and how to write with Qart (see
+  `docs/DEMOS_CAMPAIGN.md`). Figures are read from the sync snapshot and
   the collections index when the page loads, never written into the copy.
   """
   use BitblocksWeb, :live_view
@@ -39,8 +37,7 @@ defmodule BitblocksWeb.StartLive.Index do
         page_title: "Start building on Bitcoin",
         meta_description:
           "Read blocks and transactions, check a proof yourself, and find real work to build on.",
-        canonical_path: "/start",
-        meta_robots: "noindex, nofollow"
+        canonical_path: "/start"
       )
 
     rexxies = OrdinalCollections.get_collection("rexxies")

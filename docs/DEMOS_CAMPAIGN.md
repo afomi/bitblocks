@@ -1,9 +1,8 @@
 # Start campaign: building on Bitcoin
 
-Status: built on a branch, admin only so Ryan can read it on production, and not yet seen in a browser (2026-11-05).
+Status: published 2026-11-06, at Ryan's call, with his review to follow on production (#59).
 Ryan's direction: think of this as `/start`, onboarding from a user's standpoint, with developer docs as a first-class part and our own guidance alongside.
 
-**To publish:** move the four `/start` routes from the router's `:admin` scope and live_session to `:public`, remove `meta_robots: "noindex, nofollow"` from the four `BitblocksWeb.StartLive` modules, add the paths to `@public_paths` in `SitemapController`, add a link on the home page and in the nav, and update the "not published yet" tests in `test/bitblocks_web/live/start_live_test.exs`.
 
 ## Audience
 
@@ -19,10 +18,10 @@ It reads the chain for you, says plainly how far it reaches, and points to the b
 
 | Route | Job | Access |
 | --- | --- | --- |
-| `/start` | The path: what to do first, second and third, then demos, references and Qart | Admin only for now |
-| `/start/api` | The developer reference a builder comes back to | Admin only for now |
-| `/start/guidance` | Our dated opinions on eight topics | Admin only for now |
-| `/start/interop` | Check a BEEF by hand, and the sender and receiver pattern ([INTEROP_KIT.md](INTEROP_KIT.md)) | Admin only for now |
+| `/start` | The path: what to do first, second and third, then demos, references and Qart | Published |
+| `/start/api` | The developer reference a builder comes back to | Published |
+| `/start/guidance` | Our dated opinions on eight topics | Published |
+| `/start/interop` | Check a BEEF by hand, and the sender and receiver pattern ([INTEROP_KIT.md](INTEROP_KIT.md)) | Published |
 
 The sub-pages earn their place.
 A path is read once, a reference is revisited, and opinions need room for their reasons.

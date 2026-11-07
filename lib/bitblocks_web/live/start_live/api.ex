@@ -4,7 +4,6 @@ defmodule BitblocksWeb.StartLive.Api do
   the API and which endpoints matter first. The endpoint list is data, so a test
   can hold every row to the router and to the access it states.
 
-  Admin only until published, like `/start`.
   """
   use BitblocksWeb, :live_view
 
@@ -21,8 +20,7 @@ defmodule BitblocksWeb.StartLive.Api do
        Seo.public_page(
          page_title: "Bitblocks API",
          meta_description: "How to call the Bitblocks API, and the endpoints to start with.",
-         canonical_path: "/start/api",
-         meta_robots: "noindex, nofollow"
+         canonical_path: "/start/api"
        )
      )
      |> assign(:rate_limits, Index.rate_limits())

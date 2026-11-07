@@ -5,7 +5,6 @@ defmodule BitblocksWeb.StartLive.Guidance do
   why and carries a date, and every one is a draft until Ryan confirms it
   (`docs/DEMOS_CAMPAIGN.md`).
 
-  Admin only until published, like `/start`.
   """
   use BitblocksWeb, :live_view
 
@@ -22,8 +21,7 @@ defmodule BitblocksWeb.StartLive.Guidance do
          page_title: "How we think about building on Bitcoin",
          meta_description:
            "Bitblocks' views on standards, identity, wallets and building on Bitcoin.",
-         canonical_path: "/start/guidance",
-         meta_robots: "noindex, nofollow"
+         canonical_path: "/start/guidance"
        )
      )}
   end

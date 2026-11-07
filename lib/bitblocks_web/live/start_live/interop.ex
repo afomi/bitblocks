@@ -16,7 +16,6 @@ defmodule BitblocksWeb.StartLive.Interop do
       when logged out, held across every LiveView they open;
     * every output is a hash the verifier derived or a fixed sentence.
 
-  Admin only until published, like `/start`.
   """
   use BitblocksWeb, :live_view
 
@@ -40,8 +39,7 @@ defmodule BitblocksWeb.StartLive.Interop do
          page_title: "Check a payment's proof",
          meta_description:
            "Check BEEF against block headers, and read what a sender and a receiver each do.",
-         canonical_path: "/start/interop",
-         meta_robots: "noindex, nofollow"
+         canonical_path: "/start/interop"
        )
      )
      |> assign(report: nil, error: nil, last_check_at: nil)

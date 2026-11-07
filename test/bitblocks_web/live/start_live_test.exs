@@ -64,73 +64,41 @@ defmodule BitblocksWeb.StartLiveTest do
     fun.()
   end
 
-  describe "not published yet" do
-    test "every page asks not to be indexed", %{conn: conn} do
+  describe "published" do
+    test "every page can be indexed", %{conn: conn} do
       for path <- @pages do
         html = conn |> get(path) |> html_response(200)
-        assert html =~ ~s(content="noindex, nofollow")
+        refute html =~ "noindex"
       end
     end
 
-    test "a signed-out visitor can't reach them", %{conn: conn} do
-      previous = Application.get_env(:ueberauth, Ueberauth.Strategy.Github.OAuth, [])
-
-      Application.put_env(
-        :ueberauth,
-        Ueberauth.Strategy.Github.OAuth,
-        client_id: "id",
-        client_secret: "secret"
-      )
-
-      on_exit(fn ->
-        Application.put_env(:ueberauth, Ueberauth.Strategy.Github.OAuth, previous)
-      end)
-
+    test "a signed-out visitor reaches them", %{conn: conn} do
       with_gate(fn ->
         for path <- @pages do
-          assert conn |> get(path) |> redirected_to() =~ "/sign-in"
+          assert conn |> get(path) |> html_response(200)
         end
       end)
     end
 
-    test "a signed-in visitor who isn't an admin can't reach them", %{conn: conn} do
-      with_gate(fn ->
-        for path <- @pages do
-          assert conn |> as(user!()) |> get(path) |> response(403)
-        end
-      end)
-    end
-
-    test "an admin can", %{conn: conn} do
-      with_gate(fn ->
-        for path <- @pages do
-          assert conn |> as(user!(admin: true)) |> get(path) |> html_response(200)
-        end
-      end)
-    end
-
-    test "the websocket holds the same line" do
+    test "the websocket opens them to anyone" do
       for path <- @pages do
         %{phoenix_live_view: {_view, _action, _opts, live_session}} =
           Phoenix.Router.route_info(BitblocksWeb.Router, "GET", path, "")
 
-        assert live_session.name == :admin
+        assert live_session.name == :public
       end
     end
 
-    test "they aren't in the nav, for anyone", %{conn: conn} do
+    test "the home page and the nav link to them", %{conn: conn} do
       with_gate(fn ->
-        for viewer <- [nil, user!(), user!(admin: true)], path <- ~w(/ /about) do
-          viewer_conn = if viewer, do: as(conn, viewer), else: conn
-
-          refute viewer_conn |> get(path) |> html_response(200) =~ ~s(href="/start)
+        for path <- ~w(/ /about) do
+          assert conn |> get(path) |> html_response(200) =~ ~s(href="/start")
         end
       end)
     end
 
-    test "the sitemap and robots.txt don't name them" do
-      refute Enum.any?(SitemapController.public_paths(), &String.starts_with?(&1, "/start"))
-      refute File.read!("priv/static/robots.txt") =~ "/start"
+    test "the sitemap lists them" do
+      assert @pages -- SitemapController.public_paths() == []
     end
   end
 

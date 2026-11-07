@@ -314,6 +314,13 @@ defmodule BitblocksWeb.Router do
       on_mount: [{UserAuth, :mount_current_user}] do
       live "/search", SearchLive
       live "/protocols", ProtocolsLive
+
+      # Builder onboarding (docs/DEMOS_CAMPAIGN.md).
+      live "/start", StartLive.Index
+      live "/start/api", StartLive.Api
+      live "/start/guidance", StartLive.Guidance
+      live "/start/interop", StartLive.Interop
+
       live "/bitcom", BitcomLive
       live "/bitcom/compose", BitcomComposeLive
       live "/bitcom/:address", BitcomLive
@@ -373,12 +380,6 @@ defmodule BitblocksWeb.Router do
       live "/shape-layers", ShapeLayerLive
       live "/chain-scrubber", ChainScrubberLive
       live "/annotations", AnnotationLive
-
-      # Builder onboarding: admin only until published (docs/DEMOS_CAMPAIGN.md).
-      live "/start", StartLive.Index
-      live "/start/api", StartLive.Api
-      live "/start/guidance", StartLive.Guidance
-      live "/start/interop", StartLive.Interop
 
       # A browse list over the whole table; detail pages cover a shared link.
       live "/transactions", TransactionLive.Index, :index
