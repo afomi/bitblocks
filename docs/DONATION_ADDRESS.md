@@ -8,12 +8,13 @@ Supporting Ryan personally through Civic Studio or Open Collective is a separate
 
 ## Fundraising: next steps
 
-Goal: sponsors cover the ~$1,000/month full node.
+Goal: sponsors cover the ~$1,200/month full node and hosting.
 Do these in order; each one is small.
 
 1. **Ship what's built.** Done.
-   - [x] `GET https://bitblocks.app/api/v1/support` returns 200 with `monthly_target_usd: 1000`.
+   - [x] `GET https://bitblocks.app/api/v1/support` returns 200 with `monthly_target_usd: 1200`.
 2. **Derive the donation address** (see [Steps](#steps) below) and set `bsv_address` in `config :bitblocks, :support`.
+   The address is `1Hs9u37fyWZNHKC9LCmup3m1TroNzKHGoT`, set on 2026-11-06.
    - [ ] The xpub check prints the same address the wallet shows.
    - [ ] `/api/v1/support` returns that `bsv_address`, and `received_sats_total` is not null.
 3. **Start the books before the storefront.**
@@ -21,7 +22,7 @@ Do these in order; each one is small.
    - [ ] One real expense line exists before any sponsor is asked.
 4. **Make the asks.**
    Money comes from conversations; the page is only where they link to.
-   $1,000/month is four sponsors at $250.
+   $1,200/month is five sponsors at $240.
    List 5–10 people or organisations who rely on BSV index data, then send each one a short, specific note.
    Places to look: wallet builders, indexers, Ourquity (who asked for the order book), qart's users, BSV grant programmes.
    - [ ] Five asks sent this week, each logged with a date and the reply.
@@ -95,6 +96,8 @@ ElectrumSV works well here: it imports BIP39 mnemonics with a custom derivation 
   The wallet's default internal change addresses (`…/1'/1/n`) are correct, so don't turn on "send change to the same address".
 - **Every spend is an expense** and gets a line in visible-dao's `_data/bitblocks_ledger.yml`, with the txid and the receipt.
 - Received totals come from the chain and expenses come from the ledger. Neither one is typed in from memory.
+- **The received totals reach only as far as the index.**
+  A donation counts once the sync has stored its block, so a recent gift reads as not yet received until the sync reaches that height.
 
 ## Optional: publish the account xpub
 
@@ -109,3 +112,6 @@ Bitcom commands, such as monthly statements (`$ echo <statement> to accounts/202
 If the donation address doubles as bitblocks' Bitcom namespace, each command spends a little from the treasury, and the fee is a visible expense.
 The alternative is account 1's receiving address 1, a sibling address whose history stays separate.
 Decide this when #21 starts.
+
+Use the sibling address.
+The namespace address has to be funded before each command, and `received_for_address/2` would count every one of those top-ups as a donation.

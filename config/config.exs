@@ -214,9 +214,9 @@ config :bitblocks, :github_oauth, []
 #   sponsor_url: "https://…"  # footer "Sponsor" link; hidden while nil
 #   bsv_address: "1…"  # donations; received total is read from the index
 config :bitblocks, :support,
-  monthly_costs: [{"Bitcoin SV full node", 1000}],
+  monthly_costs: [{"Bitcoin SV full node and hosting", 1200}],
   sponsor_url: nil,
-  bsv_address: nil
+  bsv_address: "1Hs9u37fyWZNHKC9LCmup3m1TroNzKHGoT"
 
 # Import environment specific config. This must remain at the bottom
 # of this file so it overrides the configuration defined above.
