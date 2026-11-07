@@ -39,9 +39,7 @@ defmodule BitblocksWeb.Plugs.RequireCallerTest do
         "/api/v1/status/derivations",
         "/api/v1/stream/blocks",
         "/api/v1/bitcom",
-        "/api/v1/txs/#{String.duplicate("a", 64)}/raw",
-        "/api/v1/headers/1",
-        "/api/v1/headers?from=0"
+        "/api/v1/txs/#{String.duplicate("a", 64)}/raw"
       ] do
     test "signed out, GET #{path} is a 401", %{conn: conn} do
       conn = get(conn, unquote(path))
@@ -79,11 +77,30 @@ defmodule BitblocksWeb.Plugs.RequireCallerTest do
           "/api/v1/status",
           "/bitcom.json",
           "/api/v1/bitcom/snapshots",
+          "/api/v1/headers/1",
+          "/api/v1/headers?from=0",
           "/interop/vectors/v1.json",
           "/interop/vectors/LICENSE.txt"
         ] do
       refute get(conn, path).status == 401, "#{path} asked for a caller"
     end
+  end
+
+  test "any site's browser can read headers, signed out", %{conn: conn} do
+    conn =
+      conn |> put_req_header("origin", "https://wallet.example") |> get("/api/v1/headers?from=0")
+
+    assert conn.status == 200
+    assert get_resp_header(conn, "access-control-allow-origin") == ["*"]
+  end
+
+  test "verifying a BEEF still takes a caller", %{conn: conn} do
+    conn =
+      conn
+      |> put_req_header("content-type", "application/octet-stream")
+      |> post("/api/v1/beef/verify", "00")
+
+    assert conn.status == 401
   end
 
   test "pages and inscription content stay open", %{conn: conn} do

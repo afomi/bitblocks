@@ -114,24 +114,6 @@
       </div>
     </section>
 
-    <%= if @live_action in [:edit] do %>
-      <.modal
-        :if={@live_action == :edit}
-        id="blocks-modal"
-        show
-        on_cancel={JS.navigate(~p"/blocks/#{@block.height}")}
-      >
-        <.live_component
-          module={BitblocksWeb.BlockLive.FormComponent}
-          id={@block.id}
-          title={@page_title}
-          action={@live_action}
-          block={@block}
-          patch={~p"/blocks/#{@block.height}"}
-        />
-      </.modal>
-    <% end %>
-
     <%!-- Block Metadata + Transactions in two columns --%>
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-0 lg:gap-8">
       <%!-- Left: Metadata --%>
@@ -357,13 +339,6 @@
           class="text-sm text-neutral-400 hover:text-neutral-50 transition-colors duration-150"
         >
           ← All blocks
-        </.link>
-        <.link
-          :if={@admin?}
-          href={~p"/blocks/#{@block.height}/show/edit"}
-          class="text-sm text-neutral-400 hover:text-neutral-50 transition-colors duration-150"
-        >
-          Edit
         </.link>
       </div>
     </section>

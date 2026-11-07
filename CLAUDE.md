@@ -154,7 +154,7 @@ GET /api/v1/status/derivations` shows the versions and latest runs.
 
 **Access (`BitblocksWeb.UserAuth`):**
 - Public: home, `/blocks`, block and transaction detail, the beta features, `/reorgs`, `/protocols`, `/about`, `/content`.
-- API key or signed in: all of `/api/v1` and `/bitcom.json` (`BitblocksWeb.Plugs.RequireCaller`, #12). Open with neither: `/api/v1/status`, `/api/v1/price/bsv` and `/api/v1/support`, which other sites' browsers and the deploy check read, and the Bitcom registry exports (`/bitcom.json`, `/api/v1/bitcom/snapshots`), meant to be checked without trusting us.
+- API key or signed in: all of `/api/v1` and `/bitcom.json` (`BitblocksWeb.Plugs.RequireCaller`, #12). Open with neither: `/api/v1/status`, `/api/v1/price/bsv` and `/api/v1/support`, which other sites' browsers and the deploy check read, `/api/v1/headers`, which a light client checks merkle roots against, and the Bitcom registry exports (`/bitcom.json`, `/api/v1/bitcom/snapshots`), meant to be checked without trusting us.
 - Signed in with GitHub: `/status`, `/syncing`, and the raw tx download.
 - Admin: everything in the router's `:admin` scope, including the `/transactions` list, plus the chain-scrubber tiles.
   An admin is a GitHub user whose row is marked admin (`users.admin`, keyed by their GitHub numeric id; set with `bin/bitblocks rpc 'Bitblocks.Release.set_admin("afomi", true)'`).
@@ -265,7 +265,7 @@ bin/bitblocks rpc 'Bitblocks.Release.tx_store_reconcile(0, 9_999)'
 
 ### API
 
-The API takes a key or a signed-in session, apart from the three open routes under Access above; anything else is a 401.
+The API takes a key or a signed-in session, apart from the open routes under Access above; anything else is a 401.
 Logged-out callers get `RATE_LIMIT_PER_MINUTE` (default 30) requests per minute per IP, for pages and the open routes.
 These limits count per node until the Erlang cluster is connected (`this_node.rate_limit_scope` on `/api/v1/status`).
 Logged-in users get `RATE_LIMIT_SIGNED_IN_PER_MINUTE` (600) per user, and admins `RATE_LIMIT_ADMIN_PER_MINUTE` (3,000) per user.
@@ -284,8 +284,8 @@ GET /api/v1/txs/:txid/proof     — merkle proof for a transaction
 GET /api/v1/txs/:txid/beef      — BRC-62 BEEF as hex: the tx with its own BUMP, its parents first (up to 25; parents_missing, complete); same errors as /proof
 GET /api/v1/txs/:txid/beef      — BEEF (BRC-62) as hex, the tx last with its own BUMP, its parents ahead of it; ?format=atomic for Atomic BEEF (BRC-95), the tx and its BUMP alone
 POST /api/v1/beef/verify        — checks a BEEF V1, V2 or Atomic BEEF from anyone against our headers (octet-stream, or {"beef": "<hex>"}; 4 MB): each tx proven | anchored | unknown | failed, at what height and root, with reasons. The claim is inclusion in a block; no script runs, and an unknown height is unknown (docs/MERKLE_PROOFS.md)
-GET /api/v1/headers/:height     — one header: raw 80 bytes as hex, hash, height, merkleroot, verified, canonical; rely on it only when both are true
-GET /api/v1/headers             — ?from=&limit= up to 2,000 headers by the height index; meta.tip_height says what they cover, meta.missing what we lack below it
+GET /api/v1/headers/:height     — open: one header: raw 80 bytes as hex, hash, height, merkleroot, verified, canonical; rely on it only when both are true
+GET /api/v1/headers             — open: ?from=&limit= up to 2,000 headers by the height index; meta.tip_height says what they cover, meta.missing what we lack below it
 GET /interop/vectors/v1.json    — open test vectors for BEEF and BUMP, each with its expected outcome (docs/INTEROP_KIT.md); licence at /interop/vectors/LICENSE.txt
 GET /api/v1/txs/:txid/raw       — the tx's exact bytes (octet-stream), or ?format=hex for lowercase hex, verified against the txid, immutable; the CDN origin (docs/TX_STORAGE.md)
 GET /content/:outpoint          — inscription body parsed from the raw tx on the fly (1Sat convention; immutable, nosniff, sandbox CSP)

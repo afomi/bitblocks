@@ -83,7 +83,6 @@ defmodule BitblocksWeb.BlockLive.Show do
   def tx_total_pages(total), do: total_pages(total)
 
   defp page_title(:show), do: "Show Block"
-  defp page_title(:edit), do: "Edit Block"
 
   defp format_number(number) when is_integer(number) do
     number

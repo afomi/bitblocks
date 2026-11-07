@@ -89,6 +89,15 @@ defmodule BitblocksWeb.UserAuthTest do
       refute html =~ "/show/edit"
     end
 
+    test "no route writes a block by hand", %{block: block} do
+      for path <- ["/blocks/#{block.height}/edit", "/blocks/#{block.height}/show/edit"] do
+        assert Phoenix.Router.route_info(BitblocksWeb.Router, "GET", path, "") == :error
+      end
+
+      assert %{phoenix_live_view: {BitblocksWeb.BlockLive.Show, :show, _, _}} =
+               Phoenix.Router.route_info(BitblocksWeb.Router, "GET", "/blocks/new", "")
+    end
+
     test "a missing tx leads to blocks, not sign-in", %{conn: conn} do
       assert {:error, {:live_redirect, %{to: "/blocks"}}} =
                live(conn, "/transactions/#{txid(9)}")

@@ -17,23 +17,6 @@
       </p>
     </section>
 
-    <%= if @live_action in [:new, :edit] do %>
-      <.modal
-        id="block-modal"
-        show
-        on_cancel={JS.patch(~p"/blocks")}
-      >
-        <.live_component
-          module={BitblocksWeb.BlockLive.FormComponent}
-          id={@block.id || :new}
-          title={@page_title}
-          action={@live_action}
-          block={@block}
-          return_to={~p"/blocks"}
-        />
-      </.modal>
-    <% end %>
-
     <%!-- Next Block (in progress) --%>
     <%= if @page == 1 do %>
       <% latest_height = if List.first(@blocks), do: List.first(@blocks).height, else: 0 %>

@@ -220,6 +220,17 @@ When the block's `num_tx` is known, the BUMP's tree height must be that block's 
 The parser is `Bitblocks.Chain.Beef.Reader`: no database, no atoms from input, sizes and counts bounded, with truncation and trailing bytes refused.
 It is built to move to bsv-ex.
 
+### What to accept
+
+These are the defaults Bitblocks stands behind, chosen on 2026-11-06 (#60).
+
+- **`proven` is enough to say a transaction is in a block.** That is all it says.
+- **`anchored` isn't enough to accept a payment on its own.** Accept it only when your own wallet has also checked the scripts, signatures and amounts, and has seen no double spend. For a large amount, wait for `proven`.
+- **`unknown` and `failed` are never a pass.**
+
+The verifier stays behind a key or a signed-in session, because each call takes up to 4 MB of work, so anyone can get a trial key from `/start`.
+The 4 MB limit stays, and the API and `/start/interop` share it, so they agree on every input.
+
 The same reader and verifier stand behind the open test vectors at `GET /interop/vectors/v1.json` and the check page at `/start/interop` ([INTEROP_KIT.md](INTEROP_KIT.md)).
 
 ### The size limit
@@ -232,6 +243,8 @@ Its hex is then held to the same 4 MB.
 
 ## Part 5 — Headers: `GET /api/v1/headers`
 
+These routes need no key, and any site's browser can read them, under the logged-out rate limit: a header is public data, and a light client needs it to check a merkle root.
+
 `GET /api/v1/headers/:height` gives one header, and `GET /api/v1/headers?from=<height>&limit=<n>` gives up to 2,000 in height order (100 by default).
 Each has the raw 80-byte `header` as hex, with `hash`, `height`, `merkleroot`, `prevblockhash`, `version`, `time`, `bits`, `nonce`, `num_tx` and two flags.
 
@@ -239,7 +252,7 @@ Each has the raw 80-byte `header` as hex, with `hash`, `height`, `merkleroot`, `
 - `canonical`: this is the block we hold at that height, and the stored block above it, if any, names it as `prevblockhash`, the rule `/proof` uses. The highest block has nothing above it yet.
 
 Rely on a header only when both are true.
-The check is made on every read because the admin block form writes rows without one, so "stored after a proof-of-work check" holds for sync and not for every row.
+The check is made on every read, so the answer rests on the header's own bytes rather than on how the row got there.
 
 These cover the headers this index holds, from one node, up to `meta.tip_height`.
 `meta.missing` names heights in the range below the tip that we don't hold, and `meta.next_from` is where to carry on.

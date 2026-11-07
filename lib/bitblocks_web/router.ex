@@ -50,6 +50,10 @@ defmodule BitblocksWeb.Router do
 
     get "/bitcom/snapshots", BitcomController, :snapshots
     get "/bitcom/snapshots/:version", BitcomController, :snapshot
+
+    # Public data a light client checks merkle roots against, from a browser (#60).
+    get "/headers/:height", HeaderController, :show
+    get "/headers", HeaderController, :index
   end
 
   # Operator tools, for an API key with the ops_read scope (#50). Read-only,
@@ -104,10 +108,8 @@ defmodule BitblocksWeb.Router do
     get "/txs/:txid", TransactionController, :show
     get "/txs", TransactionController, :index
 
-    # BEEF from anyone, checked against the headers we hold; the headers themselves
+    # BEEF from anyone, checked against the headers we hold
     post "/beef/verify", BeefController, :verify
-    get "/headers/:height", HeaderController, :show
-    get "/headers", HeaderController, :index
 
     # WhatsOnChain-compatible alias layer — bare (un-enveloped) responses with
     # WoC field names, so WoC clients work with minimal changes. The native
@@ -344,8 +346,8 @@ defmodule BitblocksWeb.Router do
     get "/", PageController, :home
   end
 
-  # Declared before the signed-in scope so /blocks/new and /transactions/new
-  # aren't captured by /blocks/:id and /transactions/:id.
+  # Declared before the signed-in scope so /transactions/new isn't captured by
+  # /transactions/:id.
   scope "/", BitblocksWeb do
     # Operator surface: admins only (see the access model above).
     pipe_through :admin
@@ -381,10 +383,7 @@ defmodule BitblocksWeb.Router do
       # A browse list over the whole table; detail pages cover a shared link.
       live "/transactions", TransactionLive.Index, :index
 
-      # Block and transaction mutation pages
-      live "/blocks/new", BlockLive.Index, :new
-      live "/blocks/:id/edit", BlockLive.Index, :edit
-      live "/blocks/:id/show/edit", BlockLive.Show, :edit
+      # Transaction mutation pages
       live "/transactions/new", TransactionLive.Index, :new
       live "/transactions/:id/edit", TransactionLive.Index, :edit
       live "/transactions/:id/show/edit", TransactionLive.Show, :edit
@@ -406,7 +405,7 @@ defmodule BitblocksWeb.Router do
 
   scope "/", BitblocksWeb do
     # Read-only detail, so a link someone was sent simply opens (#38). After the
-    # admin scope, so /blocks/new and /transactions/new match first.
+    # admin scope, so /transactions/new matches first.
     pipe_through :browser
 
     live_session :public_detail,

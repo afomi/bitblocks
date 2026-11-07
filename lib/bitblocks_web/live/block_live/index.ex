@@ -2,7 +2,6 @@ defmodule BitblocksWeb.BlockLive.Index do
   use BitblocksWeb, :live_view
 
   alias Bitblocks.Chain
-  alias Bitblocks.Chain.Block
 
   @impl true
   def mount(_params, _session, socket) do
@@ -31,18 +30,6 @@ defmodule BitblocksWeb.BlockLive.Index do
       |> assign(:total_pages, calculate_total_pages(Chain.count_blocks(), per_page))
 
     {:noreply, apply_action(socket, socket.assigns.live_action, params)}
-  end
-
-  defp apply_action(socket, :edit, %{"id" => id}) do
-    socket
-    |> assign(:page_title, "Edit Block")
-    |> assign(:block, Chain.get_block!(id))
-  end
-
-  defp apply_action(socket, :new, _params) do
-    socket
-    |> assign(:page_title, "New Block")
-    |> assign(:block, %Block{})
   end
 
   defp apply_action(socket, :index, _params) do
