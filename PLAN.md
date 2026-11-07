@@ -24,7 +24,7 @@ Closed 2026-11-05 and 06: #9 · #12 · #13 · #14 · #17 · #21 · #22 · #30 ·
 Ops queue: **#1 OPS-ROLLOUT**.
 Script analysis chain #1 finished 2026-11-06, so `tx_steps`, then tallies, then `tx_types` follow, each with Ryan's OK on its dry-run count.
 #1 closes when the audit reports zero deficit blocks.
-Every open issue labelled `ops` is one prod step away from closing: #24 · #48.
+Every open issue labelled `ops` is one prod step away from closing: #24.
 
 Sync (2026-11-04): one loop, led by `Sync.Coordinator`, works upward from genesis and reports "Complete through block X of N known" ([docs/SYNCING.md](docs/SYNCING.md)).
 Blocks up to 32 MB are one raw-block request each (node REST, `rest=1`); the failed blocks and the gap above 957,301 are reached in order with no manual steps.

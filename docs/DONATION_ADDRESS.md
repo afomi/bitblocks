@@ -113,5 +113,6 @@ If the donation address doubles as bitblocks' Bitcom namespace, each command spe
 The alternative is account 1's receiving address 1, a sibling address whose history stays separate.
 Decide this when #21 starts.
 
-Use the sibling address.
-The namespace address has to be funded before each command, and `received_for_address/2` would count every one of those top-ups as a donation.
+Decided 2026-11-06: one address for both, for now.
+The namespace address has to be funded before each command, and `received_for_address/2` counts every one of those top-ups as a donation, so until the sibling address or an exclusion exists, the received total includes what we paid in ourselves.
+Any top-up gets a ledger line, so the total can be reconciled by hand.

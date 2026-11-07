@@ -85,7 +85,7 @@ Snapshots read `bitcom_commands` and `protocols`, never `transactions`.
 ## Waiting on a bitblocks-owned funded address
 
 Both of these are one transaction away, and the code is ready for them.
-Choosing and funding the address is Ryan's call, and the wallet signs and broadcasts.
+The address is `1Hs9u37fyWZNHKC9LCmup3m1TroNzKHGoT`, shared with donations for now (`docs/DONATION_ADDRESS.md`); it has no funds yet, and the wallet signs and broadcasts.
 
 - **Anchor a snapshot.** `$ echo <sha256> to registry.json` from that address, then set `anchor_txid` on the snapshot's row (#21).
   `POST /api/v1/bitcom/compose` builds the unsigned script.
