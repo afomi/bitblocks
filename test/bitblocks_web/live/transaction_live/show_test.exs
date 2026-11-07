@@ -95,7 +95,7 @@ defmodule BitblocksWeb.TransactionLive.ShowTest do
       assert has_element?(view, "#input-source-0 a[href^='/transactions/']")
     end
 
-    test "script and hex sit behind one toggle, after the summary", %{conn: conn} do
+    test "script and hex sit in one toggle, open to start, after the summary", %{conn: conn} do
       script = %BSV.Script{chunks: [:OP_ADD, :OP_EQUAL]}
       raw = raw_hex_with_output(script, 1_000)
       tx = insert_tx(raw, "toggle#{System.unique_integer([:positive])}")
@@ -103,11 +103,11 @@ defmodule BitblocksWeb.TransactionLive.ShowTest do
       {:ok, view, html} = live(conn, ~p"/transactions/#{tx.txid}")
 
       assert view |> element("#tx-raw-details > summary") |> render() =~
-               "Show the raw transaction"
+               "Raw transaction"
 
       assert has_element?(view, "#tx-raw-details #tx-raw", raw)
       assert has_element?(view, "#tx-raw-details #tx-outputs", "OP_ADD OP_EQUAL")
-      refute has_element?(view, "#tx-raw-details[open]")
+      assert has_element?(view, "#tx-raw-details[open]")
 
       before_toggle = html |> String.split(~s(id="tx-raw-details")) |> hd()
       refute before_toggle =~ "OP_ADD"
