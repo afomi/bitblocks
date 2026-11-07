@@ -105,7 +105,13 @@ defmodule Bitblocks.TxTypes.Counts do
       untyped <> " A transaction with several types counts once under each."
   end
 
-  def coverage_note(%{status: :ok}), do: "No block is typed yet, so there are no counts."
+  def coverage_note(%{status: :ok, complete_through: complete}) when complete >= 0 do
+    "Blocks 0 to #{complete} are verified complete and waiting to be typed, so there are no counts yet."
+  end
+
+  def coverage_note(%{status: :ok}),
+    do: "No block is verified complete yet, so there are no counts."
+
   def coverage_note(%{status: :pending}), do: "Counts are being computed."
   def coverage_note(_summary), do: "Counts are unavailable right now."
 

@@ -41,6 +41,20 @@ defmodule Bitblocks.TxTypes.CountsTest do
     refute Map.has_key?(summary.types, "bsv-21")
   end
 
+  describe "coverage_note/1 with nothing typed" do
+    test "says the blocks are complete and what they're waiting for" do
+      note = Counts.coverage_note(%{status: :ok, through_height: -1, complete_through: 243_757})
+
+      assert note =~ "Blocks 0 to 243757 are verified complete and waiting to be typed"
+      refute note =~ "once block 0"
+    end
+
+    test "says so when no block is complete yet" do
+      assert Counts.coverage_note(%{status: :ok, through_height: -1, complete_through: -1}) =~
+               "No block is verified complete yet"
+    end
+  end
+
   describe "adoption (#51)" do
     test "first time and txid, and txs per 10,000 blocks, over the typed range" do
       first = typed_block(0, %{"p2pkh" => 1})

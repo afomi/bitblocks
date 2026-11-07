@@ -44,10 +44,9 @@
             class="font-mono tabular-nums"
           ><%= Calendar.strftime(counts.computed_at, "%Y-%m-%d %H:%M UTC") %></time>, from the block tallies.
         </p>
-      <% %{status: :ok} -> %>
-        <p>
-          No block is typed yet, so there are no counts.
-          They start once block 0 is verified complete and typed.
+      <% %{status: :ok} = counts -> %>
+        <p id="types-no-counts">
+          <%= Counts.coverage_note(counts) %>
         </p>
       <% %{status: :pending} -> %>
         <p>
