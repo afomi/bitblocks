@@ -186,18 +186,70 @@
         id="step-get-a-key"
         n={5}
         title="Get a key"
-        status="coming"
+        status="signed_in"
         last
       >
         <p>
           A server can't sign in with GitHub, so an application needs a key.
-          The plan is simple: sign in, and get a key with a small budget from this page.
+          Each GitHub account can hold one trial key, good for
+          <span class="font-mono tabular-nums">{format_number(@rate_limits.trial_key)}</span>
+          requests a minute.
         </p>
-        <p>
-          That isn't built yet, and keys are issued by hand for now.
-          Until then, everything above works in a browser.
+        <p :if={!@current_user}>
+          Sign in above, and you can get yours here.
+        </p>
+        <div
+          :if={@new_token}
+          id="start-new-key"
+          class="space-y-2"
+        >
+          <p>
+            Copy your key now.
+            We keep only its hash, so this is the one time you'll see it.
+          </p>
+          <.code_panel
+            label="Your first call with your key"
+            code={key_example(@new_token)}
+          />
+        </div>
+        <button
+          :if={@current_user && !@trial_key}
+          id="start-get-key"
+          type="button"
+          phx-click="get_key"
+          phx-disable-with="Getting your key..."
+          class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+        >
+          Get a key
+        </button>
+        <div
+          :if={@trial_key && !@new_token}
+          id="start-your-key"
+          class="space-y-2"
+        >
+          <p>
+            Your key starts <span class="font-mono">{@trial_key.prefix}</span>.
+            If you've lost it, replace it, and the old one stops working within a minute.
+          </p>
+          <button
+            id="start-replace-key"
+            type="button"
+            phx-click="replace_key"
+            data-confirm="Replace your key? The old one will stop working."
+            class="rounded-lg border border-gray-300 px-4 py-2 text-sm font-semibold hover:bg-gray-100 dark:border-gray-600 dark:hover:bg-gray-800"
+          >
+            Replace my key
+          </button>
+        </div>
+        <p
+          :if={@key_error}
+          id="start-key-error"
+          role="alert"
+        >
+          {@key_error}
         </p>
         <.code_panel
+          :if={!@new_token}
           label="How a key is sent"
           code={key_example()}
         />

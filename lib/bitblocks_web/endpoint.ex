@@ -17,11 +17,11 @@ defmodule BitblocksWeb.Endpoint do
   socket "/live", Phoenix.LiveView.Socket,
     # 12 MB: the /start/interop paste at its 4 MB limit is 8 MB of hex, plus framing.
     websocket: [
-      connect_info: [session: @session_options],
+      connect_info: [:peer_data, :x_headers, session: @session_options],
       timeout: 45_000,
       max_frame_size: 12_000_000
     ],
-    longpoll: [connect_info: [session: @session_options]]
+    longpoll: [connect_info: [:peer_data, :x_headers, session: @session_options]]
 
   # Serve at "/" the static files from "priv/static" directory.
   #

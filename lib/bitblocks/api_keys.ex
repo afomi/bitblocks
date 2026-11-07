@@ -12,19 +12,24 @@ defmodule Bitblocks.ApiKeys do
   A key can also hold scopes (#50). A new key has none, and neither does an
   existing one: `ops_read` is only ever granted by name, at creation or with
   `grant_scope/2`, and `BitblocksWeb.Plugs.RequireScope` refuses everyone else.
+
+  A signed-in user can take one trial key from `/start` (#59), with a small
+  budget and no scopes. Replacing it revokes the old one.
   """
 
   import Ecto.Query
 
+  alias Bitblocks.Accounts.User
   alias Bitblocks.ApiKeys.ApiKey
   alias Bitblocks.Repo
 
   @cache :api_key_cache
   @cache_ttl_ms 60_000
+  @trial_requests_per_minute 60
 
   @doc """
   Creates a key. Returns `{:ok, %ApiKey{}, token}`; the token isn't stored.
-  Option: `:scopes`, none by default.
+  Options: `:scopes`, none by default, and `:user_id`, the key's owner.
   """
   @spec create(String.t(), pos_integer(), keyword()) ::
           {:ok, ApiKey.t(), String.t()} | {:error, term()}
@@ -37,13 +42,39 @@ defmodule Bitblocks.ApiKeys do
       requests_per_minute: requests_per_minute,
       token_hash: hash(token),
       prefix: String.slice(token, 0, 12),
-      scopes: Keyword.get(opts, :scopes, [])
+      scopes: Keyword.get(opts, :scopes, []),
+      user_id: Keyword.get(opts, :user_id)
     })
     |> Repo.insert()
     |> case do
       {:ok, key} -> {:ok, key, token}
       error -> error
     end
+  end
+
+  @doc "Requests a minute on a trial key."
+  def trial_requests_per_minute, do: @trial_requests_per_minute
+
+  @doc "The user's active trial key, or nil."
+  @spec trial_key(User.t()) :: ApiKey.t() | nil
+  def trial_key(%User{id: id}) do
+    Repo.one(from k in ApiKey, where: k.user_id == ^id and is_nil(k.revoked_at))
+  end
+
+  @doc """
+  Issues the user's trial key. Returns `{:ok, %ApiKey{}, token}`, or an error
+  changeset when they already hold one.
+  """
+  @spec issue_trial(User.t()) :: {:ok, ApiKey.t(), String.t()} | {:error, term()}
+  def issue_trial(%User{} = user) do
+    create("trial:#{user.login}", @trial_requests_per_minute, user_id: user.id)
+  end
+
+  @doc "Revokes the user's trial key, if any, and issues a new one."
+  @spec replace_trial(User.t()) :: {:ok, ApiKey.t(), String.t()} | {:error, term()}
+  def replace_trial(%User{} = user) do
+    if key = trial_key(user), do: revoke(key.id)
+    issue_trial(user)
   end
 
   @doc """

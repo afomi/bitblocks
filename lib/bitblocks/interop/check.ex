@@ -38,6 +38,7 @@ defmodule Bitblocks.Interop.Check do
     upload_not_ready: "That file hasn't finished uploading, or it wasn't accepted.",
     unreadable_file: "That file couldn't be read. Try choosing it again.",
     too_soon: "One check at a time. Give it a moment and try again.",
+    over_budget: "That's the most checks we can take for now. Try again in a minute.",
     too_many_bumps: "This BEEF lists more BUMPs than the reader takes.",
     too_many_transactions: "This BEEF lists more transactions than the reader takes.",
     too_many_leaves: "This BEEF's BUMPs have more leaves than the reader takes.",

@@ -42,6 +42,26 @@ defmodule BitblocksWeb.Utils.IpHelper do
   end
 
   @doc """
+  The client IP of a connected LiveView, by the rule of `get_ip_address/1`.
+  The endpoint's socket passes `:x_headers` and `:peer_data`. Nil when neither
+  is there.
+  """
+  def get_socket_ip(socket) do
+    forwarded =
+      for {"x-forwarded-for", value} <-
+            Phoenix.LiveView.get_connect_info(socket, :x_headers) || [],
+          entry <- String.split(value, ","),
+          entry = String.trim(entry),
+          entry != "",
+          do: entry
+
+    case {List.last(forwarded), Phoenix.LiveView.get_connect_info(socket, :peer_data)} do
+      {nil, %{address: address}} -> format_remote_ip(address)
+      {ip, _peer} -> ip
+    end
+  end
+
+  @doc """
   Extracts a specific header value from a connection.
 
   Returns the first value if multiple headers with the same name exist,

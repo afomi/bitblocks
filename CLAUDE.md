@@ -271,6 +271,7 @@ These limits count per node until the Erlang cluster is connected (`this_node.ra
 Logged-in users get `RATE_LIMIT_SIGNED_IN_PER_MINUTE` (600) per user, and admins `RATE_LIMIT_ADMIN_PER_MINUTE` (3,000) per user.
 This covers HTTP requests, not events over an open LiveView socket.
 Keyed callers send `Authorization: Bearer bbk_…` (or `x-api-key`) and get their key's own budget; create one with `bin/bitblocks rpc 'Bitblocks.Release.create_api_key("qart", 1200)'` (printed once), or register one made elsewhere from its sha256 with `Release.create_api_key_from_hash/3`, so the key never appears in command output. An unknown or revoked key is a 401.
+A signed-in user can take one trial key from `/start`, 60 requests a minute and no scopes (`ApiKeys.issue_trial/1`, `replace_trial/1`, #59).
 A key can hold scopes, none by default: `ops_read` opens `/api/v1/ops/*`, given with `scopes: ["ops_read"]` on either create function or `Release.grant_api_key_scope/2`. A key without it gets a 403.
 
 ```

@@ -34,7 +34,7 @@ A path is read once, a reference is revisited, and opinions need room for their 
 - **Step 2, read a transaction:** the data is real, using the first spend in block 170, which sits inside the complete range and opens with no account.
 - **Step 3, prove it:** you needn't trust us, because a short script checks the proof on your own machine.
 - **Step 4, sign in:** the free tier is a GitHub sign-in, and it opens the whole API in that browser.
-- **Step 5, get a key:** the trial's last step, marked Coming.
+- **Step 5, get a key:** the trial's last step: signed in, one click gives a key of 60 requests a minute, shown once. One active key per GitHub account, and replacing it revokes the old one.
 - **See what's been built:** Rexxies lead, with counts and pictures from the index, and an honest note on where the data comes from.
 - **Start from these:** we point out to other people's work, with plain links.
 - **Write with Qart:** an application needs a write side, and here is one that works today.
@@ -51,7 +51,7 @@ A path is read once, a reference is revisited, and opinions need room for their 
 | Merkle proofs and BEEF | Real |
 | Rexxies, Grand Tardinians and their API | Real, imported on their own ahead of the sync |
 | Address and script balances | Real, and mostly `partial` or `unknown` until the index reaches the tip |
-| Self-serve keys | Needs building |
+| Self-serve keys | Real |
 | Qart buy button, pay links, receipts, 402, wallet API | Live, by Qart's own labels |
 | Qart escrow, pre-signed refunds, co-signed transactions | Testnet, by Qart's own labels |
 | Qart BSV-21 minting and referral covenants | Preview, by Qart's own labels |

@@ -12,6 +12,8 @@ defmodule BitblocksWeb.StartLive.Interop do
     * one check a second per LiveView (`@min_interval_ms`), counted from the end
       of the last one, so events that queue during a check are turned away
       cheaply;
+    * a budget of `:interop_checks_per_minute` a minute per user, or per IP
+      when logged out, held across every LiveView they open;
     * every output is a hash the verifier derived or a fixed sentence.
 
   Admin only until published, like `/start`.
@@ -21,10 +23,13 @@ defmodule BitblocksWeb.StartLive.Interop do
   import BitblocksWeb.StartComponents
 
   alias Bitblocks.Interop.{Check, Vectors}
+  alias BitblocksWeb.Plugs.RateLimiter
   alias BitblocksWeb.Seo
   alias BitblocksWeb.StartLive.Index
+  alias BitblocksWeb.Utils.IpHelper
 
   @min_interval_ms 1_000
+  @checks_per_minute 30
 
   @impl true
   def mount(_params, _session, socket) do
@@ -40,6 +45,7 @@ defmodule BitblocksWeb.StartLive.Interop do
        )
      )
      |> assign(report: nil, error: nil, last_check_at: nil)
+     |> assign(:budget_bucket, budget_bucket(socket))
      |> assign(:max_bytes, Check.max_bytes())
      |> assign(:vectors, Vectors.summary())
      |> allow_upload(:beef,
@@ -92,12 +98,29 @@ defmodule BitblocksWeb.StartLive.Interop do
       # The last result stays: this is usually a second press of the button.
       assign(socket, :error, Check.message(:too_soon))
     else
-      outcome = with {:ok, bytes} <- input.(), do: Check.run(bytes)
+      outcome =
+        with :ok <- within_budget(socket),
+             {:ok, bytes} <- input.(),
+             do: Check.run(bytes)
 
       socket
       |> assign(:last_check_at, now())
       |> present(outcome)
     end
+  end
+
+  defp within_budget(socket) do
+    limit = Application.get_env(:bitblocks, :interop_checks_per_minute, @checks_per_minute)
+
+    if RateLimiter.allow?(socket.assigns.budget_bucket, limit),
+      do: :ok,
+      else: {:error, :over_budget}
+  end
+
+  defp budget_bucket(%{assigns: %{current_user: %{id: id}}}), do: "interop:user:#{id}"
+
+  defp budget_bucket(socket) do
+    if connected?(socket), do: "interop:ip:#{IpHelper.get_socket_ip(socket)}"
   end
 
   defp present(socket, {:ok, report}), do: assign(socket, report: report, error: nil)

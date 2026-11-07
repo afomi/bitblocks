@@ -3,8 +3,10 @@ defmodule BitblocksWeb.StartInteropLiveTest do
 
   import Phoenix.LiveViewTest
 
+  alias Bitblocks.Accounts.User
   alias Bitblocks.Interop.{Check, Vectors}
   alias Bitblocks.RealHeaders
+  alias Bitblocks.Repo
   alias BitblocksWeb.StartLive.Interop
 
   @vectors Jason.decode!(Vectors.body())["vectors"]
@@ -94,6 +96,72 @@ defmodule BitblocksWeb.StartInteropLiveTest do
 
       assert has_element?(view, "#interop-error", "The bytes end before the BEEF does.")
       refute has_element?(view, "#interop-report")
+    end
+  end
+
+  describe "the budget" do
+    setup do
+      Application.put_env(:bitblocks, :interop_checks_per_minute, 2)
+      on_exit(fn -> Application.delete_env(:bitblocks, :interop_checks_per_minute) end)
+    end
+
+    defp spent(view, n) do
+      for _ <- 1..n do
+        :sys.replace_state(view.pid, fn state ->
+          put_in(state.socket.assigns[:last_check_at], nil)
+        end)
+
+        paste(view, "00")
+      end
+    end
+
+    defp signed_in(conn) do
+      id = System.unique_integer([:positive])
+      user = Repo.insert!(%User{github_id: id, login: "user#{id}"})
+      init_test_session(conn, %{"user_id" => user.id})
+    end
+
+    test "holds across every page a user opens", %{conn: conn} do
+      conn = signed_in(conn)
+      {:ok, first, _html} = live(conn, ~p"/start/interop")
+      {:ok, second, _html} = live(conn, ~p"/start/interop")
+
+      spent(first, 2)
+      refute has_element?(first, "#interop-error", "the most checks")
+
+      spent(second, 1)
+      assert render(second) =~ "the most checks we can take"
+    end
+
+    test "logged out, the budget is the address the load balancer saw", %{conn: conn} do
+      from = fn ip ->
+        conn
+        |> put_req_header("x-forwarded-for", "9.9.9.9, #{ip}")
+        |> live(~p"/start/interop")
+        |> elem(1)
+      end
+
+      first = from.("203.0.113.7")
+      again = from.("203.0.113.7")
+      other = from.("203.0.113.8")
+
+      spent(first, 2)
+      spent(again, 1)
+      spent(other, 1)
+
+      assert render(again) =~ "the most checks we can take"
+      refute render(other) =~ "the most checks we can take"
+    end
+
+    test "one user's checks don't count against another's", %{conn: conn} do
+      {:ok, first, _html} = conn |> signed_in() |> live(~p"/start/interop")
+      {:ok, second, _html} = build_conn() |> signed_in() |> live(~p"/start/interop")
+
+      spent(first, 3)
+      spent(second, 1)
+
+      assert render(first) =~ "the most checks we can take"
+      refute render(second) =~ "the most checks we can take"
     end
   end
 

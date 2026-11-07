@@ -13,8 +13,10 @@ defmodule BitblocksWeb.StartLive.Index do
   import BitblocksWeb.CollectionComponents, only: [item_art: 1]
   import BitblocksWeb.StartComponents
 
+  alias Bitblocks.ApiKeys
   alias Bitblocks.OrdinalCollections
   alias Bitblocks.SyncProgress
+  alias BitblocksWeb.Plugs.RateLimiter
   alias BitblocksWeb.{Seo, UserAuth}
 
   @base_url "https://bitblocks.app"
@@ -26,6 +28,9 @@ defmodule BitblocksWeb.StartLive.Index do
   @example_merkleroot "7dac2c5666815c17a3b36427de37bb9d2e2c5ccec3f8633eb91a4205cb4c10ff"
 
   @rexxies_shown 6
+
+  # Socket events pass no rate limiter, and each new key is a row.
+  @key_changes_per_minute 5
 
   @impl true
   def mount(_params, _session, socket) do
@@ -49,8 +54,35 @@ defmodule BitblocksWeb.StartLive.Index do
      |> assign(:tardinians, OrdinalCollections.get_collection("grand-tardinians"))
      |> assign(:sign_in_path, UserAuth.sign_in_path("/start"))
      |> assign(:example_txid, @example_txid)
-     |> assign(:rate_limits, rate_limits())}
+     |> assign(:rate_limits, rate_limits())
+     |> assign(:trial_key, trial_key(socket.assigns[:current_user]))
+     |> assign(:new_token, nil)
+     |> assign(:key_error, nil)}
   end
+
+  # The key is held only for this page, and shown only here, once.
+  @impl true
+  def handle_event("get_key", _params, socket) do
+    {:noreply, change_key(socket, &ApiKeys.issue_trial/1)}
+  end
+
+  def handle_event("replace_key", _params, socket) do
+    {:noreply, change_key(socket, &ApiKeys.replace_trial/1)}
+  end
+
+  defp change_key(%{assigns: %{current_user: %{id: id} = user}} = socket, change) do
+    with true <- RateLimiter.allow?("trial_key:user:#{id}", @key_changes_per_minute),
+         {:ok, key, token} <- change.(user) do
+      assign(socket, trial_key: key, new_token: token, key_error: nil)
+    else
+      _refused -> assign(socket, :key_error, "That didn't work. Try again in a minute.")
+    end
+  end
+
+  defp change_key(socket, _change), do: socket
+
+  defp trial_key(nil), do: nil
+  defp trial_key(user), do: ApiKeys.trial_key(user)
 
   defp rexxie_items(nil), do: []
 
@@ -73,7 +105,8 @@ defmodule BitblocksWeb.StartLive.Index do
 
     %{
       anonymous: Keyword.get(config, :max_requests, 30),
-      signed_in: Keyword.get(config, :signed_in_max_requests, 600)
+      signed_in: Keyword.get(config, :signed_in_max_requests, 600),
+      trial_key: ApiKeys.trial_requests_per_minute()
     }
   end
 
@@ -170,9 +203,9 @@ defmodule BitblocksWeb.StartLive.Index do
   end
 
   @doc false
-  def key_example do
+  def key_example(key \\ "bbk_...") do
     """
-    curl -H "Authorization: Bearer bbk_..." \\
+    curl -H "Authorization: Bearer #{key}" \\
       #{@base_url}#{proof_path()}
     """
   end

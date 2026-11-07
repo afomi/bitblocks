@@ -5,6 +5,8 @@ defmodule BitblocksWeb.StartLiveTest do
   import Bitblocks.ChainFixtures
   import Phoenix.LiveViewTest
 
+  alias Bitblocks.ApiKeys
+  alias Bitblocks.ApiKeys.ApiKey
   alias Bitblocks.Chain.MerkleProof
   alias Bitblocks.OrdinalCollections.Item
   alias Bitblocks.SyncProgress
@@ -164,8 +166,9 @@ defmodule BitblocksWeb.StartLiveTest do
         assert has_element?(view, "##{step}", "Works today, no account needed")
       end
 
-      assert has_element?(view, "#step-get-a-key", "Coming")
-      assert has_element?(view, "#step-get-a-key", "issued by hand")
+      assert has_element?(view, "#step-get-a-key", "Sign in above")
+      refute has_element?(view, "#step-get-a-key", "Coming")
+      refute has_element?(view, "#start-get-key")
     end
 
     test "links to the transaction page with no sign-in warning", %{conn: conn} do
@@ -194,6 +197,84 @@ defmodule BitblocksWeb.StartLiveTest do
       {txid, index, siblings, root} = Index.proof_parts()
 
       assert MerkleProof.climb(txid, index, siblings) == root
+    end
+  end
+
+  describe "getting a key" do
+    defp token_on(html) do
+      [token] = Regex.run(~r/bbk_[A-Za-z0-9_-]{43}/, html)
+      token
+    end
+
+    test "a signed-in user with no key reaches a first API call from the page", %{conn: conn} do
+      user = user!()
+      {:ok, view, _html} = conn |> as(user) |> live(~p"/start")
+
+      html = view |> element("#start-get-key") |> render_click()
+      token = token_on(html)
+
+      assert has_element?(view, "#start-new-key", "the one time you'll see it")
+      refute has_element?(view, "#start-get-key")
+
+      called =
+        build_conn()
+        |> put_req_header("authorization", "Bearer #{token}")
+        |> get(~p"/api/v1/blocks")
+
+      assert called.status == 200
+      assert get_resp_header(called, "x-ratelimit-limit") == ["60"]
+      assert ApiKeys.verify(token).user_id == user.id
+    end
+
+    test "the page keeps showing which key they hold, never the key", %{conn: conn} do
+      user = user!()
+      {:ok, _key, token} = ApiKeys.issue_trial(user)
+
+      {:ok, view, html} = conn |> as(user) |> live(~p"/start")
+
+      refute html =~ token
+      assert has_element?(view, "#start-your-key", String.slice(token, 0, 12))
+      refute has_element?(view, "#start-get-key")
+    end
+
+    test "replacing a key ends the old one", %{conn: conn} do
+      user = user!()
+      {:ok, _key, old} = ApiKeys.issue_trial(user)
+      {:ok, view, _html} = conn |> as(user) |> live(~p"/start")
+
+      new = view |> element("#start-replace-key") |> render_click() |> token_on()
+
+      assert new != old
+      assert ApiKeys.verify(old) == nil
+      assert ApiKeys.verify(new).user_id == user.id
+    end
+
+    test "a user holds one active key, and a trial key has no scopes" do
+      user = user!()
+      {:ok, key, _token} = ApiKeys.issue_trial(user)
+
+      assert key.scopes == []
+      assert {:error, %Ecto.Changeset{}} = ApiKeys.issue_trial(user)
+    end
+
+    test "keys can't be turned over without end", %{conn: conn} do
+      user = user!()
+      {:ok, _key, _token} = ApiKeys.issue_trial(user)
+      {:ok, view, _html} = conn |> as(user) |> live(~p"/start")
+
+      for _ <- 1..5, do: render_click(view, "replace_key")
+      render_click(view, "replace_key")
+
+      assert has_element?(view, "#start-key-error", "Try again in a minute")
+      assert Bitblocks.Repo.aggregate(ApiKey, :count) == 6
+    end
+
+    test "a logged-out socket can't take a key", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/start")
+
+      render_click(view, "get_key")
+
+      assert Bitblocks.Repo.aggregate(ApiKey, :count) == 0
     end
   end
 

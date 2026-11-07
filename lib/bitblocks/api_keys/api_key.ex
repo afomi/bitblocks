@@ -19,6 +19,8 @@ defmodule Bitblocks.ApiKeys.ApiKey do
     # What the key may do beyond its rate budget; none unless granted by name.
     field :scopes, {:array, :string}, default: []
     field :revoked_at, :utc_datetime
+    # The user a trial key belongs to; nil on a key issued by hand.
+    belongs_to :user, Bitblocks.Accounts.User
 
     timestamps(type: :utc_datetime)
   end
@@ -26,10 +28,11 @@ defmodule Bitblocks.ApiKeys.ApiKey do
   @doc false
   def changeset(key, attrs) do
     key
-    |> cast(attrs, [:name, :token_hash, :prefix, :requests_per_minute, :scopes])
+    |> cast(attrs, [:name, :token_hash, :prefix, :requests_per_minute, :scopes, :user_id])
     |> validate_required([:name, :token_hash, :prefix, :requests_per_minute])
     |> validate_number(:requests_per_minute, greater_than: 0, less_than_or_equal_to: 100_000)
     |> validate_subset(:scopes, @scopes)
     |> unique_constraint(:token_hash)
+    |> unique_constraint(:user_id)
   end
 end

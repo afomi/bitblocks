@@ -35,7 +35,7 @@ defmodule BitblocksWeb.Plugs.RateLimiter do
 
   This covers HTTP requests, including a LiveView's first render. Events over
   an open LiveView socket don't pass through the endpoint's plugs, so they
-  aren't counted.
+  aren't counted; a LiveView that needs a budget calls `allow?/2`.
 
   ## API keys
 
@@ -224,6 +224,21 @@ defmodule BitblocksWeb.Plugs.RateLimiter do
         replicate(ip, now, max_requests)
         {:ok, 1}
     end
+  end
+
+  @doc """
+  Counts one use of `bucket` against `max_requests` in the window, for work
+  that doesn't pass through this plug, such as a LiveView event. True when
+  it's within the budget.
+  """
+  def allow?(bucket, max_requests) do
+    ensure_table()
+    now = System.system_time(:millisecond)
+
+    match?(
+      {:ok, _},
+      check_rate(bucket, now, config(:window_ms, @default_window_ms), max_requests)
+    )
   end
 
   # Tell peer nodes about this admitted request so the cap is cluster-wide.
