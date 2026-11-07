@@ -13,7 +13,6 @@ defmodule BitblocksWeb.SitemapController do
     {"/", "daily", "1.0"},
     {"/reorgs", "daily", "0.6"},
     {"/tokens", "daily", "0.7"},
-    {"/protocols", "weekly", "0.6"},
     {"/bitcom", "daily", "0.6"},
     {"/guide", "monthly", "0.6"},
     {"/start", "weekly", "0.7"},

@@ -33,6 +33,78 @@ defmodule BitblocksWeb.TypeLiveTest do
     end
   end
 
+  describe "index layers and registry" do
+    @address "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa"
+
+    defp protocol(attrs) do
+      {:ok, protocol} =
+        Bitblocks.ProtocolRegistry.create_protocol(
+          Map.merge(%{address: @address, name: "Seeded", category: :data_storage}, attrs)
+        )
+
+      protocol
+    end
+
+    test "/protocols moves here for good", %{conn: conn} do
+      conn = get(conn, "/protocols")
+
+      assert conn.status == 301
+      assert redirected_to(conn, 301) == "/types#protocols"
+    end
+
+    test "the four layers sit above the types, the top one pointing at the registry", %{
+      conn: conn
+    } do
+      {:ok, view, _html} = live(conn, ~p"/types")
+
+      for level <- 1..4, do: assert(has_element?(view, "#layer-#{level}"))
+      assert has_element?(view, ~s(#layer-4 a[href="#protocols"]))
+    end
+
+    test "a seeded protocol reads Curated, never Verified", %{conn: conn} do
+      protocol = protocol(%{verification_status: :verified})
+
+      {:ok, view, _html} = live(conn, ~p"/types")
+
+      assert has_element?(view, "#protocol-#{protocol.id} .protocol-trust", "Curated")
+      assert has_element?(view, "#protocol-#{protocol.id}", "No on-chain proof yet")
+      refute has_element?(view, "#protocol-#{protocol.id} .protocol-proof")
+    end
+
+    test "a protocol with an on-chain proof reads Proven and links the proof", %{conn: conn} do
+      txid = String.duplicate("ab", 32)
+      protocol = protocol(%{verification_status: :unverified, ownership_proof_txid: txid})
+
+      {:ok, view, _html} = live(conn, ~p"/types")
+      row = "#protocol-#{protocol.id}"
+
+      assert has_element?(view, "#{row} .protocol-trust", "Proven")
+      assert has_element?(view, ~s(#{row} .protocol-proof a[href="/transactions/#{txid}"]))
+      assert has_element?(view, ~s(#{row} .protocol-proof a[href="/bitcom/#{@address}"]))
+    end
+
+    test "a protocol that is also a type links to it, and one that isn't doesn't", %{conn: conn} do
+      typed = protocol(%{name: "BSV21"})
+      untyped = protocol(%{address: "1BoatSLRHtKNngkdXEeobR76b53LETtpyT", name: "Unmatched"})
+
+      {:ok, view, _html} = live(conn, ~p"/types")
+
+      assert has_element?(view, ~s(#protocol-#{typed.id} a[href="/types/bsv-21"]))
+      refute has_element?(view, ~s(#protocol-#{untyped.id} a[href^="/types/"]))
+    end
+
+    test "the API says which protocols are proven", %{conn: conn} do
+      txid = String.duplicate("cd", 32)
+      protocol(%{verification_status: :verified, ownership_proof_txid: txid})
+
+      %{"data" => data} = conn |> get("/api/v1/protocols") |> json_response(200)
+      entry = Enum.find(data, &(&1["address"] == @address))
+
+      assert entry["proven"] == true
+      assert entry["ownership_proof_txid"] == txid
+    end
+  end
+
   describe "index counts (#49)" do
     test "each type shows its tx count and first block, custom included", %{conn: conn} do
       typed_block_fixture(0, %{"custom" => 1})

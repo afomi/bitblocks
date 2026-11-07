@@ -102,12 +102,12 @@ defmodule BitblocksWeb.TxSummary do
   defp page(name) do
     case Handlers.get(name) do
       nil ->
-        "/protocols"
+        "/types#protocols"
 
       handler ->
         case handler.segment_matcher() do
           {:prefix, address} -> "/bitcom/#{address}"
-          _ -> "/protocols"
+          _ -> "/types#protocols"
         end
     end
   end

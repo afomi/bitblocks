@@ -52,7 +52,7 @@ The axe-core tests (`accessibility_axe_test.exs`) scan all major pages:
 - Blocks index and show pages
 - Transactions index and show pages
 - Sync page (/sync)
-- Protocols page (/protocols)
+- Types page (/types)
 - Graph page (/graph)
 - Highlights page (/highlights)
 - Search page (/search)

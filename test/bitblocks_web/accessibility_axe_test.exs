@@ -52,9 +52,9 @@ defmodule BitblocksWeb.AccessibilityAxeTest do
       |> assert_no_violations()
     end
 
-    test "protocols page is accessible", %{session: session} do
+    test "types page is accessible", %{session: session} do
       session
-      |> visit("/protocols")
+      |> visit("/types")
       |> assert_no_violations()
     end
 

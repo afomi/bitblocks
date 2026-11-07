@@ -148,4 +148,17 @@ defmodule Bitblocks.TxTypes do
   def id_for_standard("1Sat"), do: "1sat-inscription"
   def id_for_standard("Run"), do: "run"
   def id_for_standard(_), do: nil
+
+  @doc """
+  The type a registered protocol is, by name, whatever its punctuation:
+  "BSV20" is `bsv-20`, "B://" is `b`. Nil when no type matches.
+  """
+  def for_protocol(name) when is_binary(name) do
+    key = protocol_key(name)
+    Enum.find(@types, &(key != "" and protocol_key(&1.short) == key))
+  end
+
+  defp protocol_key(name) do
+    name |> String.downcase() |> String.replace(~r/[^a-z0-9]/, "")
+  end
 end

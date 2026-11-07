@@ -57,10 +57,10 @@ defmodule BitblocksWeb.AccessibilityTest do
       assert_accessible(html, "Sync page")
     end
 
-    test "protocols page is accessible", %{conn: conn} do
-      conn = get(conn, ~p"/protocols")
+    test "types page is accessible", %{conn: conn} do
+      conn = get(conn, ~p"/types")
       html = html_response(conn, 200)
-      assert_accessible(html, "Protocols page")
+      assert_accessible(html, "Types page")
     end
 
     test "graph page is accessible", %{conn: conn} do

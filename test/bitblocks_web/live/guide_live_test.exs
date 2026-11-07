@@ -22,7 +22,7 @@ defmodule BitblocksWeb.GuideLiveTest do
     assert html =~ "/block-graph"
     assert html =~ "/transactions"
     assert html =~ "/tx-graph"
-    assert html =~ "/protocols"
+    assert html =~ "/types#protocols"
     assert html =~ "/ecosystem"
     assert html =~ "/did"
     assert html =~ "/peers"

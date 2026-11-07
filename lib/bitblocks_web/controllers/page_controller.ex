@@ -10,6 +10,11 @@ defmodule BitblocksWeb.PageController do
   @doc "`/sync` became `/syncing`, with an operator panel for admins."
   def sync(conn, _params), do: redirect(conn, to: ~p"/syncing")
 
+  # The registry and the layers live on /types now.
+  def protocols(conn, _params) do
+    conn |> put_status(:moved_permanently) |> redirect(to: "/types#protocols")
+  end
+
   def home(conn, _params) do
     seo =
       Seo.public_page(

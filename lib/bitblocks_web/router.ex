@@ -310,10 +310,11 @@ defmodule BitblocksWeb.Router do
   scope "/", BitblocksWeb do
     pipe_through :browser
 
+    get "/protocols", PageController, :protocols
+
     live_session :public,
       on_mount: [{UserAuth, :mount_current_user}] do
       live "/search", SearchLive
-      live "/protocols", ProtocolsLive
 
       # Builder onboarding (docs/DEMOS_CAMPAIGN.md).
       live "/start", StartLive.Index

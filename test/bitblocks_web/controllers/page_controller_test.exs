@@ -6,7 +6,7 @@ defmodule BitblocksWeb.PageControllerTest do
     response = html_response(conn, 200)
 
     assert response =~ "Find a transaction or block"
-    assert response =~ "Bitcoin Protocols"
+    assert response =~ "Transaction types"
     assert response =~ "Node status"
   end
 

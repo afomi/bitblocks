@@ -96,7 +96,7 @@ defmodule BitblocksWeb.WayfindingTest do
   test "a protocol example transaction opens on this site", %{conn: conn} do
     txid = String.duplicate("cd", 32)
 
-    {:ok, protocol} =
+    {:ok, _protocol} =
       ProtocolRegistry.create_protocol(%{
         address: "1tokenordermetanetbitcomxx",
         name: "Wayfinding Example",
@@ -106,8 +106,7 @@ defmodule BitblocksWeb.WayfindingTest do
         example_txid: txid
       })
 
-    {:ok, view, _html} = live(conn, "/protocols")
-    html = render_click(view, "select_protocol", %{"protocol" => to_string(protocol.id)})
+    {:ok, _view, html} = live(conn, "/types")
 
     assert html =~ ~s(href="/transactions/#{txid}")
     refute html =~ "whatsonchain.com/tx/#{txid}"

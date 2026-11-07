@@ -58,7 +58,7 @@ Tier is derived, never stored:
 - **listed**: known from the registry seed or a protocol handler, with no on-chain word from the owner.
 
 `verification_status` on `protocols` is curation, not proof, and the directory does not use it.
-`/protocols` follows the same rule: a protocol reads **Proven** only with an `ownership_proof_txid`, and a seeded `verified` reads **Curated**.
+The protocol list on `/types` follows the same rule: a protocol reads **Proven** only with an `ownership_proof_txid`, and a seeded `verified` reads **Curated**.
 `GET /api/v1/protocols` carries `proven` and `ownership_proof_txid` beside the curation field.
 Usage is the count of indexed txs carrying the namespace's protocol tag, capped at 10,000 so the page never scans a whole protocol's history.
 

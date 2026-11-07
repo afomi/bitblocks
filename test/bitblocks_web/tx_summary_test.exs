@@ -62,7 +62,7 @@ defmodule BitblocksWeb.TxSummaryTest do
     end
 
     test "a protocol only the registry knows links to the registry" do
-      assert [%{label: "Somewhere", path: "/protocols"}] =
+      assert [%{label: "Somewhere", path: "/types#protocols"}] =
                TxSummary.protocol_links(%{txid: "abc", protocols: ["Somewhere"]}, nil, [], nil)
     end
   end
