@@ -166,6 +166,7 @@ Each alert names the `Ops` call that explains it.
 ### What `/api/v1/status` reports today
 
 `Bitblocks.Ops.health/0` backs the endpoint and the alert cron (`OpsAlertWorker`, every five minutes, each problem emailed at most every six hours).
+The same cron emails when the database passes 700 GB (`Ops.alert_db_size/1`, `:db_size_alarm_gb`); size is not part of `health`, so it never changes the public status.
 It reads cached state only: the /syncing snapshot, the node info cache and our newest header row.
 
 - `index.tip` is our newest header; `index.complete_through` is the promise from docs/SYNCING.md.

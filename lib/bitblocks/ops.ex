@@ -34,6 +34,9 @@ defmodule Bitblocks.Ops do
   # The same problem is emailed at most this often.
   @alert_every_seconds 6 * 3_600
 
+  # The database size that emails a person, in GB of 10^9 bytes.
+  @db_size_alarm_gb 700
+
   @doc "Health from live state."
   def health, do: health(facts())
 
@@ -157,9 +160,40 @@ defmodule Bitblocks.Ops do
     end
   end
 
+  @doc """
+  Emails when the database holds more than `:db_size_alarm_gb` (default
+  #{@db_size_alarm_gb}), at most every #{div(@alert_every_seconds, 3600)} hours.
+  Kept out of `health/0`: size is a query, and a planning date, not an outage.
+  Returns `["db_size"]` when it emailed, else `[]`.
+  """
+  def alert_db_size(bytes \\ database_bytes()) do
+    limit = Application.get_env(:bitblocks, :db_size_alarm_gb, @db_size_alarm_gb)
+    now = System.system_time(:second)
+
+    if bytes > limit * 1_000_000_000 and due?("db_size", now) do
+      gb = div(bytes, 1_000_000_000)
+
+      Notifications.ops_alert("Bitblocks: database at #{gb} GB", """
+      bitblocks-db holds #{gb} GB, past the #{limit} GB alarm.
+      Storage autoscaling stops at its maximum, so check how much room is left, and decide whether to raise it or pause the sync on /syncing.
+      See docs/TX_STORAGE.md for the plan to take raw bytes out of the database.
+      """)
+
+      :persistent_term.put({__MODULE__, :alerted, "db_size"}, now)
+      ["db_size"]
+    else
+      []
+    end
+  end
+
+  defp database_bytes do
+    %{rows: [[bytes]]} = Repo.query!("SELECT pg_database_size(current_database())")
+    bytes
+  end
+
   @doc false
   def reset_alerts do
-    for problem <- ~w(node_unreachable index_stalled),
+    for problem <- ~w(node_unreachable index_stalled db_size),
         do: :persistent_term.erase({__MODULE__, :alerted, problem})
 
     :ok
