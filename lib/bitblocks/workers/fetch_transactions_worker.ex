@@ -134,7 +134,7 @@ defmodule Bitblocks.Workers.FetchTransactionsWorker do
   defp run(block, job, offset, deadline) do
     with {:ok, items, block, raw} <- block_txs(block, job.meta["raw_dir"]),
          {:ok, block} <- mark_syncing(block) do
-      case walk(block, items, offset, deadline) do
+      case walk(block, items, offset, deadline, locations(raw, items)) do
         :completed ->
           mark_completed(block)
           store_block_object(block, raw, items)
@@ -195,6 +195,20 @@ defmodule Bitblocks.Workers.FetchTransactionsWorker do
     end
   end
 
+  # txid => {offset, length} in the raw block, stored with each row so the
+  # block object needs no second write per tx (BlockObject.store/3).
+  defp locations(nil, _items), do: %{}
+
+  defp locations(raw, items) do
+    case RawBlock.locate(raw, items) do
+      {:ok, located} ->
+        Map.new(located, fn {txid, offset, length} -> {txid, {offset, length}} end)
+
+      {:error, _} ->
+        %{}
+    end
+  end
+
   defp per_tx(block) do
     with {:ok, txids, block} <- TxidSource.txids(block), do: {:ok, txids, block, nil}
   end
@@ -224,7 +238,7 @@ defmodule Bitblocks.Workers.FetchTransactionsWorker do
   # Walks chunks from `offset` until the list ends or the deadline passes,
   # always doing at least one chunk. Stops at the first chunk that can't be
   # fully stored; the next run starts there.
-  defp walk(block, items, offset, deadline) do
+  defp walk(block, items, offset, deadline, locations) do
     total = length(items)
     tracker = Tracker.new(block, total, min(offset * @batch_size, total))
 
@@ -236,7 +250,7 @@ defmodule Bitblocks.Workers.FetchTransactionsWorker do
       if index > offset and System.monotonic_time(:millisecond) >= deadline do
         {:halt, {:paused, tracker, index}}
       else
-        case store_chunk(chunk, block) do
+        case store_chunk(chunk, block, locations) do
           :ok -> {:cont, {:ok, Tracker.chunk(tracker, Enum.map(chunk, &txid_of/1)), index + 1}}
           {:error, reason} -> {:halt, {:error, reason, tracker, index}}
         end
@@ -309,12 +323,12 @@ defmodule Bitblocks.Workers.FetchTransactionsWorker do
   # what it can't serve; see Chain.TxSources). :ok only when every one is
   # stored. A tx stored under an orphaned block's hash is moved to this block
   # by TxIngest.existing_txids/2, since it is skipped as present (#34).
-  defp store_chunk(chunk, block) do
+  defp store_chunk(chunk, block, locations) do
     existing = TxIngest.existing_txids(Enum.map(chunk, &txid_of/1), block)
 
     case Enum.reject(chunk, &MapSet.member?(existing, txid_of(&1))) do
       [] -> :ok
-      [{_txid, _bytes} | _] = missing -> store_parsed(missing, block)
+      [{_txid, _bytes} | _] = missing -> store_parsed(missing, block, locations)
       missing -> fetch_batch(missing, block)
     end
   end
@@ -323,15 +337,22 @@ defmodule Bitblocks.Workers.FetchTransactionsWorker do
   defp txid_of(txid), do: txid
 
   # Bodies already in hand from the raw block: no node calls.
-  defp store_parsed(txs, block) do
+  defp store_parsed(txs, block, locations) do
     failed =
       txs
-      |> Enum.map(fn {txid, bytes} -> RawBlock.tx_json(txid, bytes) end)
+      |> Enum.map(fn {txid, bytes} ->
+        txid |> RawBlock.tx_json(bytes) |> located(Map.get(locations, txid))
+      end)
       |> TxIngest.store_chunk(block)
       |> rejected()
 
     if failed == [], do: :ok, else: {:error, {:unstored_txs, length(failed)}}
   end
+
+  defp located(tx_json, nil), do: tx_json
+
+  defp located(tx_json, {offset, length}),
+    do: Map.merge(tx_json, %{"raw_offset" => offset, "raw_length" => length})
 
   defp fetch_batch(txids, block) do
     results = TxSources.fetch_raw(txids, block)

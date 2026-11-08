@@ -118,9 +118,11 @@ defmodule Bitblocks.TxStore.BlockObject do
 
   defp check_header(_, _), do: {:error, :invalid_block}
 
-  # Offsets on the block's own rows (a tx stored under another block, e.g. a
-  # BIP30 duplicate coinbase, is located through that block), then the stamp,
-  # with updated_at so chain tiles see the change.
+  # Offsets on the block's own rows that lack them (a tx stored under another
+  # block, e.g. a BIP30 duplicate coinbase, is located through that block),
+  # then the stamp, with updated_at so chain tiles see the change. The sync
+  # writes offsets at insert, so for a block it just fetched this updates no
+  # row; rows stored before that (Release.store_block_objects/3) get them here.
   defp stamp(block, located) do
     now = DateTime.utc_now() |> DateTime.truncate(:second)
 
@@ -143,7 +145,7 @@ defmodule Bitblocks.TxStore.BlockObject do
                       ^lengths
                     ),
                   on: t.txid == l.txid,
-                  where: t.block_hash == ^block.hash,
+                  where: t.block_hash == ^block.hash and is_nil(t.raw_offset),
                   update: [set: [raw_offset: l.raw_offset, raw_length: l.raw_length]]
                 ),
                 []

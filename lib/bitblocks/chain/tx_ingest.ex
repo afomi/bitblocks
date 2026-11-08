@@ -195,7 +195,12 @@ defmodule Bitblocks.Chain.TxIngest do
       inputs: inputs,
       input_txids: TransactionParser.extract_input_txids(inputs),
       outputs: outputs,
-      output_addresses: TransactionParser.extract_output_addresses(outputs)
+      output_addresses: TransactionParser.extract_output_addresses(outputs),
+      # Where the tx sits in its raw block, when it came from one. Read only
+      # once the block's object is verified (blocks.raw_object_stored_at), so
+      # writing it here saves rewriting every row after the object lands.
+      raw_offset: tx_json["raw_offset"],
+      raw_length: tx_json["raw_length"]
     }
   end
 

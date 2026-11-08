@@ -101,7 +101,9 @@ defmodule Bitblocks.Chain.Transaction do
       :output_template_hashes,
       :aip_signers,
       :tx_types,
-      :tx_types_version
+      :tx_types_version,
+      :raw_offset,
+      :raw_length
     ])
     |> validate_required([:txid, :raw, :version, :block_hash, :inputs, :outputs])
     |> put_storage()

@@ -130,7 +130,24 @@ defmodule Bitblocks.TxStore.BlockObjectTest do
       assert block.sync_state == "completed"
       assert block.raw_object_stored_at == nil
       assert log =~ "not stored"
-      assert Repo.get_by!(Transaction, txid: first_spend()).raw_offset == nil
+
+      # The offset went in with the row, but an unverified object is never read.
+      assert Repo.get_by!(Transaction, txid: first_spend()).raw_offset != nil
+      clear_db_raw(first_spend())
+      assert {:error, _} = TxStore.raw(first_spend())
+    end
+
+    test "the rows carry their offsets from the insert, so the object rewrites none",
+         %{bytes: bytes} do
+      Application.put_env(:bitblocks, :store_block_objects, false)
+      sync_170(bytes)
+      Application.delete_env(:bitblocks, :store_block_objects)
+
+      assert Repo.get_by!(Transaction, txid: coinbase_170()).raw_offset == 81
+
+      block = Repo.get_by!(Block, hash: @hash)
+      assert {:ok, %{located: 0}} = BlockObject.store(block, bytes)
+      assert %DateTime{} = Repo.get_by!(Block, hash: @hash).raw_object_stored_at
     end
 
     test "writes nothing when turned off", %{bytes: bytes} do
@@ -173,6 +190,17 @@ defmodule Bitblocks.TxStore.BlockObjectTest do
       assert Repo.get_by!(Transaction, txid: first_spend()).raw_offset != nil
 
       assert %{missing: 0, attempted: 0} = BlockObject.backfill(0, 1_000, apply: true)
+    end
+
+    test "apply locates rows stored before offsets were written at insert", %{bytes: bytes} do
+      Repo.update_all(from(t in Transaction, where: t.block_hash == ^@hash),
+        set: [raw_offset: nil, raw_length: nil]
+      )
+
+      RpcStub.stub_rest_block(@hash, {:ok, bytes})
+
+      assert %{stored: 1} = BlockObject.backfill(0, 1_000, apply: true)
+      assert Repo.get_by!(Transaction, txid: coinbase_170()).raw_offset == 81
     end
 
     test "a node refusing RPC fails cleanly and says so" do

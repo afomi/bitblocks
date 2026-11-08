@@ -81,7 +81,10 @@ Steps 1 and 2 add storage without removing anything; nothing leaves the database
 **The block object.**
 When the block job (`FetchTransactionsWorker`) completes a block it fetched whole (`Chain.RawBlock`, up to 32 MB), `Bitblocks.TxStore.BlockObject.store/3` writes the block's exact bytes to `blocks/<height>-<hash>.bin`.
 The write is then read back: the object's size must equal the block's, and its first 80 bytes (a ranged read) must hash to the block hash.
-Only then, in one transaction, does each of the block's tx rows get `raw_offset` and `raw_length`, and the block get `raw_object_stored_at` (with `updated_at`).
+Only then does the block get `raw_object_stored_at` (with `updated_at`), and only then are its rows' offsets read.
+The sync writes each row's `raw_offset` and `raw_length` with the insert, from the raw block it already parsed, so the object adds no second write per tx.
+Before 2026-11-08 the offsets were set after the write, which rewrote every row once: about as many updates as inserts, nearly none of them HOT, each adding entries to every index.
+A row stored without offsets (the per-tx path, or before that change) gets them when its block's object is stored (`Release.store_block_objects/3`).
 A failed or unverified write is logged and leaves the stamp nil; the block stays `completed` and the sync moves on.
 Blocks over 32 MB take the per-tx path and get no object; their txs keep `raw` in the row.
 
