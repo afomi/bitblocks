@@ -243,6 +243,13 @@ defmodule BitblocksWeb.TransactionLive.ShowTest do
                "Spends 1 input to create 1 output, paying 0.0015 BSV in total."
 
       assert has_element?(view, "#input-source-0 a[href^='/transactions/']")
+
+      # Value reads in the order it flows: where it came from, then where it went.
+      html = render(view)
+      assert has_element?(view, "#tx-output-status")
+
+      assert :binary.match(html, ~s(id="tx-input-sources")) <
+               :binary.match(html, ~s(id="tx-output-status"))
     end
 
     test "script and hex sit in one toggle, open to start, after the summary", %{conn: conn} do

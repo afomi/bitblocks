@@ -314,6 +314,67 @@
       <% end %>
     </p>
 
+    <%!-- Inputs first, then outputs: the order value flows through the tx --%>
+    <div
+      :if={match?(%BSV.Tx{}, @decoded_tx) and not BitblocksWeb.TxSummary.coinbase?(@decoded_tx)}
+      id="tx-input-sources"
+      class="mb-4"
+    >
+      <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
+        Inputs, where the value came from
+      </h3>
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="text-left text-gray-600 dark:text-gray-400">
+            <th class="py-1 pr-4 font-medium">
+              Input
+            </th>
+            <th class="py-1 pr-4 font-medium text-right">
+              Sats
+            </th>
+            <th class="py-1 font-medium">
+              Spends
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr
+            :for={{input, idx} <- @decoded_tx.inputs |> Enum.take(BitblocksWeb.TransactionLive.Show.status_rows()) |> Enum.with_index()}
+            id={"input-source-#{idx}"}
+            class="border-t border-gray-200 dark:border-gray-700"
+          >
+            <% input_txid = BSV.OutPoint.get_txid(input.outpoint) %>
+            <td class="py-1 pr-4 font-mono text-gray-800 dark:text-gray-200">
+              #<%= BitblocksWeb.Sats.delimit(idx) %>
+            </td>
+            <td class="py-1 pr-4 text-right tabular-nums text-gray-800 dark:text-gray-200">
+              <%= case Map.get(@input_satoshis, {input_txid, input.outpoint.vout}) do %>
+                <% nil -> %>
+                  —
+                <% sats -> %>
+                  <%= BitblocksWeb.Sats.delimit(sats) %>
+              <% end %>
+            </td>
+            <td class="py-1 text-gray-800 dark:text-gray-200">
+              <.link
+                navigate={~p"/transactions/#{input_txid}"}
+                class="font-mono text-blue-700 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
+              >
+                <%= String.slice(input_txid, 0, 16) %>…
+              </.link>
+              output #<%= BitblocksWeb.Sats.delimit(input.outpoint.vout) %>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+      <p
+        :if={length(@decoded_tx.inputs) > BitblocksWeb.TransactionLive.Show.status_rows()}
+        class="text-xs text-gray-600 dark:text-gray-400 mt-2"
+      >
+        And <%= BitblocksWeb.Sats.delimit(length(@decoded_tx.inputs) - BitblocksWeb.TransactionLive.Show.status_rows()) %> more inputs.
+      </p>
+    </div>
+
     <div
       :if={@output_status}
       id="tx-output-status"
@@ -382,66 +443,6 @@
       </p>
       <p class="text-xs text-gray-600 dark:text-gray-400 mt-2">
         Unspent means no transaction we have indexed spends it yet.
-      </p>
-    </div>
-
-    <div
-      :if={match?(%BSV.Tx{}, @decoded_tx) and not BitblocksWeb.TxSummary.coinbase?(@decoded_tx)}
-      id="tx-input-sources"
-      class="mt-4"
-    >
-      <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
-        Inputs, where the value came from
-      </h3>
-      <table class="w-full text-sm">
-        <thead>
-          <tr class="text-left text-gray-600 dark:text-gray-400">
-            <th class="py-1 pr-4 font-medium">
-              Input
-            </th>
-            <th class="py-1 pr-4 font-medium text-right">
-              Sats
-            </th>
-            <th class="py-1 font-medium">
-              Spends
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr
-            :for={{input, idx} <- @decoded_tx.inputs |> Enum.take(BitblocksWeb.TransactionLive.Show.status_rows()) |> Enum.with_index()}
-            id={"input-source-#{idx}"}
-            class="border-t border-gray-200 dark:border-gray-700"
-          >
-            <% input_txid = BSV.OutPoint.get_txid(input.outpoint) %>
-            <td class="py-1 pr-4 font-mono text-gray-800 dark:text-gray-200">
-              #<%= BitblocksWeb.Sats.delimit(idx) %>
-            </td>
-            <td class="py-1 pr-4 text-right tabular-nums text-gray-800 dark:text-gray-200">
-              <%= case Map.get(@input_satoshis, {input_txid, input.outpoint.vout}) do %>
-                <% nil -> %>
-                  —
-                <% sats -> %>
-                  <%= BitblocksWeb.Sats.delimit(sats) %>
-              <% end %>
-            </td>
-            <td class="py-1 text-gray-800 dark:text-gray-200">
-              <.link
-                navigate={~p"/transactions/#{input_txid}"}
-                class="font-mono text-blue-700 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
-              >
-                <%= String.slice(input_txid, 0, 16) %>…
-              </.link>
-              output #<%= BitblocksWeb.Sats.delimit(input.outpoint.vout) %>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-      <p
-        :if={length(@decoded_tx.inputs) > BitblocksWeb.TransactionLive.Show.status_rows()}
-        class="text-xs text-gray-600 dark:text-gray-400 mt-2"
-      >
-        And <%= BitblocksWeb.Sats.delimit(length(@decoded_tx.inputs) - BitblocksWeb.TransactionLive.Show.status_rows()) %> more inputs.
       </p>
     </div>
   </section>
