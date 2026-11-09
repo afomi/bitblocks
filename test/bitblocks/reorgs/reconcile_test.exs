@@ -170,6 +170,24 @@ defmodule Bitblocks.Reorgs.ReconcileTest do
     assert {:ok, %{remaining: 0}} = Reconcile.apply_plan(plan)
   end
 
+  test "an orphan with no rows takes its height from the node, so its reorg row is found" do
+    {:ok, reorg} =
+      Reorgs.record_observed(
+        %{fork_height: 900_102, fork_point: 900_100, orphan_count: 1, outcome: "resolved"},
+        ~U[2026-11-04 00:56:00Z]
+      )
+
+    RpcStub.stub_getblockheader("orphan_gone", %{"hash" => "orphan_gone", "height" => 900_101})
+
+    assert {:ok, report} = Reconcile.run("orphan_gone", apply: true)
+    assert report.plan.height == 900_101
+    assert report.reorg.id == reorg.id
+    assert Repo.get!(Bitblocks.Reorgs.Reorg, reorg.id).txs_reconciled_at
+
+    # A block the node doesn't know either has no height, and no reorg row to mark.
+    assert {:ok, %{plan: %{height: nil}, reorg: nil}} = Reconcile.run("orphan_unknown")
+  end
+
   describe "run/2 and the reorg row" do
     setup do
       {:ok, reorg} =

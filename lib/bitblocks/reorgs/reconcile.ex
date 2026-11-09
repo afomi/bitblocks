@@ -82,9 +82,12 @@ defmodule Bitblocks.Reorgs.Reconcile do
           )
         )
 
+      # The rows' height, else the caller's, else the node's: it keeps the
+      # headers of stale blocks, so an orphan with no rows left (#73) still
+      # finds the reorg row that set it aside.
       height =
         Enum.find_value(rows, fn {_txid, h} -> if is_integer(h), do: h end) ||
-          Keyword.get(opts, :height)
+          Keyword.get(opts, :height) || node_height(orphan_hash)
 
       txids = Enum.map(rows, &elem(&1, 0))
 
@@ -204,7 +207,8 @@ defmodule Bitblocks.Reorgs.Reconcile do
     * `apply:` — write the changes (default false: a dry run).
     * `orphan_count:` — the number of blocks that reorg actually set aside,
       when the stored count is wrong. Left out, the count is kept.
-    * `height:` — the orphan's height, when no row carries it.
+    * `height:` — the orphan's height, when no row carries it and the node
+      doesn't know the block.
 
   The reorg row is marked reconciled (`txs_reconciled_at`) once no row points
   at the orphan, and its summary is rewritten either way.
@@ -314,6 +318,15 @@ defmodule Bitblocks.Reorgs.Reconcile do
 
         {[], txids}
     end
+  end
+
+  defp node_height(hash) do
+    case Application.get_env(:bitblocks, :bitcoinsv_cli, BitcoinsvCli).getblockheader(hash, true) do
+      %{"height" => height} when is_integer(height) -> height
+      _ -> nil
+    end
+  rescue
+    _ -> nil
   end
 
   # Asks the sources where each txid is. Returns {found, remove, unknown},

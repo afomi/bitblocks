@@ -1826,7 +1826,7 @@ defmodule Bitblocks.Release do
     - apply: true to write (default false)
     - orphan_count: the number of blocks the reorg actually set aside, to
       correct the stored count
-    - height: the orphan's height, if no row carries it
+    - height: the orphan's height, if no row carries it and the node doesn't know the block
 
   ## Usage
 
@@ -1955,6 +1955,12 @@ defmodule Bitblocks.Release do
     print_protocol_rewind(plan.protocols)
 
     case report.reorg do
+      nil when is_nil(plan.height) ->
+        IO.puts(
+          "  the orphan's height is unknown (no row carries it, the node doesn't know it), " <>
+            "so no reorg row is corrected: pass height: to correct it"
+        )
+
       nil ->
         IO.puts("  no resolved reorg row covers this height")
 
