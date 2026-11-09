@@ -18,7 +18,7 @@ defmodule Bitblocks.TxTypes.Candidates do
 
   import Ecto.Query
 
-  alias Bitblocks.Chain.{RawTx, Transaction, TxPipeline}
+  alias Bitblocks.Chain.{Block, RawTx, Transaction, TxPipeline}
   alias Bitblocks.Repo
   alias Bitblocks.Script
   alias Bitblocks.TxTypes.Classifier
@@ -64,8 +64,11 @@ defmodule Bitblocks.TxTypes.Candidates do
   defp rows(from, to, version) do
     Repo.all(
       from(t in Transaction,
+        left_join: b in Block,
+        on: b.hash == t.block_hash,
         where: t.block_height >= ^from and t.block_height <= ^to,
-        where: t.tx_types_version == ^version,
+        # Typed at the version by its own stamp or its block's.
+        where: t.tx_types_version == ^version or b.tx_types_version == ^version,
         where: fragment("? @> ARRAY['custom']::varchar[]", t.tx_types),
         order_by: [asc: t.block_height, asc: t.txid],
         select: %{

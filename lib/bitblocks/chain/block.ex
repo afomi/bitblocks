@@ -66,6 +66,12 @@ defmodule Bitblocks.Chain.Block do
     # typed at the current version; Release.backfill_tx_types/3 picks up the rest.
     field :type_counts, :map
     field :type_counts_version, :integer
+    # TxPipeline.version(:tx_types) when every tx of the block is typed at
+    # that version, its own row stamp current or not: the tx types backfill
+    # writes only the rows whose types change and stamps the block for the
+    # rest. A tx is typed at version N when its tx_types_version or its
+    # block's is N. docs/DERIVED_DATA.md.
+    field :tx_types_version, :integer
     # When the block's exact bytes were written to the tx store as one object
     # and verified (Bitblocks.TxStore.BlockObject); nil for blocks over 32 MB.
     field :raw_object_stored_at, :utc_datetime

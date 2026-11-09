@@ -6,12 +6,15 @@ defmodule Bitblocks.Chain.TxPipeline.Steps.TypeCounts do
   over the blocks verified complete (`Bitblocks.TxTypes.Counts`), so no page
   view counts `transactions`.
 
-  It counts only txs typed at the current `TxPipeline.version(:tx_types)`,
-  and stamps `blocks.type_counts_version` with
-  `TxPipeline.version(:type_counts)` only when every tx of the block is; a
-  block with any tx left untyped keeps a nil stamp, which
-  `Release.backfill_tx_types/3` picks up. One aggregate on the `block_hash`
-  index, and one update of the block row.
+  It counts only txs typed at the current `TxPipeline.version(:tx_types)`:
+  a tx whose own `tx_types_version` is current, or any tx of a block whose
+  `blocks.tx_types_version` is (the tx types backfill stamps the block and
+  writes only the rows whose types change). When every tx of the block is
+  typed, it stamps `blocks.type_counts_version` with
+  `TxPipeline.version(:type_counts)` and `blocks.tx_types_version` with
+  `TxPipeline.version(:tx_types)`; a block with any tx left untyped gets nil
+  for both, which `Release.backfill_tx_types/3` picks up. One aggregate on
+  the `block_hash` index, and one update of the block row.
   """
 
   @behaviour Bitblocks.Chain.TxPipeline.Step
@@ -37,12 +40,16 @@ defmodule Bitblocks.Chain.TxPipeline.Steps.TypeCounts do
   @impl true
   def run_block(%Block{} = block) do
     %{counts: counts, untyped: untyped} = tally(block)
-    stamp = if untyped == 0, do: TxPipeline.version(:type_counts)
+    typed? = untyped == 0
 
     {1, _} =
       Repo.update_all(
         from(b in Block, where: b.id == ^block.id),
-        set: [type_counts: counts, type_counts_version: stamp]
+        set: [
+          type_counts: counts,
+          type_counts_version: if(typed?, do: TxPipeline.version(:type_counts)),
+          tx_types_version: if(typed?, do: TxPipeline.version(:tx_types))
+        ]
       )
 
     counts
@@ -50,8 +57,8 @@ defmodule Bitblocks.Chain.TxPipeline.Steps.TypeCounts do
 
   @doc """
   The block's tally from its stored rows, without writing it: `counts`,
-  type id => txs, over the txs typed at the current version, and `untyped`,
-  the txs that aren't.
+  type id => txs, over the txs typed at the current version (by their own
+  stamp or their block's), and `untyped`, the txs that aren't.
   """
   @spec tally(Block.t()) :: %{counts: %{String.t() => pos_integer()}, untyped: non_neg_integer()}
   def tally(%Block{hash: hash}) do
@@ -60,7 +67,14 @@ defmodule Bitblocks.Chain.TxPipeline.Steps.TypeCounts do
         """
         SELECT u.type, count(*)
         FROM transactions t
-        LEFT JOIN LATERAL unnest(CASE WHEN t.tx_types_version = $2 THEN t.tx_types END) AS u(type)
+        CROSS JOIN (
+          SELECT coalesce(bool_or(b.tx_types_version = $2), false) AS typed
+          FROM blocks b
+          WHERE b.hash = $1
+        ) AS blk
+        LEFT JOIN LATERAL unnest(
+          CASE WHEN blk.typed OR t.tx_types_version = $2 THEN t.tx_types END
+        ) AS u(type)
           ON true
         WHERE t.block_hash = $1
         GROUP BY u.type

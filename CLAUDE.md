@@ -107,7 +107,7 @@ mix assets.deploy           # Build and minify for production
 - `Release.backfill_tx_tallies(from, to, apply: true)` fills the tally columns for blocks completed before the steps; dry run by default.
 
 - **Derived data** (authoritative: `docs/DERIVED_DATA.md`): everything `Chain.TxPipeline` adds after ingestion carries its provenance.
-  Each step has a `version/0`; rows stamp the version that computed them (`transactions.script_analysis_version`, `transactions.tallies_version`, `transactions.tx_types_version`, `blocks.tallies_version`, `blocks.type_counts_version`).
+  Each step has a `version/0`; rows stamp the version that computed them (`transactions.script_analysis_version`, `transactions.tallies_version`, `transactions.tx_types_version`, `blocks.tallies_version`, `blocks.type_counts_version`, and `blocks.tx_types_version` for a whole block: the tx types backfill writes only rows whose types change).
   Backfills pick rows below the current version, stamp them, and record each run (dry runs too) in `derivation_runs`; `GET /content/bcat/:txid         — a BCat file, its chunks joined in order, each checked against the txid its head names; ?download=1; a short file is an error naming missing_chunks (up to 256 chunks, 32 MB)
 GET /api/v1/status/derivations` shows the versions and latest runs.
 

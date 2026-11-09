@@ -7,10 +7,12 @@ defmodule Bitblocks.ReleaseTxTypesTest do
 
   import Bitblocks.ChainFixtures
   import Bitblocks.OrdinalFixtures
+  import Ecto.Query
   import ExUnit.CaptureIO
 
   alias Bitblocks.Chain
   alias Bitblocks.Chain.{Block, RawBlock, Transaction, TxIngest, TxPipeline}
+  alias Bitblocks.Chain.TxPipeline.CatchUp
   alias Bitblocks.Derivations.Run
   alias Bitblocks.Release
 
@@ -66,13 +68,15 @@ defmodule Bitblocks.ReleaseTxTypesTest do
              details: %{
                types_changed: 3,
                undecodable: 0,
+               blocks_typed: 2,
                blocks_changed: 2,
                blocks_below_version: 2
              }
            } = report
 
     assert output =~ "DRY RUN (nothing written)"
-    assert output =~ "3 transaction(s) to stamp v#{TxPipeline.version(:tx_types)}"
+    assert output =~ "3 transaction row(s) to write v#{TxPipeline.version(:tx_types)}"
+    assert output =~ "2 block(s) to stamp v#{TxPipeline.version(:tx_types)}"
     assert output =~ "3 transaction(s) and 2 block(s) below the version in the range"
     assert output =~ "Run again with apply: true"
 
@@ -107,9 +111,112 @@ defmodule Bitblocks.ReleaseTxTypesTest do
     assert b.type_counts == %{"p2pkh" => 1, "op-return" => 1, "p2pk" => 1}
     assert b.type_counts_version == TxPipeline.version(:type_counts)
 
+    assert Repo.reload!(ctx.a).tx_types_version == TxPipeline.version(:tx_types)
+    assert Repo.reload!(ctx.b).tx_types_version == TxPipeline.version(:tx_types)
+
     rerun = quietly(fn -> Release.backfill_tx_types(0, 100) end)
-    assert %{rows_changed: 0, rows_below_version: 0, outcome: "ok"} = rerun
-    assert rerun.details.blocks_changed == 0
+    assert %{rows_examined: 0, rows_changed: 0, rows_below_version: 0, outcome: "ok"} = rerun
+    assert %{blocks_typed: 0, blocks_changed: 0, blocks_below_version: 0} = rerun.details
+  end
+
+  describe "after a classifier bump" do
+    # Every row typed once, then aged a version, as a classifier bump leaves
+    # them: types still right for most rows, every stamp below the version.
+    setup ctx do
+      quietly(fn -> Release.backfill_tx_types(0, 100, apply: true) end)
+      old = TxPipeline.version(:tx_types) - 1
+      Repo.update_all(Transaction, set: [tx_types_version: old])
+      Repo.update_all(Block, set: [tx_types_version: nil, type_counts_version: nil])
+      Map.put(ctx, :old, old)
+    end
+
+    test "only rows whose types change are written; the blocks are stamped for the rest", ctx do
+      # One row whose stored types are stale.
+      {1, _} =
+        Repo.update_all(
+          from(t in Transaction, where: t.txid == ^ctx.memo),
+          set: [tx_types: ["p2pkh"]]
+        )
+
+      before = Map.new([ctx.pay, ctx.memo, ctx.odd], &{&1, ctid(&1)})
+
+      dry = quietly(fn -> Release.backfill_tx_types(0, 100) end)
+      assert %{rows_examined: 3, rows_changed: 1, rows_below_version: 3} = dry
+      assert %{types_changed: 1, blocks_typed: 2, blocks_changed: 2} = dry.details
+
+      report = quietly(fn -> Release.backfill_tx_types(0, 100, apply: true) end)
+
+      assert %{rows_examined: 3, rows_changed: 1, rows_below_version: 0, outcome: "ok"} =
+               report
+
+      assert %{types_changed: 1, blocks_typed: 2, blocks_below_version: 0} = report.details
+
+      # The unchanged rows are the same row versions: never rewritten.
+      assert ctid(ctx.pay) == before[ctx.pay]
+      assert ctid(ctx.odd) == before[ctx.odd]
+      assert Chain.get_transaction!(ctx.pay).tx_types_version == ctx.old
+
+      # The changed one is written, with its own stamp.
+      refute ctid(ctx.memo) == before[ctx.memo]
+      memo = Chain.get_transaction!(ctx.memo)
+      assert memo.tx_types == ["p2pkh", "op-return"]
+      assert memo.tx_types_version == TxPipeline.version(:tx_types)
+
+      # The counts read the unchanged rows as typed, through the block's stamp.
+      for block <- [ctx.a, ctx.b] do
+        block = Repo.reload!(block)
+        assert block.tx_types_version == TxPipeline.version(:tx_types)
+        assert block.type_counts_version == TxPipeline.version(:type_counts)
+      end
+
+      assert Repo.reload!(ctx.b).type_counts == %{"p2pkh" => 1, "op-return" => 1, "p2pk" => 1}
+
+      rerun = quietly(fn -> Release.backfill_tx_types(0, 100) end)
+      assert %{rows_examined: 0, rows_changed: 0, rows_below_version: 0} = rerun
+      assert %{blocks_typed: 0, blocks_changed: 0} = rerun.details
+    end
+
+    test "a block stamped typed needs no catch-up for its older row stamps", ctx do
+      quietly(fn -> Release.backfill_tx_types(0, 100, apply: true) end)
+
+      Repo.update_all(Transaction,
+        set: [
+          script_analysis_version: TxPipeline.version(:script_analysis),
+          tallies_version: TxPipeline.version(:tallies)
+        ]
+      )
+
+      refute CatchUp.needed?(Repo.reload!(ctx.b))
+
+      Repo.update_all(Block, set: [tx_types_version: nil])
+      assert CatchUp.needed?(Repo.reload!(ctx.b))
+    end
+
+    test "a block with a tx that doesn't decode stamps its unchanged rows instead", ctx do
+      {1, _} =
+        Repo.update_all(from(t in Transaction, where: t.txid == ^ctx.odd), set: [raw: "00"])
+
+      report = quietly(fn -> Release.backfill_tx_types(41, 41, apply: true) end)
+
+      assert %{rows_changed: 1, rows_below_version: 1} = report
+      assert %{undecodable: 1, types_changed: 0, blocks_typed: 0} = report.details
+
+      b = Repo.reload!(ctx.b)
+      assert b.tx_types_version == nil
+      assert b.type_counts_version == nil
+
+      assert Chain.get_transaction!(ctx.memo).tx_types_version == TxPipeline.version(:tx_types)
+      assert Chain.get_transaction!(ctx.odd).tx_types_version == ctx.old
+    end
+  end
+
+  # The row's physical address: an UPDATE, HOT or not, writes a new version
+  # somewhere else, so an unchanged ctid means the row wasn't rewritten.
+  defp ctid(txid) do
+    %{rows: [[ctid]]} =
+      Repo.query!("SELECT ctid::text FROM transactions WHERE txid = $1", [txid])
+
+    ctid
   end
 
   test "a range only touches its own blocks", ctx do

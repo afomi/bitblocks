@@ -60,7 +60,7 @@ A tx already stored when its block is fetched is skipped, so neither kind of ste
 | # | Step | Reads | Writes | Cost |
 | --- | --- | --- | --- | --- |
 | 11 | `block_totals` | the block's tx rows | `blocks.sats_out`, `fees`, `miner_reward`, `subsidy`, `burned`, `fees_verified` | one aggregate on the `block_hash` index, one row update |
-| 12 | `type_counts` | the block's tx rows | `blocks.type_counts`: type id => txs of that type; `type_counts_version`, only when every tx is typed at the current version | one aggregate on the `block_hash` index, one row update |
+| 12 | `type_counts` | the block's tx rows | `blocks.type_counts`: type id => txs of that type; `type_counts_version` and `tx_types_version`, only when every tx is typed at the current version (by its own stamp or the block's) | one aggregate on the `block_hash` index, one row update |
 
 `block_totals`:
 
@@ -138,8 +138,10 @@ The block page and the homepage's recent blocks show fees and miner reward, and 
 ## Filling in older blocks
 
 Every step has a version, and each row records which version computed it: `transactions.script_analysis_version`, `transactions.tallies_version`, `transactions.tx_types_version`, `blocks.tallies_version` and `blocks.type_counts_version`.
+Types also have a block stamp, `blocks.tx_types_version`: a tx is typed at version N when its own stamp or its block's is N.
 Rows from before a step existed, or computed by an older version, are below the current version.
 `Release.backfill_tx_tallies(from_height, to_height, opts)`, `Release.backfill_script_analysis(from_height, to_height, opts)` and `Release.backfill_tx_types(from_height, to_height, opts)` run the same step modules over just those rows, in bounded batches in height order, stamp them, and record each run in `derivation_runs`.
+The tx types backfill writes only the rows whose types change, and stamps the block for the rest, so a classifier bump that adds a type rewrites only the txs that gain it.
 All three are dry runs by default; `apply: true` writes.
 `docs/DERIVED_DATA.md` is authoritative for versions, stamps and backfills.
 

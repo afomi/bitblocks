@@ -42,6 +42,10 @@ defmodule Bitblocks.Chain.TxPipeline.CatchUp do
     tallies = TxPipeline.version(:tallies)
     types = TxPipeline.version(:tx_types)
 
+    # A tx is typed when its own stamp or its block's is current.
+    block_typed? =
+      Repo.exists?(from(b in Block, where: b.hash == ^hash and b.tx_types_version == ^types))
+
     Repo.exists?(
       from(t in Transaction,
         where: t.block_hash == ^hash,
@@ -49,7 +53,8 @@ defmodule Bitblocks.Chain.TxPipeline.CatchUp do
           is_nil(t.block_height) or
             is_nil(t.script_analysis_version) or t.script_analysis_version < ^analysis or
             is_nil(t.tallies_version) or t.tallies_version < ^tallies or
-            is_nil(t.tx_types_version) or t.tx_types_version < ^types
+            (not (^block_typed?) and
+               (is_nil(t.tx_types_version) or t.tx_types_version < ^types))
       )
     )
   end

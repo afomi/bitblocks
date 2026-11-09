@@ -79,12 +79,37 @@ Stage versions today: chunk 15, tx 6, block 3.
 `type_counts` sums the classifier's version with its own, because a block's counts change when the classifier does: a classifier bump marks every block's counts below the version too, and the one backfill re-types the txs and rewrites the counts.
 A block is stamped only when every one of its txs is typed at the current version, so `/types` can say exactly which blocks its counts cover.
 
+### Types: a block stamp, and only changed rows written
+
+Every `UPDATE` on `transactions` writes a whole new row version and an entry in every one of its indexes, so a backfill that restamps every row costs as much as rewriting the table.
+A classifier bump usually changes the types of very few txs (v3 added `stas`, v4 `hodlocker`), so the tx types backfill writes only the rows whose types change.
+Coverage is recorded per block instead, in `blocks.tx_types_version`.
+
+**A tx is typed at version N when its own `tx_types_version` is N, or its block's `tx_types_version` is N.**
+Everything that asks "is this tx typed at the current version" reads it that way: the backfill's own picking and its `rows_below_version`, `Steps.TypeCounts` (and so `blocks.type_counts`, `/types` and `TxTypes.Counts`), `Chain.TxPipeline.CatchUp.needed?/1` and `TxTypes.Candidates`.
+The "typed" examples on `/types/:id` read blocks by `type_counts`, so they follow.
+
+Why a new column rather than `blocks.type_counts_version`: that stamp is the sum of the classifier's version and `type_counts`'s own, so a bump of the counting step alone would mark every block's txs untyped and send the backfill to reclassify every raw tx.
+`blocks.tx_types_version` says one thing, the classifier version of every tx in the block, and `type_counts_version` keeps meaning the counts.
+
+How the backfill uses it:
+
+- A block whose `tx_types_version` is current is skipped without reading its txs.
+- In a block below it, each tx whose own stamp is below is classified; a tx whose types differ is written with its types and its own stamp, and a tx whose types match is left as it is.
+- Once every picked tx has decoded, the block is stamped, and its counts rewritten.
+- A tx that doesn't decode keeps its stamp, and its block can't be stamped, so in that block the unchanged rows get their own stamps instead (usually none).
+- `type_counts` at completion stamps `blocks.tx_types_version` too, whenever it stamps `type_counts_version`, and clears both when a tx of the block is untyped.
+
+So `rows_changed` counts the tx rows written (in a dry run, to write), `details.types_changed` the rows whose types change, and `details.blocks_typed` the blocks stamped.
+`/api/v1/status/derivations` names the block stamp as `block_stamp` on the `tx_types` derivation.
+
 ### Where the stamps are written
 
 - **At ingest** (`Chain.TxIngest.store_chunk/2`): `script_analysis` and `classify_outputs` stamp each tx that decodes, and the pipeline stamps `tallies_version` on every row once all four tally steps ran.
   A tally step that raises leaves the chunk's rows unstamped, so the backfill picks them up.
-- **At completion**: `block_totals` stamps `blocks.tallies_version` in the same update that writes the totals, and `type_counts` stamps `blocks.type_counts_version` when every tx of the block is typed.
+- **At completion**: `block_totals` stamps `blocks.tallies_version` in the same update that writes the totals, and `type_counts` stamps `blocks.type_counts_version` and `blocks.tx_types_version` when every tx of the block is typed.
 - **By a backfill**: every row it picks gets the current version in the same statement that writes its values.
+  The tx types backfill is the exception: it writes only the rows whose types change and stamps the block for the rest (above).
 
 A row with a nil stamp (computed before versions existed, or not computed) or an older one is what a backfill picks up.
 
@@ -181,7 +206,8 @@ bin/bitblocks rpc 'Bitblocks.Release.derivation_runs()'
 The tallies backfill reads every tx row in its range once, for the block sums, but reads raw bytes only for the rows it picks.
 So a rerun over a finished range costs one index scan per block and no raw reads.
 The script analysis backfill reads only the rows below the version, on the `script_analysis_version` and `block_height` indexes.
-The tx types backfill reads every tx row's stamp in its range, and raw bytes only for the rows below the version; on the dev DB, typing all 7,647 txs (412 MB of hex) takes 2.7 s of CPU.
+The tx types backfill skips a block stamped at the version without reading its txs; in any other block it reads every tx row's stamp, and raw bytes only for the rows below the version; on the dev DB, typing all 7,647 txs (412 MB of hex) takes 2.7 s of CPU.
+It writes only the rows whose types change, plus one row per block.
 Neither needs a new index on `transactions`.
 
 ## `derivation_runs`
@@ -195,10 +221,10 @@ Every backfill run writes one row, dry runs included (`Bitblocks.Derivations.Run
 | `from_height`, `to_height` | the inclusive height range; nil for a run over every stored tx |
 | `applied` | false for a dry run |
 | `rows_examined` | rows the run read |
-| `rows_changed` | rows it stamped, or in a dry run would stamp |
+| `rows_changed` | rows it stamped, or in a dry run would stamp; for tx types, the tx rows it wrote (only those whose types change, see above) |
 | `rows_below_version` | rows in the range still below the version when it finished: 0 for a complete applied run |
 | `blocks_examined` | blocks it walked (tallies) |
-| `details` | per-derivation counts: `values_changed`, `sats_in_unknown`, `blocks_changed`, `blocks_below_version`, `unverified`; `undecodable` for script analysis; `types_changed`, `undecodable`, `blocks_changed`, `blocks_below_version` for tx types; `recipients_filled`, `cosign`, `unknown_lock`, `no_raw` for token recipients |
+| `details` | per-derivation counts: `values_changed`, `sats_in_unknown`, `blocks_changed`, `blocks_below_version`, `unverified`; `undecodable` for script analysis; `types_changed`, `undecodable`, `blocks_typed`, `blocks_changed`, `blocks_below_version` for tx types; `recipients_filled`, `cosign`, `unknown_lock`, `no_raw` for token recipients |
 | `outcome` | `running`, `ok`, `partial`, `failed` or `abandoned` |
 | `error` | what stopped a partial or failed run |
 | `command` | the command as typed |

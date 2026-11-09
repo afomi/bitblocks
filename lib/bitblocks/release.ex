@@ -619,10 +619,12 @@ defmodule Bitblocks.Release do
   @doc """
   Brings transaction types (afomi/bitblocks#49) of completed blocks from
   `from_height` to `to_height` up to `TxPipeline.version(:tx_types)`, then
-  rewrites those blocks' `type_counts`, which `/types` sums. Picks only rows
-  whose stamp is nil or older, in bounded batches in height order, so a
-  rerun after a full apply finds nothing. Records the run in
-  `derivation_runs`. See `Bitblocks.Chain.TxPipeline.TxTypesBackfill`.
+  rewrites those blocks' `type_counts`, which `/types` sums. Picks only
+  blocks and rows whose stamp is nil or older, in bounded batches in height
+  order, so a rerun after a full apply finds nothing. Writes only the rows
+  whose types change, and stamps the block (`blocks.tx_types_version`) for
+  the rest. Records the run in `derivation_runs`. See
+  `Bitblocks.Chain.TxPipeline.TxTypesBackfill`.
 
   **Dry run by default**; `apply: true` writes.
 
@@ -936,8 +938,13 @@ defmodule Bitblocks.Release do
     IO.puts("  #{r.blocks_examined} block(s), #{r.rows_examined} transaction(s) scanned")
 
     IO.puts(
-      "  #{r.rows_changed} transaction(s) #{if r.applied, do: "stamped", else: "to stamp"}" <>
+      "  #{r.rows_changed} transaction row(s) #{if r.applied, do: "written", else: "to write"}" <>
         " v#{r.version}, #{d.types_changed} with types that change"
+    )
+
+    IO.puts(
+      "  #{d.blocks_typed} block(s) #{if r.applied, do: "stamped", else: "to stamp"}" <>
+        " v#{r.version} for their unchanged transactions"
     )
 
     IO.puts("  #{d.undecodable} transaction(s) don't decode and stay untyped")

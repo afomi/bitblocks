@@ -295,6 +295,7 @@ defmodule Bitblocks.Derivations do
             version: TxPipeline.version(name),
             steps: Enum.map(d.steps, & &1.name()),
             stamp: d.stamp,
+            block_stamp: Map.get(d, :block_stamp),
             backfill: d.backfill
           }
         end,

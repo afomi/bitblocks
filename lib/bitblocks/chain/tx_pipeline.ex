@@ -34,7 +34,9 @@ defmodule Bitblocks.Chain.TxPipeline do
     * `:script_analysis` stamps `transactions.script_analysis_version`;
     * `:tallies` stamps `transactions.tallies_version`;
     * `:block_totals` stamps `blocks.tallies_version`;
-    * `:tx_types` stamps `transactions.tx_types_version`;
+    * `:tx_types` stamps `transactions.tx_types_version`, and
+      `blocks.tx_types_version` for a whole block (a tx is typed at N
+      when either is N);
     * `:type_counts` stamps `blocks.type_counts_version`;
     * `:token_recipients` stamps `protocol_instances.recipient_version`.
 
@@ -96,6 +98,9 @@ defmodule Bitblocks.Chain.TxPipeline do
     tx_types: %{
       steps: [Steps.ClassifyOutputs],
       stamp: "transactions.tx_types_version",
+      # A tx is typed at version N when its own stamp or its block's is N:
+      # the backfill writes only the rows whose types change.
+      block_stamp: "blocks.tx_types_version",
       backfill: "Release.backfill_tx_types/3"
     },
     type_counts: %{
@@ -121,7 +126,8 @@ defmodule Bitblocks.Chain.TxPipeline do
   @doc """
   The derivations, in order: `{name, %{steps:, stamp:, backfill:}}`, where
   `stamp` names the column that records the version per row and `backfill`
-  the command that brings older rows up to it.
+  the command that brings older rows up to it. `block_stamp`, where
+  present, names a block column that records it for every row of the block.
   """
   @spec derivations() :: keyword(map())
   def derivations, do: @derivations

@@ -75,6 +75,19 @@ defmodule Bitblocks.TxTypes.CandidatesTest do
     assert %{txs: 0, candidates: []} = Candidates.scan(0, 99)
   end
 
+  test "an older row stamp counts when its block is stamped typed at this version" do
+    block = block_fixture(%{height: 5})
+    custom_tx("old", 5, [@shape_a], %{tx_types_version: 0, block_hash: block.hash})
+    assert %{txs: 0} = Candidates.scan(0, 99)
+
+    Bitblocks.Repo.update_all(
+      Ecto.Query.from(b in Bitblocks.Chain.Block, where: b.id == ^block.id),
+      set: [tx_types_version: TxPipeline.version(:tx_types)]
+    )
+
+    assert %{txs: 1, candidates: [_]} = Candidates.scan(0, 99)
+  end
+
   test "a tx with no readable bytes is counted, not hidden" do
     custom_tx("unreadable", 7, [@shape_a], %{raw: "zz"})
 
