@@ -35,8 +35,11 @@ defmodule Bitblocks.Chain.BeefVerifier do
   """
 
   alias Bitblocks.Chain.Beef.Reader
-  alias Bitblocks.Chain.Headers
+  alias Bitblocks.Chain.{Headers, PaymentEvidence}
   alias Bitblocks.Sync
+
+  @maker "Distance only: the ancestry walked against our headers, with no script, amount or " <>
+           "lock time checked, so validated is empty and lowestFeeRate null (BRC-237 section 2.3)."
 
   @claim "Inclusion in a block only. Nothing here says a transaction is valid, its scripts pass, " <>
            "its inputs were unspent, a token is genuine, or a payment was made."
@@ -75,8 +78,67 @@ defmodule Bitblocks.Chain.BeefVerifier do
   @spec verify(binary(), keyword()) :: {:ok, map()} | {:error, atom()}
   def verify(bytes, opts \\ []) when is_binary(bytes) do
     with {:ok, beef} <- Reader.parse(bytes, opts) do
-      headers = beef.bumps |> Enum.map(& &1.height) |> Headers.heights()
-      {:ok, evaluate(beef, headers, Sync.tip())}
+      tip = Sync.tip()
+
+      headers =
+        beef.bumps |> Enum.map(& &1.height) |> Kernel.++(List.wrap(tip)) |> Headers.heights()
+
+      answer =
+        beef
+        |> evaluate(headers, tip)
+        |> Map.put(:statement, statement(bytes, headers, tip))
+
+      {:ok, answer}
+    end
+  end
+
+  @doc """
+  The BRC-237 payment evidence statement this BEEF supports
+  (`Chain.PaymentEvidence.make/3`, distance only), offered beside the
+  verdict: what a receiver can keep and anyone can recheck from their own
+  headers. Made from the headers we hold that are both verified and
+  canonical, and our tip, whose header the statement names.
+
+    * `%{status: "made", canonical:, sha256:, ...}`: `canonical` is the
+      statement's exact bytes (section 4), and `sha256` their hash, the
+      value an acceptance record's `evidenceHash` takes.
+    * `%{status: "refused", code:}`: BRC-237 refuses the material, with
+      its code (`MALFORMED`, `ANCHOR_MISMATCH`, `CONFLICT`, `OVER_BOUND`).
+    * `%{status: "unavailable", reason:}`: we hold no header at our tip that
+      a statement could name.
+
+  No conflict was looked for, so the statement says `conflicts.checked`
+  false, and its event is `received`.
+  """
+  @spec statement(binary(), map(), integer() | nil) :: map()
+  def statement(bytes, headers, tip) do
+    relied_on =
+      for {height, %{verified: true, canonical: true, header: hex}} <- headers, into: %{} do
+        {height, Base.decode16!(hex, case: :lower)}
+      end
+
+    source = %{tip: tip, headers: relied_on}
+
+    if is_integer(tip) and Map.has_key?(source.headers, tip) do
+      case PaymentEvidence.make({:beef, bytes}, source) do
+        {:ok, canonical} ->
+          %{
+            status: "made",
+            version: "bsv-payment-evidence/v1",
+            canonical: canonical,
+            sha256: :crypto.hash(:sha256, canonical) |> Base.encode16(case: :lower),
+            maker: @maker
+          }
+
+        {:error, code} ->
+          %{status: "refused", code: code, maker: @maker}
+      end
+    else
+      %{
+        status: "unavailable",
+        reason: "We hold no verified header at our tip, so no statement can name one.",
+        maker: @maker
+      }
     end
   end
 

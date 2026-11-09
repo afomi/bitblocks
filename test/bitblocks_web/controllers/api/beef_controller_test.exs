@@ -26,6 +26,14 @@ defmodule BitblocksWeb.Api.BeefControllerTest do
     |> post(@path, Jason.encode!(body))
   end
 
+  # A statement is dated when it's made, so two requests a second apart differ there.
+  defp without_made_at(body) do
+    update_in(body, ["data", "statement"], fn statement ->
+      made = statement |> Map.fetch!("canonical") |> Jason.decode!() |> Map.delete("madeAt")
+      statement |> Map.drop(["canonical", "sha256"]) |> Map.put("made", made)
+    end)
+  end
+
   defp with_limit(bytes) do
     previous = Application.get_env(:bitblocks, :beef_verify_max_bytes)
     Application.put_env(:bitblocks, :beef_verify_max_bytes, bytes)
@@ -55,15 +63,55 @@ defmodule BitblocksWeb.Api.BeefControllerTest do
       assert data["proven"] == [parent["txid"]]
     end
 
+    test "offers the BRC-237 statement it supports, as exact bytes and their hash", %{conn: conn} do
+      RealHeaders.insert(814_435)
+
+      %{"statement" => statement} =
+        conn |> post_raw(brc62()) |> json_response(200) |> Map.fetch!("data")
+
+      assert %{"status" => "made", "version" => "bsv-payment-evidence/v1"} = statement
+      assert statement["maker"] =~ "Distance only"
+
+      assert statement["sha256"] ==
+               :crypto.hash(:sha256, statement["canonical"]) |> Base.encode16(case: :lower)
+
+      made = Jason.decode!(statement["canonical"])
+      assert made["version"] == "bsv-payment-evidence/v1"
+      assert made["fullyAnchored"] == true
+      assert made["validated"] == []
+      assert made["tip"]["height"] == 814_435
+      assert made["conflicts"] == %{"checked" => false}
+      assert [%{"height" => 814_435}] = made["anchors"]
+
+      # The bytes are the maker's own, from the same header and time.
+      header = Bitblocks.Chain.Headers.at(814_435).header |> Base.decode16!(case: :lower)
+
+      assert {:ok, statement["canonical"]} ==
+               Bitblocks.Chain.PaymentEvidence.make(
+                 {:beef, brc62()},
+                 %{headers: %{814_435 => header}, tip: 814_435},
+                 made_at: made["madeAt"]
+               )
+    end
+
+    test "with no header at our tip, no statement is made", %{conn: conn} do
+      %{"statement" => statement} =
+        conn |> post_raw(brc62()) |> json_response(200) |> Map.fetch!("data")
+
+      assert statement["status"] == "unavailable"
+      refute Map.has_key?(statement, "canonical")
+    end
+
     test "as hex in JSON gives the same answer, in either case", %{conn: conn} do
       RealHeaders.insert(814_435)
-      raw = conn |> post_raw(brc62()) |> json_response(200)
+      raw = conn |> post_raw(brc62()) |> json_response(200) |> without_made_at()
 
       for hex <- [
             Base.encode16(brc62(), case: :lower),
             Base.encode16(brc62(), case: :upper)
           ] do
-        assert build_conn() |> post_json(%{beef: hex}) |> json_response(200) == raw
+        answer = build_conn() |> post_json(%{beef: hex}) |> json_response(200)
+        assert without_made_at(answer) == raw
       end
     end
 

@@ -238,6 +238,41 @@
             >{if index > 0, do: ", "}{not_checked_label(name)}</span>.
           </p>
         </div>
+
+        <div
+          id="interop-statement"
+          class="mt-3 space-y-2 border-t border-gray-200 pt-3 text-sm text-gray-700 dark:border-gray-700 dark:text-gray-300"
+        >
+          <h4 class="font-semibold text-gray-900 dark:text-white">
+            Payment evidence statement (BRC-237)
+          </h4>
+          <%= case @report.statement do %>
+            <% %{status: "made"} = statement -> %>
+              <p>
+                What this BEEF shows against our headers, in the form BRC-237 defines.
+                Keep it beside the BEEF: anyone can make their own from their own headers and compare.
+              </p>
+              <pre
+                id="interop-statement-canonical"
+                class="overflow-x-auto whitespace-pre-wrap break-all rounded bg-gray-50 p-2 font-mono text-xs text-gray-900 dark:bg-gray-900 dark:text-gray-100"
+              >{statement.canonical}</pre>
+              <p>
+                SHA-256 of these exact bytes:
+                <span
+                  id="interop-statement-sha256"
+                  class="font-mono text-xs break-all"
+                >{statement.sha256}</span>
+              </p>
+              <p>{statement.maker}</p>
+            <% %{status: "refused"} = statement -> %>
+              <p id="interop-statement-refused">
+                BRC-237 refuses this material: <span class="font-mono text-xs">{statement.code}</span>.
+                No statement is made from it.
+              </p>
+            <% statement -> %>
+              <p id="interop-statement-unavailable">{statement.reason}</p>
+          <% end %>
+        </div>
       </div>
     </div>
   </section>

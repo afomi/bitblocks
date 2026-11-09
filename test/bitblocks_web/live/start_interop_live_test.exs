@@ -59,6 +59,21 @@ defmodule BitblocksWeb.StartInteropLiveTest do
       assert has_element?(view, "#interop-rows", "It has no proof of its own")
     end
 
+    test "a check offers its BRC-237 statement, as exact bytes and their hash", %{conn: conn} do
+      RealHeaders.insert(814_435)
+      {:ok, view, _html} = live(conn, ~p"/start/interop")
+
+      paste(view, hex("brc62-example"))
+
+      assert has_element?(view, "#interop-statement h4", "Payment evidence statement (BRC-237)")
+      assert has_element?(view, "#interop-statement-canonical", ~s("fullyAnchored":true))
+      assert has_element?(view, "#interop-statement-canonical", "bsv-payment-evidence/v1")
+      assert has_element?(view, "#interop-statement", "Distance only")
+
+      %{statement: statement} = assigns_of(view).report
+      assert has_element?(view, "#interop-statement-sha256", statement.sha256)
+    end
+
     test "no header reads unknown, with the reason", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/start/interop")
 
@@ -66,6 +81,7 @@ defmodule BitblocksWeb.StartInteropLiveTest do
 
       assert has_element?(view, "#interop-report h3", "Unknown")
       assert has_element?(view, "#interop-rows", "We hold no header at this height.")
+      assert has_element?(view, "#interop-statement-unavailable")
     end
 
     test "wrong evidence reads failed, with the reason", %{conn: conn} do
@@ -220,8 +236,8 @@ defmodule BitblocksWeb.StartInteropLiveTest do
 
       assert Enum.sort(Map.keys(assigns_of(view).report)) ==
                Enum.sort(~w(block_hash block_height claim confirmations counts detail format
-                  indexed_tip_height merkleroot not_checked reason rows status subject_txid total
-                  trust unused_bumps)a)
+                  indexed_tip_height merkleroot not_checked reason rows statement status
+                  subject_txid total trust unused_bumps)a)
     end
 
     test "a second check straight after the first waits its turn", %{conn: conn} do

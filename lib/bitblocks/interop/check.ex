@@ -138,6 +138,7 @@ defmodule Bitblocks.Interop.Check do
       total: length(answer.transactions),
       counts: Enum.frequencies_by(answer.transactions, & &1.status),
       unused_bumps: length(answer.unused_bumps),
+      statement: answer.statement,
       rows: (subject ++ others) |> Enum.take(@max_rows) |> Enum.map(&row(&1, answer.subject_txid))
     }
   end

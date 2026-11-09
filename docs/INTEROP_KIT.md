@@ -113,7 +113,11 @@ Bitblocks makes statements distance only (`Bitblocks.Chain.PaymentEvidence.make/
 It reads a BEEF, V1 or V2, bare or Atomic, or our own records with BRC-74 or Electrum-form paths.
 Every statement and maker refusal in BRC-237's test vectors runs in `test/bitblocks/chain/payment_evidence_test.exs` from a fixture extracted from the spec, each material checked against the length and SHA-256 the spec gives.
 The eight vectors whose maker validated nothing match byte for byte; the other eight match once their validated lists are those of a maker that ran no check.
-Not yet: an endpoint or page that offers statements, and BRC-77 signing.
+Every check offers one: `POST /api/v1/beef/verify` answers with `data.statement` beside the verdict, and `/start/interop` shows it under the report.
+`statement.status` is `made`, with `canonical` (the statement's exact bytes, section 4) and `sha256` (their hash, the value an acceptance record's `evidenceHash` takes); `refused`, with BRC-237's `code`; or `unavailable`, when we hold no verified header at our tip for it to name.
+It is made from the headers we hold that are both verified and canonical, with event `received` and `conflicts.checked` false, because we look for no conflict.
+`madeAt` is the moment of the check, so two checks of one BEEF differ there and nowhere else.
+Not yet: BRC-77 signing.
 No published format covers acceptance, so the acceptance record is our candidate, `interop-kit/payment-acceptance/v0`, until a second implementation reads it.
 
 Evidence says what was checked.
@@ -180,6 +184,8 @@ That usually means it's wrong, and after a reorg a good payment's old path reads
 - BRC-95 doesn't say which byte order the subject txid takes, so the vectors follow the SDK's internal order, which BRC-237 section 2.1 also states.
 - A BRC-237 statement here is distance only: no script, amount or lock time is checked, so it never validates a transaction or refuses one for failing a check.
 - BRC-237 reads BRC-95 as permitting ancestors beyond a BUMP, while `Beef.Reader` refuses them, and neither has a vector settling it; the statement maker refuses them `MALFORMED`, as it does a VarInt not in its shortest form and a tx with no BUMP ahead of its parent.
+  This is a decision, not a gap to close: Bitblocks reads BEEF the stricter way (Ryan, 2026-11-08), so the verifier and the statement maker refuse the same framings, and a statement is only ever made from bytes the verifier also reads.
+  A writer that follows "What a conforming sender does" above never meets the difference.
 - No acceptance record vectors exist yet.
 - BRC-96 treats a txid-only entry as agreed between two parties, and a third-party check has no such agreement, so we answer `unknown`.
 - The size and count limits in `Beef.Reader` have no vectors, because a limit is a reader's own choice.
