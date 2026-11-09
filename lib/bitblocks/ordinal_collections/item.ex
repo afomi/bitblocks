@@ -1,6 +1,6 @@
 defmodule Bitblocks.OrdinalCollections.Item do
   @moduledoc """
-  One item of a 1Sat ordinal collection. See `Bitblocks.OrdinalCollections`
+  One item of a collection (1Sat, Run or Rare Candy). See `Bitblocks.OrdinalCollections`
   and the `collection_items` migration for each field's meaning.
   """
 
@@ -16,6 +16,8 @@ defmodule Bitblocks.OrdinalCollections.Item do
     field :name, :string
     field :content_type, :string
     field :traits, {:array, :map}, default: []
+    # The tx whose B:// file is the item's image, when the mint names one.
+    field :image_txid, :string
     field :current_outpoint, :string
     field :owner, :string
     # current | ended | partial | unknown | untraced (see OrdinalCollections.trace/2).

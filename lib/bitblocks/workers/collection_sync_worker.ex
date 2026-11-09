@@ -69,6 +69,8 @@ defmodule Bitblocks.Workers.CollectionSyncWorker do
   defp hint(cid) do
     case OrdinalCollections.config_for(cid) do
       %{hint: :catalog, catalog: catalog} -> {:ok, catalog.mint_txids()}
+      # No index to ask: the walk follows the chain with WhatsOnChain alone.
+      %{hint: :none} -> {:ok, []}
       _ -> Bitblocks.Ordinals.Gorillapool.collection_mint_txids(cid)
     end
   end

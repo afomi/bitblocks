@@ -1,7 +1,10 @@
 defmodule Bitblocks.OrdinalCollections do
   @moduledoc """
   NFT collections with proven membership and traced ownership (#30): Grand
-  Tardinians (1Sat, `OneSat`) and Rexxies (Run, `RunJig`).
+  Tardinians (1Sat, `OneSat`), Rexxies and other RelayX collections (Run,
+  `RunJig`, #79), and Rare Candy's (`RareCandy`, #77). Each collection is one
+  row of `@collections`; one with no hint (`hint: :none`) is found by walking
+  its chain with WhatsOnChain's `/spent` alone.
 
   **Membership is proven, not claimed.** Both kinds mint through a chain: each
   mint spends the collection's current link (Bubblemint's mint contract, or a
@@ -67,6 +70,70 @@ defmodule Bitblocks.OrdinalCollections do
       protocol: Bitblocks.OrdinalCollections.RunJig,
       catalog: Bitblocks.Rexxies.Catalog,
       hint: :catalog
+    },
+    # RelayX COL classes (`class COL extends RelayNFT {}`, `isCollection`),
+    # found from relayx.com/market pages in the Wayback Machine (#79). No
+    # catalog: items are unnamed, and each image is the mint's B:// file.
+    "pixmoji" => %{
+      id: "8637b04add2ef6f788ab0b91559438ea51c1540324eb7bb6541fda3a66d97cb4_2",
+      name: "PixMoji",
+      description: "Pixel representations of emoji, a numbered Run collection.",
+      standard: "Run",
+      source: "RelayX",
+      protocol: Bitblocks.OrdinalCollections.RunJig,
+      hint: :none
+    },
+    "glossy-spheres" => %{
+      id: "81e2b29195bd1298874318fc16c739bd13adca7f64c59ced1ae69d644cd2ef20_2",
+      name: "Glossy Spheres",
+      description: "A numbered Run collection of glossy spheres.",
+      standard: "Run",
+      source: "RelayX",
+      protocol: Bitblocks.OrdinalCollections.RunJig,
+      hint: :none
+    },
+    # Rare Candy (#77): the id is the collection tx's B:// output, and `link`
+    # the mint outpoint it declares (`RareCandy.mint_outpoints/1`).
+    "planetary-skies" => %{
+      id: "b9a47ebfeba619a97ddf44ef5bd4b3546bf05bf52391cd828154b19896811b52_0",
+      link: "c2f602dd3b9b40661a5373beb567010069eca20251f6be98a6737e4ac1bbfaf9_0",
+      name: "Planetary Skies",
+      description: "99 generative planetary sky NFTs.",
+      standard: "Rare Candy",
+      source: "Rare Candy",
+      protocol: Bitblocks.OrdinalCollections.RareCandy,
+      hint: :none
+    },
+    "astro-apes" => %{
+      id: "7aaf5700968b4c5f78de43873f3450d6566d7f4463056090ad16ff51340f6509_0",
+      link: "6dd1e23e666a01b5171bd4bc145a89ca403845ae48fec22595409255a7a7ee3c_0",
+      name: "Astro Apes",
+      description:
+        "Astro Apes Space Force: 2,000 randomly generated apes, Rare Candy's first drop.",
+      standard: "Rare Candy",
+      source: "Rare Candy",
+      protocol: Bitblocks.OrdinalCollections.RareCandy,
+      hint: :none
+    },
+    "oni-society" => %{
+      id: "9f4b93e97ca5905c0f01a8e6446d1c0f45f42bdc47704bb5cdc09c6b874f77b0_0",
+      link: "8967ca5a90895f93b6f642ef8e02701fa460a75713944f53b7d2970305c5abb1_0",
+      name: "Oni Society",
+      description: "2,222 Oni: Noble, Shade or Death.",
+      standard: "Rare Candy",
+      source: "Rare Candy",
+      protocol: Bitblocks.OrdinalCollections.RareCandy,
+      hint: :none
+    },
+    "fox-syndicate" => %{
+      id: "20d0f7e0f64cd5a9e6a12687a29ee896d5f487fe4e8f458798fcacceb4dca3c5_0",
+      link: "167f86753b57664d4cc01ace9cd32da5e4ed38c66d7ad5cbc5d4a54d3812cc61_0",
+      name: "Fox Syndicate",
+      description: "4,444 feral NFT foxes.",
+      standard: "Rare Candy",
+      source: "Rare Candy",
+      protocol: Bitblocks.OrdinalCollections.RareCandy,
+      hint: :none
     }
   }
 
@@ -77,7 +144,8 @@ defmodule Bitblocks.OrdinalCollections do
     %{
       name: "RelayX",
       url: nil,
-      description: "Run-based NFT marketplace where Rexxies were minted and traded.",
+      description:
+        "Run-based NFT marketplace where Rexxies, PixMoji and Glossy Spheres were minted and traded.",
       status: "relayx.com returned 404 when last checked."
     },
     %{
@@ -89,7 +157,9 @@ defmodule Bitblocks.OrdinalCollections do
     %{
       name: "Rare Candy",
       url: "https://rarecandy.io",
-      description: "NFT launchpad and marketplace, home of the Oni Society and Astro Apes drops.",
+      description:
+        "NFT launchpad and marketplace, home of the Oni Society and Astro Apes drops, " <>
+          "with its own token format: each item is locked to its collection's transaction.",
       status: nil
     },
     %{
@@ -114,6 +184,9 @@ defmodule Bitblocks.OrdinalCollections do
 
   # trace_all/1 reads items a page at a time.
   @trace_page 100
+
+  # Item rows per insert (13 columns each, under Postgres's 65,535 parameters).
+  @insert_batch 1_000
 
   # Items in one queued re-trace, as in a collection sync's trace batches.
   @retrace_batch 10
@@ -409,7 +482,7 @@ defmodule Bitblocks.OrdinalCollections do
   # not the same as the chain ending.
   defp walk_chain(config, spenders, follow?) do
     walk = %{mint_ids: MapSet.new(), items: 0, complete?: true}
-    do_walk([config.id], spenders, follow?, config, MapSet.new(), walk)
+    do_walk([first_link(config)], spenders, follow?, config, MapSet.new(), walk)
   end
 
   defp do_walk([], _spenders, _follow?, _config, _seen, walk), do: walk
@@ -433,6 +506,10 @@ defmodule Bitblocks.OrdinalCollections do
         do_walk(queue, spenders, follow?, config, seen, %{walk | complete?: false})
     end
   end
+
+  # The chain's first link: the collection id, unless the collection names
+  # its mint outpoint separately (Rare Candy: the id is the collection tx).
+  defp first_link(config), do: Map.get(config, :link, config.id)
 
   # A tx that only carries the chain on isn't a mint.
   defp index_mint(walk, _cid, _txid, _height, []), do: walk
@@ -485,6 +562,7 @@ defmodule Bitblocks.OrdinalCollections do
           name: item[:name],
           content_type: item[:content_type],
           traits: item[:traits] || [],
+          image_txid: item[:image_txid],
           current_outpoint: origin,
           owner: item[:owner],
           trace_state: "untraced",
@@ -493,14 +571,21 @@ defmodule Bitblocks.OrdinalCollections do
         }
       end
 
-    # Re-sync refreshes metadata but keeps ownership traced so far.
-    {count, _} =
-      Repo.insert_all(Item, rows,
-        on_conflict: {:replace, [:name, :content_type, :traits, :mint_height, :updated_at]},
-        conflict_target: [:collection_id, :origin]
-      )
+    # Re-sync refreshes metadata but keeps ownership traced so far. A Rare
+    # Candy mint holds thousands of items, so rows go in batches under
+    # Postgres's parameter limit.
+    rows
+    |> Enum.chunk_every(@insert_batch)
+    |> Enum.reduce(0, fn batch, total ->
+      {count, _} =
+        Repo.insert_all(Item, batch,
+          on_conflict:
+            {:replace, [:name, :content_type, :traits, :image_txid, :mint_height, :updated_at]},
+          conflict_target: [:collection_id, :origin]
+        )
 
-    count
+      total + count
+    end)
   end
 
   # -- Ownership -----------------------------------------------------------------
@@ -999,8 +1084,9 @@ defmodule Bitblocks.OrdinalCollections do
 
   @doc """
   Where an item's image is served from: the catalog's for a collection whose
-  on-chain payloads aren't viewable (Rexxies are encrypted), else the
-  inscription itself. Nil when neither is an image.
+  on-chain payloads aren't viewable (Rexxies are encrypted), else the B://
+  file the mint names (`image_txid`), else the inscription itself. Nil when
+  none is an image.
   """
   def image_path(%Item{} = item) do
     case config_for(item.collection_id) do
@@ -1010,7 +1096,11 @@ defmodule Bitblocks.OrdinalCollections do
         end
 
       _ ->
-        if match?("image/" <> _, item.content_type), do: "/content/#{item.origin}"
+        cond do
+          item.image_txid -> "/b/#{item.image_txid}"
+          match?("image/" <> _, item.content_type) -> "/content/#{item.origin}"
+          true -> nil
+        end
     end
   end
 

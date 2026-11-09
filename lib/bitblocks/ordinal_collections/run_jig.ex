@@ -29,12 +29,24 @@ defmodule Bitblocks.OrdinalCollections.RunJig do
   spend says nothing certain about the jig.
 
   Names and traits aren't on chain for RelayX NFTs (the mint's metadata is
-  empty and the image is encrypted), so they come from the collection's
-  catalog (`config.catalog`), keyed by mint txid.
+  empty), so they come from the collection's catalog (`config.catalog`),
+  keyed by mint txid. A collection without a catalog has unnamed items. A
+  collection whose class metadata has no `isEncrypted` (PixMoji, Glossy
+  Spheres) carries each image as the mint's own B:// file, so the item's
+  image is that tx (`image_txid`); an encrypted one (Rexxies) has none.
+
+  Checked against the whole class chains of PixMoji (49 mints) and Glossy
+  Spheres (100 mints) (#79): one NFT per mint, no `del`, every jig in 273
+  sats, and in each one `updateMetadata` call that carries the chain on with
+  no items. A payload is read only as `OP_FALSE OP_RETURN "run" …`, as Run's
+  own SDK does (run-sdk 0.6.41, `_extractMetadata`). Read a payload from the
+  raw bytes: WhatsOnChain's decoded JSON drops the leading `OP_FALSE` from
+  some outputs' script hex, which makes a Run tx look like a non-Run spend.
   """
 
   @behaviour Bitblocks.OrdinalCollections.Protocol
 
+  alias Bitblocks.Bitcom.BFile
   alias Bitblocks.OrdinalCollections.Protocol
   alias Bitblocks.Ordinals.Inscription
 
@@ -51,6 +63,7 @@ defmodule Bitblocks.OrdinalCollections.RunJig do
       items =
         if mints?(payload, i) do
           entry = catalog_entry(config, txid)
+          image = if config[:catalog], do: nil, else: image_txid(tx, txid)
 
           for k <- 0..(created - 1)//1 do
             vout = p + 1 + jigs_in + k
@@ -60,6 +73,7 @@ defmodule Bitblocks.OrdinalCollections.RunJig do
               name: entry[:name],
               content_type: nil,
               traits: entry[:traits] || [],
+              image_txid: image,
               owner: tx.outputs |> Enum.at(vout) |> owner_or_nil()
             }
           end
@@ -163,5 +177,14 @@ defmodule Bitblocks.OrdinalCollections.RunJig do
         _ -> nil
       end
     end)
+  end
+
+  # An unencrypted RelayX mint carries its image as the mint's own B:// file.
+  # Only the media type is read, and nothing from the tx outlives the call.
+  defp image_txid(tx, txid) do
+    case BFile.parse(tx) do
+      {:ok, %{media_type: "image/" <> _}} -> txid
+      _ -> nil
+    end
   end
 end
