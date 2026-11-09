@@ -96,8 +96,10 @@ ElectrumSV works well here: it imports BIP39 mnemonics with a custom derivation 
   The wallet's default internal change addresses (`…/1'/1/n`) are correct, so don't turn on "send change to the same address".
 - **Every spend is an expense** and gets a line in visible-dao's `_data/bitblocks_ledger.yml`, with the txid and the receipt.
 - Received totals come from the chain and expenses come from the ledger. Neither one is typed in from memory.
-- **The received totals reach only as far as the index.**
-  A donation counts once the sync has stored its block, so a recent gift reads as not yet received until the sync reaches that height.
+- **The received totals come from two sources, and say how far each reaches.**
+  Blocks up to `complete_through` are read from our index, and the blocks above it from WhatsOnChain's history of the address (`Bitblocks.Support.Recent`, cached for 5 minutes), so a gift counts soon after it confirms.
+  `received_sources` on `/api/v1/support` names each source with its heights, and `received_through_height` the block the totals are complete through.
+  When WhatsOnChain can't answer, its source reads `unavailable` and the totals stop at `complete_through`, so a 0 is never mistaken for a checked answer.
 
 ## Optional: publish the account xpub
 
