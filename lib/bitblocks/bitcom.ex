@@ -451,8 +451,9 @@ defmodule Bitblocks.Bitcom do
   Read through the tag's GIN index alone: ordering by `id + 0` keeps the
   planner off a backward walk of the primary key, which for a common tag
   meets millions of newer untagged rows first (the genesis-era blocks are
-  stored last) and ran for minutes. Under a 5 s statement timeout, so a slow
-  read is said, not waited on.
+  stored last) and ran for minutes. The B:// tag has a partial index of its
+  own (`Bitcom.Files.b_tagged/0`), walked newest first. Under a 5 s
+  statement timeout, so a slow read is said, not waited on.
   """
   @spec recent_transactions(String.t(), pos_integer()) ::
           {:ok, [map()]} | {:error, :timeout | :unavailable}
@@ -460,6 +461,15 @@ defmodule Bitblocks.Bitcom do
     case tag(address) do
       nil ->
         {:ok, []}
+
+      "B://" ->
+        query =
+          from(t in Bitblocks.Bitcom.Files.b_tagged(),
+            limit: ^limit,
+            select: %{txid: t.txid, block_height: t.block_height}
+          )
+
+        Bitblocks.ChainScrubber.with_statement_timeout(5_000, fn -> Repo.all(query) end)
 
       tag ->
         query =

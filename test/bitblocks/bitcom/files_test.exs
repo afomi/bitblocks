@@ -37,6 +37,23 @@ defmodule Bitblocks.Bitcom.FilesTest do
     assert {:ok, %{files: [%{parsed: false, sha256: nil}]}} = Files.list()
   end
 
+  test "a page reads the B:// partial index, not the primary key" do
+    for _ <- 1..3, do: b_row(%{raw: "not hex"})
+    for _ <- 1..20, do: transaction_fixture(%{protocols: ["MAP"]})
+
+    query = from(t in Files.b_tagged(), where: t.id < 1_000_000_000, limit: 26, select: t.id)
+    {sql, params} = Repo.to_sql(:all, query)
+
+    # No seq scan, so the planner chooses among the indexes alone.
+    Repo.query!("SET LOCAL enable_seqscan = off")
+    %{rows: rows} = Repo.query!("EXPLAIN " <> sql, params)
+    plan = Enum.map_join(rows, "\n", &hd/1)
+
+    # A few rows may be scanned and sorted; at scale it walks the index backwards.
+    assert plan =~ "transactions_b_protocol_id_index", plan
+    refute plan =~ "transactions_pkey", plan
+  end
+
   test "pages newest stored first, with before" do
     older = b_row(%{txid: @txid, raw: @hex})
     newer = b_row(%{raw: "not hex"})

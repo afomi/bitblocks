@@ -8,11 +8,12 @@ defmodule Bitblocks.Bitcom.Files do
   is extracted ahead of time. A file's C:// address is the sha256 of its
   content, the key unwriter's C:// names a file by.
 
-  The tag is read through its GIN index: ordering by `id + 0` keeps the
-  planner off a backward walk of the primary key, which on prod meets
-  millions of newer untagged rows (the genesis-era blocks are stored last)
-  before it fills a page. That read has a 5 s statement timeout and says so
-  when it runs out, rather than holding a connection.
+  The tag is read through a partial index of its own,
+  `transactions_b_protocol_id_index` on `id` where the tx is tagged B://,
+  walked backwards from the newest: never the primary key, which on prod
+  meets millions of newer untagged rows (the genesis-era blocks are stored
+  last) before it fills a page. That read has a 5 s statement timeout and
+  says so when it runs out, rather than holding a connection.
   """
 
   import Ecto.Query
@@ -21,7 +22,6 @@ defmodule Bitblocks.Bitcom.Files do
   alias Bitblocks.Chain.{RawTx, Transaction}
   alias Bitblocks.{ChainScrubber, Repo, TxStore}
 
-  @tag "B://"
   @per_page 25
   @timeout_ms 5_000
 
@@ -53,9 +53,7 @@ defmodule Bitblocks.Bitcom.Files do
     per_page = Keyword.get(opts, :per_page, @per_page)
 
     ids =
-      from(t in Transaction,
-        where: fragment("? @> ARRAY[?]::varchar[]", t.protocols, ^@tag),
-        order_by: [desc: fragment("? + 0", t.id)],
+      from(t in b_tagged(),
         limit: ^(per_page + 1),
         select: t.id
       )
@@ -90,11 +88,24 @@ defmodule Bitblocks.Bitcom.Files do
     %{files: files, before: if(more != [], do: List.last(ids))}
   end
 
-  # `id + 0`, like the order, so the primary key stays out of the plan.
-  defp before(query, id) when is_integer(id),
-    do: from(t in query, where: fragment("? + 0 < ?", t.id, ^id))
+  defp before(query, id) when is_integer(id), do: from(t in query, where: t.id < ^id)
 
   defp before(query, _id), do: query
+
+  @doc """
+  The txs tagged B://, newest id first, as a query to limit and select from.
+  The tag is a literal in the SQL, spelled as the partial index's predicate
+  (migration `20261120000075`), so the planner can prove the index applies
+  and walks it backwards; a bound parameter would leave a generic plan
+  unable to use it.
+  """
+  @spec b_tagged() :: Ecto.Query.t()
+  def b_tagged do
+    from(t in Transaction,
+      where: fragment("? @> ARRAY['B://']::varchar[]", t.protocols),
+      order_by: [desc: t.id]
+    )
+  end
 
   @doc "One tx's B:// file as `list/1` gives it."
   @spec file(%{txid: String.t(), block_height: integer() | nil, raw: String.t() | nil}) :: file()
