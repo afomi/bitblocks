@@ -1498,16 +1498,18 @@ defmodule Bitblocks.Chain do
   end
 
   @doc """
-  Total satoshis ever paid to `address` in indexed transactions, spent or not.
+  Total satoshis given to `address` in indexed transactions, spent or not:
+  every output paid to it, except in a transaction that spends from it,
+  whose outputs back to it are change (`Bitblocks.Support.Received`).
 
-  `:min_height` counts only txs confirmed at or above that height
+  `:min_height` and `:max_height` count only txs confirmed in that range
   (unconfirmed txs are then excluded).
   """
   def received_for_address(address, opts \\ []) when is_binary(address) do
     query =
       from t in Transaction,
         where: fragment("? @> ARRAY[?]::varchar[]", t.output_addresses, ^address),
-        select: t.outputs
+        select: {t.inputs, t.outputs}
 
     query =
       case Keyword.get(opts, :min_height) do
@@ -1515,17 +1517,23 @@ defmodule Bitblocks.Chain do
         height -> from t in query, where: t.block_height >= ^height
       end
 
+    query =
+      case Keyword.get(opts, :max_height) do
+        nil -> query
+        height -> from t in query, where: t.block_height <= ^height
+      end
+
     query
     |> Repo.all()
-    |> Enum.flat_map(& &1)
-    |> Enum.sum_by(fn output_json ->
-      with {:ok, output} <- Jason.decode(output_json),
-           [^address | _] <- get_in(output, ["scriptPubKey", "addresses"]) do
-        bsv_to_satoshis(output["value"])
-      else
-        _ -> 0
-      end
+    |> Enum.sum_by(fn {inputs, outputs} ->
+      Bitblocks.Support.Received.sats(address, decode_all(inputs), decode_all(outputs))
     end)
+  end
+
+  defp decode_all(nil), do: []
+
+  defp decode_all(list) do
+    for json <- list, {:ok, %{} = map} <- [Jason.decode(json)], do: map
   end
 
   @doc """
@@ -1613,9 +1621,4 @@ defmodule Bitblocks.Chain do
         do_spend_depth(parents, depth + 1, next_seen)
     end
   end
-
-  # Converts a BSV float (e.g. 0.00001234) from RPC vout JSON to integer satoshis.
-  # RPC value is denominated in BSV; 1 BSV = 100_000_000 satoshis.
-  defp bsv_to_satoshis(nil), do: 0
-  defp bsv_to_satoshis(value) when is_number(value), do: round(value * 100_000_000)
 end

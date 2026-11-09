@@ -59,6 +59,29 @@ defmodule BitblocksWeb.Api.SupportControllerTest do
     assert get_resp_header(conn, "access-control-allow-origin") == ["*"]
   end
 
+  test "change back to the donation address is not counted as received", %{conn: conn} do
+    pubkey = BSV.PrivKey.new() |> BSV.PubKey.from_privkey()
+    address = pubkey |> BSV.Address.from_pubkey() |> BSV.Address.to_string()
+    key = BSV.PubKey.to_binary(pubkey)
+    unlock = Base.encode16(<<71>> <> :binary.copy(<<1>>, 71) <> <<33>> <> key)
+    configure(bsv_address: address)
+
+    paid = fn value ->
+      Jason.encode!(%{"value" => value, "scriptPubKey" => %{"addresses" => [address]}})
+    end
+
+    transaction_fixture(%{output_addresses: [address], outputs: [paid.(0.5)]})
+
+    transaction_fixture(%{
+      inputs: [Jason.encode!(%{"txid" => "aa", "vout" => 0, "scriptSig" => %{"hex" => unlock}})],
+      output_addresses: [address],
+      outputs: [paid.(0.4)]
+    })
+
+    data = conn |> get(~p"/api/v1/support") |> json_response(200) |> Map.fetch!("data")
+    assert data["received_sats_total"] == 50_000_000
+  end
+
   test "the footer links to the sponsor page only when configured", %{conn: conn} do
     configure([])
     refute conn |> get(~p"/about") |> html_response(200) =~ ">\n              Sponsor"

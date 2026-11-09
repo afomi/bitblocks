@@ -90,9 +90,9 @@ ElectrumSV works well here: it imports BIP39 mnemonics with a custom derivation 
 
 ## Spending rules (keep the books honest)
 
-- **Change must never go back to the donation address.**
-  `Bitblocks.Chain.received_for_address/2` counts every output paid to the address as received.
-  It can't yet tell change from a gift, so change sent back there would show up as fake donations.
+- **Change should not go back to the donation address.**
+  `Bitblocks.Chain.received_for_address/2` counts every output paid to the address as received, except in a transaction that spends from the address (`Bitblocks.Support.Received`).
+  So change sent back there is not counted as a gift, but it still blurs the address's history for anyone reading it.
   The wallet's default internal change addresses (`…/1'/1/n`) are correct, so don't turn on "send change to the same address".
 - **Every spend is an expense** and gets a line in visible-dao's `_data/bitblocks_ledger.yml`, with the txid and the receipt.
 - Received totals come from the chain and expenses come from the ledger. Neither one is typed in from memory.
