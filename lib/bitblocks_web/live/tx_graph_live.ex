@@ -11,6 +11,11 @@ defmodule BitblocksWeb.TxGraphLive do
   The graph is read by the hook from `/chain-scrubber/flow`
   (`Bitblocks.ChainFlow`); this LiveView owns the range form and the
   annotation layer (`Bitblocks.ChainScrubber.annotations/0`).
+
+  The scene grows as the sync does: when a block in the open range
+  completes, or a reorg replaces one, the LiveView pushes `"flow_grew"` and
+  the hook reads the range again, keeping the playhead, camera and selection.
+  Placement is fixed by the data, so nothing already drawn moves.
   """
 
   use BitblocksWeb, :live_view
@@ -43,6 +48,7 @@ defmodule BitblocksWeb.TxGraphLive do
     socket =
       if connected?(socket) do
         Phoenix.PubSub.subscribe(Bitblocks.PubSub, Bitblocks.Annotations.topic())
+        Phoenix.PubSub.subscribe(Bitblocks.PubSub, "blocks")
         push_event(socket, "annotations", %{items: annotations})
       else
         socket
@@ -63,6 +69,25 @@ defmodule BitblocksWeb.TxGraphLive do
      )
      |> push_event("annotations", %{items: annotations})}
   end
+
+  def handle_info({:block_updated, %{sync_state: "completed", height: height}}, socket)
+      when is_integer(height) do
+    {:noreply, grew(socket, height)}
+  end
+
+  def handle_info({:reorg, %{fork_height: fork_height}}, socket) when is_integer(fork_height) do
+    {:noreply, grew(socket, max(fork_height, socket.assigns.from))}
+  end
+
+  def handle_info(_message, socket), do: {:noreply, socket}
+
+  # A block in the open range changed: the hook reads the range again.
+  defp grew(%{assigns: %{from: from, to: to}} = socket, height)
+       when height >= from and height <= to do
+    push_event(socket, "flow_grew", %{height: height})
+  end
+
+  defp grew(socket, _height), do: socket
 
   @doc """
   The range to open: `?from=&to=` when both are heights with `from <= to`

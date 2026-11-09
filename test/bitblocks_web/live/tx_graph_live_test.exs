@@ -52,4 +52,44 @@ defmodule BitblocksWeb.TxGraphLiveTest do
     assert_push_event(view, "annotations", %{items: items})
     assert Enum.any?(items, &(&1.label == "First spend" and &1.kind == "event"))
   end
+
+  describe "growing as blocks complete" do
+    alias Bitblocks.Chain.Block
+
+    test "a block completing in the range tells the scene to read it again", %{conn: conn} do
+      {:ok, view, _html} = live(conn, "/tx-graph?from=100&to=300")
+
+      Bitblocks.Chain.broadcast_block_update(%Block{
+        hash: String.duplicate("a", 64),
+        height: 200,
+        sync_state: "completed"
+      })
+
+      assert_push_event(view, "flow_grew", %{height: 200})
+    end
+
+    test "a block outside the range, or not yet complete, changes nothing", %{conn: conn} do
+      {:ok, view, _html} = live(conn, "/tx-graph?from=100&to=300")
+
+      Bitblocks.Chain.broadcast_block_update(%Block{
+        hash: String.duplicate("b", 64),
+        height: 301,
+        sync_state: "completed"
+      })
+
+      Bitblocks.Chain.broadcast_block_update(%Block{
+        hash: String.duplicate("c", 64),
+        height: 200,
+        sync_state: "header_only"
+      })
+
+      refute_push_event(view, "flow_grew", %{})
+    end
+
+    test "a reorg at or below the range's end reads it again", %{conn: conn} do
+      {:ok, view, _html} = live(conn, "/tx-graph?from=100&to=300")
+      Bitblocks.Chain.broadcast_reorg(%{fork_point: 49, fork_height: 50, orphans: []})
+      assert_push_event(view, "flow_grew", %{height: 100})
+    end
+  end
 end

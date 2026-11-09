@@ -26,6 +26,11 @@ Reduced motion turns off the shimmer, the flash and camera easing.
 **"Unspent" means "no spend stored yet".**
 Spends come from `spend_index`, so they are only as complete as our sync; the payload names `spends_known_through` (`Sync.complete_through/0`), and the status line repeats it.
 
+**The scene grows with the sync.**
+When a block in the open range completes, or a reorg replaces one, `TxGraphLive` pushes `flow_grew` and the hook reads the range again, at most once every 10 seconds.
+The camera, playhead and selection stay where they were, and since placement is fixed by the data, nothing already drawn moves.
+Open a range that reaches past our tip, and its blocks join the scene as they complete.
+
 **Controls.**
 The range form loads `?from=&to=` (at most `ChainFlow.max_blocks/0`, 5,000 blocks, and 50,000 txs, cut at a whole block).
 `?txid=` opens the 200 blocks around a stored tx and lights its lineage.

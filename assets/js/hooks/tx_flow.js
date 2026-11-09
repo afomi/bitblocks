@@ -16,6 +16,7 @@ import * as layout from "../tx_flow/layout.mjs"
 
 const BACKGROUND = 0x050608 // keep equal to #tx-flow-canvas bg-[#050608]
 const PLAY_SECONDS = 40 // the whole range plays in this long
+const REFRESH_MS = 10000 // a growing range is read again at most this often
 const EVENT_COLORS = {
   fork: "#a78bfa",
   upgrade: "#38bdf8",
@@ -146,6 +147,10 @@ export default {
     this.playing = false
     this.clock = new THREE.Clock()
 
+    // A block in the range completed (or a reorg replaced one): read the
+    // range again, at most once per REFRESH_MS, keeping the view.
+    this.handleEvent("flow_grew", () => this.scheduleRefresh())
+
     this.handleEvent("annotations", ({items}) => {
       this.annotations = (items || []).filter((a) => Number.isFinite(a.height))
       this.buildLabels()
@@ -164,6 +169,7 @@ export default {
 
   destroyed() {
     this.disposed = true
+    clearTimeout(this.refreshTimer)
     cancelAnimationFrame(this.frame)
     window.removeEventListener("resize", this.onResize)
     window.removeEventListener("keydown", this.onKeyDown)
@@ -253,28 +259,29 @@ export default {
 
   // ---------------------------------------------------------------- data
 
+  async fetchFlow() {
+    const res = await fetch(`/chain-scrubber/flow?from=${this.from}&to=${this.to}`, {
+      credentials: "same-origin",
+      headers: {accept: "application/json"}
+    })
+    const payload = await res.json()
+    if (!res.ok) throw new Error(payload.error || `HTTP ${res.status}`)
+    return payload
+  },
+
   async load() {
     this.setStatus(`Loading blocks ${fmtInt(this.from)} to ${fmtInt(this.to)}…`)
     let payload
     try {
-      const res = await fetch(`/chain-scrubber/flow?from=${this.from}&to=${this.to}`, {
-        credentials: "same-origin",
-        headers: {accept: "application/json"}
-      })
-      payload = await res.json()
-      if (!res.ok) throw new Error(payload.error || `HTTP ${res.status}`)
+      payload = await this.fetchFlow()
     } catch (e) {
       this.setStatus(`Couldn't load the range: ${e.message}.`)
       return
     }
     if (this.disposed) return
-    this.flow = layout.decode(payload)
-    this.to = this.flow.to
-    this.stats = layout.prepareStats(this.flow)
-    this.buildGraph()
+    this.applyFlow(payload)
     this.frameRange()
 
-    const first = layout.firstSpend(this.flow)
     const focus = this.focusTxid ? this.flow.txIndex.get(this.focusTxid) : undefined
     if (focus !== undefined) {
       this.select(focus)
@@ -282,20 +289,63 @@ export default {
     } else {
       this.setPlay(this.from)
     }
+    this.renderStatus()
+  },
+
+  scheduleRefresh() {
+    if (this.refreshTimer || !this.flow || this.disposed) return
+    const wait = Math.max(0, (this.lastLoad || 0) + REFRESH_MS - Date.now())
+    this.refreshTimer = setTimeout(() => this.refresh(), wait)
+  },
+
+  // The same range again, with the blocks completed since: the camera,
+  // playhead and selection stay, and placement is fixed by the data, so
+  // nothing already drawn moves.
+  async refresh() {
+    let payload
+    try {
+      payload = await this.fetchFlow()
+    } catch (e) {
+      payload = null
+    } finally {
+      this.refreshTimer = null
+    }
+    if (!payload || this.disposed) return
+    const play = this.play
+    const selectedTxid = this.selected >= 0 ? this.flow.txs[this.selected][1] : null
+    this.applyFlow(payload)
+    const again = selectedTxid ? this.flow.txIndex.get(selectedTxid) : undefined
+    this.select(again === undefined ? -1 : again)
+    this.setPlay(play)
+    this.renderStatus()
+  },
+
+  applyFlow(payload) {
+    this.lastLoad = Date.now()
+    this.flow = layout.decode(payload)
+    this.to = this.flow.to
+    this.stats = layout.prepareStats(this.flow)
+    this.buildGraph()
+    this.drawMinimap()
+    this.buildLabels()
+  },
+
+  renderStatus() {
+    const first = layout.firstSpend(this.flow)
     const stored = this.flow.blocks.reduce((s, b) => s + b[3], 0)
     const expected = this.flow.blocks.reduce((s, b) => s + b[2], 0)
     const parts = [
       `${fmtInt(this.flow.n)} txs, ${fmtInt(this.flow.edges.length)} spends, ${fmtInt(this.flow.outCount)} outputs in blocks ${fmtInt(this.from)} to ${fmtInt(this.to)}.`
     ]
-    if (stored < expected) parts.push(`${fmtInt(expected - stored)} txs in this range aren't synced yet.`)
+    if (stored < expected) {
+      parts.push(`${fmtInt(expected - stored)} txs in this range aren't synced yet; they join the scene as their blocks complete.`)
+    }
     if (this.flow.truncated) parts.push(`Cut at block ${fmtInt(this.to)} to stay under the tx cap.`)
     if (first) parts.push(`First spend here: block ${fmtInt(first.height)}.`)
     if (Number.isFinite(this.flow.spendsKnownThrough)) {
       parts.push(`Spends are known through block ${fmtInt(this.flow.spendsKnownThrough)}.`)
     }
     this.setStatus(parts.join(" "))
-    this.drawMinimap()
-    this.buildLabels()
   },
 
   clearGraph() {
