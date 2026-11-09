@@ -125,6 +125,18 @@ defmodule BitblocksWeb.TransactionLive.ShowTest do
       refute html =~ "could not be decoded"
     end
 
+    test "a row whose bytes live only in the store reads them from there", %{conn: conn} do
+      tx = insert_tx(@genesis_raw, @genesis_txid)
+      tx |> Ecto.Changeset.change(raw: nil) |> Bitblocks.Repo.update!()
+      :ok = Bitblocks.TxStore.put(@genesis_txid, Base.decode16!(@genesis_raw, case: :lower))
+
+      {:ok, view, html} = live(conn, ~p"/transactions/#{@genesis_txid}")
+
+      assert has_element?(view, "#tx-raw", @genesis_raw)
+      assert html =~ "Chancellor"
+      refute html =~ "not downloaded yet"
+    end
+
     test "a row whose hex will not decode says so", %{conn: conn} do
       tx = insert_tx("00ff", "badraw#{System.unique_integer([:positive])}")
 

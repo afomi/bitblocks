@@ -125,20 +125,11 @@ defmodule Bitblocks.Chain.TxPipeline.TokenRecipientsBackfill do
   end
 
   defp outputs_by_vout(tx) do
-    with {:ok, tx} <- with_raw(tx),
+    with %{raw: raw} = tx when is_binary(raw) and raw != "" <- TxStore.with_raw(tx),
          {:ok, outputs} <- Chain.token_outputs(tx) do
       Map.new(outputs, &{&1.vout, &1})
     else
       _ -> %{}
-    end
-  end
-
-  # The row's own bytes, else the tx store's.
-  defp with_raw(%Transaction{raw: raw} = tx) when is_binary(raw) and raw != "", do: {:ok, tx}
-
-  defp with_raw(%Transaction{txid: txid} = tx) do
-    with {:ok, bytes} <- TxStore.raw(txid) do
-      {:ok, %{tx | raw: Base.encode16(bytes, case: :lower)}}
     end
   end
 

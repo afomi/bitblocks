@@ -1,7 +1,7 @@
 defmodule BitblocksWeb.TransactionLive.Show do
   use BitblocksWeb, :live_view
 
-  alias Bitblocks.{Chain, TransactionParser, Collections}
+  alias Bitblocks.{Chain, TransactionParser, Collections, TxStore}
   alias Bitblocks.Bitcom.BFile
   alias Bitblocks.Script.{Descriptor, Templates}
   alias BitblocksWeb.TxSummary
@@ -52,6 +52,9 @@ defmodule BitblocksWeb.TransactionLive.Show do
       else
         transaction
       end
+
+    # A row whose bytes live only in the tx store reads them from there.
+    transaction = TxStore.with_raw(transaction)
 
     # Get the block for this transaction
     block =
@@ -315,7 +318,7 @@ defmodule BitblocksWeb.TransactionLive.Show do
       |> Enum.flat_map(fn txid ->
         case Chain.get_transaction(txid) do
           nil -> []
-          tx -> [{txid, tx}]
+          tx -> [{txid, TxStore.with_raw(tx)}]
         end
       end)
       |> Map.new()

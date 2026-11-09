@@ -70,6 +70,8 @@ Stored as bytes (`bytea`), not hex, when the column is next touched: half the si
    `Release.tx_store_reconcile/3` already counts what's missing per block range, so this is checkable from day one.
 2. The `/tx/<txid>` origin endpoint behind CloudFront, reading the per-block object by range.
 3. Route every reader of `raw` through `TxStore.raw/1`: about 12 modules today, including the tx page, `/content`, tokens, collections, the tx pipeline backfills and `ChainFlow`.
+   A reader holding a row takes `TxStore.with_raw/1`, which fills an empty `raw` from the store as hex.
+   Done: the tx page (and the input values it reads from parent txs), the token recipients backfill, `/content`, BCat, BEEF and the raw endpoint.
 4. Readers of the decoded `inputs` and `outputs` (about 20 modules) move to parsed raw or to the kept metadata columns, one at a time, each with its tests.
 5. Then stop writing the hex and asm into `inputs` and `outputs`, and stop keeping `raw` above the threshold.
 6. A backfill for blocks already synced: write their block objects, then trim their rows, in ranges, with a dry run first, like the tally backfills.

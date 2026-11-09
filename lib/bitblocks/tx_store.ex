@@ -113,6 +113,24 @@ defmodule Bitblocks.TxStore do
     end
   end
 
+  @doc """
+  A row with its raw hex filled in: the row as it is when it holds `raw`,
+  else with the store's bytes (`raw/1`) as lowercase hex, else as it is. For
+  readers of a row's `raw`, so a row whose bytes live only in the store reads
+  the same (docs/TX_STORAGE.md, step 3).
+  """
+  @spec with_raw(map()) :: map()
+  def with_raw(%{raw: raw} = row) when is_binary(raw) and raw != "", do: row
+
+  def with_raw(%{txid: txid} = row) when is_binary(txid) do
+    case raw(txid) do
+      {:ok, bytes} -> %{row | raw: Base.encode16(bytes, case: :lower)}
+      {:error, _} -> row
+    end
+  end
+
+  def with_raw(row), do: row
+
   defp from_tx_object(txid) do
     with {:ok, bytes} <- adapter().get(key(txid)) do
       verified(txid, bytes)

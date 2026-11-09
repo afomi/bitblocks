@@ -42,6 +42,16 @@ defmodule Bitblocks.TxStoreTest do
     assert bytes == ctx.bytes
   end
 
+  test "with_raw/1 fills a row's raw from the store, and keeps a row's own", ctx do
+    assert :ok = TxStore.put(ctx.txid, ctx.bytes)
+    hex = Base.encode16(ctx.bytes, case: :lower)
+
+    assert TxStore.with_raw(%{txid: ctx.txid, raw: nil}).raw == hex
+    assert TxStore.with_raw(%{txid: ctx.txid, raw: ""}).raw == hex
+    assert TxStore.with_raw(%{txid: ctx.txid, raw: "00"}).raw == "00"
+    assert TxStore.with_raw(%{txid: String.duplicate("ab", 32), raw: nil}).raw == nil
+  end
+
   test "importing a tx for a collection enqueues its blob write", ctx do
     OrdinalCollections.import_txs([ctx.txid])
     assert_enqueued(worker: StoreTxBlobWorker, args: %{"txid" => ctx.txid})
