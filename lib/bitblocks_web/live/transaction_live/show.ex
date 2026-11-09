@@ -170,6 +170,10 @@ defmodule BitblocksWeb.TransactionLive.Show do
 
     socket
     |> assign(:hodlocker, hodlocker || nil)
+    |> assign(
+      :hodlocker_totals,
+      hodlocker && Bitblocks.Timelocks.post_totals(hodlocker.post_txid, tip)
+    )
     |> assign(:nlocktime, nlocktime || nil)
     |> assign(:tip_height, tip)
     |> assign(:tip_time, tip_time(nlocktime, tip))

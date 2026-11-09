@@ -96,6 +96,9 @@ defmodule BitblocksWeb.Router do
     get "/bap/:bap_id/attestations", BapController, :attestations
     get "/bap/:bap_id", BapController, :show
 
+    # HodLocker (#76): what the indexed time locks back a post with
+    get "/hodlocker/posts/:txid", HodlockerController, :post
+
     # Is this outpoint an ordinal/token? yes | no | unknown (fail-closed wallets)
     get "/outpoints/:txid/:vout", OutpointController, :show
 

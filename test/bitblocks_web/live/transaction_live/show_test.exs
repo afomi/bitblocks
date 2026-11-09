@@ -86,6 +86,33 @@ defmodule BitblocksWeb.TransactionLive.ShowTest do
       assert lock =~ "#{BitblocksWeb.Sats.delimit(858_404 - tip)} blocks to go"
     end
 
+    test "a post shows what every indexed lock backs it with (#76)", %{conn: conn} do
+      post = "f76b5b61f8c2d643d10aad4dd7256090c986799293447080041a23145d253ed9"
+      like = "7f496c643364501f7b1c3f1593fd827b6e2af7207b3ead3ec04bb5666c16a88b"
+
+      for txid <- [post, like] do
+        tx = insert_tx(Map.fetch!(@hodlocker_txs, txid), txid)
+        Bitblocks.Timelocks.index(tx, Bitblocks.Chain.get_block(tx.block_hash))
+      end
+
+      {:ok, view, _html} = live(conn, ~p"/transactions/#{post}")
+
+      totals = view |> element("#tx-hodlocker-totals") |> render()
+      assert totals =~ "2,100,000,001"
+      assert totals =~ "in 2 locks"
+      assert totals =~ "1 of the transactions behind them are likes"
+    end
+
+    test "a post with no indexed lock says so", %{conn: conn} do
+      post = "f76b5b61f8c2d643d10aad4dd7256090c986799293447080041a23145d253ed9"
+      insert_tx(Map.fetch!(@hodlocker_txs, post), post)
+
+      {:ok, view, _html} = live(conn, ~p"/transactions/#{post}")
+
+      assert view |> element("#tx-hodlocker-totals") |> render() =~
+               "No lock backing this post is indexed yet"
+    end
+
     test "lock_state/2 counts down to the unlock height" do
       alias BitblocksWeb.TransactionLive.Show
       assert Show.lock_state(100, 90) == {:locked, 10}

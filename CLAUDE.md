@@ -352,6 +352,7 @@ GET /api/v1/outpoints/:txid/:vout — is this outpoint an ordinal/token? answer:
 GET /api/v1/bap/:bap_id         — BAP identity (docs/BAP.md): first_record, rotations, current_address, current_profile, rejected, as_of
 GET /api/v1/bap/:bap_id/attestations — what the identity attested, each marked revoked or not
 GET /api/v1/bap?address=        — the identities an address signs for
+GET /api/v1/hodlocker/posts/:txid — what the indexed time locks back a HodLocker post with (#76): satoshis, locked_satoshis (still locked at meta.tip_height), locks, txs, likes, first and last unlock height; read from `timelocks`, so a range not yet backfilled is missing
 GET /api/v1/script/:scripthash/history — tx history for a script (Electrum scripthash: sha256 of scriptPubKey, reversed hex)
 GET /api/v1/script/:scripthash/unspent — UTXOs locked by a script, as the address utxos: unspent (exact only), unknown, status, indexed_through_height, tip_height
 POST /api/v1/script/decode      — decode script hex into a descriptor (type, fields, asm, matched template)

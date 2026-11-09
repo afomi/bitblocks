@@ -127,17 +127,28 @@ defmodule Bitblocks.Timelocks do
   @doc """
   What every lock we've indexed backs a HodLocker post with: the sats, how
   many locks and txs, how many of those txs are likes (any tx but the post
-  itself), and the unlock heights' range. Counts only what the table holds,
-  so a range not yet backfilled is missing from it.
+  itself), and the unlock heights' range. With `tip_height`,
+  `locked_satoshis` is what is still locked above it (nil without one).
+  Counts only what the table holds, so a range not yet backfilled is
+  missing from it.
   """
-  @spec post_totals(String.t()) :: map()
-  def post_totals(post_txid) do
+  @spec post_totals(String.t(), non_neg_integer() | nil) :: map()
+  def post_totals(post_txid, tip_height \\ nil) do
     totals =
       Repo.one(
         from(l in Lock,
           where: l.backs_txid == ^post_txid,
           select: %{
             satoshis: coalesce(sum(l.satoshis), 0),
+            # Still locked at our tip: the unlock height is above it.
+            locked_satoshis:
+              fragment(
+                "COALESCE(SUM(?) FILTER (WHERE ?::bigint IS NOT NULL AND ? > ?::bigint), 0)",
+                l.satoshis,
+                type(^tip_height, :integer),
+                l.unlock_height,
+                type(^tip_height, :integer)
+              ),
             locks: count(l.id),
             txs: count(l.txid, :distinct),
             likes:
@@ -150,6 +161,7 @@ defmodule Bitblocks.Timelocks do
 
     totals
     |> Map.update!(:satoshis, &to_integer/1)
+    |> Map.update!(:locked_satoshis, &if(tip_height, do: to_integer(&1)))
     |> Map.put(:post_txid, post_txid)
   end
 

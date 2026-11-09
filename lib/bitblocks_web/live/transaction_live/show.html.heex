@@ -544,6 +544,25 @@
         Posted by <span class="font-mono"><%= @hodlocker.paymail %></span>.
       <% end %>
     </p>
+    <%!-- #76: every indexed lock that backs the post, from the timelocks table --%>
+    <p
+      :if={@hodlocker_totals}
+      id="tx-hodlocker-totals"
+      class="text-sm text-gray-700 dark:text-gray-300 mb-4"
+    >
+      <%= if @hodlocker_totals.locks == 0 do %>
+        No lock backing this post is indexed yet.
+      <% else %>
+        Every lock we have indexed backs the post with
+        <span class="font-mono tabular-nums"><%= BitblocksWeb.Sats.delimit(@hodlocker_totals.satoshis) %></span>
+        sats, in <%= BitblocksWeb.Sats.delimit(@hodlocker_totals.locks) %> locks.
+        <%= BitblocksWeb.Sats.delimit(@hodlocker_totals.likes) %> of the transactions behind them are likes.
+        <%= if @hodlocker_totals.locked_satoshis do %>
+          <span class="font-mono tabular-nums"><%= BitblocksWeb.Sats.delimit(@hodlocker_totals.locked_satoshis) %></span>
+          sats are still locked at our tip.
+        <% end %>
+      <% end %>
+    </p>
     <p
       :if={@hodlocker.locks == []}
       class="text-sm text-gray-600 dark:text-gray-400"

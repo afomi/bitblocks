@@ -82,6 +82,8 @@ P2PK and P2SH are types (classifier v2), so early coinbases no longer read `cust
 STAS tokens are `stas` (classifier v3, #78), and transactions#show lists each STAS output's token id, owner and amount.
 HodLocker posts and likes are `hodlocker` (classifier v4, #75), and transactions#show says what each time lock backs, its sats, owner and unlock height.
 A tx whose nLockTime binds is `nlocktime` (classifier v5, #76), and transactions#show says until which block or time, and whether our tip has reached it.
+Script time locks (1Sat Lock, CLTV, CSV) are rows in `timelocks` (#76), with whether each binds and whether only on one branch, and `GET /api/v1/hodlocker/posts/:txid` sums what they back a post with.
+Needs on prod, with Ryan's OK: `Release.backfill_timelocks` (inserts only) and the v5 tx_types backfill, whose dry run will show many changed rows in 2015 to 2018 blocks.
 Needs on prod, with Ryan's OK: the tx_types backfill (#1); until then `/types` says no block is typed yet.
 Open: named combinations such as a listing. The canonical opcode names are agreed, and the OrdLock and CLTV hashes are pinned in the suite.
 #48 SCRUBBER: admin three.js scrub from genesis to tip, and the first surface for accounting for misspends and burns.
