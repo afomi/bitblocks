@@ -40,6 +40,12 @@ defmodule Bitblocks.Chain.TxSourcesTest do
       assert BitcoinsvCli.rate_limited?(:rate_limited)
       refute BitcoinsvCli.rate_limited?(@pruned)
     end
+
+    test "-28 is a node warming up, not a failure" do
+      assert BitcoinsvCli.warming_up?(%{"code" => -28, "message" => "Loading block index..."})
+      refute BitcoinsvCli.warming_up?(@pruned)
+      refute BitcoinsvCli.warming_up?({:connection_error, :econnrefused})
+    end
   end
 
   describe "public no-auth endpoint" do

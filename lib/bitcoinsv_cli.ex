@@ -250,6 +250,13 @@ defmodule BitcoinsvCli do
   def rate_limited?(_), do: false
 
   @doc """
+  True when the node is still starting after a restart (RPC_IN_WARMUP, -28:
+  "Loading block index...", "Verifying blocks..."): reachable, answering soon.
+  """
+  def warming_up?(%{"code" => -28}), do: true
+  def warming_up?(_), do: false
+
+  @doc """
   Batch RPC request - sends multiple RPC calls in a single HTTP request.
   This significantly reduces latency when making many calls, especially to remote nodes.
 
@@ -518,15 +525,19 @@ defmodule BitcoinsvCli do
 
         {:ok, %{"error" => reason}} ->
           # A pruned node's "not available" is an expected answer, and callers
-          # fall back to another source; keep it out of the error log.
-          if not_available?(reason) or rate_limited?(reason),
+          # fall back to another source; a node warming up after a restart
+          # (-28) answers again shortly. Keep both out of the error log.
+          if not_available?(reason) or rate_limited?(reason) or warming_up?(reason),
             do: Logger.info("Bitcoin RPC #{method}: #{redact(reason)}"),
             else: Logger.error("Bitcoin RPC error: #{redact(reason)}")
 
           {:error, reason}
 
+        # The node down or restarting: each caller retries or backs off, and
+        # Bitblocks.Ops emails "node unreachable" while it lasts, so one call
+        # is a warning, not an error.
         {:error, %HTTPoison.Error{reason: reason}} ->
-          Logger.error("Bitcoin RPC connection error: #{redact(reason)}")
+          Logger.warning("Bitcoin RPC connection error: #{redact(reason)}")
           {:error, {:connection_error, reason}}
 
         {:error, %Jason.DecodeError{}} ->

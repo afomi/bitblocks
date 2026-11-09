@@ -270,6 +270,12 @@ defmodule Bitblocks.ForkTracker do
         Logger.info("ForkTracker poll skipped: node not ready (#{message})")
         :skipped
 
+      # The node down: the next poll tries again, and Bitblocks.Ops alerts
+      # while it lasts.
+      {:error, {:connection_error, _} = reason} ->
+        Logger.warning("ForkTracker poll failed: #{inspect(reason)}")
+        :skipped
+
       {:error, reason} ->
         Logger.error("ForkTracker poll failed: #{inspect(reason)}")
         :skipped
