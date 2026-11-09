@@ -47,7 +47,12 @@ defmodule Bitblocks.ReleaseTxSizesTest do
 
   test "apply fills older rows; a rerun finds nothing", ctx do
     forget_sizes()
-    {report, _} = quietly(fn -> Release.backfill_tx_sizes(apply: true, id_window: 1) end)
+    # From the row's own id: one window per id from 1 would walk every id the
+    # test DB's sequence has handed out, which grows with every run.
+    %{id: id} = Chain.get_transaction!(ctx.txid)
+
+    {report, _} =
+      quietly(fn -> Release.backfill_tx_sizes(apply: true, id_window: 1, from_id: id) end)
 
     assert %{outcome: "ok", rows_changed: 1, rows_below_version: 0} = report
     assert %{size_bytes: size, raw_in_db: true} = Chain.get_transaction!(ctx.txid)
