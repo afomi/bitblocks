@@ -23,7 +23,7 @@ defmodule Bitblocks.TxTypesTest do
       assert [_ | _] = type.pattern.parts
       assert Enum.all?(type.pattern.parts, &(is_binary(&1.token) and is_binary(&1.label)))
       assert is_boolean(type.spendable)
-      assert type.examples.kind in ~w(tokens collections template protocol none)
+      assert type.examples.kind in ~w(tokens collections template protocol typed none)
     end
   end
 

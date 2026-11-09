@@ -16,6 +16,13 @@ defmodule Bitblocks.TxTypes.Examples do
       query matches any of them (`&&`, also GIN). No count.
     * `"protocol"`: `transactions.protocols` (GIN) for the protocol detector's
       tags. No count.
+    * `"typed"`: the type the `classify_outputs` step stamps on each tx
+      (`transactions.tx_types`, which has no index of its own). The cached
+      counts (`TxTypes.Counts`) name the 10,000-block buckets that hold the
+      type, `blocks.type_counts` names the latest blocks in them that do,
+      and each block's txs are read through the `block_hash` index. Only
+      the typed range is read, so there are none until the tx_types
+      backfill reaches a block. No count: the page shows the type's own.
     * `"none"`: no cheap source yet; the page says examples are coming.
 
   Query plans for each source are in afomi/bitblocks#49.
@@ -25,16 +32,19 @@ defmodule Bitblocks.TxTypes.Examples do
 
   require Logger
 
-  alias Bitblocks.Chain.Transaction
+  alias Bitblocks.Chain.{Block, Transaction}
   alias Bitblocks.OrdinalCollections
   alias Bitblocks.OrdinalCollections.Item
   alias Bitblocks.ProtocolRegistry
   alias Bitblocks.ProtocolRegistry.Instance
   alias Bitblocks.Repo
+  alias Bitblocks.TxTypes.Counts
 
   @limit 5
   # A slow plan should fail fast, not hold a page open.
   @timeout 5_000
+  # How many 10,000-block buckets a "typed" source reads, newest first.
+  @typed_buckets 3
 
   @type example :: %{txid: String.t(), block_height: integer() | nil, note: String.t() | nil}
 
@@ -55,6 +65,8 @@ defmodule Bitblocks.TxTypes.Examples do
 
   `status` is `:ok` (items may still be empty), `:coming` (no cheap source yet)
   or `:unavailable` (the query failed; it is logged).
+
+  A `"typed"` source reads the cached counts, or `opts[:counts]` when given.
   """
   @spec for_type(map(), keyword()) :: result()
   def for_type(type, opts \\ []) do
@@ -62,7 +74,10 @@ defmodule Bitblocks.TxTypes.Examples do
     examples = Map.get(type, :examples, %{kind: "none"})
 
     try do
-      fetch(examples, limit)
+      case examples do
+        %{kind: "typed"} -> fetch_typed(examples, type.id, opts[:counts] || Counts.get(), limit)
+        _ -> fetch(examples, limit)
+      end
     rescue
       error in [DBConnection.ConnectionError, Postgrex.Error] ->
         Logger.warning("tx type #{type.id}: examples query failed: #{Exception.message(error)}")
@@ -93,6 +108,9 @@ defmodule Bitblocks.TxTypes.Examples do
 
   def source(%{kind: "protocol", protocols: protocols}),
     do: "Transactions our protocol detector tagged #{Enum.join(protocols, " and ")}."
+
+  def source(%{kind: "typed"}),
+    do: "The latest transactions of this type in the blocks we have typed."
 
   def source(%{kind: "none"} = examples),
     do: Map.get(examples, :reason, "There is no index for this type yet.")
@@ -181,6 +199,70 @@ defmodule Bitblocks.TxTypes.Examples do
 
   defp fetch(%{kind: "none"} = examples, _limit) do
     %{status: :coming, source: source(examples), count: nil, count_label: nil, items: []}
+  end
+
+  # Buckets newest first; in each, the latest blocks whose counts name the
+  # type, then that block's txs of the type, until `limit` are found. At most
+  # @typed_buckets buckets, so a type that thins out stays bounded. The txs
+  # in a block come in no set order: sorting them would read the whole block.
+  defp fetch_typed(examples, id, counts, limit) do
+    items =
+      case Counts.adoption(counts, id) do
+        %{per_10000_blocks: buckets} ->
+          buckets
+          |> Enum.filter(&(&1.txs > 0))
+          |> Enum.reverse()
+          |> Enum.take(@typed_buckets)
+          |> take_until(limit, fn bucket, wanted ->
+            typed_in_bucket(id, bucket.from_height, counts.through_height, wanted)
+          end)
+
+        nil ->
+          []
+      end
+
+    if items == [] do
+      %{
+        status: :coming,
+        source: "They come from the blocks we have typed, and no typed block holds one yet.",
+        count: nil,
+        count_label: nil,
+        items: []
+      }
+    else
+      ok(examples, items, nil, nil)
+    end
+  end
+
+  defp typed_in_bucket(id, from_height, through, limit) do
+    from(b in Block,
+      where: b.height >= ^from_height and b.height < ^(from_height + 10_000),
+      where: b.height <= ^through,
+      where: fragment("jsonb_exists(?, ?)", b.type_counts, ^id),
+      order_by: [desc: b.height],
+      limit: ^limit,
+      select: {b.hash, b.height}
+    )
+    |> Repo.all(timeout: @timeout)
+    |> take_until(limit, fn {hash, height}, wanted ->
+      from(t in Transaction,
+        where: t.block_hash == ^hash,
+        where: fragment("? @> ?::varchar[]", t.tx_types, ^[id]),
+        limit: ^wanted,
+        select: t.txid
+      )
+      |> Repo.all(timeout: @timeout)
+      |> Enum.map(&%{txid: &1, block_height: height, note: nil})
+    end)
+  end
+
+  # Calls `fun.(item, still_wanted)` for each item in turn and joins the
+  # results, stopping once `limit` are found.
+  defp take_until(list, limit, fun) do
+    Enum.reduce_while(list, [], fn item, found ->
+      found = found ++ fun.(item, limit - length(found))
+      if length(found) >= limit, do: {:halt, found}, else: {:cont, found}
+    end)
   end
 
   defp ok(examples, items, count, count_label) do

@@ -7,7 +7,7 @@ defmodule Bitblocks.TxTypes.ExamplesTest do
   alias Bitblocks.OrdinalCollections.Item
   alias Bitblocks.Tokens
   alias Bitblocks.TxTypes
-  alias Bitblocks.TxTypes.Examples
+  alias Bitblocks.TxTypes.{Counts, Examples}
 
   defp txid(n), do: n |> Integer.to_string(16) |> String.pad_leading(64, "0") |> String.downcase()
 
@@ -110,11 +110,57 @@ defmodule Bitblocks.TxTypes.ExamplesTest do
     end
   end
 
-  test "a type with no cheap source says examples are coming" do
-    result = Examples.for_type(TxTypes.get("custom"))
+  describe "typed source" do
+    test "reads the latest typed blocks that hold the type, newest first" do
+      older = typed_block_fixture(0, %{"op-return" => 1, "p2pkh" => 1})
+      typed_block_fixture(1, %{"p2pkh" => 1})
+      newer = typed_block_fixture(2, %{"op-return" => 2})
+
+      transaction_fixture(%{txid: txid(1), block_hash: older.hash, tx_types: ["op-return"]})
+      transaction_fixture(%{txid: txid(2), block_hash: older.hash, tx_types: ["p2pkh"]})
+
+      for n <- 3..4 do
+        transaction_fixture(%{
+          txid: txid(n),
+          block_hash: newer.hash,
+          tx_types: ["p2pkh", "op-return"]
+        })
+      end
+
+      result = Examples.for_type(TxTypes.get("op-return"), counts: Counts.compute())
+
+      assert result.status == :ok
+      assert result.count == nil
+      assert result.source =~ "blocks we have typed"
+
+      assert [%{block_height: 2}, %{block_height: 2}, %{txid: last, block_height: 0}] =
+               result.items
+
+      assert last == txid(1)
+
+      assert [_, _] =
+               Examples.for_type(TxTypes.get("op-return"), counts: Counts.compute(), limit: 2).items
+    end
+
+    test "says examples are coming while no typed block holds one" do
+      typed_block_fixture(0, %{"p2pkh" => 1})
+
+      for counts <- [Counts.compute(), %{status: :pending}] do
+        result = Examples.for_type(TxTypes.get("sigma"), counts: counts)
+
+        assert result.status == :coming
+        assert result.items == []
+        assert result.source =~ "no typed block holds one yet"
+      end
+    end
+  end
+
+  test "a source of none says examples are coming, with its reason" do
+    type = %{id: "made-up", examples: %{kind: "none", reason: "No index yet."}}
+    result = Examples.for_type(type)
 
     assert result.status == :coming
     assert result.items == []
-    assert result.source =~ "comes next"
+    assert result.source == "No index yet."
   end
 end

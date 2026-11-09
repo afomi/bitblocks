@@ -108,8 +108,7 @@
       "spend": "A signature from the key in the lock: <signature>.",
       "related": ["p2pkh", "multisig"],
       "examples": {
-        "kind": "none",
-        "reason": "These cluster in the chain's early blocks, and a latest-first query would walk most of the index to reach them. The genesis coinbase is one."
+        "kind": "typed"
       }
     },
     {
@@ -144,8 +143,7 @@
       "spend": "The owner's signature, as P2PKH. To move the object with it, send it on as 1 sat.",
       "related": ["p2pkh", "1sat-inscription", "ordlock"],
       "examples": {
-        "kind": "none",
-        "reason": "Telling a 1-sat P2PKH from any other P2PKH needs the output's value, which our indexes do not hold yet."
+        "kind": "typed"
       }
     },
     {
@@ -222,8 +220,7 @@
       "spend": "The owner's signature, as P2PKH.",
       "related": ["1sat-inscription", "map"],
       "examples": {
-        "kind": "none",
-        "reason": "Our indexes do not yet tell an inscription's MAP tail apart from a MAP record elsewhere in the transaction."
+        "kind": "typed"
       }
     },
     {
@@ -380,8 +377,7 @@
       "spend": "It cannot be spent. Any sats sent to it are gone for good.",
       "related": ["b", "map", "aip", "metanet"],
       "examples": {
-        "kind": "none",
-        "reason": "Every OP_RETURN has a different shape, so our script-shape index does not group them yet."
+        "kind": "typed"
       }
     },
     {
@@ -530,8 +526,7 @@
       "spend": "It cannot be spent.",
       "related": ["aip", "map"],
       "examples": {
-        "kind": "none",
-        "reason": "Our protocol detector does not tag SIGMA yet."
+        "kind": "typed"
       }
     },
     {
@@ -566,8 +561,7 @@
       "spend": "Before Genesis: the script's own unlock data, then the script. After it: the bytes that hash to the value in the lock.",
       "related": ["multisig", "p2pkh", "custom"],
       "examples": {
-        "kind": "none",
-        "reason": "Their heights are spread unevenly, and a latest-first query could walk most of the index to reach them. Examples need an index of their own."
+        "kind": "typed"
       }
     },
     {
@@ -866,8 +860,7 @@
       "spend": "Depends on the script. Some can be spent; some never can.",
       "related": ["p2pkh", "op-return"],
       "examples": {
-        "kind": "none",
-        "reason": "Custom outputs are typed and counted on the types page; examples need an index of the shapes no type matches yet, which comes next."
+        "kind": "typed"
       }
     }
   ]

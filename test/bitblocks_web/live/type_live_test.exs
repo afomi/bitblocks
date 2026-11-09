@@ -199,9 +199,21 @@ defmodule BitblocksWeb.TypeLiveTest do
       assert has_element?(view, "#type-examples-empty")
     end
 
-    test "a type with no cheap source says examples are coming", %{conn: conn} do
+    test "a typed source with no typed block holding one says examples are coming", %{conn: conn} do
+      :ets.delete(Bitblocks.TxTypes.Counts, :summary)
+
       {:ok, view, _html} = live(conn, ~p"/types/op-return")
       assert has_element?(view, "#type-examples-coming", "Examples coming.")
+    end
+
+    test "a typed source lists txs from the typed blocks", %{conn: conn} do
+      block = typed_block_fixture(0, %{"op-return" => 1})
+      transaction_fixture(%{txid: txid(7), block_hash: block.hash, tx_types: ["op-return"]})
+      Bitblocks.TxTypes.Counts.refresh()
+      on_exit(fn -> :ets.delete(Bitblocks.TxTypes.Counts, :summary) end)
+
+      {:ok, view, _html} = live(conn, ~p"/types/op-return")
+      assert has_element?(view, "#type-examples-list a[href='/transactions/#{txid(7)}']")
     end
 
     test "Metanet shows the paper, its concepts and the CC BY-SA attribution", %{conn: conn} do
