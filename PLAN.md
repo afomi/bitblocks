@@ -77,6 +77,7 @@ Phase 1 is built: `/types`, `/types/:id` and `/api/v1/types`, with examples read
 Phase 2 is built (2026-11-04): stable template hashes (script analysis v7), `Bitblocks.TxTypes.Classifier` passing every vector in `priv/data/tx_types/output_types_v1.json`, the `classify_outputs` and `type_counts` pipeline steps, and counts per type (with `custom`) on `/types` and `/api/v1/types`.
 P2PK and P2SH are types (classifier v2), so early coinbases no longer read `custom`.
 STAS tokens are `stas` (classifier v3, #78), and transactions#show lists each STAS output's token id, owner and amount.
+HodLocker posts and likes are `hodlocker` (classifier v4, #75), and transactions#show says what each time lock backs, its sats, owner and unlock height.
 Needs on prod, with Ryan's OK: the tx_types backfill (#1); until then `/types` says no block is typed yet.
 Open: named combinations such as a listing. The canonical opcode names are agreed, and the OrdLock and CLTV hashes are pinned in the suite.
 #48 SCRUBBER: admin three.js scrub from genesis to tip, and the first surface for accounting for misspends and burns.

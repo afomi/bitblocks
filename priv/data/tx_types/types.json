@@ -896,6 +896,42 @@
       }
     },
     {
+      "id": "hodlocker",
+      "title": "HodLocker post or like",
+      "short": "HodLocker",
+      "group": "applications",
+      "summary": "A post or a like backed by sats in a time lock. The lock is the vote: what it holds, and for how long.",
+      "description": [
+        "HodLocker was a social app where people locked sats to what they wrote and to what they liked.",
+        "A post is a time lock output, then a B record with the text and a MAP record with app hodlocker.com, type post and the author's paymail.",
+        "A reply is a post whose MAP record also names the post it answers, as context tx and tx.",
+        "A like is a time lock output, then a MAP record with type like and the txid of the post it backs.",
+        "Nothing can move the locked sats before the unlock height; after it, the owner spends them with a signature."
+      ],
+      "history": [
+        "HodLocker ran on BSV from 2023; the posts Bitblocks has read date from September 2023 to March 2024, around blocks 810,000 to 838,000.",
+        "Its source is public at github.com/zer0dt/hodlocker; hodlocker.com no longer serves the app."
+      ],
+      "spec": {
+        "label": "HodLocker source",
+        "url": "https://github.com/zer0dt/hodlocker"
+      },
+      "pattern": {
+        "parts": [
+          {"token": "<time lock>", "label": "The sats locked, the owner, and the unlock height."},
+          {"token": "OP_FALSE OP_RETURN B <text> text/markdown UTF-8 |", "label": "A post's text, as a B record. A like has none."},
+          {"token": "MAP SET app hodlocker.com type post", "label": "Or type like, with tx <txid>: the post the lock backs."}
+        ],
+        "note": "A reply's MAP record adds context tx and tx <txid>, the post it answers."
+      },
+      "spendable": true,
+      "spend": "The locked output, by its owner's signature from the unlock height on. The data output cannot be spent.",
+      "related": ["timelock", "b", "map"],
+      "examples": {
+        "kind": "typed"
+      }
+    },
+    {
       "id": "custom",
       "title": "Custom",
       "short": "Custom",

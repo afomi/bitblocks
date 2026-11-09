@@ -35,7 +35,8 @@ defmodule Bitblocks.TxTypes.Classifier do
   The set of its outputs' types, plus the known protocols of the later
   segments of its data outputs (a B file with a MAP record after the pipe
   is `b` and `map`; MAP signed by SIGMA is `map` and `sigma`), in the order
-  of `types.json`.
+  of `types.json`. A MAP record whose `app` is `hodlocker.com` adds
+  `hodlocker` (`Bitblocks.HodLocker`).
 
   Inputs matter in one place, kept simple: a Metanet node that names a
   parent is a node only when one of the tx's inputs is signed with a key
@@ -59,7 +60,8 @@ defmodule Bitblocks.TxTypes.Classifier do
   # v2 (#49): P2PK and P2SH get their own types, so early coinbases stop
   # reading `custom`.
   # v3 (#78): STAS token outputs are `stas`, matched by their contract bytes.
-  @version 3
+  # v4 (#75): a tx with a HodLocker MAP record is also `hodlocker`.
+  @version 4
 
   @b "19HxigV4QyBv3tHpQVcUEQyq1pzZVdoAut"
   @map "1PuQa7K62MiKCtssSLKy1kh56WWU7MtUR5"
@@ -147,7 +149,8 @@ defmodule Bitblocks.TxTypes.Classifier do
             type -> type
           end
 
-        {type, rest |> Enum.map(&segment_type/1) |> Enum.reject(&(&1 in [nil, "metanet"]))}
+        later = rest |> Enum.map(&segment_type/1) |> Enum.reject(&(&1 in [nil, "metanet"]))
+        {type, later ++ if(Bitblocks.HodLocker.record?(chunks), do: ["hodlocker"], else: [])}
 
       _ ->
         {output_type(script, sats), []}

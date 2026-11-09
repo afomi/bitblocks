@@ -156,8 +156,31 @@ defmodule BitblocksWeb.TransactionLive.Show do
      |> assign(:protocol_links, protocol_links)
      |> assign(:has_b_file, match?(%BSV.Tx{}, decoded_tx) and BFile.parse(decoded_tx) != :error)
      |> assign(:descriptors_by_vout, Map.new(output_descriptors, &{&1.vout, &1}))
-     |> assign(:stas_outputs, stas_outputs(decoded_tx))}
+     |> assign(:stas_outputs, stas_outputs(decoded_tx))
+     |> assign_hodlocker(decoded_tx, transaction.txid)}
   end
+
+  # HodLocker (#75): what this tx's time locks back, and our tip, which says
+  # how many blocks each lock has left.
+  defp assign_hodlocker(socket, decoded_tx, txid) do
+    case decoded_tx && txid && Bitblocks.HodLocker.parse(decoded_tx, txid) do
+      %{} = hodlocker ->
+        socket
+        |> assign(:hodlocker, hodlocker)
+        |> assign(:tip_height, Bitblocks.ChainTiles.chain_tip())
+
+      _ ->
+        socket |> assign(:hodlocker, nil) |> assign(:tip_height, nil)
+    end
+  end
+
+  @doc """
+  How a lock stands at our tip: `{:locked, blocks_left}`, `:unlocked`, or
+  `:unknown` with no tip.
+  """
+  def lock_state(_unlock_height, nil), do: :unknown
+  def lock_state(unlock_height, tip) when tip >= unlock_height, do: :unlocked
+  def lock_state(unlock_height, tip), do: {:locked, unlock_height - tip}
 
   @doc """
   The STAS token outputs of a decoded tx (#78), as `{vout, satoshis, token}`

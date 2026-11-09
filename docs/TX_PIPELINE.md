@@ -88,6 +88,7 @@ An output's type is the first rule that matches:
 4. Anything else is `custom`, so the `custom` count measures what is left to type.
 
 The tx's type also takes the known protocols after a pipe in its data outputs (B then MAP is `b` and `map`).
+A MAP record whose `app` is `hodlocker.com` adds `hodlocker`, a post or like backed by a time lock (`Bitblocks.HodLocker`).
 Inputs matter in one place: a Metanet node that names a parent counts only when an input is signed with a key, since only the parent's key can add a child; otherwise its output is `op-return`.
 Whether that key is the parent's needs the parent tx, so `Bitblocks.Metanet` checks it when it reads the tree, and this step does not.
 Each type in `types.json` lists the shared vectors it claims (`vectors`), and `test/bitblocks/tx_types/classifier_test.exs` runs every vector in `output_types_v1.json` through the classifier.

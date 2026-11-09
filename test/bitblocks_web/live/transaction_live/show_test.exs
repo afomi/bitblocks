@@ -60,6 +60,40 @@ defmodule BitblocksWeb.TransactionLive.ShowTest do
     BSV.Tx.to_binary(tx, encoding: :hex)
   end
 
+  describe "HodLocker (#75)" do
+    @hodlocker_txs "test/support/data/hodlocker_txs.json"
+                   |> File.read!()
+                   |> Jason.decode!()
+                   |> Map.fetch!("txs")
+                   |> Map.new(&{&1["txid"], &1["raw"]})
+
+    test "a like shows the sats locked, the owner, the unlock height and the post", %{conn: conn} do
+      like = "7f496c643364501f7b1c3f1593fd827b6e2af7207b3ead3ec04bb5666c16a88b"
+      post = "f76b5b61f8c2d643d10aad4dd7256090c986799293447080041a23145d253ed9"
+      # The fixture's block is our tip, below the unlock height.
+      insert_tx(Map.fetch!(@hodlocker_txs, like), like)
+      tip = Bitblocks.ChainTiles.chain_tip()
+
+      {:ok, view, _html} = live(conn, ~p"/transactions/#{like}")
+
+      assert view |> element("#tx-hodlocker h2") |> render() =~ "HodLocker like"
+      assert has_element?(view, ~s(#tx-hodlocker-backs a[href="/transactions/#{post}"]))
+
+      lock = view |> element("#hodlocker-lock-0") |> render()
+      assert lock =~ "2,100,000,000"
+      assert lock =~ "13PnV1oUFYAeMUzzvoKFWX9FpjnMxyUpM9"
+      assert lock =~ "858,404"
+      assert lock =~ "#{BitblocksWeb.Sats.delimit(858_404 - tip)} blocks to go"
+    end
+
+    test "lock_state/2 counts down to the unlock height" do
+      alias BitblocksWeb.TransactionLive.Show
+      assert Show.lock_state(100, 90) == {:locked, 10}
+      assert Show.lock_state(100, 100) == :unlocked
+      assert Show.lock_state(100, nil) == :unknown
+    end
+  end
+
   describe "STAS tokens (#78)" do
     test "a STAS output shows its token id, owner, amount and data", %{conn: conn} do
       # The real STAS output 0 of 0f9e2366…54a8 (chain_vectors.json's chain_stas),
