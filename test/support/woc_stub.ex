@@ -34,8 +34,14 @@ defmodule Bitblocks.WocStub do
   end
 
   # The public tip is read by the long-lived SyncProgress server, not a test
-  # process, so there is no per-test fixture: WoC is simply unavailable.
-  def chain_tip, do: {:error, :not_stubbed}
+  # process, so there WoC is simply unavailable. A test that reads WoC in
+  # its own process may set `:woc_chain_tip`.
+  def chain_tip do
+    case Process.get(:woc_chain_tip) do
+      height when is_integer(height) -> {:ok, height}
+      _ -> {:error, :not_stubbed}
+    end
+  end
 
   def address_history(address, token) do
     case Process.get(:woc_address_history, %{})[{address, token}] do

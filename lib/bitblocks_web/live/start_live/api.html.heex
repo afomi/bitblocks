@@ -172,6 +172,12 @@
         While the sync climbs, expect the last two, and treat unknown as unknown.
       </p>
       <p>
+        Address history reads our index through the last complete block and WhatsOnChain above it, so the newest payments show up soon after they confirm.
+        Each row names its <code class="font-mono text-xs">source</code>,
+        and <code class="font-mono text-xs">meta.sources</code>
+        says which heights each one covers.
+      </p>
+      <p>
         If you need a whole-chain balance today, <.text_link href="https://docs.whatsonchain.com/">WhatsOnChain's API</.text_link> is the place to look.
       </p>
     </div>

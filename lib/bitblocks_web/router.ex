@@ -89,6 +89,7 @@ defmodule BitblocksWeb.Router do
     # Addresses (proxied to WhatsOnChain until we have our own UTXO index)
     get "/addresses/:address/utxos", AddressController, :utxos
     get "/addresses/:address/balance", AddressController, :balance
+    get "/addresses/:address/history", AddressController, :history
     get "/addresses/:address/tokens", AddressController, :tokens
 
     # BAP identities (#32): read-only, public chain data

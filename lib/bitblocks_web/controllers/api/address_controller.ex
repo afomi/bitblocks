@@ -11,7 +11,8 @@ defmodule BitblocksWeb.Api.AddressController do
   """
   use BitblocksWeb, :controller
 
-  alias Bitblocks.Chain.Utxos
+  alias Bitblocks.Chain
+  alias Bitblocks.Chain.{AddressHistory, Utxos}
   alias BitblocksWeb.Utils.BsvParams
 
   action_fallback BitblocksWeb.FallbackController
@@ -67,6 +68,60 @@ defmodule BitblocksWeb.Api.AddressController do
     else
       {:error, :invalid_address} ->
         conn |> put_status(400) |> json(%{error: "Invalid address"})
+    end
+  end
+
+  @doc """
+  Every confirmed tx that touched an address, newest first (#80).
+
+  GET /api/v1/addresses/:address/history?limit=&cursor=
+
+  Each row has `txid`, `height`, `net_sats` (nil with `net_sats_reason`
+  when an input's value isn't known) and `source` (`local` or
+  `whatsonchain`). `meta` has `status` (`exact`, `partial` or `unknown`),
+  `indexed_through_height`, `tip_height`, `next_cursor` and `sources`.
+  Our index answers through `indexed_through_height`, WhatsOnChain above
+  it (`Bitblocks.Chain.AddressHistory`). `limit` is 50 by default, at
+  most 200; `cursor` is the previous page's `meta.next_cursor`.
+  """
+  def history(conn, %{"address" => address} = params) do
+    with {:ok, valid} <- BsvParams.address(address),
+         {:ok, cursor} <- Chain.decode_tx_cursor(params["cursor"]),
+         {:ok, limit} <- limit_param(params["limit"]) do
+      page = AddressHistory.page(valid, cursor: cursor, limit: limit)
+
+      json(conn, %{
+        data: page.rows,
+        meta:
+          page
+          |> Map.take([:status, :indexed_through_height, :tip_height, :next_cursor, :sources])
+          |> Map.merge(%{address: valid, count: length(page.rows), limit: limit})
+      })
+    else
+      {:error, :invalid_address} ->
+        conn |> put_status(400) |> json(%{error: "Invalid address"})
+
+      {:error, :invalid_limit} ->
+        conn
+        |> put_status(400)
+        |> json(%{
+          error: "Invalid limit: a whole number from 1 to #{AddressHistory.max_limit()}."
+        })
+
+      :error ->
+        conn
+        |> put_status(400)
+        |> json(%{error: "Invalid cursor: use meta.next_cursor from the previous page."})
+    end
+  end
+
+  defp limit_param(nil), do: {:ok, AddressHistory.default_limit()}
+  defp limit_param(""), do: {:ok, AddressHistory.default_limit()}
+
+  defp limit_param(raw) do
+    case Integer.parse(raw) do
+      {n, ""} when n >= 1 -> {:ok, min(n, AddressHistory.max_limit())}
+      _ -> {:error, :invalid_limit}
     end
   end
 

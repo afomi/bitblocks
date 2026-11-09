@@ -122,9 +122,15 @@ defmodule BitblocksWeb.StartLive.Api do
           ),
           row(
             "GET",
+            "/api/v1/addresses/:address/history",
+            :caller,
+            "Every transaction touching an address, newest first, with its net sats and status."
+          ),
+          row(
+            "GET",
             "/api/v1/script/:scripthash/history",
             :caller,
-            "Every transaction touching a script."
+            "Transactions paying a script, with its status."
           ),
           row(
             "GET",

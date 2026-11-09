@@ -1541,6 +1541,11 @@ defmodule Bitblocks.Chain do
     for json <- list, {:ok, %{} = map} <- [Jason.decode(json)], do: map
   end
 
+  @script_history_limit 1000
+
+  @doc "The most rows `history_for_script_hash/1` returns."
+  def script_history_limit, do: @script_history_limit
+
   @doc """
   Transactions whose outputs include the given Electrum-convention scripthash
   (GIN lookup on `output_script_hashes`), newest first.
@@ -1553,7 +1558,7 @@ defmodule Bitblocks.Chain do
       from t in Transaction,
         where: fragment("? @> ARRAY[?]::varchar[]", t.output_script_hashes, ^script_hash),
         order_by: [desc: t.block_height],
-        limit: 1000,
+        limit: @script_history_limit,
         select: %{txid: t.txid, block_height: t.block_height, block_hash: t.block_hash}
     )
   end

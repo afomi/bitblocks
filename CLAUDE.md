@@ -328,6 +328,7 @@ GET /api/v1/tokens/:id/transfers — transfer history for a token
 GET /api/v1/tokens/stats        — token aggregate statistics
 GET /api/v1/stream/tokens       — SSE stream of new tokens / transfers
 GET /api/v1/addresses/:address/balance — status exact | partial | unknown, indexed_through_height, tip_height; confirmed only when exact, else unknown (sats with no settled spent-ness). Rule: Bitblocks.Chain.Utxos
+GET /api/v1/addresses/:address/history — every confirmed tx touching it, newest first (?limit= 50, max 200; ?cursor=<height>:<txid>): txid, height, net_sats (nil with net_sats_reason when an input's value is unknown), source local | whatsonchain; meta status (Chain.Utxos rule), indexed_through_height, tip_height, next_cursor, sources. Our index through complete_through, WhatsOnChain above it (Woc.AddressHistory: bounded, 5-minute cache, unavailable with a reason past its bound)
 GET /api/v1/addresses/:address/utxos — data: known-unspent outputs only (empty unless exact); unknown: outputs whose spent-ness isn't settled; meta.status, meta.indexed_through_height
 GET /api/v1/utxo/:txid/:vout/owner — address, spent (true | false | null), status, source: local | whatsonchain (local first; WoC only when local is unknown or the tx isn't stored)
 GET /api/v1/woc/address/:address/balance|unspent — WoC shapes, served only when exact; otherwise a 503 with status and indexed_through_height
@@ -353,7 +354,7 @@ GET /api/v1/bap/:bap_id         — BAP identity (docs/BAP.md): first_record, ro
 GET /api/v1/bap/:bap_id/attestations — what the identity attested, each marked revoked or not
 GET /api/v1/bap?address=        — the identities an address signs for
 GET /api/v1/hodlocker/posts/:txid — what the indexed time locks back a HodLocker post with (#76): satoshis, locked_satoshis (still locked at meta.tip_height), locks, txs, likes, first and last unlock height; read from `timelocks`, so a range not yet backfilled is missing
-GET /api/v1/script/:scripthash/history — tx history for a script (Electrum scripthash: sha256 of scriptPubKey, reversed hex)
+GET /api/v1/script/:scripthash/history — tx history for a script (Electrum scripthash: sha256 of scriptPubKey, reversed hex), from our index; meta as address history (status, indexed_through_height, tip_height, next_cursor nil, sources)
 GET /api/v1/script/:scripthash/unspent — UTXOs locked by a script, as the address utxos: unspent (exact only), unknown, status, indexed_through_height, tip_height
 POST /api/v1/script/decode      — decode script hex into a descriptor (type, fields, asm, matched template)
 GET /api/v1/script/templates    — registered script templates

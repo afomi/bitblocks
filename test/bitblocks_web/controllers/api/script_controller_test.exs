@@ -49,6 +49,23 @@ defmodule BitblocksWeb.Api.ScriptControllerTest do
       assert entry["block_height"] == 500
     end
 
+    test "says how far the history is complete, as address history does", %{conn: conn} do
+      completed_chain_fixture(5)
+      conn = get(conn, ~p"/api/v1/script/#{String.duplicate("aa", 32)}/history")
+
+      assert %{
+               "status" => "exact",
+               "indexed_through_height" => 5,
+               "tip_height" => 5,
+               "next_cursor" => nil,
+               "sources" => [%{"source" => "index", "from_height" => 0, "through_height" => 5}]
+             } = json_response(conn, 200)["meta"]
+
+      block_fixture(%{height: 6, sync_state: "header_only"})
+      conn = get(build_conn(), ~p"/api/v1/script/#{String.duplicate("aa", 32)}/history")
+      assert %{"status" => "partial", "tip_height" => 6} = json_response(conn, 200)["meta"]
+    end
+
     test "empty history for an unseen scripthash", %{conn: conn} do
       conn = get(conn, ~p"/api/v1/script/#{String.duplicate("aa", 32)}/history")
       assert %{"history" => []} = json_response(conn, 200)

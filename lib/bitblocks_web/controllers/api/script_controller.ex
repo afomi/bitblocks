@@ -20,22 +20,45 @@ defmodule BitblocksWeb.Api.ScriptController do
   use BitblocksWeb, :controller
 
   alias Bitblocks.Chain
-  alias Bitblocks.Chain.Utxos
+  alias Bitblocks.Chain.{AddressHistory, Utxos}
   alias Bitblocks.Script.{Descriptor, Templates}
   alias BitblocksWeb.Utils.BsvParams
 
   action_fallback BitblocksWeb.FallbackController
 
+  @doc """
+  Txs whose outputs include the script, newest first, up to 1,000, from
+  our index alone. `meta` has the coverage fields address history has
+  (#80): `status` (`exact` only when the index reaches our tip and the
+  list isn't cut at 1,000), `indexed_through_height`, `tip_height`,
+  `next_cursor` (always nil: one page) and `sources`.
+  """
   def history(conn, %{"scripthash" => raw}) do
     with {:ok, scripthash} <- BsvParams.scripthash(raw) do
       scripthash = String.downcase(scripthash)
+      history = Chain.history_for_script_hash(scripthash)
+      coverage = Utxos.coverage()
 
       json(conn, %{
         scripthash: scripthash,
-        history: Chain.history_for_script_hash(scripthash),
-        source: "local"
+        history: history,
+        source: "local",
+        meta: %{
+          status: history_status(coverage, length(history)),
+          indexed_through_height: coverage.indexed_through_height,
+          tip_height: coverage.tip_height,
+          next_cursor: nil,
+          sources: [AddressHistory.index_source(coverage.indexed_through_height)]
+        }
       })
     end
+  end
+
+  defp history_status(%{tip_height: nil}, _count), do: :unknown
+  defp history_status(%{indexed_through_height: through}, _count) when through < 0, do: :unknown
+
+  defp history_status(%{complete?: complete?}, count) do
+    if complete? and count < Chain.script_history_limit(), do: :exact, else: :partial
   end
 
   def unspent(conn, %{"scripthash" => raw}) do
