@@ -14,6 +14,13 @@ defmodule BitblocksWeb.Api.TransactionController do
   backfill of old blocks never jumps the first page. `cursor` is the previous
   page's `meta.next_cursor`. `meta.complete` is false while any block in the
   listing's range isn't `completed` (`Chain.tx_list_coverage/1`).
+
+  `type` is a transaction type id (`GET /api/v1/types`): the txs whose
+  stored types hold it. Types are a derivation (`docs/DERIVED_DATA.md`), so
+  `meta.typed_through_height` says how far they are current: every block
+  `0..H` is complete and typed at the current classifier version
+  (`TxTypes.Counts`), -1 when none is, nil before the first count.
+  An unknown id is a 400.
   """
   def index(conn, params) do
     per_page = parse_int(params["per_page"], 50) |> min(100)
@@ -23,18 +30,25 @@ defmodule BitblocksWeb.Api.TransactionController do
       |> maybe_put(:block_hash, params["block_hash"])
       |> maybe_put(:txid_search, params["txid"])
       |> maybe_put(:protocol, params["protocol"])
+      |> maybe_put(:tx_type, params["type"])
 
-    case Chain.decode_tx_cursor(params["cursor"]) do
-      {:ok, cursor} ->
-        {txs, next_cursor} = Chain.list_transactions_paginated(cursor, per_page, filters)
+    with {:type, true} <- {:type, known_type?(filters[:tx_type])},
+         {:ok, cursor} <- Chain.decode_tx_cursor(params["cursor"]) do
+      {txs, next_cursor} = Chain.list_transactions_paginated(cursor, per_page, filters)
 
-        json(conn, %{
-          data: with_confirmation(txs),
-          meta:
-            filters
-            |> Chain.tx_list_coverage()
-            |> Map.merge(%{next_cursor: next_cursor, per_page: per_page})
-        })
+      json(conn, %{
+        data: with_confirmation(txs),
+        meta:
+          filters
+          |> Chain.tx_list_coverage()
+          |> Map.merge(%{next_cursor: next_cursor, per_page: per_page})
+          |> put_typed_through(filters)
+      })
+    else
+      {:type, false} ->
+        conn
+        |> put_status(:bad_request)
+        |> json(%{error: "Unknown type: use an id from GET /api/v1/types."})
 
       :error ->
         conn
@@ -42,6 +56,21 @@ defmodule BitblocksWeb.Api.TransactionController do
         |> json(%{error: "Invalid cursor: use meta.next_cursor from the previous page."})
     end
   end
+
+  defp known_type?(nil), do: true
+  defp known_type?(id), do: Bitblocks.TxTypes.get(id) != nil
+
+  defp put_typed_through(meta, %{tx_type: _}) do
+    through =
+      case Bitblocks.TxTypes.Counts.get() do
+        %{status: :ok, through_height: through} -> through
+        _ -> nil
+      end
+
+    Map.put(meta, :typed_through_height, through)
+  end
+
+  defp put_typed_through(meta, _filters), do: meta
 
   @doc """
   Get a single transaction by txid.

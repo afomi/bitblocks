@@ -55,7 +55,7 @@ defmodule BitblocksWeb.StartLive.Api do
             "GET",
             "/api/v1/txs",
             :caller,
-            "Transactions, a page at a time; filter with ?protocol= or ?block_hash=."
+            "Transactions, a page at a time; filter with ?protocol=, ?type= (a type id from /types) or ?block_hash=."
           ),
           row(
             "GET",

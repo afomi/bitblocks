@@ -17,7 +17,8 @@ defmodule Bitblocks.TxTypes.Examples do
     * `"protocol"`: `transactions.protocols` (GIN) for the protocol detector's
       tags. No count.
     * `"typed"`: the type the `classify_outputs` step stamps on each tx
-      (`transactions.tx_types`, which has no index of its own). The cached
+      (`transactions.tx_types`; its GIN index serves `/api/v1/txs?type=`,
+      and here a block's txs are read on `block_hash`). The cached
       counts (`TxTypes.Counts`) name the 10,000-block buckets that hold the
       type, `blocks.type_counts` names the latest blocks in them that do,
       and each block's txs are read through the `block_hash` index. Only

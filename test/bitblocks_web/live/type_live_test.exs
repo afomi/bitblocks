@@ -186,6 +186,12 @@ defmodule BitblocksWeb.TypeLiveTest do
       assert text(view, "#type-adoption-table") =~ "1,235"
     end
 
+    test "links the API listing of every tx of the type", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/types/stas")
+
+      assert has_element?(view, ~s(#type-txs-api-link[href="/api/v1/txs?type=stas"]))
+    end
+
     test "with no counts yet, there is no adoption section", %{conn: conn} do
       Bitblocks.TxTypes.Counts.refresh()
 

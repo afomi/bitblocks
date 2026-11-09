@@ -288,7 +288,7 @@ A key can hold scopes, none by default: `ops_read` opens `/api/v1/ops/*`, given 
 GET /api/v1/blocks              — paginated block list
 GET /api/v1/blocks/latest       — most recent block
 GET /api/v1/blocks/:id          — block by height or hash
-GET /api/v1/txs                 — transactions newest confirmation first, keyset cursor `<height>:<txid>` (?protocol=Twetch, ?block_hash=, ?txid=<hex prefix>); meta.complete is false while any block in range is not completed
+GET /api/v1/txs                 — transactions newest confirmation first, keyset cursor `<height>:<txid>` (?protocol=Twetch, ?type=<type id>, ?block_hash=, ?txid=<hex prefix>); meta.complete is false while any block in range is not completed; with ?type, meta.typed_through_height says how far types are current; an unknown type is a 400
 GET /api/v1/txs/:txid           — single transaction by txid; confirmed (true | false) and confirmation: confirmed | unverified | orphaned (`Chain.confirmations/1`), also on the list
 GET /api/v1/txs/:txid/proof     — merkle proof for a transaction
 GET /api/v1/txs/:txid/beef      — BRC-62 BEEF as hex: the tx with its own BUMP, its parents first (up to 25; parents_missing, complete); same errors as /proof

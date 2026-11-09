@@ -55,6 +55,25 @@ defmodule BitblocksWeb.Api.TransactionControllerTest do
       assert %{"data" => []} = conn |> get(~p"/api/v1/txs?txid=%25abc") |> json_response(200)
     end
 
+    test "a type filter lists the txs whose types hold it, and says how far types reach",
+         %{conn: conn} do
+      stas = transaction_fixture(%{block_height: 30, tx_types: ["p2pkh", "stas"]})
+      transaction_fixture(%{block_height: 31, tx_types: ["p2pkh"]})
+      transaction_fixture(%{block_height: 32, tx_types: nil})
+
+      body = conn |> get(~p"/api/v1/txs?type=stas") |> json_response(200)
+      assert Enum.map(body["data"], & &1["txid"]) == [stas.txid]
+      assert Map.has_key?(body["meta"], "typed_through_height")
+
+      plain = conn |> get(~p"/api/v1/txs") |> json_response(200)
+      refute Map.has_key?(plain["meta"], "typed_through_height")
+    end
+
+    test "an unknown type is refused", %{conn: conn} do
+      assert %{"error" => error} = conn |> get(~p"/api/v1/txs?type=nope") |> json_response(400)
+      assert error =~ "/api/v1/types"
+    end
+
     test "a numeric id cursor from before #35 is refused", %{conn: conn} do
       assert conn |> get(~p"/api/v1/txs?cursor=100") |> json_response(400)
     end

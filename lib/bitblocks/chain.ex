@@ -786,6 +786,11 @@ defmodule Bitblocks.Chain do
         {:protocol, protocol} when is_binary(protocol) and protocol != "" ->
           from t in acc, where: fragment("? @> ARRAY[?]::varchar[]", t.protocols, ^protocol)
 
+        # A transaction type id (`priv/data/tx_types/types.json`, #49): the
+        # txs whose stored `tx_types` hold it, on the GIN index over them.
+        {:tx_type, type} when is_binary(type) and type != "" ->
+          from t in acc, where: fragment("? @> ARRAY[?]::varchar[]", t.tx_types, ^type)
+
         {:has_inputs, true} ->
           from t in acc, where: t.input_count > 0
 
