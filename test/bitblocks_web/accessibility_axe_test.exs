@@ -202,6 +202,22 @@ defmodule BitblocksWeb.AccessibilityAxeTest do
       end
     end
 
+    for dark? <- [false, true] do
+      test "files page is accessible with a file listed, dark mode #{dark?}", %{session: session} do
+        # A real mainnet B:// tx (Twetch, 2019); see test/bitblocks/bob_test.exs.
+        txid = "7e5011d81d01c67e81ab9a50ab3077bb62b340d1b50592931e4b52afa7198e65"
+        hex = "test/fixtures/bob/#{txid}.hex" |> File.read!() |> String.trim()
+        transaction_fixture(%{txid: txid, raw: hex, protocols: ["B://"], block_height: 594_000})
+
+        session = visit(session, "/files")
+        session = if unquote(dark?), do: execute_script(session, @dark_mode_script), else: session
+
+        session
+        |> assert_has(css("#file-#{txid}"))
+        |> assert_no_violations()
+      end
+    end
+
     test "reorgs page is accessible with no reorgs recorded", %{session: session} do
       session
       |> visit("/reorgs")

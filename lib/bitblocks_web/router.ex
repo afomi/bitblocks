@@ -326,6 +326,7 @@ defmodule BitblocksWeb.Router do
       live "/bitcom", BitcomLive
       live "/bitcom/compose", BitcomComposeLive
       live "/bitcom/:address", BitcomLive
+      live "/files", FilesLive
       live "/order-book", OrderBookLive
       live "/tokens", TokenLive
       live "/tokens/:id", TokenLive

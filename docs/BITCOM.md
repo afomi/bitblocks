@@ -73,6 +73,8 @@ Usage is the count of indexed txs carrying the namespace's protocol tag, capped 
 - `GET /api/v1/bit/:address/*path`: resolves `bit://<address>/<path>` to the endpoints providers added for it.
   Endpoints are returned and never fetched, so there is no server-side request to forge.
 - `GET /b/:txid`: a B:// file, parsed from its tx on the fly, with the same untrusted-content headers as `/content`.
+- `/files`: the B:// files in the stored chain, newest stored first, with each file's C:// address (the sha256 of its bytes); `Bitblocks.Bitcom.Files`.
+  Nothing is shown inline: a file opens at `/b/:txid`.
 
 ## Snapshots
 

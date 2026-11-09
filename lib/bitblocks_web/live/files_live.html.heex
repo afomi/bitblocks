@@ -1,0 +1,139 @@
+<div class="max-w-6xl mx-auto px-4 py-8 text-gray-900 dark:text-gray-100">
+  <h1 class="text-4xl font-bold text-gray-900 dark:text-white mb-3">
+    Files on Bitcoin
+  </h1>
+  <p class="text-gray-700 dark:text-gray-300 mb-2 max-w-3xl">
+    Every B:// file in the blocks Bitblocks stores, newest first.
+    Each one is read from its transaction as this page loads.
+  </p>
+  <p class="text-gray-700 dark:text-gray-300 mb-6 max-w-3xl">
+    B:// is the file protocol unwriter published in 2019: a file's bytes, media type and name in one transaction output.
+    A file's C:// address is the sha256 of its bytes, so every copy of the same file shares it.
+    Files open at
+    <code class="font-mono">/b/&lt;txid&gt;</code>
+    as untrusted content, with scripts switched off.
+  </p>
+
+  <p
+    :if={@files == []}
+    id="files-empty"
+    class="text-gray-700 dark:text-gray-300"
+  >
+    No B:// files in the stored blocks yet.
+  </p>
+
+  <div
+    :if={@files != []}
+    class="overflow-x-auto bg-white border border-gray-200 rounded-lg dark:bg-gray-800 dark:border-gray-700"
+  >
+    <table
+      id="files"
+      class="min-w-full text-sm"
+    >
+      <thead class="bg-gray-50 text-left text-gray-700 dark:bg-gray-900 dark:text-gray-300">
+        <tr>
+          <th class="px-4 py-2">
+            File
+          </th>
+          <th class="px-4 py-2">
+            Type
+          </th>
+          <th class="px-4 py-2 text-right">
+            Size
+          </th>
+          <th class="px-4 py-2 text-right">
+            Block
+          </th>
+          <th class="px-4 py-2">
+            C:// address
+          </th>
+          <th class="px-4 py-2">
+            Transaction
+          </th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr
+          :for={file <- @files}
+          id={"file-#{file.txid}"}
+          class="border-t border-gray-100 dark:border-gray-700"
+        >
+          <%= if file.parsed do %>
+            <td class="px-4 py-2 break-all">
+              <a
+                href={~p"/b/#{file.txid}"}
+                class="text-blue-700 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
+              >
+                {file.filename || "untitled"}
+              </a>
+            </td>
+            <td class="px-4 py-2 font-mono text-xs text-gray-700 dark:text-gray-300">
+              {file.media_type || "unstated"}
+            </td>
+            <td class="px-4 py-2 text-right font-mono tabular-nums text-gray-700 dark:text-gray-300">
+              {delimit(file.size)} B
+            </td>
+          <% else %>
+            <td
+              colspan="3"
+              class="px-4 py-2 text-gray-600 dark:text-gray-400"
+            >
+              No B:// file could be read from this transaction.
+            </td>
+          <% end %>
+          <td class="px-4 py-2 text-right font-mono tabular-nums text-gray-700 dark:text-gray-300">
+            {if file.block_height, do: delimit(file.block_height), else: "unconfirmed"}
+          </td>
+          <td
+            class="px-4 py-2 font-mono text-xs text-gray-700 dark:text-gray-300"
+            title={file.sha256 && "c://#{file.sha256}"}
+          >
+            {file.sha256 && "c://#{short(file.sha256)}"}
+          </td>
+          <td class="px-4 py-2 font-mono text-xs">
+            <.link
+              navigate={~p"/transactions/#{file.txid}"}
+              class="text-blue-700 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
+            >
+              {short(file.txid)}
+            </.link>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <nav
+    :if={@next || not @first_page}
+    class="mt-4 flex gap-6 text-sm"
+    aria-label="Pages of files"
+  >
+    <.link
+      :if={not @first_page}
+      navigate={~p"/files"}
+      class="text-blue-700 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
+    >
+      Newest files
+    </.link>
+    <.link
+      :if={@next}
+      id="files-older"
+      navigate={~p"/files?#{[before: @next]}"}
+      class="text-blue-700 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
+    >
+      Older files
+    </.link>
+  </nav>
+
+  <p class="mt-8 text-sm text-gray-600 dark:text-gray-400 max-w-3xl">
+    The list grows as the sync stores more blocks.
+    B:// and C:// are unwriter's conventions; this is an independent reading of them from the chain.
+    For a namespace's own files and routes, see the
+    <.link
+      navigate={~p"/bitcom"}
+      class="underline text-blue-700 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
+    >
+      Bitcom registry
+    </.link>.
+  </p>
+</div>
