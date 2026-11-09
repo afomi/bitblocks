@@ -33,7 +33,11 @@ defmodule BitblocksWeb.BitcomLive do
           files: Bitcom.files(address),
           routes: Bitcom.routes(address),
           history: Bitcom.history(address),
-          recent: Bitcom.recent_transactions(address)
+          recent:
+            case Bitcom.recent_transactions(address) do
+              {:ok, txs} -> txs
+              {:error, _reason} -> :unavailable
+            end
         )
       else
         socket

@@ -276,12 +276,35 @@
           Recent transactions
         </h2>
         <p
+          :if={@recent == :unavailable}
+          id="bitcom-recent-unavailable"
+          class="text-gray-700"
+        >
+          Recent transactions couldn't be read just now.
+          Try again in a minute.
+        </p>
+        <p
           :if={@recent == []}
           class="text-gray-700"
         >
           None indexed.
         </p>
-        <ul class="font-mono text-sm space-y-1">
+        <p
+          :if={@entry.address == "19HxigV4QyBv3tHpQVcUEQyq1pzZVdoAut"}
+          class="text-gray-700 mb-2"
+        >
+          Each file, with its name, type and C:// address, is listed on
+          <.link
+            navigate={~p"/files"}
+            class="text-blue-700 underline"
+          >
+            Files on Bitcoin
+          </.link>.
+        </p>
+        <ul
+          :if={is_list(@recent)}
+          class="font-mono text-sm space-y-1"
+        >
           <li :for={tx <- @recent}>
             <.link
               navigate={~p"/transactions/#{tx.txid}"}

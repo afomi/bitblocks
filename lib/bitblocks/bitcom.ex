@@ -444,20 +444,33 @@ defmodule Bitblocks.Bitcom do
     }
   end
 
-  @doc "The latest indexed txs carrying the address's protocol tag."
+  @doc """
+  The latest indexed txs carrying the address's protocol tag:
+  `{:ok, [%{txid:, block_height:}]}`, or `{:error, :timeout | :unavailable}`.
+
+  Read through the tag's GIN index alone: ordering by `id + 0` keeps the
+  planner off a backward walk of the primary key, which for a common tag
+  meets millions of newer untagged rows first (the genesis-era blocks are
+  stored last) and ran for minutes. Under a 5 s statement timeout, so a slow
+  read is said, not waited on.
+  """
+  @spec recent_transactions(String.t(), pos_integer()) ::
+          {:ok, [map()]} | {:error, :timeout | :unavailable}
   def recent_transactions(address, limit \\ 10) do
     case tag(address) do
       nil ->
-        []
+        {:ok, []}
 
       tag ->
-        from(t in Bitblocks.Chain.Transaction,
-          where: fragment("? @> ARRAY[?]::varchar[]", t.protocols, ^tag),
-          order_by: [desc: t.id],
-          limit: ^limit,
-          select: %{txid: t.txid, block_height: t.block_height}
-        )
-        |> Repo.all()
+        query =
+          from(t in Bitblocks.Chain.Transaction,
+            where: fragment("? @> ARRAY[?]::varchar[]", t.protocols, ^tag),
+            order_by: [desc: fragment("? + 0", t.id)],
+            limit: ^limit,
+            select: %{txid: t.txid, block_height: t.block_height}
+          )
+
+        Bitblocks.ChainScrubber.with_statement_timeout(5_000, fn -> Repo.all(query) end)
     end
   end
 

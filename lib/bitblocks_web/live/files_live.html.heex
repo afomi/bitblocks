@@ -14,8 +14,18 @@
     as untrusted content, with scripts switched off.
   </p>
 
+  <div
+    :if={@error}
+    id="files-error"
+    role="alert"
+    class="mb-6 rounded-lg border p-4 bg-red-50 border-red-200 text-red-800 dark:bg-red-900/30 dark:border-red-800 dark:text-red-200"
+  >
+    The file list couldn't be read just now.
+    Try again in a minute.
+  </div>
+
   <p
-    :if={@files == []}
+    :if={@files == [] and is_nil(@error)}
     id="files-empty"
     class="text-gray-700 dark:text-gray-300"
   >

@@ -18,6 +18,22 @@ defmodule BitblocksWeb.BitcomLiveTest do
     assert has_element?(view, "#bitcom-#{ctx.admin_addr}", "proven")
   end
 
+  test "the B:// home lists its recent txs newest first, and points to /files", %{conn: conn} do
+    older = Bitblocks.ChainFixtures.transaction_fixture(%{protocols: ["B://"], block_height: 7})
+    newer = Bitblocks.ChainFixtures.transaction_fixture(%{protocols: ["B://"], block_height: 8})
+    Bitblocks.ChainFixtures.transaction_fixture(%{protocols: ["MAP"], block_height: 9})
+
+    {:ok, _view, html} = live(conn, ~p"/bitcom/19HxigV4QyBv3tHpQVcUEQyq1pzZVdoAut")
+
+    assert {:ok, [%{txid: first}, %{txid: second}]} =
+             Bitblocks.Bitcom.recent_transactions("19HxigV4QyBv3tHpQVcUEQyq1pzZVdoAut")
+
+    assert {first, second} == {newer.txid, older.txid}
+    assert html =~ newer.txid
+    assert html =~ ~s(href="/files")
+    refute html =~ "couldn&#39;t be read"
+  end
+
   test "a home page shows proof, files, routes, and the command log", %{conn: conn} = ctx do
     provider = BSV.PrivKey.new()
     {proof, _} = bitcom_command_fixture(ctx.admin, [["$", "useradd", ctx.admin_addr]], salt: 1)

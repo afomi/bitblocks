@@ -35,8 +35,12 @@ defmodule BitblocksWeb.FilesLive do
         _ -> nil
       end
 
-    page = Files.list(before: before)
-    {:noreply, assign(socket, files: page.files, next: page.before, first_page: is_nil(before))}
+    socket = assign(socket, first_page: is_nil(before))
+
+    case Files.list(before: before) do
+      {:ok, page} -> {:noreply, assign(socket, files: page.files, next: page.before, error: nil)}
+      {:error, reason} -> {:noreply, assign(socket, files: [], next: nil, error: reason)}
+    end
   end
 
   @doc "The first and last eight hex characters, for a hash in a narrow column."

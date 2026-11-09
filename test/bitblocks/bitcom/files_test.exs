@@ -16,7 +16,7 @@ defmodule Bitblocks.Bitcom.FilesTest do
   test "lists each B:// file with its name, type, size and C:// address" do
     b_row(%{txid: @txid, raw: @hex})
 
-    assert %{files: [file], before: nil} = Files.list()
+    assert {:ok, %{files: [file], before: nil}} = Files.list()
 
     assert file == %{
              txid: @txid,
@@ -34,16 +34,19 @@ defmodule Bitblocks.Bitcom.FilesTest do
     b_row(%{raw: "not hex"})
     transaction_fixture(%{protocols: ["MAP"], raw: @hex})
 
-    assert %{files: [%{parsed: false, sha256: nil}]} = Files.list()
+    assert {:ok, %{files: [%{parsed: false, sha256: nil}]}} = Files.list()
   end
 
   test "pages newest stored first, with before" do
     older = b_row(%{txid: @txid, raw: @hex})
     newer = b_row(%{raw: "not hex"})
 
-    assert %{files: [%{txid: first}], before: before} = Files.list(per_page: 1)
+    assert {:ok, %{files: [%{txid: first}], before: before}} = Files.list(per_page: 1)
     assert first == newer.txid
-    assert %{files: [%{txid: second}], before: nil} = Files.list(per_page: 1, before: before)
+
+    assert {:ok, %{files: [%{txid: second}], before: nil}} =
+             Files.list(per_page: 1, before: before)
+
     assert second == older.txid
   end
 end
