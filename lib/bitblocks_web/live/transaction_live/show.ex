@@ -155,8 +155,22 @@ defmodule BitblocksWeb.TransactionLive.Show do
      |> assign(:tx_state, TxSummary.state(transaction, decoded_tx))
      |> assign(:protocol_links, protocol_links)
      |> assign(:has_b_file, match?(%BSV.Tx{}, decoded_tx) and BFile.parse(decoded_tx) != :error)
-     |> assign(:descriptors_by_vout, Map.new(output_descriptors, &{&1.vout, &1}))}
+     |> assign(:descriptors_by_vout, Map.new(output_descriptors, &{&1.vout, &1}))
+     |> assign(:stas_outputs, stas_outputs(decoded_tx))}
   end
+
+  @doc """
+  The STAS token outputs of a decoded tx (#78), as `{vout, satoshis, token}`
+  with the token from `Bitblocks.Stas.parse/1`.
+  """
+  def stas_outputs(%BSV.Tx{outputs: outputs}) do
+    for {%BSV.TxOut{script: script, satoshis: sats}, vout} <- Enum.with_index(outputs),
+        Bitblocks.Stas.stas?(script),
+        {:ok, token} = Bitblocks.Stas.parse(script),
+        do: {vout, sats, token}
+  end
+
+  def stas_outputs(_decoded_tx), do: []
 
   # Outputs listed in the value card; the rest are counted.
   @status_rows 100

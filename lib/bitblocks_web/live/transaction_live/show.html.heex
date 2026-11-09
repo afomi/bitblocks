@@ -434,6 +434,83 @@
     </div>
   </section>
 
+  <%!-- STAS tokens (#78): read from each output's script by Bitblocks.Stas --%>
+  <section
+    :if={@stas_outputs != []}
+    id="tx-stas"
+    class="bg-white border border-gray-200 rounded-lg p-6 mb-6 dark:bg-gray-800 dark:border-gray-700"
+  >
+    <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
+      <h2 class="text-xl font-semibold text-gray-900 dark:text-white">
+        STAS tokens
+      </h2>
+      <.link
+        navigate={~p"/types/stas"}
+        class="text-sm text-blue-700 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
+      >
+        About STAS
+      </.link>
+    </div>
+    <p class="text-sm text-gray-600 dark:text-gray-400 mb-4">
+      Each sat in a STAS output is one unit of its token.
+      The token's id is the issuer's redemption address.
+    </p>
+    <table class="w-full text-sm">
+      <thead>
+        <tr class="text-left text-gray-600 dark:text-gray-400">
+          <th class="py-1 pr-4 font-medium">
+            Output
+          </th>
+          <th class="py-1 pr-4 font-medium text-right">
+            Amount
+          </th>
+          <th class="py-1 pr-4 font-medium">
+            Token id
+          </th>
+          <th class="py-1 pr-4 font-medium">
+            Owner
+          </th>
+          <th class="py-1 font-medium">
+            Data
+          </th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr
+          :for={{vout, satoshis, token} <- @stas_outputs}
+          id={"stas-output-#{vout}"}
+          class="border-t border-gray-200 dark:border-gray-700"
+        >
+          <td class="py-1 pr-4 font-mono text-gray-800 dark:text-gray-200">
+            #<%= BitblocksWeb.Sats.delimit(vout) %>
+          </td>
+          <td class="py-1 pr-4 text-right font-mono tabular-nums text-gray-800 dark:text-gray-200">
+            <%= BitblocksWeb.Sats.delimit(satoshis) %>
+          </td>
+          <td class="py-1 pr-4 font-mono text-xs break-all text-gray-800 dark:text-gray-200">
+            <%= token.token_id %>
+            <span class="block font-sans text-gray-600 dark:text-gray-400">
+              <%= case token.splittable do %>
+                <% true -> %>
+                  Splittable
+                <% false -> %>
+                  Not splittable
+                <% nil -> %>
+                  Flags unread
+              <% end %>
+            </span>
+          </td>
+          <td class="py-1 pr-4 font-mono text-xs break-all text-gray-800 dark:text-gray-200">
+            <%= token.owner %>
+          </td>
+          <td class="py-1 text-xs break-all text-gray-800 dark:text-gray-200">
+            <%= token.data |> Enum.map(&Bitblocks.Stas.data_text/1) |> Enum.map(&String.slice(&1, 0, 200)) |> Enum.join(" · ") %>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
   <%!-- Collection Item Banner --%>
   <%= if @collection_item && @collection_module do %>
     <div class="bg-gradient-to-r from-pink-50 to-purple-50 border border-pink-200 rounded-lg p-5 mb-6">

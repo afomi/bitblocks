@@ -81,9 +81,14 @@ defmodule Bitblocks.TxTypes.ProposalTest do
            |> Keyword.keys()
            |> Enum.uniq() == [:ins]
 
-    assert [%{"name" => "chain_push_add_equal", "txid" => txid}] =
-             vectors_path |> File.read!() |> Jason.decode!() |> Map.fetch!("vectors")
+    vectors_before =
+      Proposal.vectors_file() |> File.read!() |> Jason.decode!() |> Map.fetch!("vectors")
 
+    vectors = vectors_path |> File.read!() |> Jason.decode!() |> Map.fetch!("vectors")
+
+    # The new vector goes last; the ones already there stay as they were.
+    assert Enum.drop(vectors, -1) == vectors_before
+    assert %{"name" => "chain_push_add_equal", "txid" => txid} = List.last(vectors)
     assert txid == ctx.txid
   end
 

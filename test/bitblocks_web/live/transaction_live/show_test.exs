@@ -60,6 +60,37 @@ defmodule BitblocksWeb.TransactionLive.ShowTest do
     BSV.Tx.to_binary(tx, encoding: :hex)
   end
 
+  describe "STAS tokens (#78)" do
+    test "a STAS output shows its token id, owner, amount and data", %{conn: conn} do
+      # The real STAS output 0 of 0f9e2366…54a8 (chain_vectors.json's chain_stas),
+      # in a tx of our own around it.
+      stas =
+        "priv/data/tx_types/chain_vectors.json"
+        |> File.read!()
+        |> Jason.decode!()
+        |> Map.fetch!("vectors")
+        |> Enum.find(&(&1["name"] == "chain_stas"))
+
+      script = BSV.Script.from_binary!(stas["script_hex"], encoding: :hex)
+      txid = String.duplicate("5a", 32)
+      insert_tx(raw_hex_with_output(script, 4_000), txid)
+
+      {:ok, view, _html} = live(conn, ~p"/transactions/#{txid}")
+
+      row = view |> element("#tx-stas #stas-output-0") |> render()
+      assert row =~ "12xBMnFKjatg1djQwFnCMyu1PN9uH4hUBJ"
+      assert row =~ "4,000"
+      assert row =~ "Not splittable"
+      assert row =~ "Token"
+    end
+
+    test "a tx with no STAS output has no STAS section", %{conn: conn} do
+      insert_tx(@genesis_raw, @genesis_txid)
+      {:ok, view, _html} = live(conn, ~p"/transactions/#{@genesis_txid}")
+      refute has_element?(view, "#tx-stas")
+    end
+  end
+
   describe "what happened" do
     test "a coinbase leads with the miner's text", %{conn: conn} do
       @genesis_raw

@@ -23,7 +23,8 @@ defmodule Bitblocks.TxTypes.Classifier do
        P2PKH is `p2pkh`; a public key and `OP_CHECKSIG` is `p2pk`;
        `OP_HASH160 <20 bytes> OP_EQUAL` is `p2sh`; the cosign shape is
        `cosign`; bare m-of-n is `multisig`; `OP_1` alone is
-       `anyone-can-spend`; and a script whose
+       `anyone-can-spend`; a STAS token's contract (`Bitblocks.Stas`) is
+       `stas`; and a script whose
        template hash (`Bitblocks.Script.template_hash/1`) a type lists
        under `examples.template_hashes` is that type (`ordlock`,
        `timelock`).
@@ -57,7 +58,8 @@ defmodule Bitblocks.TxTypes.Classifier do
 
   # v2 (#49): P2PK and P2SH get their own types, so early coinbases stop
   # reading `custom`.
-  @version 2
+  # v3 (#78): STAS token outputs are `stas`, matched by their contract bytes.
+  @version 3
 
   @b "19HxigV4QyBv3tHpQVcUEQyq1pzZVdoAut"
   @map "1PuQa7K62MiKCtssSLKy1kh56WWU7MtUR5"
@@ -66,7 +68,7 @@ defmodule Bitblocks.TxTypes.Classifier do
 
   # Types matched by their own rule in lock_type/2, not by template hash
   # (their listed hash covers one shape of many, or needs the value too).
-  @own_rule ~w(p2pkh p2pk p2sh 1sat-output multisig cosign anyone-can-spend)
+  @own_rule ~w(p2pkh p2pk p2sh 1sat-output multisig cosign anyone-can-spend stas)
 
   # The other script shapes a type names by template hash.
   @by_template_hash for %{examples: %{kind: "template", template_hashes: hashes}, id: id} <-
@@ -260,9 +262,11 @@ defmodule Bitblocks.TxTypes.Classifier do
         "anyone-can-spend"
 
       chunks ->
-        if Bitblocks.Script.multisig?(chunks),
-          do: "multisig",
-          else: Map.get(@by_template_hash, Bitblocks.Script.template_hash(script))
+        cond do
+          Bitblocks.Script.multisig?(chunks) -> "multisig"
+          Bitblocks.Stas.stas?(script) -> "stas"
+          true -> Map.get(@by_template_hash, Bitblocks.Script.template_hash(script))
+        end
     end
   end
 end
