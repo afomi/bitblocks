@@ -1161,10 +1161,14 @@ defmodule Bitblocks.OrdinalCollections do
   # -- Helpers -------------------------------------------------------------------
 
   defp load_tx(txid) do
-    with %{raw: raw, block_height: height} when is_binary(raw) <-
+    with %{} = row <-
            Repo.one(
-             from t in Transaction, where: t.txid == ^txid, select: map(t, [:raw, :block_height])
+             from t in Transaction,
+               where: t.txid == ^txid,
+               select: map(t, [:txid, :raw, :block_height])
            ),
+         %{raw: raw, block_height: height} when is_binary(raw) and raw != "" <-
+           TxStore.with_raw(row),
          {:ok, tx} <- RawTx.parse(raw) do
       {:ok, tx, height}
     else

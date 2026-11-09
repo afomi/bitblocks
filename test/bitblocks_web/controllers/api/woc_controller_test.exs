@@ -55,6 +55,23 @@ defmodule BitblocksWeb.Api.WocControllerTest do
       assert response_content_type(conn, :text)
     end
 
+    test "reads the hex from the tx store when the row holds none", %{conn: conn} do
+      {txid, hex} =
+        Bitblocks.OrdinalFixtures.tx(
+          [Bitblocks.OrdinalFixtures.funding_outpoint()],
+          [Bitblocks.OrdinalFixtures.p2pkh(@address, 1_000)]
+        )
+
+      transaction_fixture(%{txid: txid, raw: hex})
+      |> Ecto.Changeset.change(raw: nil)
+      |> Bitblocks.Repo.update!()
+
+      :ok = Bitblocks.TxStore.put(txid, Base.decode16!(hex, case: :mixed))
+
+      conn = get(conn, ~p"/api/v1/woc/tx/#{txid}/hex")
+      assert response(conn, 200) == String.downcase(hex)
+    end
+
     test "404s for an unknown txid", %{conn: conn} do
       conn = get(conn, ~p"/api/v1/woc/tx/#{String.duplicate("0", 64)}/hex")
       assert json_response(conn, 404)["error"] =~ "not found"

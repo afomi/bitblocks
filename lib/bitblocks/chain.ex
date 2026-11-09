@@ -1115,11 +1115,19 @@ defmodule Bitblocks.Chain do
   """
   @spec nft_facts(String.t()) :: map() | nil
   def nft_facts(txid) when is_binary(txid) do
-    case Repo.one(from(t in Transaction, where: t.txid == ^txid, select: {t.raw, t.protocols})) do
+    row =
+      Repo.one(
+        from(t in Transaction,
+          where: t.txid == ^txid,
+          select: %{txid: t.txid, raw: t.raw, protocols: t.protocols}
+        )
+      )
+
+    case row && Bitblocks.TxStore.with_raw(row) do
       nil ->
         nil
 
-      {raw, protocols} ->
+      %{raw: raw, protocols: protocols} ->
         outputs =
           case is_binary(raw) && Bitblocks.Chain.RawTx.parse(raw) do
             {:ok, %BSV.Tx{outputs: outputs}} -> outputs

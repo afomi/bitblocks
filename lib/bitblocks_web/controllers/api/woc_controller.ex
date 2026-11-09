@@ -48,7 +48,9 @@ defmodule BitblocksWeb.Api.WocController do
   # GET /api/v1/woc/tx/:txid/hex
   # Returns the raw transaction hex as a bare string, like WoC /tx/{txid}/hex.
   def tx_hex(conn, %{"txid" => txid}) do
-    case Chain.get_transaction(txid) do
+    tx = Chain.get_transaction(txid)
+
+    case tx && Bitblocks.TxStore.with_raw(tx) do
       %{raw: raw} when is_binary(raw) and raw != "" ->
         conn
         |> put_resp_content_type("text/plain")

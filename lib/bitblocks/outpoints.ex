@@ -43,7 +43,7 @@ defmodule Bitblocks.Outpoints do
   end
 
   defp indexed_tx(txid) do
-    case Chain.get_transaction(txid) do
+    case txid |> Chain.get_transaction() |> with_raw() do
       nil ->
         {:unknown, "transaction not indexed"}
 
@@ -57,6 +57,9 @@ defmodule Bitblocks.Outpoints do
         end
     end
   end
+
+  defp with_raw(nil), do: nil
+  defp with_raw(tx), do: Bitblocks.TxStore.with_raw(tx)
 
   defp output_at(%BSV.Tx{outputs: outputs}, vout) do
     case Enum.at(outputs, vout) do

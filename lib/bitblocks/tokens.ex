@@ -768,9 +768,13 @@ defmodule Bitblocks.Tokens do
   defp locking_scripts(instances) do
     txids = instances |> Enum.map(& &1.txid) |> Enum.uniq()
 
-    from(t in Bitblocks.Chain.Transaction, where: t.txid in ^txids, select: {t.txid, t.raw})
+    from(t in Bitblocks.Chain.Transaction,
+      where: t.txid in ^txids,
+      select: %{txid: t.txid, raw: t.raw}
+    )
     |> Repo.all()
-    |> Enum.flat_map(fn {txid, raw} ->
+    |> Enum.map(&Bitblocks.TxStore.with_raw/1)
+    |> Enum.flat_map(fn %{txid: txid, raw: raw} ->
       case Bitblocks.Chain.SafeTx.from_hex(raw) do
         {:ok, tx} ->
           tx.outputs

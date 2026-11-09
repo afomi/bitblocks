@@ -479,6 +479,20 @@ defmodule Bitblocks.Chain.TxPipelineTest do
              } = Chain.nft_facts(txid)
     end
 
+    test "an inscription whose bytes live only in the tx store is still an NFT" do
+      collection_id = "#{String.duplicate("c", 64)}_0"
+      {txid, hex} = t = tx([funding_outpoint()], [item(collection_id, "T 8", address())])
+      assert :ok = TxIngest.store(tx_json(t), %Block{hash: "s", height: 14})
+
+      Repo.update_all(from(r in Bitblocks.Chain.Transaction, where: r.txid == ^txid),
+        set: [raw: nil]
+      )
+
+      :ok = Bitblocks.TxStore.put(txid, Base.decode16!(hex, case: :mixed))
+
+      assert %{nft?: true, inscriptions: [%{vout: 0}]} = Chain.nft_facts(txid)
+    end
+
     test "a later tx holding a collection item matches by current outpoint" do
       collection_id = Bitblocks.OrdinalCollections.known()["rexxies"]
       {txid, _} = t = tx([funding_outpoint()], [p2pkh(address(), 1)])
