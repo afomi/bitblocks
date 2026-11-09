@@ -33,12 +33,9 @@ defmodule BitblocksWeb.BitcomLive do
           files: Bitcom.files(address),
           routes: Bitcom.routes(address),
           history: Bitcom.history(address),
-          recent:
-            case Bitcom.recent_transactions(address) do
-              {:ok, txs} -> txs
-              {:error, _reason} -> :unavailable
-            end
+          recent: :loading
         )
+        |> load_recent(address)
       else
         socket
         |> assign(Seo.public_page(page_title: "Bitcom", meta_robots: "noindex"))
@@ -62,6 +59,34 @@ defmodule BitblocksWeb.BitcomLive do
       |> assign(view: :directory, entries: Bitcom.directory())
 
     {:noreply, socket}
+  end
+
+  @impl true
+  def handle_async(:recent, {:ok, {address, result}}, socket) do
+    # A result for an address the page has since left is dropped.
+    if socket.assigns[:entry] && socket.assigns.entry.address == address do
+      recent =
+        case result do
+          {:ok, txs} -> txs
+          {:error, _reason} -> :unavailable
+        end
+
+      {:noreply, assign(socket, recent: recent)}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_async(:recent, {:exit, _reason}, socket),
+    do: {:noreply, assign(socket, recent: :unavailable)}
+
+  # The recent txs can take seconds on a cold cache (a common tag's rows sit
+  # on many pages), so they load after the page renders, once, on the
+  # connected socket, rather than holding up both renders.
+  defp load_recent(socket, address) do
+    if connected?(socket),
+      do: start_async(socket, :recent, fn -> {address, Bitcom.recent_transactions(address)} end),
+      else: socket
   end
 
   defp tier_label(:proven), do: "proven"

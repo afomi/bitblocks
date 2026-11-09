@@ -276,6 +276,13 @@
           Recent transactions
         </h2>
         <p
+          :if={@recent == :loading}
+          id="bitcom-recent-loading"
+          class="text-gray-700"
+        >
+          Reading the index…
+        </p>
+        <p
           :if={@recent == :unavailable}
           id="bitcom-recent-unavailable"
           class="text-gray-700"

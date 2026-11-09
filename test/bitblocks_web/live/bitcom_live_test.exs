@@ -23,7 +23,8 @@ defmodule BitblocksWeb.BitcomLiveTest do
     newer = Bitblocks.ChainFixtures.transaction_fixture(%{protocols: ["B://"], block_height: 8})
     Bitblocks.ChainFixtures.transaction_fixture(%{protocols: ["MAP"], block_height: 9})
 
-    {:ok, _view, html} = live(conn, ~p"/bitcom/19HxigV4QyBv3tHpQVcUEQyq1pzZVdoAut")
+    {:ok, view, _html} = live(conn, ~p"/bitcom/19HxigV4QyBv3tHpQVcUEQyq1pzZVdoAut")
+    html = render_async(view)
 
     assert {:ok, [%{txid: first}, %{txid: second}]} =
              Bitblocks.Bitcom.recent_transactions("19HxigV4QyBv3tHpQVcUEQyq1pzZVdoAut")
@@ -32,6 +33,18 @@ defmodule BitblocksWeb.BitcomLiveTest do
     assert html =~ newer.txid
     assert html =~ ~s(href="/files")
     refute html =~ "couldn&#39;t be read"
+    refute has_element?(view, "#bitcom-recent-loading")
+  end
+
+  test "the recent txs load after the page renders", %{conn: conn} do
+    tx = Bitblocks.ChainFixtures.transaction_fixture(%{protocols: ["MAP"], block_height: 9})
+
+    first = conn |> get(~p"/bitcom/1PuQa7K62MiKCtssSLKy1kh56WWU7MtUR5") |> html_response(200)
+    assert first =~ "Reading the index"
+    refute first =~ tx.txid
+
+    {:ok, view, _html} = live(conn, ~p"/bitcom/1PuQa7K62MiKCtssSLKy1kh56WWU7MtUR5")
+    assert render_async(view) =~ tx.txid
   end
 
   test "a home page shows proof, files, routes, and the command log", %{conn: conn} = ctx do
