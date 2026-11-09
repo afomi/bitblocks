@@ -3,10 +3,9 @@ defmodule Bitblocks.TxTypesTest do
 
   alias Bitblocks.TxTypes
 
-  @vectors "priv/data/tx_types/output_types_v1.json"
-           |> File.read!()
-           |> Jason.decode!()
-           |> Map.fetch!("vectors")
+  # The shared vectors, then the ones read from chain (Bitblocks.TxTypes.Proposal).
+  @vectors ["priv/data/tx_types/output_types_v1.json", "priv/data/tx_types/chain_vectors.json"]
+           |> Enum.flat_map(&(&1 |> File.read!() |> Jason.decode!() |> Map.fetch!("vectors")))
            |> Map.new(&{&1["name"], &1})
 
   test "every type has the fields a page needs" do
@@ -24,6 +23,21 @@ defmodule Bitblocks.TxTypesTest do
       assert Enum.all?(type.pattern.parts, &(is_binary(&1.token) and is_binary(&1.label)))
       assert is_boolean(type.spendable)
       assert type.examples.kind in ~w(tokens collections template protocol typed none)
+    end
+  end
+
+  test "no type still carries a draft's TODO, so a proposal merges only once written" do
+    todo = Bitblocks.TxTypes.Proposal.todo()
+
+    for type <- TxTypes.all() do
+      refute type |> Jason.encode!() |> String.contains?(todo), "#{type.id} has a TODO left"
+    end
+  end
+
+  test "every chain vector names the txid and vout its script was read from" do
+    for {_name, %{"txid" => _} = v} <- @vectors do
+      assert v["txid"] =~ ~r/\A[0-9a-f]{64}\z/
+      assert is_integer(v["vout"])
     end
   end
 

@@ -1,0 +1,5 @@
+{
+  "version": 1,
+  "source": "Real outputs from chain, each read from the txid and vout it names. Written by mix tx_types.propose (Bitblocks.TxTypes.Proposal); output_types_v1.json stays a copy of @1sat/templates.",
+  "vectors": []
+}

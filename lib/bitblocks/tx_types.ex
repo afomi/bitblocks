@@ -14,6 +14,10 @@ defmodule Bitblocks.TxTypes do
   shared classification vectors from `@1sat/templates`. A type whose examples
   come from a script shape names its vector, and the tests check that the
   template hash in `types.json` is that vector's `Bitblocks.Script.template_hash/1`.
+  A type drafted from a real output (`mix tx_types.propose`,
+  `Bitblocks.TxTypes.Proposal`) names its vector in
+  `priv/data/tx_types/chain_vectors.json` instead, beside the txid and vout it
+  was read from.
   """
 
   @types_path Path.join([__DIR__, "..", "..", "priv", "data", "tx_types", "types.json"])

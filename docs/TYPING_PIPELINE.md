@@ -61,7 +61,11 @@ Write tools come after, behind `ops_write`, dry-run by default and recorded as c
 
 Built so far (#51): `Bitblocks.TxTypes.Counts` carries each type's first height, date and txid and its txs per 10,000 blocks, on `/types/:id` and `/api/v1/types`, always over the range verified complete and typed.
 `Release.type_candidates(from, to)` (`Bitblocks.TxTypes.Candidates`) ranks the shapes behind `custom` for an operator, from raw bytes, storing nothing.
-Still to come: `propose_type` and the approval flow, and the research export.
+`mix tx_types.propose <id> --txid <txid> --template-hash <hash>` (`Bitblocks.TxTypes.Proposal`) is `propose_type`: it drafts the type from a candidate's real output into `types.json`, matched by template hash, and the output into `priv/data/tx_types/chain_vectors.json`, with the txid and vout it came from.
+A dry run prints the draft; `--apply` writes it.
+Prose left out reads `TODO: …`, and the suite fails until a person writes it.
+Approval is merging the pull request (Ryan, decided on #51); then the classifier's version goes up and the tx_types backfill re-stamps past rows.
+Still to come: the research export.
 
 ### A taxonomy, not a list
 

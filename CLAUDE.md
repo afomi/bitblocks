@@ -246,6 +246,10 @@ bin/bitblocks rpc 'Bitblocks.Release.discover_bitcom("<address>", apply: true)'
 # The shapes behind `custom`, ranked (#51): reads raw bytes in the range, stores nothing
 bin/bitblocks rpc 'Bitblocks.Release.type_candidates(0, 100_000) |> IO.inspect(limit: :infinity)'
 
+# Name one (#51), in a source tree, for a pull request: drafts the type and its real vector; dry run first
+mix tx_types.propose <id> --txid <example txid> --template-hash <hash> --title "…"
+mix tx_types.propose <id> --txid <example txid> --template-hash <hash> --title "…" --apply
+
 # Who holds each token output (#69, docs/BSV20_TOKENS.md): dry run first, then add apply: true
 bin/bitblocks rpc 'Bitblocks.Release.backfill_token_recipients(0, 980_000)'
 bin/bitblocks rpc 'Bitblocks.Release.start_backfill("token_recipients", 0, 980_000)'

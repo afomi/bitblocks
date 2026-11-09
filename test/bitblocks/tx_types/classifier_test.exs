@@ -9,10 +9,9 @@ defmodule Bitblocks.TxTypes.ClassifierTest do
   alias Bitblocks.TxTypes
   alias Bitblocks.TxTypes.Classifier
 
-  @vectors "priv/data/tx_types/output_types_v1.json"
-           |> File.read!()
-           |> Jason.decode!()
-           |> Map.fetch!("vectors")
+  # The shared vectors, then the ones read from chain (Bitblocks.TxTypes.Proposal).
+  @vectors ["priv/data/tx_types/output_types_v1.json", "priv/data/tx_types/chain_vectors.json"]
+           |> Enum.flat_map(&(&1 |> File.read!() |> Jason.decode!() |> Map.fetch!("vectors")))
 
   defp script(hex), do: BSV.Script.from_binary!(hex, encoding: :hex)
 
