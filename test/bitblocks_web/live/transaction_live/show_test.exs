@@ -237,6 +237,13 @@ defmodule BitblocksWeb.TransactionLive.ShowTest do
       {:ok, view, _html} = live(conn, ~p"/transactions/#{tx.txid}")
 
       assert has_element?(view, ~s(#tx-b-file[href="/b/#{tx.txid}"]))
+      assert has_element?(view, "#tx-summary", "text/plain")
+
+      assert has_element?(
+               view,
+               "#tx-c-address",
+               "c://" <> (:crypto.hash(:sha256, "hi") |> Base.encode16(case: :lower))
+             )
     end
 
     test "the outputs table names who was paid", %{conn: conn} do

@@ -22,7 +22,7 @@ defmodule BitblocksWeb.TransactionLive.Show do
        nft_facts: nil,
        tx_state: :not_downloaded,
        protocol_links: [],
-       has_b_file: false,
+       b_file: nil,
        descriptors_by_vout: %{}
      )}
   end
@@ -154,7 +154,7 @@ defmodule BitblocksWeb.TransactionLive.Show do
      |> assign(:nft_facts, nft_facts)
      |> assign(:tx_state, TxSummary.state(transaction, decoded_tx))
      |> assign(:protocol_links, protocol_links)
-     |> assign(:has_b_file, match?(%BSV.Tx{}, decoded_tx) and BFile.parse(decoded_tx) != :error)
+     |> assign(:b_file, b_file(decoded_tx))
      |> assign(:descriptors_by_vout, Map.new(output_descriptors, &{&1.vout, &1}))
      |> assign(:stas_outputs, stas_outputs(decoded_tx))
      |> assign_hodlocker(decoded_tx, transaction.txid)}
@@ -194,6 +194,27 @@ defmodule BitblocksWeb.TransactionLive.Show do
   end
 
   def stas_outputs(_decoded_tx), do: []
+
+  @doc """
+  The tx's B:// file as the summary names it: filename, media type, size,
+  and its C:// address (the sha256 of its bytes). nil when there is none.
+  """
+  def b_file(%BSV.Tx{} = tx) do
+    case BFile.parse(tx) do
+      {:ok, file} ->
+        %{
+          filename: file.filename,
+          media_type: file.media_type,
+          size: byte_size(file.content),
+          sha256: :crypto.hash(:sha256, file.content) |> Base.encode16(case: :lower)
+        }
+
+      :error ->
+        nil
+    end
+  end
+
+  def b_file(_decoded_tx), do: nil
 
   # Outputs listed in the value card; the rest are counted.
   @status_rows 100
