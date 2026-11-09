@@ -108,7 +108,12 @@ A later BEEF carries the BUMP and has different bytes, so each statement describ
 ## A receipt is two things
 
 BRC-237 defines the evidence half, and this kit follows it.
-It's new, by its own account it hasn't been run on a live chain, and Bitblocks doesn't produce it yet.
+It's new, and by its own account it hasn't been run on a live chain.
+Bitblocks makes statements distance only (`Bitblocks.Chain.PaymentEvidence.make/3`, #64): the walk, anchors with conditions (a) to (e), distances, status, conflicts as observed, and the canonical bytes, with none of section 2.3's checks run, so `validated` is empty and `lowestFeeRate` null.
+It reads a BEEF, V1 or V2, bare or Atomic, or our own records with BRC-74 or Electrum-form paths.
+Every statement and maker refusal in BRC-237's test vectors runs in `test/bitblocks/chain/payment_evidence_test.exs` from a fixture extracted from the spec, each material checked against the length and SHA-256 the spec gives.
+The eight vectors whose maker validated nothing match byte for byte; the other eight match once their validated lists are those of a maker that ran no check.
+Not yet: an endpoint or page that offers statements, and BRC-77 signing.
 No published format covers acceptance, so the acceptance record is our candidate, `interop-kit/payment-acceptance/v0`, until a second implementation reads it.
 
 Evidence says what was checked.
@@ -173,9 +178,9 @@ That usually means it's wrong, and after a reorg a good payment's old path reads
 - A block's transaction count isn't in its header, so the check on a proof's shape rests on our node's word.
   The file gives `tx_count` where we hold one, and block 973110's is left out.
 - BRC-95 doesn't say which byte order the subject txid takes, so the vectors follow the SDK's internal order, which BRC-237 section 2.1 also states.
-- Bitblocks can't produce a BRC-237 statement yet: it has no 64-byte check on a transaction's own path, no output index in its walk, no distances, and no tip hash in its verdict.
-- BRC-237 reads BRC-95 as permitting ancestors beyond a BUMP, while `Beef.Reader` refuses them, and neither has a vector settling it.
-- No acceptance record vectors exist yet, and the bytes matching BRC-237's canonical form is reasoned, not tested.
+- A BRC-237 statement here is distance only: no script, amount or lock time is checked, so it never validates a transaction or refuses one for failing a check.
+- BRC-237 reads BRC-95 as permitting ancestors beyond a BUMP, while `Beef.Reader` refuses them, and neither has a vector settling it; the statement maker refuses them `MALFORMED`, as it does a VarInt not in its shortest form and a tx with no BUMP ahead of its parent.
+- No acceptance record vectors exist yet.
 - BRC-96 treats a txid-only entry as agreed between two parties, and a third-party check has no such agreement, so we answer `unknown`.
 - The size and count limits in `Beef.Reader` have no vectors, because a limit is a reader's own choice.
 - No live wallet has been tried, and one SDK run is a start rather than a result.
