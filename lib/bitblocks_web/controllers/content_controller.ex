@@ -22,12 +22,10 @@ defmodule BitblocksWeb.ContentController do
   """
   use BitblocksWeb, :controller
 
-  require Logger
-
   alias Bitblocks.Bitcom.BFile
   alias Bitblocks.Chain.RawTx
   alias Bitblocks.Ordinals.Inscription
-  alias Bitblocks.{Bcat, TxStore, Woc}
+  alias Bitblocks.{Bcat, TxStore}
 
   @csp "sandbox; default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; font-src 'self' data:"
 
@@ -162,33 +160,7 @@ defmodule BitblocksWeb.ContentController do
     end
   end
 
-  # Ours if we hold it (database or blob store); otherwise fetched. An
-  # unreadable blob store (e.g. no bucket yet) is a miss, not an error.
-  defp bytes(txid) do
-    case TxStore.raw(txid) do
-      {:ok, bytes} -> {:ok, bytes}
-      {:error, _} -> fetch(txid)
-    end
-  end
-
-  # Fetched bytes are served only if they hash to the txid. Caching them in
-  # the blob store is best-effort: a failed write is logged, not fatal.
-  defp fetch(txid) do
-    with {:ok, [%{"hex" => hex} | _]} <- Woc.txs([txid]),
-         {:ok, bytes} <- Base.decode16(hex, case: :mixed),
-         ^txid <- TxStore.txid(bytes) do
-      case TxStore.put(txid, bytes) do
-        :ok -> :ok
-        {:error, reason} -> Logger.warning("content: not cached #{txid}: #{inspect(reason)}")
-      end
-
-      {:ok, bytes}
-    else
-      {:ok, []} -> {:error, :not_found}
-      {:error, reason} -> {:error, {:fetch_failed, reason}}
-      _ -> {:error, :not_found}
-    end
-  end
+  defp bytes(txid), do: TxStore.raw_or_fetch(txid)
 
   # Only a plain type/subtype (plus parameters) is echoed back.
   defp content_type(type) when is_binary(type) do

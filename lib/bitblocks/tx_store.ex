@@ -131,6 +131,41 @@ defmodule Bitblocks.TxStore do
 
   def with_raw(row), do: row
 
+  @doc """
+  Raw bytes for a txid, from `raw/1` when we hold them; otherwise fetched
+  from WhatsOnChain, checked against the txid, and kept in the blob store
+  only, so public reads can't fill the database. An unreadable store (e.g. no
+  bucket yet) is a miss, not an error, and a failed cache write is logged.
+
+  `{:error, :not_found}` when no one has the tx, `{:error, {:fetch_failed, _}}`
+  when WhatsOnChain couldn't be read.
+  """
+  @spec raw_or_fetch(String.t()) ::
+          {:ok, binary()} | {:error, :not_found | {:fetch_failed, term()}}
+  def raw_or_fetch(txid) do
+    case raw(txid) do
+      {:ok, bytes} -> {:ok, bytes}
+      {:error, _} -> fetch(txid)
+    end
+  end
+
+  defp fetch(txid) do
+    with {:ok, [%{"hex" => hex} | _]} <- Bitblocks.Woc.txs([txid]),
+         {:ok, bytes} <- Base.decode16(hex, case: :mixed),
+         ^txid <- txid(bytes) do
+      case put(txid, bytes) do
+        :ok -> :ok
+        {:error, reason} -> Logger.warning("TxStore: not cached #{txid}: #{inspect(reason)}")
+      end
+
+      {:ok, bytes}
+    else
+      {:ok, []} -> {:error, :not_found}
+      {:error, reason} -> {:error, {:fetch_failed, reason}}
+      _ -> {:error, :not_found}
+    end
+  end
+
   defp from_tx_object(txid) do
     with {:ok, bytes} <- adapter().get(key(txid)) do
       verified(txid, bytes)

@@ -91,6 +91,12 @@ defmodule BitblocksWeb.StartLive.Api do
           ),
           row(
             "GET",
+            "/api/v1/txs/:txid/bob",
+            :caller,
+            "The tx as BOB, unwriter's tapes and cells, so code written for Bitbus reads it."
+          ),
+          row(
+            "GET",
             "/interop/vectors/v1.json",
             :open,
             "Test vectors for BEEF and BUMP, each with its expected outcome and source."
