@@ -104,6 +104,35 @@ defmodule Bitblocks.ChainFixtures do
   end
 
   @doc """
+  A `completed` block at `height` with final totals, as the `block_totals`
+  step leaves it (#70). Options: `:fees` (0), `:reward` (subsidy + fees),
+  `:burned` (0), `:verified` (true), `:version` (the current one; nil for
+  totals not yet final).
+  """
+  def totalled_block_fixture(height, opts \\ []) do
+    require Ecto.Query
+
+    block = block_fixture(%{height: height, sync_state: "completed"})
+    subsidy = Bitblocks.Chain.TxPipeline.Steps.BlockTotals.subsidy(height)
+    fees = Keyword.get(opts, :fees, 0)
+
+    Bitblocks.Repo.update_all(
+      Ecto.Query.from(b in Bitblocks.Chain.Block, where: b.id == ^block.id),
+      set: [
+        subsidy: subsidy,
+        fees: fees,
+        miner_reward: Keyword.get(opts, :reward, subsidy + fees),
+        burned: Keyword.get(opts, :burned, 0),
+        fees_verified: Keyword.get(opts, :verified, true),
+        tallies_version:
+          Keyword.get(opts, :version, Bitblocks.Chain.TxPipeline.version(:block_totals))
+      ]
+    )
+
+    block
+  end
+
+  @doc """
   Generate a unique transaction txid.
   """
   def unique_transaction_txid, do: "txid#{System.unique_integer([:positive])}"

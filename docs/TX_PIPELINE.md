@@ -73,6 +73,10 @@ A tx already stored when its block is fetched is skipped, so neither kind of ste
   A larger one means our data is wrong, and is logged at error level.
   It is nil while fees are unknown.
 
+`/facts` (`Bitblocks.Facts`, #70) sums these over blocks 0 to the highest height where every block is complete and totalled at the current version: rewards left unclaimed (`subsidy + fees - miner_reward`), burned sats, and a supply audit.
+The audit is an identity: the subsidy the schedule issued equals what miners claimed as new coins (`miner_reward - fees`), plus what they left, plus the three coinbases that can never be spent (genesis, and 91,722 and 91,812, overwritten under BIP30).
+Those three blocks have no coinbase row, so they never get a `miner_reward` and are left out of the totals check.
+
 ### Transaction types
 
 `classify_outputs` (#49 phase 2) runs `Bitblocks.TxTypes.Classifier` on each tx: every output gets one type id from `priv/data/tx_types/types.json`, and the tx's type is the set of them.

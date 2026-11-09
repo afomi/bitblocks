@@ -337,6 +337,7 @@ defmodule BitblocksWeb.Router do
       live "/pricing", PricingLive
       live "/guide", GuideLive
       live "/reorgs", ReorgLive
+      live "/facts", FactsLive
       live "/did", DIDLive
 
       # Public block index. Detail pages need sign-in; mutation pages are admin.

@@ -144,6 +144,7 @@ GET /api/v1/status/derivations` shows the versions and latest runs.
   - `/tokens` and `/tokens/:id` - BSV-20/BSV-21 token index (supply, holders); read-only, minting lives in qart
   - `/collections` and `/collections/:id` - BSV NFT collections index and show (`:id` is a slug or origin outpoint; one view for every collection)
   - `/types` and `/types/:id` - transaction types glossary (#49): pattern, spend, spec and real examples per type, from `priv/data/tx_types/types.json` (`Bitblocks.TxTypes`); `/types` shows the four layers, the protocol registry (`/protocols` redirects to it), each type's tx count and first block, summed from `blocks.type_counts` over the blocks verified complete and typed, and says which range that is (`Bitblocks.TxTypes.Counts`, refreshed every 10 minutes); `/types/:id` adds first height, date and txid and txs per 10,000 blocks (#51)
+  - `/facts` - what the chain doesn't announce (#70): miner rewards left unclaimed, burned sats and a supply audit, summed from the block totals over the blocks complete and totalled, naming that range (`Bitblocks.Facts`, refreshed every 10 minutes; `docs/TX_PIPELINE.md`)
   - `/bitcom` and `/bitcom/:address` - live Bitcom registry (unwriter's Bitcom): namespaces, on-chain ownership proof, files, routes, usage
   - `/start`, `/start/api`, `/start/guidance`, `/start/interop` - public builder onboarding, API reference, our dated views and a BEEF check by hand, see `docs/DEMOS_CAMPAIGN.md`
   - `/syncing` - signed-in live sync view: blocks fetching on each lane with synced and processed x of y, recent completions, tips and blocks by sync_state, from one shared snapshot (`Bitblocks.SyncProgress`; `docs/SYNCING.md`); admins also get the operator panel there: pause, worker slots, node load, failed blocks, the audit. `/sync` redirects to it
@@ -153,7 +154,7 @@ GET /api/v1/status/derivations` shows the versions and latest runs.
   - `/dev/dashboard` - LiveDashboard (dev only)
 
 **Access (`BitblocksWeb.UserAuth`):**
-- Public: home, `/blocks`, block and transaction detail, the beta features, `/reorgs`, `/about`, `/content`, `/start`.
+- Public: home, `/blocks`, block and transaction detail, the beta features, `/reorgs`, `/facts`, `/about`, `/content`, `/start`.
 - API key or signed in: all of `/api/v1` and `/bitcom.json` (`BitblocksWeb.Plugs.RequireCaller`, #12). Open with neither: `/api/v1/status`, `/api/v1/price/bsv` and `/api/v1/support`, which other sites' browsers and the deploy check read, `/api/v1/headers`, which a light client checks merkle roots against, and the Bitcom registry exports (`/bitcom.json`, `/api/v1/bitcom/snapshots`), meant to be checked without trusting us.
 - Signed in with GitHub: `/status`, `/syncing`, and the raw tx download.
 - Admin: everything in the router's `:admin` scope, including the `/transactions` list, plus the chain-scrubber tiles.

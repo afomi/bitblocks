@@ -114,6 +114,9 @@ config :bitblocks, :derivation_pause_ms, 0
 # Tests refresh the /types counts themselves (Bitblocks.TxTypes.Counts.refresh/0).
 config :bitblocks, :tx_type_counts_refresh, false
 
+# Tests refresh the /facts figures themselves (Bitblocks.Facts.refresh/0).
+config :bitblocks, :facts_refresh, false
+
 # Wallaby configuration
 config :wallaby,
   otp_app: :bitblocks,

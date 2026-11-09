@@ -176,6 +176,32 @@ defmodule BitblocksWeb.AccessibilityAxeTest do
       end
     end
 
+    for dark? <- [false, true] do
+      test "facts page is accessible with figures, dark mode #{dark?}", %{session: session} do
+        block_fixture(%{height: 0, sync_state: "completed"})
+        totalled_block_fixture(1, reward: 4_000_000_000, burned: 10)
+        totalled_block_fixture(2, reward: 51 * 100_000_000, verified: false)
+        Bitblocks.Facts.refresh()
+        on_exit(fn -> :ets.delete(Bitblocks.Facts, :summary) end)
+
+        session = visit(session, "/facts")
+
+        session =
+          if unquote(dark?),
+            do:
+              execute_script(
+                session,
+                "document.documentElement.classList.remove('light'); document.documentElement.classList.add('dark');"
+              ),
+            else: session
+
+        session
+        |> assert_has(css("#facts-largest-unclaimed"))
+        |> assert_has(css("#facts-mismatch"))
+        |> assert_no_violations()
+      end
+    end
+
     test "reorgs page is accessible with no reorgs recorded", %{session: session} do
       session
       |> visit("/reorgs")

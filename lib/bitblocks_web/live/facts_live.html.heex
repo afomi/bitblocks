@@ -1,0 +1,296 @@
+<div class="max-w-4xl mx-auto px-4 py-8 text-gray-900 dark:text-gray-100">
+  <h1 class="text-4xl font-bold text-gray-900 dark:text-white mb-3">
+    Chain facts
+  </h1>
+  <p class="text-gray-700 dark:text-gray-300 mb-2 max-w-3xl">
+    Some of what the chain holds is never announced: rewards miners chose not to take, sats sent where no one can spend them, and how the coins in existence add up.
+    Each figure here is summed from our block totals and says the block it is complete through.
+  </p>
+  <p class="text-gray-700 dark:text-gray-300 mb-4 max-w-3xl">
+    A block's totals are its miner reward, fees, subsidy and burned sats, written when every one of its transactions is stored.
+  </p>
+
+  <div
+    id="facts-coverage"
+    class="mb-8 max-w-3xl rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm text-gray-700 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300"
+  >
+    <%= case @facts do %>
+      <% %{status: :ok, through_height: through} = facts when through >= 0 -> %>
+        <p>
+          These figures cover blocks
+          <span class="font-mono tabular-nums">0</span>
+          to
+          <span class="font-mono tabular-nums"><%= delimit(through) %></span>
+          of <span class="font-mono tabular-nums"><%= delimit(facts.tip) %></span> known.
+          Every block in that range is verified complete and totalled, so the figures grow as the sync climbs toward the tip.
+          <%= if through < facts.complete_through do %>
+            Blocks
+            <span class="font-mono tabular-nums"><%= delimit(through + 1) %></span>
+            to
+            <span class="font-mono tabular-nums"><%= delimit(facts.complete_through) %></span>
+            are complete and waiting for their totals.
+          <% end %>
+        </p>
+      <% %{status: :ok, complete_through: complete} when complete >= 0 -> %>
+        <p>
+          Blocks
+          <span class="font-mono tabular-nums">0</span>
+          to
+          <span class="font-mono tabular-nums"><%= delimit(complete) %></span>
+          are verified complete and waiting for their totals, so there are no figures yet.
+        </p>
+      <% %{status: :ok} -> %>
+        <p>
+          No block is verified complete yet, so there are no figures.
+        </p>
+      <% %{status: :pending} -> %>
+        <p>
+          The figures are being computed.
+        </p>
+      <% _ -> %>
+        <p>
+          The figures are unavailable right now.
+          Please try again shortly.
+        </p>
+    <% end %>
+  </div>
+
+  <%= if Map.has_key?(@facts, :issued) do %>
+    <div
+      :if={@facts.mismatched_blocks > 0}
+      id="facts-mismatch"
+      role="alert"
+      class="mb-8 max-w-3xl rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800 dark:border-red-800 dark:bg-red-900/30 dark:text-red-200"
+    >
+      <p>
+        In <span class="font-mono tabular-nums"><%= delimit(@facts.mismatched_blocks) %></span>
+        blocks, our totals say the miner took more than the subsidy and fees allow.
+        The chain doesn't allow that, so our data is wrong there, and the figures below carry the error.
+      </p>
+    </div>
+
+    <section
+      id="facts-unclaimed"
+      aria-labelledby="facts-unclaimed-heading"
+      class="mb-10"
+    >
+      <h2
+        id="facts-unclaimed-heading"
+        class="text-xl font-semibold text-gray-900 dark:text-white mb-2"
+      >
+        Unclaimed miner rewards
+      </h2>
+      <p class="text-gray-700 dark:text-gray-300 mb-3 max-w-3xl">
+        A miner may pay itself less than the subsidy and fees allow, and what it leaves is never created.
+      </p>
+      <p class="mb-4">
+        <span
+          id="facts-unclaimed-total"
+          class="text-3xl font-semibold font-mono tabular-nums text-gray-900 dark:text-white"
+        >
+          <%= bsv(@facts.unclaimed) %>
+        </span>
+        <span class="block text-sm text-gray-600 dark:text-gray-400">
+          <span class="font-mono tabular-nums"><%= sats(@facts.unclaimed) %></span>,
+          left in <span class="font-mono tabular-nums"><%= delimit(@facts.unclaimed_blocks) %></span>
+          blocks.
+        </span>
+      </p>
+      <table
+        :if={@facts.largest_unclaimed != []}
+        id="facts-largest-unclaimed"
+        class="w-full max-w-3xl text-sm bg-white border border-gray-200 rounded-lg dark:bg-gray-800 dark:border-gray-700"
+      >
+        <caption class="text-left text-sm text-gray-600 dark:text-gray-400 mb-2">
+          The blocks that left the most.
+        </caption>
+        <thead class="text-left text-gray-600 dark:text-gray-400">
+          <tr>
+            <th
+              scope="col"
+              class="p-3 font-medium"
+            >
+              Block
+            </th>
+            <th
+              scope="col"
+              class="p-3 font-medium text-right"
+            >
+              Left unclaimed
+            </th>
+            <th
+              scope="col"
+              class="p-3 font-medium text-right"
+            >
+              Miner took
+            </th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-200 dark:divide-gray-700">
+          <tr :for={block <- @facts.largest_unclaimed}>
+            <td class="p-3">
+              <.link
+                navigate={~p"/blocks/#{block.height}"}
+                class="font-mono tabular-nums text-blue-700 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
+              >
+                <%= delimit(block.height) %>
+              </.link>
+            </td>
+            <td class="p-3 text-right font-mono tabular-nums">
+              <%= bsv(block.unclaimed) %>
+            </td>
+            <td class="p-3 text-right font-mono tabular-nums">
+              <%= bsv(block.miner_reward) %>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section
+      id="facts-burned"
+      aria-labelledby="facts-burned-heading"
+      class="mb-10"
+    >
+      <h2
+        id="facts-burned-heading"
+        class="text-xl font-semibold text-gray-900 dark:text-white mb-2"
+      >
+        Burned sats
+      </h2>
+      <p class="text-gray-700 dark:text-gray-300 mb-3 max-w-3xl">
+        Sats locked in outputs no one can ever spend, such as a data output that carries a value.
+      </p>
+      <p>
+        <span
+          id="facts-burned-total"
+          class="text-3xl font-semibold font-mono tabular-nums text-gray-900 dark:text-white"
+        >
+          <%= bsv(@facts.burned) %>
+        </span>
+        <span class="block text-sm text-gray-600 dark:text-gray-400 font-mono tabular-nums">
+          <%= sats(@facts.burned) %>
+        </span>
+      </p>
+    </section>
+
+    <section
+      id="facts-supply"
+      aria-labelledby="facts-supply-heading"
+      class="mb-10"
+    >
+      <h2
+        id="facts-supply-heading"
+        class="text-xl font-semibold text-gray-900 dark:text-white mb-2"
+      >
+        Supply audit
+      </h2>
+      <p class="text-gray-700 dark:text-gray-300 mb-3 max-w-3xl">
+        The halving schedule sets the subsidy each block may issue.
+        Every sat of it was claimed by a miner, left unclaimed, or paid to a coinbase that can never be spent.
+        So the three lines after the first add up to it.
+      </p>
+      <dl class="max-w-3xl bg-white border border-gray-200 rounded-lg divide-y divide-gray-200 dark:bg-gray-800 dark:border-gray-700 dark:divide-gray-700">
+        <div
+          id="facts-issued"
+          class="flex flex-wrap justify-between gap-2 p-3"
+        >
+          <dt class="text-gray-700 dark:text-gray-300">
+            Issued by the schedule
+          </dt>
+          <dd class="font-mono tabular-nums">
+            <%= bsv(@facts.issued) %>
+          </dd>
+        </div>
+        <div
+          id="facts-claimed"
+          class="flex flex-wrap justify-between gap-2 p-3"
+        >
+          <dt class="text-gray-700 dark:text-gray-300">
+            Claimed by miners as new coins
+          </dt>
+          <dd class="font-mono tabular-nums">
+            <%= bsv(@facts.claimed) %>
+          </dd>
+        </div>
+        <div class="flex flex-wrap justify-between gap-2 p-3">
+          <dt class="text-gray-700 dark:text-gray-300">
+            Left unclaimed
+          </dt>
+          <dd class="font-mono tabular-nums">
+            <%= bsv(@facts.unclaimed) %>
+          </dd>
+        </div>
+        <div
+          id="facts-unspendable"
+          class="flex flex-wrap justify-between gap-2 p-3"
+        >
+          <dt class="text-gray-700 dark:text-gray-300">
+            Paid to coinbases that can never be spent
+          </dt>
+          <dd class="font-mono tabular-nums">
+            <%= bsv(@facts.unspendable) %>
+          </dd>
+        </div>
+        <div class="flex flex-wrap justify-between gap-2 p-3">
+          <dt class="text-gray-700 dark:text-gray-300">
+            Burned, out of what was claimed
+          </dt>
+          <dd class="font-mono tabular-nums">
+            <%= bsv(@facts.burned) %>
+          </dd>
+        </div>
+        <div
+          id="facts-spendable"
+          class="flex flex-wrap justify-between gap-2 p-3"
+        >
+          <dt class="font-medium text-gray-900 dark:text-white">
+            Can still move, at most
+          </dt>
+          <dd class="font-mono tabular-nums font-medium">
+            <%= bsv(@facts.spendable_at_most) %>
+          </dd>
+        </div>
+      </dl>
+      <p class="mt-2 text-sm text-gray-600 dark:text-gray-400 max-w-3xl">
+        "At most", because coins whose keys are lost still count here: the chain can't tell them apart.
+        Fees move coins that already exist, so they are taken out of what miners claimed.
+      </p>
+    </section>
+  <% end %>
+
+  <section
+    id="facts-unspendable-coinbases"
+    aria-labelledby="facts-unspendable-coinbases-heading"
+    class="mb-10"
+  >
+    <h2
+      id="facts-unspendable-coinbases-heading"
+      class="text-xl font-semibold text-gray-900 dark:text-white mb-2"
+    >
+      Coinbases that can never be spent
+    </h2>
+    <p class="text-gray-700 dark:text-gray-300 mb-3 max-w-3xl">
+      Three coinbases paid 50 BTC each to outputs the node will never accept as spendable.
+    </p>
+    <ul
+      role="list"
+      class="max-w-3xl bg-white border border-gray-200 rounded-lg divide-y divide-gray-200 dark:bg-gray-800 dark:border-gray-700 dark:divide-gray-700"
+    >
+      <li
+        :for={coinbase <- @unspendable_coinbases}
+        class="p-3"
+      >
+        <.link
+          navigate={~p"/blocks/#{coinbase.height}"}
+          class="font-mono tabular-nums text-blue-700 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
+        >
+          Block <%= delimit(coinbase.height) %>
+        </.link>
+        <span class="block text-sm text-gray-700 dark:text-gray-300">
+          <%= coinbase.note %>
+        </span>
+      </li>
+    </ul>
+  </section>
+</div>

@@ -44,6 +44,8 @@ defmodule Bitblocks.Application do
       Bitblocks.StatsCache,
       # Transaction type counts for /types, summed from blocks every 10 minutes (#49)
       Bitblocks.TxTypes.Counts,
+      # Unclaimed rewards, burned sats and the supply audit for /facts, every 10 minutes (#70)
+      Bitblocks.Facts,
       # Cache BSV spot price from CoinGecko (rate-limit friendly)
       Bitblocks.PriceCache,
       # ETS cache of DB-registered protocol prefixes for detection (no DB per tx)
