@@ -195,6 +195,62 @@ defmodule Bitblocks.TxTypes.ClassifierTest do
     end
   end
 
+  # #76: real txs for the types that belong to a whole tx (tx_vectors.json).
+  @tx_vectors "priv/data/tx_types/tx_vectors.json"
+              |> File.read!()
+              |> Jason.decode!()
+              |> Map.fetch!("vectors")
+
+  describe "the tx vectors (tx_vectors.json)" do
+    test "every tx vector hashes to its txid, and is listed by the type it tests" do
+      for v <- @tx_vectors do
+        bytes = Base.decode16!(v["raw"], case: :lower)
+        txid = :crypto.hash(:sha256, :crypto.hash(:sha256, bytes)) |> reverse_hex()
+        assert txid == v["txid"], "#{v["name"]} does not hash to its txid"
+        assert v["name"] in Map.get(TxTypes.get(v["type"]), :tx_vectors, [])
+      end
+
+      names = Enum.map(@tx_vectors, & &1["name"])
+
+      for type <- TxTypes.all(), name <- Map.get(type, :tx_vectors, []) do
+        assert name in names, "#{type.id} claims unknown tx vector #{name}"
+      end
+    end
+
+    for v <- @tx_vectors do
+      @tx_vector v
+      test "tx vector #{v["name"]} is typed #{v["type"]} only when expected" do
+        assert {:ok, %{types: types}} = Classifier.classify_raw(@tx_vector["raw"])
+        assert @tx_vector["type"] in types == @tx_vector["expected"], @tx_vector["description"]
+      end
+    end
+
+    test "a lock time binds only with a non-final input, and 0 never does" do
+      p2pkh = out(vector("p2pkh"))
+      final = %{input([@sig, @pubkey]) | sequence: 0xFFFFFFFF}
+      open = %{final | sequence: 0xFFFFFFFE}
+
+      typed? = fn lock_time, inputs ->
+        tx = %BSV.Tx{inputs: inputs, outputs: [p2pkh], lock_time: lock_time}
+        "nlocktime" in Classifier.classify(tx).types
+      end
+
+      assert typed?.(800_000, [final, open])
+      refute typed?.(800_000, [final, final])
+      refute typed?.(0, [open])
+      # A unix time binds the same way.
+      assert typed?.(1_700_000_000, [open])
+    end
+  end
+
+  defp reverse_hex(bin),
+    do:
+      bin
+      |> :binary.bin_to_list()
+      |> Enum.reverse()
+      |> :binary.list_to_bin()
+      |> Base.encode16(case: :lower)
+
   test "version/0 is a positive integer" do
     assert is_integer(Classifier.version()) and Classifier.version() > 0
   end

@@ -18,6 +18,9 @@ defmodule Bitblocks.TxTypes do
   `Bitblocks.TxTypes.Proposal`) names its vector in
   `priv/data/tx_types/chain_vectors.json` instead, beside the txid and vout it
   was read from.
+  A type that belongs to a whole tx (`nlocktime`) names real txs in
+  `priv/data/tx_types/tx_vectors.json` under `tx_vectors`, each with whether
+  the classifier must give it that type.
   """
 
   @types_path Path.join([__DIR__, "..", "..", "priv", "data", "tx_types", "types.json"])
@@ -32,7 +35,7 @@ defmodule Bitblocks.TxTypes do
     @atom_keys ~w(id title short group summary description history spec label url pattern
                   parts token note spendable spend related explore href examples kind vector
                   template_hashes shape standard protocols collections reason concepts term text
-                  attribution license license_url source_url share_alike vectors)
+                  attribution license license_url source_url share_alike vectors tx_vectors)
 
     def atomize(map) when is_map(map) do
       Map.new(map, fn {key, value} ->

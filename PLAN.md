@@ -81,6 +81,7 @@ Phase 2 is built (2026-11-04): stable template hashes (script analysis v7), `Bit
 P2PK and P2SH are types (classifier v2), so early coinbases no longer read `custom`.
 STAS tokens are `stas` (classifier v3, #78), and transactions#show lists each STAS output's token id, owner and amount.
 HodLocker posts and likes are `hodlocker` (classifier v4, #75), and transactions#show says what each time lock backs, its sats, owner and unlock height.
+A tx whose nLockTime binds is `nlocktime` (classifier v5, #76), and transactions#show says until which block or time, and whether our tip has reached it.
 Needs on prod, with Ryan's OK: the tx_types backfill (#1); until then `/types` says no block is typed yet.
 Open: named combinations such as a listing. The canonical opcode names are agreed, and the OrdLock and CLTV hashes are pinned in the suite.
 #48 SCRUBBER: admin three.js scrub from genesis to tip, and the first surface for accounting for misspends and burns.

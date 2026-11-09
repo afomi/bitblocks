@@ -36,7 +36,10 @@ defmodule Bitblocks.TxTypes.Classifier do
   segments of its data outputs (a B file with a MAP record after the pipe
   is `b` and `map`; MAP signed by SIGMA is `map` and `sigma`), in the order
   of `types.json`. A MAP record whose `app` is `hodlocker.com` adds
-  `hodlocker` (`Bitblocks.HodLocker`).
+  `hodlocker` (`Bitblocks.HodLocker`). A tx whose own lock time binds (it
+  is nonzero and an input's sequence is below `0xffffffff`) adds
+  `nlocktime` (`Bitblocks.NLockTime`); a nonzero lock time with every input
+  final is ignored by the rules, so it adds nothing.
 
   Inputs matter in one place, kept simple: a Metanet node that names a
   parent is a node only when one of the tx's inputs is signed with a key
@@ -55,13 +58,14 @@ defmodule Bitblocks.TxTypes.Classifier do
   """
 
   alias Bitblocks.Chain.RawTx
-  alias Bitblocks.{Bsv20Parser, TxTypes}
+  alias Bitblocks.{Bsv20Parser, NLockTime, TxTypes}
 
   # v2 (#49): P2PK and P2SH get their own types, so early coinbases stop
   # reading `custom`.
   # v3 (#78): STAS token outputs are `stas`, matched by their contract bytes.
   # v4 (#75): a tx with a HodLocker MAP record is also `hodlocker`.
-  @version 4
+  # v5 (#76): a tx whose nLockTime binds is also `nlocktime`.
+  @version 5
 
   @b "19HxigV4QyBv3tHpQVcUEQyq1pzZVdoAut"
   @map "1PuQa7K62MiKCtssSLKy1kh56WWU7MtUR5"
@@ -106,7 +110,7 @@ defmodule Bitblocks.TxTypes.Classifier do
   and `types` the tx's type, a set of ids in `types.json` order.
   """
   @spec classify(BSV.Tx.t()) :: result()
-  def classify(%BSV.Tx{inputs: inputs, outputs: outputs}) do
+  def classify(%BSV.Tx{inputs: inputs, outputs: outputs} = tx) do
     signed? = Enum.any?(inputs, &signed_with_key?/1)
 
     {output_types, extra} =
@@ -115,7 +119,7 @@ defmodule Bitblocks.TxTypes.Classifier do
       |> Enum.unzip()
 
     types =
-      (output_types ++ List.flatten(extra))
+      (output_types ++ List.flatten(extra) ++ tx_level(tx))
       |> Enum.uniq()
       |> Enum.sort_by(&Map.fetch!(@order, &1))
 
@@ -137,6 +141,9 @@ defmodule Bitblocks.TxTypes.Classifier do
   end
 
   def classify_raw(_), do: {:error, :invalid_raw}
+
+  # Types that belong to the tx itself, not to any one output.
+  defp tx_level(tx), do: if(NLockTime.enforced?(tx), do: ["nlocktime"], else: [])
 
   # An output's type, and the known protocols of its later data segments.
   defp output(%BSV.TxOut{script: %BSV.Script{chunks: chunks} = script, satoshis: sats}, signed?) do

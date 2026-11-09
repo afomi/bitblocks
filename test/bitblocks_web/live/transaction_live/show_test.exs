@@ -94,6 +94,43 @@ defmodule BitblocksWeb.TransactionLive.ShowTest do
     end
   end
 
+  describe "nLockTime (#76)" do
+    @tx_vectors "priv/data/tx_types/tx_vectors.json"
+                |> File.read!()
+                |> Jason.decode!()
+                |> Map.fetch!("vectors")
+                |> Map.new(&{&1["name"], &1})
+
+    test "an enforced lock says until which block, and that our tip has reached it",
+         %{conn: conn} do
+      v = @tx_vectors["tx_nlocktime_enforced"]
+      insert_tx(v["raw"], v["txid"])
+      block_fixture(height: 399_990)
+
+      {:ok, view, _html} = live(conn, ~p"/transactions/#{v["txid"]}")
+
+      assert view |> element("#tx-nlocktime-until") |> render() =~ "Locked until block"
+      assert view |> element("#tx-nlocktime-until") |> render() =~ "399,988"
+      assert view |> element("#tx-nlocktime-state") |> render() =~ "Reached"
+    end
+
+    test "a lock time with every input final says the rules ignore it", %{conn: conn} do
+      v = @tx_vectors["tx_nlocktime_ignored"]
+      insert_tx(v["raw"], v["txid"])
+
+      {:ok, view, _html} = live(conn, ~p"/transactions/#{v["txid"]}")
+
+      assert view |> element("#tx-nlocktime-until") |> render() =~ "Lock time set to block"
+      assert view |> element("#tx-nlocktime-state") |> render() =~ "ignore this lock time"
+    end
+
+    test "a tx with lock time 0 has no lock time section", %{conn: conn} do
+      insert_tx(@genesis_raw, @genesis_txid)
+      {:ok, view, _html} = live(conn, ~p"/transactions/#{@genesis_txid}")
+      refute has_element?(view, "#tx-nlocktime")
+    end
+  end
+
   describe "STAS tokens (#78)" do
     test "a STAS output shows its token id, owner, amount and data", %{conn: conn} do
       # The real STAS output 0 of 0f9e2366…54a8 (chain_vectors.json's chain_stas),

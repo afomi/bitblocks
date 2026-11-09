@@ -157,22 +157,33 @@ defmodule BitblocksWeb.TransactionLive.Show do
      |> assign(:b_file, b_file(decoded_tx))
      |> assign(:descriptors_by_vout, Map.new(output_descriptors, &{&1.vout, &1}))
      |> assign(:stas_outputs, stas_outputs(decoded_tx))
-     |> assign_hodlocker(decoded_tx, transaction.txid)}
+     |> assign_locks(decoded_tx, transaction.txid)}
   end
 
-  # HodLocker (#75): what this tx's time locks back, and our tip, which says
-  # how many blocks each lock has left.
-  defp assign_hodlocker(socket, decoded_tx, txid) do
-    case decoded_tx && txid && Bitblocks.HodLocker.parse(decoded_tx, txid) do
-      %{} = hodlocker ->
-        socket
-        |> assign(:hodlocker, hodlocker)
-        |> assign(:tip_height, Bitblocks.ChainTiles.chain_tip())
+  # HodLocker (#75): what this tx's time locks back; nLockTime (#76): the
+  # tx's own lock. Our tip says how far each lock has left, read only when
+  # the tx carries one.
+  defp assign_locks(socket, decoded_tx, txid) do
+    hodlocker = decoded_tx && txid && Bitblocks.HodLocker.parse(decoded_tx, txid)
+    nlocktime = decoded_tx && Bitblocks.NLockTime.parse(decoded_tx)
+    tip = if hodlocker || nlocktime, do: Bitblocks.ChainTiles.chain_tip()
 
-      _ ->
-        socket |> assign(:hodlocker, nil) |> assign(:tip_height, nil)
+    socket
+    |> assign(:hodlocker, hodlocker || nil)
+    |> assign(:nlocktime, nlocktime || nil)
+    |> assign(:tip_height, tip)
+    |> assign(:tip_time, tip_time(nlocktime, tip))
+  end
+
+  # A time lock is compared with the tip block's time.
+  defp tip_time(%{kind: :time}, tip) when is_integer(tip) do
+    case Chain.get_block_at_height(tip) do
+      %{time: time} when is_integer(time) -> DateTime.from_unix!(time)
+      _ -> nil
     end
   end
+
+  defp tip_time(_nlocktime, _tip), do: nil
 
   @doc """
   How a lock stands at our tip: `{:locked, blocks_left}`, `:unlocked`, or

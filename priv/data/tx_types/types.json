@@ -681,6 +681,58 @@
       }
     },
     {
+      "id": "nlocktime",
+      "title": "Transaction lock time",
+      "short": "nLockTime",
+      "group": "conditions",
+      "summary": "A transaction no block may include until a chosen block height or time has passed.",
+      "description": [
+        "Every transaction ends with a lock time field, and most leave it at 0.",
+        "A nonzero lock time below 500,000,000 is a block height; from 500,000,000 on it is a unix time.",
+        "The lock binds only when at least one input's sequence number is below 0xffffffff.",
+        "When every input is final, the rules ignore the lock time, so Bitblocks types a transaction nlocktime only when its lock binds.",
+        "This lock belongs to the whole transaction, not to one output: it says when the transaction itself becomes valid."
+      ],
+      "history": [
+        "Lock time is in the first Bitcoin release, as the way to replace a transaction before it is final.",
+        "From 2015, Bitcoin Core set it to the current height with a sequence of 0xfffffffe on every payment, to discourage miners from rewriting recent blocks, so many transactions from those years carry one."
+      ],
+      "spec": {
+        "label": "Bitcoin wiki: NLockTime",
+        "url": "https://en.bitcoin.it/wiki/NLockTime"
+      },
+      "pattern": {
+        "parts": [
+          {
+            "token": "<inputs>",
+            "label": "At least one input with a sequence below 0xffffffff."
+          },
+          {
+            "token": "<outputs>",
+            "label": "Any outputs."
+          },
+          {
+            "token": "<lock time>",
+            "label": "4 bytes: a block height below 500,000,000, else a unix time."
+          }
+        ],
+        "note": "A nonzero lock time with every sequence at 0xffffffff is ignored, and is not this type."
+      },
+      "spendable": true,
+      "tx_vectors": [
+        "tx_nlocktime_enforced",
+        "tx_nlocktime_ignored"
+      ],
+      "spend": "Its outputs are spent as their own scripts say; the lock only decides when the transaction can be mined.",
+      "related": [
+        "timelock",
+        "p2pkh"
+      ],
+      "examples": {
+        "kind": "typed"
+      }
+    },
+    {
       "id": "anyone-can-spend",
       "title": "Anyone can spend",
       "short": "OP_TRUE",
