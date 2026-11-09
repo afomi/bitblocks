@@ -1,0 +1,39 @@
+[
+  {
+    "request": {
+      "body": "",
+      "headers": [],
+      "method": "post",
+      "options": [],
+      "url": "http://testnode:18332",
+      "request_body": ""
+    },
+    "response": {
+      "body": "{\"result\":{\"chain\":\"main\",\"blocks\":974382,\"difficulty\":71268937542.14706,\"verificationprogress\":0.9999998},\"error\":null,\"id\":\"bitblocks\"}",
+      "headers": [
+        [
+          "Content-Type",
+          "application/json"
+        ]
+      ],
+      "status_code": 200,
+      "type": "ok"
+    }
+  },
+  {
+    "request": {
+      "body": "",
+      "headers": [],
+      "method": "post",
+      "options": [],
+      "url": "http://testnode:18332",
+      "request_body": ""
+    },
+    "response": {
+      "body": "",
+      "headers": [],
+      "status_code": 200,
+      "type": "ok"
+    }
+  }
+]

@@ -308,14 +308,14 @@ defmodule BitcoinsvCli do
       {timeout, recv_timeout} = batch_rpc_timeouts()
 
       with {:ok, url} <- bitcoin_url(),
-           {:ok, body} <- Poison.encode(batch_commands),
+           {:ok, body} <- Jason.encode(batch_commands),
            {:ok, %HTTPoison.Response{status_code: 200, body: response_body}} <-
              post_with_backoff(url, body,
                timeout: timeout,
                recv_timeout: recv_timeout,
                max_body_length: 500_000_000
              ),
-           {:ok, responses} <- Poison.decode(response_body) do
+           {:ok, responses} <- Jason.decode(response_body) do
         # Convert array of responses to a map keyed by ID
         results =
           responses
@@ -346,7 +346,7 @@ defmodule BitcoinsvCli do
         {:error, %HTTPoison.Error{reason: reason}} ->
           {:error, {:connection_error, reason}}
 
-        {:error, %Poison.ParseError{} = error} ->
+        {:error, %Jason.DecodeError{} = error} ->
           {:error, {:parse_error, error}}
 
         {:error, reason} ->
@@ -480,7 +480,7 @@ defmodule BitcoinsvCli do
       {timeout, recv_timeout} = rpc_timeouts()
 
       with {:ok, url} <- bitcoin_url(),
-           {:ok, body} <- Poison.encode(command),
+           {:ok, body} <- Jason.encode(command),
            {:ok, %HTTPoison.Response{status_code: status, body: response_body}}
            when status != 429 <-
              post_with_backoff(url, body,
@@ -489,7 +489,7 @@ defmodule BitcoinsvCli do
                # 500MB max response
                max_body_length: 500_000_000
              ),
-           {:ok, %{"error" => nil, "result" => result}} <- Poison.decode(response_body) do
+           {:ok, %{"error" => nil, "result" => result}} <- Jason.decode(response_body) do
         result
       else
         {:error, :missing_bitcoin_url} ->
@@ -529,7 +529,7 @@ defmodule BitcoinsvCli do
           Logger.error("Bitcoin RPC connection error: #{redact(reason)}")
           {:error, {:connection_error, reason}}
 
-        {:error, %Poison.ParseError{}} ->
+        {:error, %Jason.DecodeError{}} ->
           Logger.error("Bitcoin RPC parse error: empty or invalid response from node")
           {:error, {:parse_error, :invalid_json}}
 

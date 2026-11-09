@@ -40,7 +40,6 @@ defmodule Bitblocks.MixProject do
     [
       {:bsv, "~> 2.1.0"},
       {:httpoison, "~> 2.3.0"},
-      {:poison, "~> 6.0"},
       {:phoenix, "~> 1.8.1"},
       {:phoenix_ecto, "~> 4.4"},
       {:ecto_sql, "~> 3.10"},
