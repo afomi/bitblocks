@@ -99,7 +99,7 @@ mix assets.deploy           # Build and minify for production
 
 - `Bitblocks.Chain.TxPipeline.steps/0` is the ordered list of what happens to every stored tx, and the one place to add a step (one module plus one line).
 - Chunk steps run before the insert, in `Chain.TxIngest.store_chunk/2`: `script_analysis`, `sats_out`, `burned`, `sats_in` (previous outputs from stored txs, one query per chunk; nil when one isn't stored), `fee`, `classify_outputs` (every output typed against `priv/data/tx_types/types.json` by `Bitblocks.TxTypes.Classifier`, unmatched as `custom`; the tx's set of types in `transactions.tx_types`, #49).
-- Tx steps run after it: `record_spends`, `index_tokens`, `index_bitcom`, `index_bap` (BAP records with a valid AIP signature, `docs/BAP.md`).
+- Tx steps run after it: `record_spends`, `index_tokens`, `index_bitcom`, `index_bap` (BAP records with a valid AIP signature, `docs/BAP.md`), `index_timelocks` (one `timelocks` row per script time lock: 1Sat Lock, CLTV, CSV, with whether it binds and whether only on one branch, #76).
 - A tx already stored when its block is fetched is skipped, so it meets no step; `Chain.TxPipeline.CatchUp` (`CatchUpBlockWorker`, queue `:derived`) brings such a block's rows up to version after it completes.
 - The block steps run once the block is `completed`: `block_totals` (`sats_out`, `fees`, `miner_reward`, `subsidy`, `burned`, and `fees_verified`: `miner_reward <= subsidy + fees`), then `type_counts` (`blocks.type_counts`, txs per type, which `/types` sums through `Bitblocks.TxTypes.Counts`).
 - A failing step is logged and reported (telemetry `[:bitblocks, :tx_pipeline, :step_failed]`) and never loses the stored tx.
@@ -258,6 +258,10 @@ bin/bitblocks rpc 'Bitblocks.Release.start_backfill("token_recipients", 0, 980_0
 # BAP records on stored rows (docs/BAP.md): dry run first, then add apply: true
 bin/bitblocks rpc 'Bitblocks.Release.backfill_bap(600_000, 650_000)'
 bin/bitblocks rpc 'Bitblocks.Release.import_bap(["<txid>"]) |> IO.inspect()'
+
+# Script time locks into timelocks (#76): inserts only, never touches transactions; dry run first, then add apply: true
+bin/bitblocks rpc 'Bitblocks.Release.backfill_timelocks(0, 980_000)'
+bin/bitblocks rpc 'Bitblocks.Release.start_backfill("timelocks", 0, 980_000, apply: true)'
 
 # Chain-scrubber tiles (#48): full build once, then the cron keeps them current
 bin/bitblocks rpc 'Bitblocks.Release.build_chain_tiles()'

@@ -47,6 +47,7 @@ Removing a step would lower it, so a removal also bumps a remaining step of the 
 | `index_tokens` | tx | 3 | `token_recipients` | `protocol_instances`, the token index, with who holds each output and each BSV-21 transfer's validation status |
 | `index_bitcom` | tx | 1 | none | `bitcom_commands` |
 | `index_bap` | tx | 1 | none | `bap_records` |
+| `index_timelocks` | tx | 1 | `timelocks` | `timelocks` rows |
 | `block_totals` | block | 2 | `block_totals` | `blocks.sats_out`, `fees`, `miner_reward`, `subsidy`, `burned`, `fees_verified` |
 | `type_counts` | block | 1 | `type_counts` | `blocks.type_counts` |
 
@@ -64,6 +65,10 @@ Read the v5 dry run's `types_changed` before applying it.
 `block_totals` v2 stamps a block only once its coinbase is known; v1 stamped blocks whose rows hadn't been through script analysis, leaving `miner_reward` and `fees_verified` nil and the coinbase counted in `sats_out`.
 A block left unstamped stays below the version, so the tally backfill finds it again after script analysis has run, and reports it under `reward_unknown` until then.
 `index_tokens` v3 (#69) reads the lock on either side of the inscription envelope, names a cosign lock's owner, and records holders on classic deploys and mints too.
+`index_timelocks` v1 (#76) writes one `timelocks` row per script time lock, stamped `timelocks.version`; it never writes to `transactions`.
+Its backfill reads raw bytes only for txs with an output script analysis left `unknown` (or none analysed), on the `block_hash` index, and inserts the rows not yet stored at the version.
+A row below the version is rewritten in place: the table is small, so that costs little.
+Its acceptance check is a dry run with `rows_below_version` 0 and `no_raw` 0; a candidate whose bytes moved to the tx store counts under `no_raw` and isn't read.
 
 ### Derivations
 
@@ -75,8 +80,9 @@ A block left unstamped stays below the version, so the tally backfill finds it a
 | `tx_types` | `classify_outputs` | 5 | `transactions.tx_types_version` | `Release.backfill_tx_types/3` |
 | `type_counts` | `classify_outputs`, `type_counts` | 6 | `blocks.type_counts_version` | `Release.backfill_tx_types/3` |
 | `token_recipients` | `index_tokens` | 3 | `protocol_instances.recipient_version` | `Release.backfill_token_recipients/3` |
+| `timelocks` | `index_timelocks` | 1 | `timelocks.version` | `Release.backfill_timelocks/3` |
 
-Stage versions today: chunk 16, tx 6, block 3.
+Stage versions today: chunk 16, tx 7, block 3.
 `GET /api/v1/status/derivations` answers all of these live.
 
 `type_counts` sums the classifier's version with its own, because a block's counts change when the classifier does: a classifier bump marks every block's counts below the version too, and the one backfill re-types the txs and rewrites the counts.
@@ -147,6 +153,7 @@ A backfill run is dated exactly, in `derivation_runs`.
 | `parsed_data` `recipient`, `lock`, `cosigner` (tokens) | `index_tokens` | the output's lock, from raw bytes | `recipient_version` | CPU: one decode per tx with a row below the version | `Release.backfill_token_recipients/3` |
 | `bitcom_commands` | `index_bitcom` | Bitcom `$` commands | none yet | none for untagged txs | re-indexed by `Release.backfill_script_analysis/3` |
 | `bap_records` | `index_bap` | BAP records with a valid AIP signature | `version` | none for a tx with no AIP signer | `Release.backfill_bap/3` |
+| `timelocks` | `index_timelocks` | output scripts: 1Sat Lock, CLTV, CSV (`Bitblocks.ScriptLocks`) | `version` | none for a tx whose outputs script analysis typed; a decode for one with an `unknown` output | `Release.backfill_timelocks/3` |
 
 The tx steps write rows in other tables keyed by txid, so most have versions but no per-row stamp yet.
 When one of them changes its output, it gains a stamp column and a backfill in the same change.
@@ -187,6 +194,10 @@ bin/bitblocks rpc 'Bitblocks.Release.backfill_tx_types(0, 10_000, apply: true)'
 bin/bitblocks rpc 'Bitblocks.Release.backfill_token_recipients(0, 980_000)'
 bin/bitblocks rpc 'Bitblocks.Release.backfill_token_recipients(0, 980_000, apply: true)'
 
+# Script time locks into the timelocks table (#76), dry run, then apply; inserts only
+bin/bitblocks rpc 'Bitblocks.Release.backfill_timelocks(0, 980_000)'
+bin/bitblocks rpc 'Bitblocks.Release.start_backfill("timelocks", 0, 980_000, apply: true)'
+
 # The runs, newest first
 bin/bitblocks rpc 'Bitblocks.Release.derivation_runs()'
 ```
@@ -219,7 +230,7 @@ Every backfill run writes one row, dry runs included (`Bitblocks.Derivations.Run
 
 | Column | Meaning |
 | --- | --- |
-| `derivation` | `tallies`, `script_analysis`, `tx_types`, `tx_steps`, `tx_size`, `bap` or `token_recipients` |
+| `derivation` | `tallies`, `script_analysis`, `tx_types`, `tx_steps`, `tx_size`, `bap`, `token_recipients` or `timelocks` |
 | `version` | the version the run brought rows up to |
 | `from_height`, `to_height` | the inclusive height range; nil for a run over every stored tx |
 | `applied` | false for a dry run |
@@ -227,7 +238,7 @@ Every backfill run writes one row, dry runs included (`Bitblocks.Derivations.Run
 | `rows_changed` | rows it stamped, or in a dry run would stamp; for tx types, the tx rows it wrote (only those whose types change, see above) |
 | `rows_below_version` | rows in the range still below the version when it finished: 0 for a complete applied run |
 | `blocks_examined` | blocks it walked (tallies) |
-| `details` | per-derivation counts: `values_changed`, `sats_in_unknown`, `blocks_changed`, `blocks_below_version`, `unverified`; `undecodable` for script analysis; `types_changed`, `undecodable`, `blocks_typed`, `blocks_changed`, `blocks_below_version` for tx types; `recipients_filled`, `cosign`, `unknown_lock`, `no_raw` for token recipients |
+| `details` | per-derivation counts: `values_changed`, `sats_in_unknown`, `blocks_changed`, `blocks_below_version`, `unverified`; `undecodable` for script analysis; `types_changed`, `undecodable`, `blocks_typed`, `blocks_changed`, `blocks_below_version` for tx types; `recipients_filled`, `cosign`, `unknown_lock`, `no_raw` for token recipients; `locks_found`, `one_sat_lock`, `cltv`, `csv`, `enforced`, `conditional`, `no_raw` for time locks |
 | `outcome` | `running`, `ok`, `partial`, `failed` or `abandoned` |
 | `error` | what stopped a partial or failed run |
 | `command` | the command as typed |

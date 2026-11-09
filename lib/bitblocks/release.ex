@@ -720,6 +720,58 @@ defmodule Bitblocks.Release do
     end)
   end
 
+  @doc """
+  Fills `timelocks` with the script time locks of stored txs at heights
+  `from_height` to `to_height` (#76): 1Sat Locks, CLTV and CSV, each with
+  whether it binds and on which path. Reads raw bytes only for txs with an
+  output script analysis left `unknown`, and writes only to `timelocks`.
+  Records the run in `derivation_runs`. See
+  `Bitblocks.Chain.TxPipeline.TimelocksBackfill`.
+
+  **Dry run by default**; `apply: true` writes.
+
+      bin/bitblocks rpc 'Bitblocks.Release.backfill_timelocks(800_000, 850_000)'
+      bin/bitblocks rpc 'Bitblocks.Release.backfill_timelocks(800_000, 850_000, apply: true)'
+  """
+  def backfill_timelocks(from_height, to_height, opts \\ [])
+      when is_integer(from_height) and is_integer(to_height) do
+    command = command("backfill_timelocks", [from_height, to_height], opts)
+
+    with_running_repo(fn ->
+      report =
+        Bitblocks.Chain.TxPipeline.TimelocksBackfill.run(
+          from_height,
+          to_height,
+          opts
+          |> Keyword.put_new(:on_batch, &print_progress/1)
+          |> Keyword.put(:command, command)
+        )
+
+      print_timelocks_backfill(report)
+      report
+    end)
+  end
+
+  defp print_timelocks_backfill(r) do
+    print_run_header(r, "script time locks")
+    d = r.details
+    IO.puts("  #{r.blocks_examined} block(s) walked, #{r.rows_examined} candidate tx(s) read")
+
+    IO.puts(
+      "  #{d.locks_found} lock(s) found: #{d.one_sat_lock} 1Sat Lock, #{d.cltv} CLTV, #{d.csv} CSV; " <>
+        "#{d.enforced} enforced, #{d.conditional} on one path only"
+    )
+
+    IO.puts("  #{r.rows_changed} lock row(s) #{if r.applied, do: "written", else: "to write"}")
+
+    if d.no_raw > 0 do
+      IO.puts("  #{d.no_raw} candidate tx(s) NOT READ: no bytes in the database")
+    end
+
+    IO.puts("  #{r.rows_below_version} lock row(s) missing or below the version in the range")
+    print_run_footer(r)
+  end
+
   defp print_token_recipients_backfill(r) do
     print_run_header(r, "token recipients")
     d = r.details
@@ -806,7 +858,7 @@ defmodule Bitblocks.Release do
   Starts a backfill as a chain of Oban jobs, one range at a time
   (`Bitblocks.BackfillChains`): it needs no open connection and carries on
   across a deploy. `derivation` is `"script_analysis"`, `"tx_steps"`,
-  `"tallies"`, `"tx_types"`, `"bap"` or `"token_recipients"` over heights
+  `"tallies"`, `"tx_types"`, `"bap"`, `"token_recipients"` or `"timelocks"` over heights
   `from..to`.
 
   **Dry run by default**; `apply: true` writes. `step:` sets the range one job

@@ -51,6 +51,7 @@ So sats in costs no node call.
 | 8 | `index_tokens` | BSV-20/21 inscriptions, only on txs tagged `BSV20` | `protocol_instances`, the token index | none for untagged txs |
 | 9 | `index_bitcom` | Bitcom `$` commands, only on txs tagged `Bitcom` | `bitcom_commands`, with ownership proofs | none for untagged txs |
 | 10 | `index_bap` | BAP records, only on txs with a valid AIP signer (`aip_signers`) | `bap_records`: each record whose signature checks; what they mean is worked out when read ([BAP.md](BAP.md)) | none for txs with no AIP signer |
+| 11 | `index_timelocks` | output scripts, only on txs with an output script analysis left `unknown` (or none analysed) | `timelocks`, one row per script time lock: 1Sat Lock, CLTV or CSV, its unlock height or time, whether it binds, and whether only on one branch (`Bitblocks.ScriptLocks`) | none for txs whose outputs are all a known shape |
 
 A tx already stored when its block is fetched is skipped, so neither kind of step runs for it.
 `Chain.TxPipeline.CatchUp` brings such a block's rows up to version after it completes, every stage included ([DERIVED_DATA.md](DERIVED_DATA.md)).
@@ -59,8 +60,8 @@ A tx already stored when its block is fetched is skipped, so neither kind of ste
 
 | # | Step | Reads | Writes | Cost |
 | --- | --- | --- | --- | --- |
-| 11 | `block_totals` | the block's tx rows | `blocks.sats_out`, `fees`, `miner_reward`, `subsidy`, `burned`, `fees_verified` | one aggregate on the `block_hash` index, one row update |
-| 12 | `type_counts` | the block's tx rows | `blocks.type_counts`: type id => txs of that type; `type_counts_version` and `tx_types_version`, only when every tx is typed at the current version (by its own stamp or the block's) | one aggregate on the `block_hash` index, one row update |
+| 12 | `block_totals` | the block's tx rows | `blocks.sats_out`, `fees`, `miner_reward`, `subsidy`, `burned`, `fees_verified` | one aggregate on the `block_hash` index, one row update |
+| 13 | `type_counts` | the block's tx rows | `blocks.type_counts`: type id => txs of that type; `type_counts_version` and `tx_types_version`, only when every tx is typed at the current version (by its own stamp or the block's) | one aggregate on the `block_hash` index, one row update |
 
 `block_totals`:
 
@@ -108,16 +109,26 @@ flowchart TD
   s6 --> insert[("Insert the rows into transactions")]
   insert --> s7
   subgraph tx["Tx steps, per stored tx"]
-    s7["7 record_spends"] --> s8["8 index_tokens"] --> s9["9 index_bitcom"]
+    s7["7 record_spends"] --> s8["8 index_tokens"] --> s9["9 index_bitcom"] --> s10["10 index_bap"] --> s11["11 index_timelocks"]
   end
-  s9 --> check{"Every tx stored and merkleroot rebuilt?"}
+  s11 --> check{"Every tx stored and merkleroot rebuilt?"}
   check -- no --> retry["Block retries with backoff"]
   check -- yes --> done["Block is completed"]
-  done --> s10
+  done --> s12
   subgraph block["Block steps, at completion"]
-    s10["10 block_totals"] --> s11["11 type_counts"]
+    s12["12 block_totals"] --> s13["13 type_counts"]
   end
 ```
+
+### Time locks
+
+A tx's own lock time is the `nlocktime` type, read from the tx when shown; script locks are rows in `timelocks`, written by `index_timelocks` (#76, `Bitblocks.ScriptLocks`):
+
+- A 1Sat Lock (the `timelock` type, which HodLocker used) reads the spending tx's lock time with OP_PUSH_TX, so it binds today.
+  A HodLocker lock's row names the post it backs (`backs_txid`).
+- `OP_CHECKLOCKTIMEVERIFY` and `OP_CHECKSEQUENCEVERIFY` bind only for an output mined between their activation (blocks 388,381 and 419,328) and Genesis (620,538); after Genesis they are NOPs again, so such a row has `enforced` false.
+- A lock inside an `OP_IF` or `OP_NOTIF` branch, where another branch can spend, is `conditional`, with its `branch` path: locked on one path, not a fact about the output.
+- A P2SH output hides its script until spent, so a CLTV inside one isn't seen.
 
 ## Read-time facts
 
