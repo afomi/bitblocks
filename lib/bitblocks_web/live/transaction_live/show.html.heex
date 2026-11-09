@@ -494,6 +494,14 @@
         Every input's sequence is final, so the rules ignore this lock time, and the transaction was valid at once.
       <% end %>
     </p>
+    <p
+      :if={@nlocktime.enforced and @nlocktime.near_tip}
+      id="tx-nlocktime-anti-fee-sniping"
+      class="text-sm text-gray-600 dark:text-gray-400 mt-1"
+    >
+      Anti-fee-sniping: the lock time sits just below the block this transaction was mined in, as wallets set it to discourage miners from rewriting recent blocks.
+      Nobody waited on it, so Bitblocks doesn't type it nlocktime.
+    </p>
   </section>
 
   <%!-- HodLocker (#75): what this tx's time locks back, from Bitblocks.HodLocker --%>

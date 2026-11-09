@@ -59,9 +59,11 @@ Until the v7 backfill has run, `TxTypes.template_hash_variants/1` still matches 
 `classify_outputs` v2 (#49) adds the `p2pk` and `p2sh` types, so early coinbases stop reading `custom`.
 `classify_outputs` v3 (#78) adds `stas`, matched by the STAS contract bytes (`Bitblocks.Stas`).
 `classify_outputs` v4 (#75) adds `hodlocker` to a tx whose MAP record names the app hodlocker.com (`Bitblocks.HodLocker`).
-`classify_outputs` v5 (#76) adds `nlocktime` to a tx whose own lock time binds: nonzero, with at least one input's sequence below `0xffffffff` (`Bitblocks.NLockTime`).
-Unlike v3 and v4, it changes many rows: from 2015 Bitcoin Core set a binding lock time on every payment, so half or more of the txs in some 2015 to 2018 blocks gain the type (20 of the first 40 in block 400,000), while BSV-era blocks carry few.
-Read the v5 dry run's `types_changed` before applying it.
+`classify_outputs` v5 (#76) adds `nlocktime` to a tx whose own lock time binds (nonzero, with at least one input's sequence below `0xffffffff`) and sits more than 2,016 blocks, or 14 days, before the block it was mined in (`Bitblocks.NLockTime`).
+The second rule leaves out the anti-fee-sniping lock that Bitcoin Core put on every payment from 2015, which the next block already meets.
+It is the only type that reads the tx's block, so `classify_outputs` and the tx types backfill pass it.
+Sampled on WhatsOnChain over blocks 400,000 to 540,000 (6,051 txs read), 1,019 txs carry a binding lock time, and 1 of them is typed; the rest sit 1 to 1,532 blocks below their block.
+So, like v3 and v4, v5 changes few rows; read the dry run's `types_changed` before applying it.
 `block_totals` v2 stamps a block only once its coinbase is known; v1 stamped blocks whose rows hadn't been through script analysis, leaving `miner_reward` and `fees_verified` nil and the coinbase counted in `sats_out`.
 A block left unstamped stays below the version, so the tally backfill finds it again after script analysis has run, and reports it under `reward_unknown` until then.
 `index_tokens` v3 (#69) reads the lock on either side of the inscription envelope, names a cosign lock's owner, and records holders on classic deploys and mints too.

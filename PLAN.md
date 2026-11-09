@@ -81,9 +81,9 @@ Phase 2 is built (2026-11-04): stable template hashes (script analysis v7), `Bit
 P2PK and P2SH are types (classifier v2), so early coinbases no longer read `custom`.
 STAS tokens are `stas` (classifier v3, #78), and transactions#show lists each STAS output's token id, owner and amount.
 HodLocker posts and likes are `hodlocker` (classifier v4, #75), and transactions#show says what each time lock backs, its sats, owner and unlock height.
-A tx whose nLockTime binds is `nlocktime` (classifier v5, #76), and transactions#show says until which block or time, and whether our tip has reached it.
+A tx whose nLockTime binds and sits more than 2,016 blocks below its block is `nlocktime` (classifier v5, #76); transactions#show shows every binding lock time, until which block or time, whether our tip has reached it, and labels the anti-fee-sniping ones.
 Script time locks (1Sat Lock, CLTV, CSV) are rows in `timelocks` (#76), with whether each binds and whether only on one branch, and `GET /api/v1/hodlocker/posts/:txid` sums what they back a post with.
-Needs on prod, with Ryan's OK: `Release.backfill_timelocks` (inserts only) and the v5 tx_types backfill, whose dry run will show many changed rows in 2015 to 2018 blocks.
+Needs on prod, with Ryan's OK: `Release.backfill_timelocks` (inserts only) and the v5 tx_types backfill, which should change few rows (1 in 6,051 sampled txs from 2016 to 2018).
 Needs on prod, with Ryan's OK: the tx_types backfill (#1); until then `/types` says no block is typed yet.
 Open: named combinations such as a listing. The canonical opcode names are agreed, and the OrdLock and CLTV hashes are pinned in the suite.
 #48 SCRUBBER: admin three.js scrub from genesis to tip, and the first surface for accounting for misspends and burns.

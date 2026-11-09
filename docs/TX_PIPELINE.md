@@ -91,6 +91,8 @@ An output's type is the first rule that matches:
 The tx's type also takes the known protocols after a pipe in its data outputs (B then MAP is `b` and `map`).
 A MAP record whose `app` is `hodlocker.com` adds `hodlocker`, a post or like backed by a time lock (`Bitblocks.HodLocker`).
 A tx whose own lock time binds adds `nlocktime` (`Bitblocks.NLockTime`): the lock time is nonzero and at least one input's sequence is below `0xffffffff`; with every input final, the rules ignore it, and so does the type.
+A binding lock time within 2,016 blocks (or 14 days) below the block the tx was mined in is the anti-fee-sniping shape wallets set on ordinary payments, and doesn't add the type either; the tx page still shows it, labelled as such.
+This is the one rule that reads the tx's block, which the step passes to the classifier.
 Its real vectors are whole txs, in `priv/data/tx_types/tx_vectors.json`.
 Inputs matter in one place: a Metanet node that names a parent counts only when an input is signed with a key, since only the parent's key can add a child; otherwise its output is `op-return`.
 Whether that key is the parent's needs the parent tx, so `Bitblocks.Metanet` checks it when it reads the tree, and this step does not.

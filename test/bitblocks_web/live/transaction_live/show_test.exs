@@ -128,17 +128,38 @@ defmodule BitblocksWeb.TransactionLive.ShowTest do
                 |> Map.fetch!("vectors")
                 |> Map.new(&{&1["name"], &1})
 
-    test "an enforced lock says until which block, and that our tip has reached it",
-         %{conn: conn} do
-      v = @tx_vectors["tx_nlocktime_enforced"]
-      insert_tx(v["raw"], v["txid"])
-      block_fixture(height: 399_990)
+    # The vector in the block it was mined in, at its real height and time.
+    defp insert_mined(v) do
+      block = block_fixture(height: v["height"], time: v["block_time"])
+
+      transaction_fixture(
+        txid: v["txid"],
+        raw: v["raw"],
+        block_hash: block.hash,
+        block_height: block.height
+      )
+    end
+
+    test "an anti-fee-sniping lock still shows, labelled as such", %{conn: conn} do
+      v = @tx_vectors["tx_nlocktime_anti_fee_sniping"]
+      insert_mined(v)
 
       {:ok, view, _html} = live(conn, ~p"/transactions/#{v["txid"]}")
 
       assert view |> element("#tx-nlocktime-until") |> render() =~ "Locked until block"
       assert view |> element("#tx-nlocktime-until") |> render() =~ "399,988"
       assert view |> element("#tx-nlocktime-state") |> render() =~ "Reached"
+      assert view |> element("#tx-nlocktime-anti-fee-sniping") |> render() =~ "Anti-fee-sniping"
+    end
+
+    test "a lock far below its block shows with no anti-fee-sniping label", %{conn: conn} do
+      v = @tx_vectors["tx_nlocktime_typed"]
+      insert_mined(v)
+
+      {:ok, view, _html} = live(conn, ~p"/transactions/#{v["txid"]}")
+
+      assert view |> element("#tx-nlocktime-until") |> render() =~ "Locked until"
+      refute has_element?(view, "#tx-nlocktime-anti-fee-sniping")
     end
 
     test "a lock time with every input final says the rules ignore it", %{conn: conn} do

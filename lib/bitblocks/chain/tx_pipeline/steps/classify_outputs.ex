@@ -27,11 +27,11 @@ defmodule Bitblocks.Chain.TxPipeline.Steps.ClassifyOutputs do
   def stage, do: :chunk
 
   @impl true
-  def run_chunk(attrs_list, _block) do
+  def run_chunk(attrs_list, block) do
     stamp = Bitblocks.Chain.TxPipeline.version(:tx_types)
 
     Enum.map(attrs_list, fn attrs ->
-      case Classifier.classify_raw(attrs[:raw]) do
+      case Classifier.classify_raw(attrs[:raw], block: block) do
         {:ok, %{types: types}} -> Map.merge(attrs, %{tx_types: types, tx_types_version: stamp})
         {:error, _} -> attrs
       end

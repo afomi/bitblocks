@@ -117,6 +117,7 @@ defmodule Bitblocks.Chain.TxPipeline.TxTypesBackfill do
             id: b.id,
             hash: b.hash,
             height: b.height,
+            time: b.time,
             typed: b.tx_types_version,
             stamp: b.type_counts_version
           }
@@ -179,7 +180,7 @@ defmodule Bitblocks.Chain.TxPipeline.TxTypesBackfill do
       Derivations.bounded(ctx.opts, fn ->
         case page(block, after_id, ctx) do
           [] -> :done
-          rows -> {rows, classify_and_write(rows, ctx)}
+          rows -> {rows, classify_and_write(rows, block, ctx)}
         end
       end)
 
@@ -235,12 +236,12 @@ defmodule Bitblocks.Chain.TxPipeline.TxTypesBackfill do
   # Classifies the picked rows and writes only those whose types change.
   # `unchanged` holds the ids of picked rows below the version whose types
   # didn't, for `stamp_rows/2` should the block hold a tx that doesn't decode.
-  defp classify_and_write(rows, ctx) do
+  defp classify_and_write(rows, block, ctx) do
     picked = Enum.filter(rows, &(ctx.force or below?(&1.tx_types_version, ctx.version)))
 
     typed =
       for row <- picked,
-          {:ok, %{types: types}} <- [Classifier.classify_raw(row.raw)],
+          {:ok, %{types: types}} <- [Classifier.classify_raw(row.raw, block: block)],
           do: {row, types}
 
     {changed, same} = Enum.split_with(typed, fn {row, types} -> row.tx_types != types end)

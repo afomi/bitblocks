@@ -1,15 +1,26 @@
 {
   "version": 1,
-  "source": "Real transactions for the types that belong to a whole tx, not to one output. Each raw tx was read from WhatsOnChain (GET /v1/bsv/main/tx/<txid>/hex) and hashes to its txid. A type lists the vectors it is tested against under tx_vectors; expected says whether the classifier gives the tx that type.",
+  "source": "Real transactions for the types that belong to a whole tx, not to one output. Each raw tx was read from WhatsOnChain (GET /v1/bsv/main/tx/<txid>/hex) and hashes to its txid. A type lists the vectors it is tested against under tx_vectors; height and block_time are the block it was mined in; expected says whether the classifier gives the tx that type.",
   "vectors": [
     {
-      "name": "tx_nlocktime_enforced",
-      "description": "Lock time 399,988 (a height) with its one input's sequence at 0xfffffffe, so the lock binds: Bitcoin Core's guard against fee sniping",
+      "name": "tx_nlocktime_typed",
+      "description": "Lock time 415,833 with its one input's sequence at 0xfffffffe, mined in block 420,000: 4,167 blocks (about four weeks) below its block, so signed long before it was mined, not the anti-fee-sniping shape",
+      "txid": "02cea4a0e2f233a2b354edf35e73b88aa9f8e39b2ac24aba1087b6797cf086d1",
+      "height": 420000,
+      "raw": "010000000152e3528154dacc3ce0425d82be491f1c182afca5b76e1cb6af76d6524be47004d50300006b483045022100f4ac099078ae2af036920e67ba920dbcd1cba3dc49e1e965d8b9b4c7e409aad602202c67b8fefd07fc512bc4ad7739715b885d94e2a0ed2c530b02a12c8adddedc9b012102f4522c5e624b5b4a80adb48eafb7d755c332e744ab137bf4f430cdc14027c9a3feffffff0110270000000000001976a9141aa2a1c621e209cd28e0f0263f5e8cc1747d257388ac59580600",
+      "type": "nlocktime",
+      "expected": true,
+      "block_time": 1468082773
+    },
+    {
+      "name": "tx_nlocktime_anti_fee_sniping",
+      "description": "Lock time 399,988 with its one input's sequence at 0xfffffffe, mined in block 400,000: the lock binds, but 12 blocks below the block it was mined in, the anti-fee-sniping shape Bitcoin Core gave every payment, so it is not the type",
       "txid": "ecab21fce7bf4aef593a315783d5c6f61a4c1dd15ac582ec408644105b903972",
       "height": 400000,
       "raw": "010000000102ce87a9d02fa6cdd864e4e6600ae8af83211de966dc2c1e8d81d16488c62fab100000006a47304402202d072cda6dff08342e15462666429ce89ce48deb4d5401fdc8fc19f09de38db402203380af9eb3744e1fd30ec484ce8ceb0c5b8f2d2a405be45ff57ca9e605c0fe2c012103e53155254f1681a13ad189c56ac80d833799ff5e03ff2bbfdc7488241a9c5d91feffffff01a0cd8700000000001976a9144efa04db5c9b53d3ab5ee62bd81141e4cddf0cdb88ac741a0600",
       "type": "nlocktime",
-      "expected": true
+      "expected": false,
+      "block_time": 1456417484
     },
     {
       "name": "tx_nlocktime_ignored",
@@ -18,7 +29,8 @@
       "height": 973900,
       "raw": "010000000156de534adebc67a5bda4e032cbd210f46d7940c32422a1e4f51c0323d1d46431010000006a47304402204cc59ce6e63fd8e41759c60840ef0fb87d9e0a1e47aca234c15a867e992f16af022031f1c0d4fee8a212744ba71328a790e3d52daca483bf618460c5876fbd627720412102f3e944c002f56493318747a96d337f180d5877c839e9cc04164e73e7f6195d8fffffffff04624a5d05000000001976a9148c760d62f0c654cb5aa70d9a3a609123375d616988ac00e1f505000000001976a914654f426c725ed93ad6389ec3791ee2a66e89a6c888ac00e1f505000000001976a914c6c48dc48dbc66d0fe264a374c962217e66ba64488ac00e1f505000000001976a914f54cdc96fd960a5d4d688a7d4d47e1d19d873b3888ac4bdc0e00",
       "type": "nlocktime",
-      "expected": false
+      "expected": false,
+      "block_time": 1793711309
     }
   ]
 }

@@ -157,15 +157,15 @@ defmodule BitblocksWeb.TransactionLive.Show do
      |> assign(:b_file, b_file(decoded_tx))
      |> assign(:descriptors_by_vout, Map.new(output_descriptors, &{&1.vout, &1}))
      |> assign(:stas_outputs, stas_outputs(decoded_tx))
-     |> assign_locks(decoded_tx, transaction.txid)}
+     |> assign_locks(decoded_tx, transaction.txid, block)}
   end
 
   # HodLocker (#75): what this tx's time locks back; nLockTime (#76): the
   # tx's own lock. Our tip says how far each lock has left, read only when
   # the tx carries one.
-  defp assign_locks(socket, decoded_tx, txid) do
+  defp assign_locks(socket, decoded_tx, txid, block) do
     hodlocker = decoded_tx && txid && Bitblocks.HodLocker.parse(decoded_tx, txid)
-    nlocktime = decoded_tx && Bitblocks.NLockTime.parse(decoded_tx)
+    nlocktime = decoded_tx && Bitblocks.NLockTime.parse(decoded_tx, block)
     tip = if hodlocker || nlocktime, do: Bitblocks.ChainTiles.chain_tip()
 
     socket

@@ -220,26 +220,37 @@ defmodule Bitblocks.TxTypes.ClassifierTest do
     for v <- @tx_vectors do
       @tx_vector v
       test "tx vector #{v["name"]} is typed #{v["type"]} only when expected" do
-        assert {:ok, %{types: types}} = Classifier.classify_raw(@tx_vector["raw"])
+        block = %{height: @tx_vector["height"], time: @tx_vector["block_time"]}
+
+        assert {:ok, %{types: types}} = Classifier.classify_raw(@tx_vector["raw"], block: block)
         assert @tx_vector["type"] in types == @tx_vector["expected"], @tx_vector["description"]
       end
     end
 
-    test "a lock time binds only with a non-final input, and 0 never does" do
+    test "a lock time types the tx only when it binds and sits well below its block" do
       p2pkh = out(vector("p2pkh"))
       final = %{input([@sig, @pubkey]) | sequence: 0xFFFFFFFF}
       open = %{final | sequence: 0xFFFFFFFE}
 
-      typed? = fn lock_time, inputs ->
+      typed? = fn lock_time, inputs, block ->
         tx = %BSV.Tx{inputs: inputs, outputs: [p2pkh], lock_time: lock_time}
-        "nlocktime" in Classifier.classify(tx).types
+        "nlocktime" in Classifier.classify(tx, block: block).types
       end
 
-      assert typed?.(800_000, [final, open])
-      refute typed?.(800_000, [final, final])
-      refute typed?.(0, [open])
-      # A unix time binds the same way.
-      assert typed?.(1_700_000_000, [open])
+      mined = %{height: 900_000, time: 1_750_000_000}
+
+      assert typed?.(800_000, [final, open], mined)
+      refute typed?.(800_000, [final, final], mined)
+      refute typed?.(0, [open], mined)
+      # Anti-fee-sniping: within 2,016 blocks (two weeks) of the block it was mined in.
+      refute typed?.(897_984, [open], mined)
+      assert typed?.(897_983, [open], mined)
+      # A unix time: within 14 days of the block's time is near the tip.
+      assert typed?.(1_700_000_000, [open], mined)
+      refute typed?.(1_750_000_000 - 14 * 86_400, [open], mined)
+      # Without the block, the gap can't be read, so it is never typed.
+      refute typed?.(800_000, [open], nil)
+      refute "nlocktime" in Classifier.classify(%BSV.Tx{inputs: [open], lock_time: 800_000}).types
     end
   end
 

@@ -690,12 +690,14 @@
         "Every transaction ends with a lock time field, and most leave it at 0.",
         "A nonzero lock time below 500,000,000 is a block height; from 500,000,000 on it is a unix time.",
         "The lock binds only when at least one input's sequence number is below 0xffffffff.",
-        "When every input is final, the rules ignore the lock time, so Bitblocks types a transaction nlocktime only when its lock binds.",
+        "When every input is final, the rules ignore the lock time.",
+        "Many wallets set a binding lock time just below the current height on every payment, to discourage miners from rewriting recent blocks (anti-fee-sniping); the next block already meets it, so nobody waits on it.",
+        "So Bitblocks types a transaction nlocktime only when its lock binds and sits more than 2,016 blocks (or 14 days, two weeks) before the block it was mined in.",
         "This lock belongs to the whole transaction, not to one output: it says when the transaction itself becomes valid."
       ],
       "history": [
         "Lock time is in the first Bitcoin release, as the way to replace a transaction before it is final.",
-        "From 2015, Bitcoin Core set it to the current height with a sequence of 0xfffffffe on every payment, to discourage miners from rewriting recent blocks, so many transactions from those years carry one."
+        "From 2015, Bitcoin Core set it to the current height with a sequence of 0xfffffffe on every payment, so many transactions from those years carry one; the transaction page shows it, labelled anti-fee-sniping, and these are not this type."
       ],
       "spec": {
         "label": "Bitcoin wiki: NLockTime",
@@ -720,7 +722,8 @@
       },
       "spendable": true,
       "tx_vectors": [
-        "tx_nlocktime_enforced",
+        "tx_nlocktime_typed",
+        "tx_nlocktime_anti_fee_sniping",
         "tx_nlocktime_ignored"
       ],
       "spend": "Its outputs are spent as their own scripts say; the lock only decides when the transaction can be mined.",
