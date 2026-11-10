@@ -232,6 +232,34 @@ defmodule Bitblocks.ChainScrubberTest do
       assert [%{height: 20, evidence_url: "/blocks/20", label: "1.5 BSV burned at 20"}] = burns
     end
 
+    test "a burn mark links to its block's largest burning tx when that tx is stored" do
+      block = block_fixture(%{height: 30, burned: 150_000_000, sync_state: "completed"})
+      big = String.duplicate("b", 64)
+      small = String.duplicate("a", 64)
+
+      transaction_fixture(%{
+        txid: small,
+        block_hash: block.hash,
+        block_height: 30,
+        burned_satoshis: 50_000_000
+      })
+
+      transaction_fixture(%{
+        txid: big,
+        block_hash: block.hash,
+        block_height: 30,
+        burned_satoshis: 100_000_000
+      })
+
+      transaction_fixture(%{block_hash: block.hash, block_height: 30, burned_satoshis: 0})
+
+      assert [burn] = Enum.filter(ChainScrubber.annotations(), &(&1.kind == "burn"))
+      assert burn.height == 30
+      assert burn.txid == big
+      assert burn.evidence_url == "/transactions/#{big}"
+      assert burn.detail =~ "1 BSV in #{big}"
+    end
+
     test "only classified losses appear; tracing doubts stay off the layer" do
       note_data =
         "docs/field-notes/data/rexxies-spent-outside-run-2026-11-02.json"

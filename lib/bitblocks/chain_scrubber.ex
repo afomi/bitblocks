@@ -259,34 +259,73 @@ defmodule Bitblocks.ChainScrubber do
   The #{@burn_marks} blocks that burned the most, as marks. A burn is sats
   locked in OP_RETURN outputs, summed per block by the `block_totals` step:
   exact, not a classification, so it reaches only as far as completed blocks.
-  Reads `blocks`, never `transactions`, and a slow read drops the layer rather
-  than holding the page.
+  Each mark links to the block's largest burning tx (`burned_satoshis`), and to
+  the block when that tx isn't found. Reads `blocks`, then the txs of those
+  blocks only, and a slow read drops the layer (or the tx links) rather than
+  holding the page.
   """
   @spec burns() :: [map()]
   def burns do
-    from(b in Block,
-      where: b.burned > 0,
-      order_by: [desc: b.burned],
-      limit: @burn_marks,
-      select: {b.height, b.burned}
-    )
-    |> Repo.all(timeout: @burn_timeout_ms)
-    |> Enum.map(fn {height, burned} ->
+    blocks =
+      from(b in Block,
+        where: b.burned > 0,
+        order_by: [desc: b.burned],
+        limit: @burn_marks,
+        select: {b.height, b.hash, b.burned}
+      )
+      |> Repo.all(timeout: @burn_timeout_ms)
+
+    top_txs = largest_burn_txs(Enum.map(blocks, &elem(&1, 1)))
+
+    Enum.map(blocks, fn {height, hash, burned} ->
       amount = BitblocksWeb.Sats.bsv(burned)
 
-      %{
-        kind: "burn",
-        height: height,
-        label: "#{amount} burned at #{height}",
-        detail:
-          "Block #{height} locked #{amount} in OP_RETURN outputs, which can never be spent.",
-        evidence_url: "/blocks/#{height}"
-      }
+      case Map.get(top_txs, hash) do
+        {txid, tx_burned} ->
+          %{
+            kind: "burn",
+            height: height,
+            txid: txid,
+            label: "#{amount} burned at #{height}",
+            detail:
+              "Block #{height} locked #{amount} in OP_RETURN outputs, which can never be spent. " <>
+                "Its largest burn is #{BitblocksWeb.Sats.bsv(tx_burned)} in #{txid}.",
+            evidence_url: "/transactions/#{txid}"
+          }
+
+        nil ->
+          %{
+            kind: "burn",
+            height: height,
+            label: "#{amount} burned at #{height}",
+            detail:
+              "Block #{height} locked #{amount} in OP_RETURN outputs, which can never be spent.",
+            evidence_url: "/blocks/#{height}"
+          }
+      end
     end)
   rescue
     error in [DBConnection.ConnectionError, Postgrex.Error] ->
       Logger.warning("chain scrubber: burns unavailable: #{Exception.message(error)}")
       []
+  end
+
+  # block hash => {txid, burned_satoshis} of the tx that burned the most in it
+  defp largest_burn_txs([]), do: %{}
+
+  defp largest_burn_txs(hashes) do
+    from(t in Transaction,
+      where: t.block_hash in ^hashes and t.burned_satoshis > 0,
+      distinct: t.block_hash,
+      order_by: [asc: t.block_hash, desc: t.burned_satoshis, asc: t.txid],
+      select: {t.block_hash, t.txid, t.burned_satoshis}
+    )
+    |> Repo.all(timeout: @burn_timeout_ms)
+    |> Map.new(fn {hash, txid, burned} -> {hash, {txid, burned}} end)
+  rescue
+    error in [DBConnection.ConnectionError, Postgrex.Error] ->
+      Logger.warning("chain scrubber: burn txs unavailable: #{Exception.message(error)}")
+      %{}
   end
 
   defp event_evidence(%{source_url: url}) when is_binary(url), do: url
