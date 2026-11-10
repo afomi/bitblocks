@@ -4,22 +4,17 @@
       Chain reorganizations
     </h1>
     <p class="mb-3 leading-relaxed">
-      A reorganization is the moment the node prefers a different block at a height this index already stored.
+      A reorganization happens when two miners find a block at the same height and the network briefly holds two versions of the chain's tip.
+      Every node follows the branch with the most work, so when the other branch pulls ahead, nodes switch to it and the blocks they had become stale.
+      Their transactions are not lost: most were also mined on the winning branch, and the rest return to the mempool to be mined again.
     </p>
-    <p class="mb-3 leading-relaxed">
-      Each entry below is an annotation on Bitcoin SV at that height.
-    </p>
-    <p class="mb-3 leading-relaxed">
-      Bitblocks writes one when tip sync sees the disagreement.
-    </p>
-    <p class="mb-3 leading-relaxed">
-      Earlier chain history is not backfilled on this page.
-    </p>
-    <p class="mb-3 leading-relaxed">
-      Header rows may be replaced.
-    </p>
-    <p class="mb-10 leading-relaxed">
-      Transaction rows from the replaced blocks stay until a later pass.
+    <p
+      id="reorg-scope"
+      class="mb-10 leading-relaxed"
+    >
+      Bitblocks is an index, not a miner, so it reads the chain from the Bitcoin SV node it follows.
+      Each entry below is a moment that node switched branches at a height we had already stored, as we saw it from that node.
+      We then realign our headers to the winning branch and set aside the rows from the stale blocks.
     </p>
 
     <%= if @reorgs == [] do %>

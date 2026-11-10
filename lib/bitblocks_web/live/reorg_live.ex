@@ -10,7 +10,7 @@ defmodule BitblocksWeb.ReorgLive do
       Seo.public_page(
         page_title: "Chain reorganizations",
         meta_description:
-          "Reorganizations Bitblocks has seen on Bitcoin SV, as annotations at the height where the node tip and this index disagreed.",
+          "What a Bitcoin SV chain reorganization is and what happens to its blocks, and the times the node Bitblocks follows switched branches at a height we had stored.",
         canonical_path: "/reorgs"
       )
 
