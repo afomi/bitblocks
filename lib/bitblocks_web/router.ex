@@ -388,6 +388,7 @@ defmodule BitblocksWeb.Router do
       live "/shape-layers", ShapeLayerLive
       live "/chain-scrubber", ChainScrubberLive
       live "/annotations", AnnotationLive
+      live "/burns", BurnsLive
 
       # A browse list over the whole table; detail pages cover a shared link.
       live "/transactions", TransactionLive.Index, :index

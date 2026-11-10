@@ -1,0 +1,145 @@
+<div class="max-w-5xl mx-auto px-4 py-8 text-gray-900 dark:text-gray-100">
+  <div class="flex flex-wrap items-baseline justify-between gap-4 mb-2">
+    <h1 class="text-2xl font-bold text-gray-900 dark:text-white">
+      Burns
+    </h1>
+    <a
+      href="/facts"
+      class="text-sm text-blue-700 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
+    >
+      Chain facts
+    </a>
+  </div>
+  <p class="text-sm text-gray-600 dark:text-gray-400 mb-6">
+    A burn is sats locked in OP_RETURN outputs, which can never be spent.
+    Block totals come from the blocks we have completed and totalled, so the list reaches only as far as they do.
+    Open a block to see its stored txs that burned.
+  </p>
+
+  <p
+    id="burns-summary"
+    class="text-sm mb-4"
+  >
+    {delimit(@summary.blocks)} blocks burned {bsv(@summary.burned)} in all.
+  </p>
+
+  <div class="flex gap-4 text-sm mb-4">
+    <.link
+      patch={burns_path(:burned, @selected)}
+      id="burns-order-burned"
+      class={[
+        "underline",
+        @order == :burned && "font-semibold text-gray-900 dark:text-white",
+        @order != :burned && "text-blue-700 dark:text-blue-400"
+      ]}
+    >
+      Most burned
+    </.link>
+    <.link
+      patch={burns_path(:height, @selected)}
+      id="burns-order-height"
+      class={[
+        "underline",
+        @order == :height && "font-semibold text-gray-900 dark:text-white",
+        @order != :height && "text-blue-700 dark:text-blue-400"
+      ]}
+    >
+      Newest
+    </.link>
+  </div>
+
+  <p
+    :if={@blocks == []}
+    id="burns-empty"
+    class="text-sm text-gray-600 dark:text-gray-400"
+  >
+    No totalled block has burned sats yet.
+  </p>
+
+  <table
+    :if={@blocks != []}
+    id="burns-blocks"
+    class="w-full text-sm"
+  >
+    <thead>
+      <tr class="text-left text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-700">
+        <th class="py-2 pr-4">Block</th>
+        <th class="py-2 pr-4 text-right">Burned</th>
+        <th class="py-2 pr-4 text-right">Txs in block</th>
+        <th class="py-2"></th>
+      </tr>
+    </thead>
+    <tbody>
+      <%= for block <- @blocks do %>
+        <tr
+          id={"burn-block-#{block.height}"}
+          class={[
+            "border-b border-gray-100 dark:border-gray-800",
+            block.hash == @selected && "bg-orange-50 dark:bg-orange-950"
+          ]}
+        >
+          <td class="py-2 pr-4">
+            <a
+              href={"/blocks/#{block.height}"}
+              class="text-blue-700 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
+            >
+              {block.height}
+            </a>
+          </td>
+          <td class="py-2 pr-4 text-right font-mono">{bsv(block.burned)}</td>
+          <td class="py-2 pr-4 text-right">{delimit(block.num_tx || 0)}</td>
+          <td class="py-2 text-right">
+            <.link
+              patch={burns_path(@order, if(block.hash == @selected, do: nil, else: block.hash))}
+              id={"burn-open-#{block.height}"}
+              class="text-blue-700 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
+            >
+              {if block.hash == @selected, do: "Close", else: "Txs"}
+            </.link>
+          </td>
+        </tr>
+        <tr
+          :if={block.hash == @selected}
+          id="burn-txs"
+        >
+          <td
+            colspan="4"
+            class="py-3 pl-4"
+          >
+            <p
+              id="burn-txs-summary"
+              class="text-gray-600 dark:text-gray-400 mb-2"
+            >
+              {delimit(@tx_summary.txs)} stored txs burned {bsv(@tx_summary.burned)} of the block's {bsv(
+                block.burned
+              )}.
+              <span :if={@tx_summary.burned < block.burned}>
+                The rest is in txs not stored yet, or stored before their burn was tallied.
+              </span>
+            </p>
+            <ol class="space-y-1">
+              <li
+                :for={tx <- @txs}
+                class="flex justify-between gap-4"
+              >
+                <a
+                  href={"/transactions/#{tx.txid}"}
+                  class="font-mono truncate text-blue-700 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
+                >
+                  {tx.txid}
+                </a>
+                <span class="font-mono whitespace-nowrap">{bsv(tx.burned)}</span>
+              </li>
+            </ol>
+            <p
+              :if={@tx_summary.txs > length(@txs)}
+              class="text-gray-500 dark:text-gray-400 mt-2"
+            >
+              Showing the {length(@txs)} largest.
+            </p>
+          </td>
+        </tr>
+      <% end %>
+    </tbody>
+  </table>
+</div>
