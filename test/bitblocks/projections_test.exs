@@ -121,7 +121,7 @@ defmodule Bitblocks.ProjectionsTest do
         end
 
       _unrelated = transaction_fixture(%{block_height: 10, output_addresses: ["1other"]})
-      _mempool = transaction_fixture(%{block_height: nil, output_addresses: [@donation]})
+      _mempool = heightless_transaction_fixture(%{output_addresses: [@donation]})
 
       %{projection: p, txs: txs}
     end

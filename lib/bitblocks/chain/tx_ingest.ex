@@ -35,6 +35,11 @@ defmodule Bitblocks.Chain.TxIngest do
   under another block that is still stored (a duplicate coinbase txid) is left
   alone.
 
+  A row this block holds but that was stored without its place (no
+  `block_hash`, or this hash and no `block_height`, from ingest before the
+  height was written) is placed here the same way, so the fill heals it
+  rather than skipping it as stored.
+
   Costs one query on the unique txid index per chunk; a second, on `blocks`,
   only when some row sits under another hash.
   """
@@ -42,15 +47,19 @@ defmodule Bitblocks.Chain.TxIngest do
   def existing_txids([], _block), do: MapSet.new()
 
   def existing_txids(txids, %Block{hash: hash, height: height}) when is_list(txids) do
-    rows =
+    placed =
       Repo.all(
         from(t in Chain.Transaction,
           where: t.txid in ^txids,
-          select: {t.txid, t.block_hash}
+          select: {t.txid, t.block_hash, t.block_height}
         )
       )
 
-    elsewhere = for {txid, other} <- rows, other != hash, do: {txid, other}
+    place_unplaced(placed, hash, height)
+
+    rows = for {txid, block_hash, _} <- placed, do: {txid, block_hash}
+
+    elsewhere = for {txid, other} <- rows, other != nil, other != hash, do: {txid, other}
 
     if elsewhere != [] do
       other_hashes = elsewhere |> Enum.map(&elem(&1, 1)) |> Enum.uniq()
@@ -90,6 +99,36 @@ defmodule Bitblocks.Chain.TxIngest do
     end
 
     rows |> Enum.map(&elem(&1, 0)) |> MapSet.new()
+  end
+
+  defp place_unplaced(rows, hash, height) do
+    unplaced =
+      for {txid, block_hash, block_height} <- rows,
+          is_nil(block_hash) or (block_hash == hash and is_nil(block_height)),
+          do: txid
+
+    if unplaced != [] and is_integer(height) do
+      {:ok, count} =
+        Repo.transaction(fn ->
+          {count, _} =
+            Repo.update_all(
+              from(t in Chain.Transaction,
+                where: t.txid in ^unplaced,
+                where: is_nil(t.block_hash) or (t.block_hash == ^hash and is_nil(t.block_height))
+              ),
+              set: [
+                block_hash: hash,
+                block_height: height,
+                updated_at: NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second)
+              ]
+            )
+
+          ProtocolRewind.moved(unplaced, hash, height)
+          count
+        end)
+
+      Logger.info("TxIngest block=#{height} placed #{count} tx(s) stored without their block")
+    end
   end
 
   @doc """

@@ -38,6 +38,7 @@ defmodule Bitblocks.BitcomOwnershipTest do
           txid: BSV.Tx.get_txid(decoded),
           raw: raw,
           version: "1",
+          block_height: 1,
           inputs: [],
           outputs: [],
           block_hash: String.duplicate("b", 64)

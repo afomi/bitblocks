@@ -31,7 +31,7 @@ defmodule BitblocksWeb.Api.TransactionControllerTest do
     end
 
     test "a row with no block height isn't listed", %{conn: conn} do
-      tx = transaction_fixture(%{block_height: nil})
+      tx = heightless_transaction_fixture()
       body = conn |> get(~p"/api/v1/txs") |> json_response(200)
       refute tx.txid in Enum.map(body["data"], & &1["txid"])
     end

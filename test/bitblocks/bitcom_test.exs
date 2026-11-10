@@ -66,7 +66,9 @@ defmodule Bitblocks.BitcomTest do
     end
 
     test "an unconfirmed write is newer than any confirmed one", ctx do
-      index(raw_tx(ctx.admin, [["$", "echo", "mempool", "to", "readme"]], 1))
+      # Discovery logs a command seen on WhatsOnChain before it is mined.
+      mempool = store(raw_tx(ctx.admin, [["$", "echo", "mempool", "to", "readme"]], 1))
+      {:ok, _} = Bitcom.index(%{mempool | block_height: nil})
       index(raw_tx(ctx.admin, [["$", "echo", "mined", "to", "readme"]], 2), %{block_height: 500})
 
       assert [%{command: %{content: "mempool"}}] = Bitcom.files(ctx.admin_addr)

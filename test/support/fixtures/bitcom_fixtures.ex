@@ -42,7 +42,8 @@ defmodule Bitblocks.BitcomFixtures do
       version: "1",
       inputs: [],
       outputs: [],
-      block_hash: String.duplicate("b", 64)
+      block_hash: String.duplicate("b", 64),
+      block_height: 1
     }
 
     {:ok, tx} =

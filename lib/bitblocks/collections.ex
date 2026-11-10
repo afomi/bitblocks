@@ -255,53 +255,26 @@ defmodule Bitblocks.Collections do
     end
   end
 
+  # Stored like any block's tx, through the pipeline, under the stored block
+  # that holds it. A tx whose block we don't hold yet (or that isn't mined) is
+  # left for the sync to store with its block, never kept without a height.
   defp store_transaction(tx_data) do
     txid = tx_data["txid"]
-    raw = tx_data["hex"]
-    block_hash = tx_data["blockhash"]
 
-    total_input_satoshis =
-      (tx_data["vin"] || [])
-      |> Enum.reduce(0, fn input, acc ->
-        if Map.has_key?(input, "coinbase"),
-          do: acc,
-          else: acc + trunc(Map.get(input, "value", 0) * 100_000_000)
-      end)
+    case tx_data["blockhash"] &&
+           Bitblocks.Repo.get_by(Bitblocks.Chain.Block, hash: tx_data["blockhash"]) do
+      %Bitblocks.Chain.Block{height: height} = block when is_integer(height) ->
+        case Bitblocks.Chain.TxIngest.store(tx_data, block) do
+          :ok ->
+            :ok
 
-    total_output_satoshis =
-      (tx_data["vout"] || [])
-      |> Enum.reduce(0, fn output, acc ->
-        acc + trunc(Map.get(output, "value", 0) * 100_000_000)
-      end)
+          {:error, reason} ->
+            Logger.warning("Failed storing tx #{txid}: #{inspect(reason)}")
+            :error
+        end
 
-    {input_count, output_count} =
-      case Bitblocks.Chain.SafeTx.from_hex(raw) do
-        {:ok, decoded_tx} -> {length(decoded_tx.inputs), length(decoded_tx.outputs)}
-        {:error, _} -> {0, 0}
-      end
-
-    t = %Bitblocks.Chain.Transaction{
-      txid: txid,
-      raw: raw,
-      block_hash: block_hash,
-      inputs: ["tx.inputs"],
-      outputs: ["tx.outputs"],
-      total_input_satoshis: total_input_satoshis,
-      total_output_satoshis: total_output_satoshis,
-      input_count: input_count,
-      output_count: output_count
-    }
-
-    case Bitblocks.Repo.insert(
-           Ecto.Changeset.change(t, %{}),
-           on_conflict: :nothing,
-           conflict_target: :txid
-         ) do
-      {:ok, _} ->
-        :ok
-
-      {:error, changeset} ->
-        Logger.warning("Failed inserting tx #{txid}: #{inspect(changeset.errors)}")
+      _ ->
+        Logger.info("Not storing tx #{txid}: its block isn't stored yet")
         :error
     end
   end

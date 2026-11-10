@@ -105,7 +105,10 @@ defmodule Bitblocks.Chain.Transaction do
       :raw_offset,
       :raw_length
     ])
-    |> validate_required([:txid, :raw, :version, :block_hash, :inputs, :outputs])
+    # Only mined txs are stored, each with the block that holds it: a row
+    # without a height can't be placed, and the fill would skip it as stored.
+    # An unconfirmed tx, if ever kept, belongs in a table of its own.
+    |> validate_required([:txid, :raw, :version, :block_hash, :block_height, :inputs, :outputs])
     |> put_storage()
   end
 

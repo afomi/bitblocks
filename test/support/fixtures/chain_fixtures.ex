@@ -158,4 +158,17 @@ defmodule Bitblocks.ChainFixtures do
 
     transaction
   end
+
+  @doc """
+  A transaction row as older ingest left it, with no `block_height`. The
+  changeset no longer stores one, but such rows remain on prod, so readers
+  are still tested against them.
+  """
+  def heightless_transaction_fixture(attrs \\ %{}) do
+    tx = attrs |> Map.put_new(:block_height, 100) |> transaction_fixture()
+
+    Bitblocks.Repo.query!("UPDATE transactions SET block_height = NULL WHERE id = $1", [tx.id])
+
+    %{tx | block_height: nil}
+  end
 end
