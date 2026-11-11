@@ -3,7 +3,7 @@ defmodule Bitblocks.OrdinalCollectionsTest do
   #30: 1Sat collections. Membership is proven by the mint-contract chain, not
   claimed by MAP; ownership follows the item's sat through spends.
   """
-  use Bitblocks.DataCase, async: true
+  use Bitblocks.DataCase, async: false
 
   import Bitblocks.OrdinalFixtures
 
@@ -13,13 +13,18 @@ defmodule Bitblocks.OrdinalCollectionsTest do
 
   # A collection whose origin output 0 is the start of the mint chain, and two
   # mints: each spends the previous chain link and carries it on at output 0.
+  # Our index is complete through its tip (block 120), and WhatsOnChain may
+  # only be asked for raw txs: any other endpoint raises (docs/WOC_USE.md).
   setup do
-    collection_txid = tx([funding_outpoint()], [contract("collection")]) |> publish(839_715)
+    Process.put(:woc_raw_tx_only, true)
+    index_through(120)
+
+    collection_txid = tx([funding_outpoint()], [contract("collection")]) |> publish(115)
     cid = "#{collection_txid}_0"
     minter = address()
 
-    mint1 = tx([cid], [contract(), item(cid, "Tardinian 1", minter)]) |> publish(839_716)
-    mint2 = tx(["#{mint1}_0"], [contract(), item(cid, "Tardinian 2", minter)]) |> publish(839_717)
+    mint1 = tx([cid], [contract(), item(cid, "Tardinian 1", minter)]) |> publish(116)
+    mint2 = tx(["#{mint1}_0"], [contract(), item(cid, "Tardinian 2", minter)]) |> publish(117)
 
     %{cid: cid, minter: minter, mint1: mint1, mint2: mint2}
   end
@@ -89,7 +94,7 @@ defmodule Bitblocks.OrdinalCollectionsTest do
       assert traced.trace_state == "current"
       assert traced.current_outpoint == ctx.item.origin
       assert traced.owner == ctx.minter
-      assert traced.trace_source == "whatsonchain"
+      assert traced.trace_source == "index"
     end
 
     test "follows the sat by input offset: a 5000-sat input first puts it at output 1", ctx do
@@ -178,57 +183,84 @@ defmodule Bitblocks.OrdinalCollectionsTest do
       assert rewalked.trail == [hop1, hop2]
     end
 
-    test "a WhatsOnChain failure on a never-traced item is unknown with its reason", ctx do
-      Process.put(:woc_spent, %{ctx.item.origin => {:error, :timeout}})
+    # infra, 2026-11-10: WhatsOnChain is a raw-tx source only. Where an item
+    # went comes from our spend index; a claim from WoC's `/spent` is never
+    # asked for, let alone believed.
+    test "a trace asks WhatsOnChain for raw txs and nothing else", ctx do
+      # An input ahead of the item that we don't hold: its value sets the
+      # sat's offset, so its raw tx is fetched.
+      funding = tx([funding_outpoint()], [p2pkh(address(), 5_000)]) |> publish()
+      buyer = address()
 
-      assert {:ok, %{trace_state: "unknown", trace_reason: "whatsonchain: :timeout"} = failed} =
+      transfer =
+        tx(["#{funding}_0", ctx.item.origin], [p2pkh(address(), 5_000), p2pkh(buyer, 1)])
+        |> publish()
+
+      spend(ctx.item.origin, transfer, 1)
+      Process.delete(:woc_calls)
+
+      # Contradicts our index; must not be read.
+      woc_spend("#{transfer}_1", String.duplicate("d", 64), 0)
+
+      assert {:ok, %{trace_state: "current", owner: ^buyer} = traced} =
                OrdinalCollections.trace(ctx.item)
 
-      assert failed.trace_error == "whatsonchain: :timeout"
-      assert %DateTime{} = failed.trace_checked_at
+      assert traced.current_outpoint == "#{transfer}_1"
+      calls = Process.get(:woc_calls, [])
+      assert calls != []
+      assert Enum.all?(calls, &match?({:txs, _}, &1))
+      assert [{:txs, [[^funding]]}] = calls
     end
 
-    # #46: a finished run lowered Grand Tardinians from 997 to 995 current,
-    # because a failed re-check overwrote the known location with unknown.
-    test "a failed re-check keeps the known location and owner, and records the failure",
+    test "an item our index can't answer for yet stays untraced, naming the height", ctx do
+      # Blocks 117..120 are headers only: a spend there isn't indexed yet.
+      index_through(116, 120)
+
+      assert {:ok, traced} = OrdinalCollections.trace(ctx.item)
+      assert traced.trace_state == "untraced"
+      assert traced.current_outpoint == ctx.item.origin
+      assert traced.owner == nil
+      assert traced.trace_error == nil
+
+      assert traced.trace_reason ==
+               "no spend of #{ctx.item.origin} in our spend index, which is complete through " <>
+                 "block 116 of 120; a spend from block 117 on isn't indexed yet"
+    end
+
+    test "a current item our index falls behind on is partial where it sat, and current again once it catches up",
          ctx do
       assert {:ok, current} = OrdinalCollections.trace(ctx.item)
-      assert %{trace_states: %{"current" => 1}} = OrdinalCollections.summary(ctx.cid)
+      assert current.trace_state == "current"
 
-      Process.put(:woc_spent, %{current.current_outpoint => {:error, {:http, 500}}})
-      assert {:ok, rechecked} = OrdinalCollections.trace(current)
+      index_through(118, 121)
+      assert {:ok, behind} = OrdinalCollections.trace(current)
+      assert behind.trace_state == "partial"
+      assert behind.current_outpoint == current.current_outpoint
+      assert behind.owner == nil
+      assert behind.trace_reason =~ "complete through block 118 of 121"
+      assert behind.trace_reason =~ "the next trace continues from here"
+      assert behind.trace_source == "index"
 
-      assert rechecked.trace_state == "current"
-      assert rechecked.current_outpoint == current.current_outpoint
-      assert rechecked.owner == ctx.minter
-      assert rechecked.trace_source == "whatsonchain"
-      assert rechecked.traced_at == current.traced_at
-      assert rechecked.trace_error == "whatsonchain: {:http, 500}"
-      assert %DateTime{} = rechecked.trace_checked_at
-      assert %{trace_states: %{"current" => 1} = states} = OrdinalCollections.summary(ctx.cid)
-      refute Map.has_key?(states, "unknown")
-
-      # The next run retries, and a good answer clears the error.
-      Process.delete(:woc_spent)
-
-      assert {:ok, %{trace_state: "current", trace_error: nil}} =
-               OrdinalCollections.trace(rechecked)
+      index_through(121)
+      assert {:ok, again} = OrdinalCollections.trace(behind)
+      assert again.trace_state == "current"
+      assert again.owner == ctx.minter
     end
 
-    test "a re-check that fails after the item moved stops as partial where it got to", ctx do
-      assert {:ok, current} = OrdinalCollections.trace(ctx.item)
-      hop = tx([current.current_outpoint], [p2pkh(address(), 1)]) |> publish()
-      spend(current.current_outpoint, hop, 0)
-      Process.put(:woc_spent, Map.put(Process.get(:woc_spent), "#{hop}_0", {:error, :timeout}))
+    test "an item that moved, then reached blocks our index hasn't synced, is partial where it got to",
+         ctx do
+      index_through(118, 120)
+      hop = tx([ctx.item.origin], [p2pkh(address(), 1)]) |> publish(118)
+      spend(ctx.item.origin, hop, 0)
 
-      assert {:ok, moved} = OrdinalCollections.trace(current)
+      assert {:ok, moved} = OrdinalCollections.trace(ctx.item)
       assert moved.trace_state == "partial"
       assert moved.current_outpoint == "#{hop}_0"
       assert moved.trail == [hop]
-      assert moved.trace_error == "whatsonchain: :timeout"
+      assert moved.trace_reason =~ "complete through block 118 of 120"
     end
 
-    test "a spend whose tx can't be fetched leaves the item partial at its last outpoint", ctx do
+    test "a spend by a tx we don't hold leaves the item partial at its last outpoint", ctx do
       assert {:ok, current} = OrdinalCollections.trace(ctx.item)
       missing = String.duplicate("e", 64)
       spend(current.current_outpoint, missing, 0)
@@ -236,19 +268,83 @@ defmodule Bitblocks.OrdinalCollectionsTest do
       assert {:ok, moved} = OrdinalCollections.trace(current)
       assert moved.trace_state == "partial"
       assert moved.current_outpoint == current.current_outpoint
-      assert moved.trace_error == "spending tx #{missing} unavailable"
+
+      assert moved.trace_reason ==
+               "#{current.current_outpoint} is spent by #{missing}, which isn't in a block we " <>
+                 "store; the next trace continues from here"
     end
 
-    test "a failed re-check of an unknown item keeps its reason", ctx do
-      merged = tx([ctx.item.origin], [p2pkh(address(), 2)]) |> publish()
-      spend(ctx.item.origin, merged, 0)
-      assert {:ok, unknown} = OrdinalCollections.trace(ctx.item)
+    # #46: a failed fetch never erases what was known. The item is known spent
+    # from where it sat, so it stops there, and the next run retries.
+    test "input txs that can't be fetched leave the item partial where it sat, and a later run finishes",
+         ctx do
+      assert {:ok, current} = OrdinalCollections.trace(ctx.item)
+      funding = tx([funding_outpoint()], [p2pkh(address(), 5_000)]) |> publish()
+      buyer = address()
 
-      Process.put(:woc_spent, %{ctx.item.origin => {:error, :timeout}})
-      assert {:ok, again} = OrdinalCollections.trace(unknown)
-      assert again.trace_state == "unknown"
-      assert again.trace_reason == "sat moved into a 2-sat output"
-      assert again.trace_error == "whatsonchain: :timeout"
+      transfer =
+        tx(["#{funding}_0", current.current_outpoint], [p2pkh(address(), 5_000), p2pkh(buyer, 1)])
+        |> publish()
+
+      spend(current.current_outpoint, transfer, 1)
+      Process.put(:woc_txs_error, :timeout)
+
+      assert {:ok, stuck} = OrdinalCollections.trace(current)
+      assert stuck.trace_state == "partial"
+      assert stuck.current_outpoint == current.current_outpoint
+      assert stuck.trace_error == "input values of #{transfer} unavailable"
+      assert stuck.traced_at == current.traced_at
+      assert %DateTime{} = stuck.trace_checked_at
+
+      Process.delete(:woc_txs_error)
+
+      assert {:ok, %{trace_state: "current", owner: ^buyer, trace_error: nil}} =
+               OrdinalCollections.trace(stuck)
+    end
+  end
+
+  describe "trace_batch/1" do
+    setup ctx do
+      OrdinalCollections.sync(ctx.cid, [ctx.mint1, ctx.mint2], follow: false)
+      %{items: Repo.all(from i in Item, where: i.collection_id == ^ctx.cid, order_by: i.id)}
+    end
+
+    test "moves every item a hop at a time, fetching the raw txs a hop lacks once, in bulk",
+         ctx do
+      [a, b] = ctx.items
+      funding = tx([funding_outpoint()], [p2pkh(address(), 5_000)]) |> publish()
+      buyer = address()
+
+      # One tx moves both items; the sat offsets need the funding input's value.
+      swap =
+        tx(["#{funding}_0", a.origin, b.origin], [
+          p2pkh(address(), 5_000),
+          p2pkh(buyer, 1),
+          p2pkh(buyer, 1)
+        ])
+        |> publish()
+
+      spend(a.origin, swap, 1)
+      Process.delete(:woc_calls)
+
+      assert {:ok, [ta, tb], stats} = OrdinalCollections.trace_batch([a, b])
+      assert {ta.current_outpoint, tb.current_outpoint} == {"#{swap}_1", "#{swap}_2"}
+      assert ta.owner == buyer and tb.owner == buyer
+
+      assert %{items: 2, hops: 2, raw_txs_fetched: 1, woc_requests: 1, spend_lookups: 4} =
+               stats
+
+      assert [{:txs, [[^funding]]}] = Process.get(:woc_calls)
+    end
+
+    test "a re-sync checks every item's outpoint and reads nothing for those that stayed",
+         ctx do
+      {:ok, traced, _} = OrdinalCollections.trace_batch(ctx.items)
+      assert Enum.all?(traced, &(&1.trace_state == "current"))
+
+      assert {:ok, again, stats} = OrdinalCollections.trace_batch(traced)
+      assert Enum.map(again, & &1.owner) == Enum.map(traced, & &1.owner)
+      assert %{hops: 1, spend_lookups: 2, tx_reads: 0, raw_txs_fetched: 0} = stats
     end
   end
 

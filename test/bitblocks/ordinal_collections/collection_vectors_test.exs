@@ -4,7 +4,7 @@ defmodule Bitblocks.OrdinalCollections.CollectionVectorsTest do
   proven from real mainnet transactions (test/fixtures/collections, each
   hashing to its txid), run through the same engine as Rexxies and Tardinians.
   """
-  use Bitblocks.DataCase, async: true
+  use Bitblocks.DataCase, async: false
 
   import Bitblocks.OrdinalFixtures
 
@@ -13,6 +13,13 @@ defmodule Bitblocks.OrdinalCollections.CollectionVectorsTest do
   alias Bitblocks.OrdinalCollections.{Item, RareCandy, RunJig}
 
   @dir "test/fixtures/collections"
+
+  # Our index complete through its tip (heights here stand in for the real
+  # ones); WhatsOnChain for raw txs only.
+  setup do
+    Process.put(:woc_raw_tx_only, true)
+    index_through(120)
+  end
 
   defp hex(txid), do: File.read!(Path.join(@dir, "#{txid}.hex")) |> String.trim()
 
@@ -41,9 +48,9 @@ defmodule Bitblocks.OrdinalCollections.CollectionVectorsTest do
   describe "RelayX collections (#79)" do
     # slug => {first mint, block height}
     @first_mints %{
-      "pixmoji" => {"fc7d422c144bf6136318e2a7f64b01e019ba1cb1789afa1eca830812f4f1fd9e", 731_286},
+      "pixmoji" => {"fc7d422c144bf6136318e2a7f64b01e019ba1cb1789afa1eca830812f4f1fd9e", 105},
       "glossy-spheres" =>
-        {"969c4483fff4e686c8b955a16314e26372e9babb838fe01f21129a9732eddc9b", 734_588}
+        {"969c4483fff4e686c8b955a16314e26372e9babb838fe01f21129a9732eddc9b", 106}
     }
 
     for {slug, {mint, height}} <- @first_mints do
@@ -135,8 +142,8 @@ defmodule Bitblocks.OrdinalCollections.CollectionVectorsTest do
 
     test "a sync walks from the declared mint outpoint and indexes every item" do
       config = config("planetary-skies")
-      publish_real(@collection, 717_159)
-      publish_real(@mint, 717_087)
+      publish_real(@collection, 107)
+      publish_real(@mint, 108)
       spend(config.link, @mint, 0)
 
       assert %{mints: 1, items: 99, complete: true} = OrdinalCollections.sync(config.id, [])

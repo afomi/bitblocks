@@ -4,7 +4,7 @@ defmodule Bitblocks.Workers.CollectionTraceWorkerTest do
   syncs. Trace batches are checkpointed per item, so a resumed run only does
   the remainder.
   """
-  use Bitblocks.DataCase, async: true
+  use Bitblocks.DataCase, async: false
   use Oban.Testing, repo: Bitblocks.Repo
 
   import Bitblocks.OrdinalFixtures
@@ -16,11 +16,15 @@ defmodule Bitblocks.Workers.CollectionTraceWorkerTest do
   alias Bitblocks.OrdinalCollections.Item
   alias Bitblocks.Workers.{CollectionSyncWorker, CollectionTraceWorker}
 
+  # Our index complete through its tip; WhatsOnChain for raw txs only.
   setup do
-    collection_txid = tx([funding_outpoint()], [contract("collection")]) |> publish(839_715)
+    Process.put(:woc_raw_tx_only, true)
+    index_through(120)
+
+    collection_txid = tx([funding_outpoint()], [contract("collection")]) |> publish(115)
     cid = "#{collection_txid}_0"
-    mint1 = tx([cid], [contract(), item(cid, "T1", address())]) |> publish(839_716)
-    mint2 = tx(["#{mint1}_0"], [contract(), item(cid, "T2", address())]) |> publish(839_717)
+    mint1 = tx([cid], [contract(), item(cid, "T1", address())]) |> publish(116)
+    mint2 = tx(["#{mint1}_0"], [contract(), item(cid, "T2", address())]) |> publish(117)
     OrdinalCollections.sync(cid, [mint1, mint2], follow: false)
 
     items = Repo.all(from i in Item, where: i.collection_id == ^cid, order_by: i.id)
@@ -80,6 +84,10 @@ defmodule Bitblocks.Workers.CollectionTraceWorkerTest do
       end)
 
     assert log =~ "sync_ordinal_collection #{cid}: done"
+
+    # Each batch says where its time went.
+    assert log =~
+             ~r/collection trace #{cid}: 2 items, 1 hops, 2 spend lookups and \d+ tx reads from our index, 0 raw txs fetched in 0 WhatsOnChain requests, \d+ ms/
   end
 
   test "Release.sync_ordinal_collection enqueues one sync job and returns" do

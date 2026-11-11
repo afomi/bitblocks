@@ -5,7 +5,7 @@ defmodule Bitblocks.OrdinalCollections.StreamingWalkTest do
   job kept every mint's whole inscription alive. These tests walk real
   multi-hop chains and check the answers are exact and the memory is flat.
   """
-  use Bitblocks.DataCase, async: true
+  use Bitblocks.DataCase, async: false
 
   import Bitblocks.OrdinalFixtures
 
@@ -15,16 +15,23 @@ defmodule Bitblocks.OrdinalCollections.StreamingWalkTest do
 
   @inscription_bytes 500_000
 
-  # A chain of `count` mints, each carrying `content`.
+  # Our index complete through its tip; WhatsOnChain for raw txs only.
+  setup do
+    Process.put(:woc_raw_tx_only, true)
+    index_through(130)
+  end
+
+  # A chain of `count` mints at heights 101.., each carrying `content`. Each
+  # mint is in our index, so its spend of the previous link is recorded.
   defp chain(count, content, trait \\ nil) do
-    collection_txid = tx([funding_outpoint()], [contract("collection")]) |> publish(839_000)
+    collection_txid = tx([funding_outpoint()], [contract("collection")]) |> publish(100)
     cid = "#{collection_txid}_0"
     owner = address()
 
     {mints, _} =
       Enum.map_reduce(1..count, cid, fn n, link ->
         out = item(cid, "Item #{n}", owner, [{"Rank", trait || "#{n}"}], content)
-        mint = tx([link], [contract(), out]) |> publish(839_000 + n)
+        mint = tx([link], [contract(), out]) |> publish(100 + n)
         spend(link, mint, 0)
         {mint, "#{mint}_0"}
       end)
@@ -50,7 +57,7 @@ defmodule Bitblocks.OrdinalCollections.StreamingWalkTest do
       assert Enum.map(items, & &1.mint_txid) == mints
       assert Enum.map(items, & &1.origin) == Enum.map(mints, &"#{&1}_1")
       assert Enum.map(items, & &1.name) == for(n <- 1..5, do: "Item #{n}")
-      assert Enum.map(items, & &1.mint_height) == for(n <- 1..5, do: 839_000 + n)
+      assert Enum.map(items, & &1.mint_height) == for(n <- 1..5, do: 100 + n)
       assert Enum.map(items, & &1.content_type) |> Enum.uniq() == ["image/svg+xml"]
       assert Enum.map(items, & &1.owner) |> Enum.uniq() == [owner]
 
@@ -67,10 +74,11 @@ defmodule Bitblocks.OrdinalCollections.StreamingWalkTest do
                |> Base.encode16(case: :lower)
     end
 
-    test "a chain that stops at a failed lookup keeps what it proved, and records no finished walk" do
-      %{cid: cid, mints: [first, second | _]} = chain(3, "<svg/>")
-      spent = Process.get(:woc_spent) |> Map.put("#{second}_0", {:error, :timeout})
-      Process.put(:woc_spent, spent)
+    test "a chain that reaches blocks our index hasn't synced keeps what it proved, and records no finished walk" do
+      %{cid: cid, mints: [first, _second]} = chain(2, "<svg/>")
+      # Blocks past the second mint (102) are headers only: whether its link
+      # is spent there isn't indexed yet, so the walk can't say it ended.
+      index_through(102, 130)
 
       assert %{mints: 2, items: 2, complete: false} = OrdinalCollections.sync(cid, [first])
 

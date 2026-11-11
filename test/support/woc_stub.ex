@@ -11,9 +11,16 @@ defmodule Bitblocks.WocStub do
     * `:woc_txs_error` — when set, `txs/1` returns `{:error, value}`;
     * `:woc_address_history` — `{address, token}` => `%{history:, next_token:}`
       (or `{:error, reason}`); absent means no history.
+
+  With `:woc_raw_tx_only` set, every endpoint but the raw-tx fetch (`txs/1`)
+  raises, so a test fails the moment code asks WhatsOnChain for anything
+  but bytes (docs/WOC_USE.md). `:woc_calls` lists the endpoints asked, newest
+  first, with their arguments.
   """
 
   def block_txids(hash) do
+    called(:block_txids, [hash])
+
     case Process.get(:woc_block_txids, %{})[hash] do
       nil -> {:error, :not_found}
       {:error, reason} -> {:error, reason}
@@ -22,6 +29,8 @@ defmodule Bitblocks.WocStub do
   end
 
   def txs(txids) do
+    Process.put(:woc_calls, [{:txs, [txids]} | Process.get(:woc_calls, [])])
+
     case Process.get(:woc_txs_error) do
       nil -> known_txs(txids)
       reason -> {:error, reason}
@@ -37,6 +46,8 @@ defmodule Bitblocks.WocStub do
   # process, so there WoC is simply unavailable. A test that reads WoC in
   # its own process may set `:woc_chain_tip`.
   def chain_tip do
+    called(:chain_tip, [])
+
     case Process.get(:woc_chain_tip) do
       height when is_integer(height) -> {:ok, height}
       _ -> {:error, :not_stubbed}
@@ -44,6 +55,8 @@ defmodule Bitblocks.WocStub do
   end
 
   def address_history(address, token) do
+    called(:address_history, [address, token])
+
     case Process.get(:woc_address_history, %{})[{address, token}] do
       nil -> {:ok, %{history: [], next_token: nil}}
       {:error, reason} -> {:error, reason}
@@ -52,10 +65,22 @@ defmodule Bitblocks.WocStub do
   end
 
   def spent(txid, vout) do
+    called(:spent, [txid, vout])
+
     case Process.get(:woc_spent, %{})["#{txid}_#{vout}"] do
       nil -> {:ok, :unspent}
       {:error, reason} -> {:error, reason}
       {spender, vin} -> {:ok, %{txid: spender, vin: vin}}
+    end
+  end
+
+  # Any endpoint but the raw-tx fetch.
+  defp called(endpoint, args) do
+    Process.put(:woc_calls, [{endpoint, args} | Process.get(:woc_calls, [])])
+
+    if Process.get(:woc_raw_tx_only) do
+      raise "WhatsOnChain #{endpoint}#{inspect(List.to_tuple(args))} asked; " <>
+              "only raw-tx fetches are allowed here (docs/WOC_USE.md)"
     end
   end
 end

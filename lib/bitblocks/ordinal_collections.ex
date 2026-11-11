@@ -4,7 +4,7 @@ defmodule Bitblocks.OrdinalCollections do
   Tardinians (1Sat, `OneSat`), Rexxies and other RelayX collections (Run,
   `RunJig`, #79), and Rare Candy's (`RareCandy`, #77). Each collection is one
   row of `@collections`; one with no hint (`hint: :none`) is found by walking
-  its chain with WhatsOnChain's `/spent` alone.
+  its chain through our spend index alone.
 
   **Membership is proven, not claimed.** Both kinds mint through a chain: each
   mint spends the collection's current link (Bubblemint's mint contract, or a
@@ -15,9 +15,8 @@ defmodule Bitblocks.OrdinalCollections do
 
   **Discovery** takes a hint list of mint txids (GorillaPool's search, or a
   catalog; see `Release.sync_ordinal_collection/1`), imports them, walks the
-  chain locally, and follows past the hint's end with WhatsOnChain's
-  `/spent`, so an item the hint missed is still found and a fake in the hint
-  is rejected.
+  chain locally, and follows past the hint's end through our spend index, so
+  an item the hint missed is still found and a fake in the hint is rejected.
 
   **Ownership** follows each item from its origin through spends (`trace/1`);
   the protocol says where a spent item lands (a 1Sat sat by input offset, a
@@ -26,8 +25,22 @@ defmodule Bitblocks.OrdinalCollections do
   outside Run) is `ended`. A lookup that fails never erases what an earlier
   trace found.
 
-  Transactions come from our own index first and WhatsOnChain second
-  (`Bitblocks.Woc`); every imported body is checked against its txid.
+  **Our own index answers; WhatsOnChain only supplies bytes** (docs/WOC_USE.md).
+  Where an outpoint went comes from `spend_index` by the `Chain.Utxos` rule:
+  a spend row whose spender is in a block we store is a fact, and no row
+  means unspent only when our index is complete through our tip. Anything
+  else stops the walk or trace there, with a reason naming the height our
+  index reaches (`partial`, or `untraced` for an item never placed), and is
+  never filled from WhatsOnChain. Transactions are read from our index first;
+  only a missing tx's raw bytes are fetched from WhatsOnChain (`Woc.txs/1`),
+  and every imported body is checked against its txid.
+
+  **Batches (`trace_batch/1`)** trace hop by hop across their items: one
+  spend-index lookup for every item's outpoint, then one bulk, deduplicated
+  fetch of the raw txs that hop needs and we lack. An item still where the
+  last trace left it costs one lookup and no tx read. Each batch reports its
+  counts (`stats`): spend lookups, local tx reads, raw txs fetched and
+  WhatsOnChain requests.
 
   **Memory (#47).** A walk touches every tx of a collection, and a mint's tx
   holds its whole inscription. What a protocol reads from a tx (a name, a
@@ -42,7 +55,7 @@ defmodule Bitblocks.OrdinalCollections do
 
   require Logger
 
-  alias Bitblocks.Chain.{Block, RawTx, Transaction, TxIngest}
+  alias Bitblocks.Chain.{Block, RawBlock, RawTx, Transaction, TxIngest, Utxos}
   alias Bitblocks.OrdinalCollections.{Item, Walk}
   alias Bitblocks.Ordinals.Inscription
   alias Bitblocks.{Repo, TxStore, Woc}
@@ -182,6 +195,16 @@ defmodule Bitblocks.OrdinalCollections do
   # The process dictionary key of the high-water mark while `measure/1` runs.
   @peak {__MODULE__, :peak_bytes}
 
+  # The process dictionary key of a trace batch's counts while it runs.
+  @stats {__MODULE__, :trace_stats}
+
+  # Process dictionary keys: the index coverage a sync or trace batch is
+  # judged against, a hop's input values by txid, and the input txs a
+  # landing's first pass found missing.
+  @coverage {__MODULE__, :coverage}
+  @values {__MODULE__, :input_values}
+  @missing {__MODULE__, :missing_inputs}
+
   # trace_all/1 reads items a page at a time.
   @trace_page 100
 
@@ -303,14 +326,25 @@ defmodule Bitblocks.OrdinalCollections do
     missing
     |> Enum.chunk_every(Woc.bulk_size())
     |> Enum.reduce(%{stored: 0, existing: MapSet.size(have), failed: []}, fn batch, acc ->
+      count(:woc_requests)
+      count(:raw_txs_fetched, length(batch))
+
       case Woc.txs(batch) do
         {:ok, txs} ->
           returned = MapSet.new(txs, & &1["txid"])
           absent = for t <- batch, not MapSet.member?(returned, t), do: {t, :not_returned}
+          heights = our_heights(txs)
 
           Enum.reduce(txs, %{acc | failed: absent ++ acc.failed}, fn tx, acc ->
-            case TxIngest.store(tx, %Block{hash: tx["blockhash"], height: tx["blockheight"]}) do
-              :ok -> %{acc | stored: acc.stored + 1}
+            block = %Block{
+              hash: tx["blockhash"],
+              height: Map.get(heights, tx["blockhash"], tx["blockheight"])
+            }
+
+            with {:ok, json} <- own_json(tx),
+                 :ok <- TxIngest.store(json, block) do
+              %{acc | stored: acc.stored + 1}
+            else
               {:error, reason} -> %{acc | failed: [{tx["txid"], reason} | acc.failed]}
             end
           end)
@@ -320,6 +354,34 @@ defmodule Bitblocks.OrdinalCollections do
       end
     end)
     |> tap(fn _ -> keep_blobs(txids) end)
+  end
+
+  # The row is built from the bytes, not from WhatsOnChain's decoded JSON:
+  # only the bytes are checked (against the txid), so the inputs, outputs and
+  # the spend rows they write are read by us.
+  defp own_json(%{"txid" => txid, "hex" => hex}) when is_binary(txid) and is_binary(hex) do
+    with true <- TxIngest.body_matches_txid?(hex, txid),
+         {:ok, bytes} <- Base.decode16(hex, case: :mixed) do
+      {:ok, RawBlock.tx_json(txid, bytes)}
+    else
+      _ -> {:error, :body_mismatch}
+    end
+  rescue
+    _ -> {:error, :undecodable}
+  end
+
+  defp own_json(_tx), do: {:error, :no_hex}
+
+  # Block hash => height, for the blocks WhatsOnChain names that we hold: the
+  # height is ours where we have the header, WhatsOnChain's only where not.
+  defp our_heights(txs) do
+    hashes = for %{"blockhash" => h} <- txs, is_binary(h), uniq: true, do: h
+
+    if hashes == [],
+      do: %{},
+      else:
+        Repo.all(from b in Block, where: b.hash in ^hashes, select: {b.hash, b.height})
+        |> Map.new()
   end
 
   # Every tx a collection touches is kept in the blob store (mints, transfers,
@@ -346,7 +408,9 @@ defmodule Bitblocks.OrdinalCollections do
 
   `hint_txids` are candidate mint txids (from any indexer); they are only
   candidates. Options: `follow: false` skips following the chain past the
-  hint with WhatsOnChain.
+  hint through our spend index. A link our index can't answer for yet (its
+  spend may sit above `Sync.complete_through/0`) ends the walk there as not
+  `complete`.
 
   Returns `%{mints, items, rejected, import, complete, peak_bytes}`:
   `rejected` counts hinted txs that are not on the mint chain, `complete` says
@@ -365,7 +429,10 @@ defmodule Bitblocks.OrdinalCollections do
         import = import_txs([collection_txid | hint_txids])
         spenders = spender_index(hint_txids)
         config = config_for(collection_id)
-        {walk_chain(config, spenders, Keyword.get(opts, :follow, true)), import}
+
+        with_coverage(fn ->
+          {walk_chain(config, spenders, Keyword.get(opts, :follow, true)), import}
+        end)
       end)
 
     mints = MapSet.size(walk.mint_ids)
@@ -531,19 +598,21 @@ defmodule Bitblocks.OrdinalCollections do
 
   defp follow_spend(_link, false), do: :not_followed
 
+  # Past the hint, the chain goes where our spend index says. A link it
+  # can't answer for leaves the walk incomplete; WhatsOnChain isn't asked.
   defp follow_spend(link, true) do
-    [txid, vout] = String.split(link, "_")
+    op = parse_outpoint(link)
 
-    case Woc.spent(txid, String.to_integer(vout)) do
-      {:ok, %{txid: spender}} ->
+    case spend_statuses([op])[op] do
+      %{status: :spent, spent_by: spender} ->
         import_txs([spender])
         {:ok, spender}
 
-      {:ok, :unspent} ->
+      %{status: :unspent} ->
         :unspent
 
-      {:error, reason} ->
-        {:error, reason}
+      status ->
+        {:error, unknown_reason(link, status)}
     end
   end
 
@@ -593,18 +662,25 @@ defmodule Bitblocks.OrdinalCollections do
   @doc """
   Follows `item`'s sat from where we last saw it (its origin, if never traced)
   to where it sits now, and records the owner. Returns the updated item.
+  One item's `trace_batch/1`.
 
   The trace states:
 
-    * `current`: the item sits at `current_outpoint`, held by `owner`.
+    * `current`: the item sits at `current_outpoint`, held by `owner`: our
+      index is complete through our tip and records no spend of it.
     * `ended`: the trail truly ends at `current_outpoint`, e.g. a Run jig
       spent outside Run. Final, and settled like `current`; `owner` is nil.
-    * `partial`: stopped at `current_outpoint` (a long trail, or a lookup
-      failed after the item moved); the next trace resumes there.
+    * `partial`: stopped at `current_outpoint`: a long trail, a lookup that
+      failed after the item moved, or our index can't say yet whether it
+      moved on (`trace_reason` names the height it reaches). The next trace
+      resumes there.
     * `unknown`: the protocol can't say where the item went (`trace_reason`).
-    * `untraced`: never traced.
+    * `untraced`: never placed past its origin; `trace_reason`, when set,
+      says why (our index can't answer for the origin yet).
 
-  A lookup that fails (WhatsOnChain errors, a spending tx we can't fetch)
+  Where an outpoint went comes from our spend index only (the
+  `Chain.Utxos` rule); WhatsOnChain only supplies the raw bytes of a tx we
+  lack. A lookup that fails (a spending tx or an input's tx we can't fetch)
   never erases what an earlier trace found (#46): an item with a known
   location keeps it, its owner and its state, and the failure is recorded in
   `trace_error` and `trace_checked_at` so a later run retries. `traced_at`
@@ -616,6 +692,60 @@ defmodule Bitblocks.OrdinalCollections do
   """
   @spec trace(Item.t(), keyword()) :: {:ok, Item.t()} | {:error, :gone}
   def trace(%Item{} = item, opts \\ []) do
+    case trace_batch([{item, opts}]) do
+      {:ok, [:gone], _stats} -> {:error, :gone}
+      {:ok, [traced], _stats} -> {:ok, traced}
+    end
+  end
+
+  @doc """
+  Traces items together, hop by hop: every item's next outpoint is looked up
+  in `spend_index` at once, the raw txs that hop needs and we lack are fetched
+  in bulk with duplicates removed, and then the next hop. `entries` are items,
+  or `{item, opts}` with `trace/2`'s options.
+
+  Returns `{:ok, items, stats}`: the updated items in the order given (`:gone`
+  in place of one a reorg removed while it was traced, #73), and the batch's
+  counts: `items`, `hops` (hop rounds), `spend_lookups`
+  (outpoints looked up in our spend index), `tx_reads` (txs read from our
+  index), `raw_txs_fetched` (txids asked of WhatsOnChain) and
+  `woc_requests` (its bulk raw-tx requests).
+  """
+  @spec trace_batch([Item.t() | {Item.t(), keyword()}]) :: {:ok, [Item.t() | :gone], map()}
+  def trace_batch(entries) when is_list(entries) do
+    Process.put(@stats, %{
+      items: length(entries),
+      hops: 0,
+      spend_lookups: 0,
+      tx_reads: 0,
+      raw_txs_fetched: 0,
+      woc_requests: 0
+    })
+
+    try do
+      with_coverage(fn ->
+        now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+        items =
+          entries
+          |> Enum.map(&walker/1)
+          |> walk_hops()
+          |> Enum.map(&record(&1, now))
+
+        {:ok, items, Process.get(@stats)}
+      end)
+    after
+      Process.delete(@stats)
+    end
+  end
+
+  # One item's walk: where it started, where it is now, the spending txids
+  # it moved through (newest first) and, once it stops, its result: one of
+  # {:current, outpoint}, {state, outpoint, owner, reason},
+  # {:beyond_index, outpoint, reason} or {:failed, outpoint, error}.
+  defp walker(%Item{} = item), do: walker({item, []})
+
+  defp walker({%Item{} = item, opts}) do
     # current, ended: re-check from where it sat; partial: resume where the last
     # trace stopped; otherwise (or with from: :origin) start from the origin,
     # which rebuilds the trail.
@@ -624,25 +754,141 @@ defmodule Bitblocks.OrdinalCollections do
         item.current_outpoint != nil
 
     start = if resume?, do: item.current_outpoint, else: item.origin
-    protocol = config_for(item.collection_id).protocol
-    now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+    %{
+      item: item,
+      resume?: resume?,
+      start: start,
+      protocol: config_for(item.collection_id).protocol,
+      at: start,
+      steps: [],
+      hops: 0,
+      result: nil
+    }
+  end
+
+  defp walk_hops(walkers) do
+    walkers = Enum.map(walkers, &stop_long/1)
+
+    case for(%{result: nil, at: at} <- walkers, do: parse_outpoint(at)) do
+      [] -> walkers
+      active -> walkers |> hop(active) |> walk_hops()
+    end
+  end
+
+  defp stop_long(%{result: nil, hops: hops} = w) when hops >= @max_hops do
+    reason = "stopped after #{@max_hops} transfers; the next trace continues from here"
+    %{w | result: {"partial", w.at, nil, reason}}
+  end
+
+  defp stop_long(w), do: w
+
+  # One hop for every walker still moving: one spend-index lookup for all
+  # their outpoints, one bulk fetch of the spending txs we lack, then one of
+  # the input txs their landings read.
+  defp hop(walkers, active) do
+    settle()
+    count(:hops)
+    statuses = spend_statuses(active)
+
+    txs =
+      spending_txs(
+        for %{status: :spent, spent_by: by} <- Map.values(statuses), uniq: true, do: by
+      )
+
+    keys =
+      for %{result: nil, at: at, protocol: protocol} <- walkers,
+          %{status: :spent, spent_by: by, spent_by_vin: vin} <- [statuses[parse_outpoint(at)]],
+          uniq: true,
+          do: {protocol, by, vin}
+
+    landings = landings(keys, txs)
+
+    walkers
+    |> Enum.map(fn
+      %{result: nil} = w -> step(w, statuses[parse_outpoint(w.at)], landings)
+      w -> w
+    end)
+    |> tap(fn _ -> Process.delete(@values) end)
+  end
+
+  defp step(w, %{status: :unspent}, _landings), do: %{w | result: {:current, w.at}}
+
+  defp step(w, %{status: :spent, spent_by: spender, spent_by_vin: vin}, landings) do
+    w = %{w | steps: [spender | w.steps]}
+
+    case landings[{w.protocol, spender, vin}] do
+      {:ok, next} -> %{w | at: next, hops: w.hops + 1}
+      {:ended, reason} -> %{w | result: {"ended", w.at, nil, reason}}
+      {:unknown, reason} -> %{w | result: {"unknown", w.at, nil, reason}}
+      {:error, reason} -> %{w | result: {:failed, w.at, reason}}
+      _ -> %{w | result: {:failed, w.at, "spending tx #{spender} unavailable"}}
+    end
+  end
+
+  defp step(w, status, _landings),
+    do: %{w | result: {:beyond_index, w.at, unknown_reason(w.at, status)}}
+
+  # txid => load_tx result, fetching the raw txs we lack in one bulk import.
+  defp spending_txs([]), do: %{}
+
+  defp spending_txs(txids) do
+    import_txs(txids)
+    Map.new(txids, &{&1, load_tx(&1)})
+  end
+
+  # {protocol, spender, vin} => the protocol's landing. A first pass reads
+  # input values from our index only and notes the txs it lacks; those are
+  # fetched in one bulk import, and the second pass answers.
+  defp landings([], _txs), do: %{}
+
+  defp landings(keys, txs) do
+    Process.put(@missing, MapSet.new())
+    Enum.each(keys, &land(&1, txs, fn op -> probe_value(op) end))
+    missing = Process.delete(@missing) |> MapSet.to_list()
+    if missing != [], do: import_txs(missing)
+
+    Map.new(keys, &{&1, land(&1, txs, fn op -> output_value(op) end)})
+  end
+
+  defp land({protocol, spender, vin}, txs, value_of) do
+    case txs[spender] do
+      {:ok, tx, _height} -> protocol.landing(tx, spender, vin, value_of)
+      _ -> :unavailable
+    end
+  end
+
+  # An input's value from our index, or 0 with its txid noted as missing (the
+  # first pass's answers are thrown away).
+  defp probe_value(op) do
+    case local_value(op) do
+      {:ok, sats} ->
+        {:ok, sats}
+
+      :error ->
+        Process.put(@missing, MapSet.put(Process.get(@missing), BSV.OutPoint.get_txid(op)))
+        {:ok, 0}
+    end
+  end
+
+  # Builds the item's new row from where its walk stopped.
+  defp record(%{item: item, resume?: resume?, start: start} = w, now) do
+    steps = Enum.reverse(w.steps)
 
     changes =
-      case follow(start, 0, protocol) do
-        {{:failed, at, error}, steps} ->
+      case w.result do
+        {:failed, at, error} ->
           failed_changes(item, resume?, start, at, steps, error)
 
-        {{state, outpoint, owner, reason}, steps} ->
-          %{
-            trace_state: state,
-            current_outpoint: outpoint,
-            owner: owner,
-            trail: trail(item, resume?, steps),
-            trace_reason: reason,
-            trace_source: "whatsonchain",
-            traced_at: now,
-            trace_error: nil
-          }
+        {:beyond_index, at, reason} ->
+          beyond_index_changes(item, resume?, at, steps, reason, now)
+
+        {:current, at} ->
+          {state, outpoint, owner, reason} = placed(w, at)
+          answered(item, resume?, steps, state, outpoint, owner, reason, now)
+
+        {state, outpoint, owner, reason} ->
+          answered(item, resume?, steps, state, outpoint, owner, reason, now)
       end
 
     # Compare-and-set on trace_version (#73): a reorg that marked the item
@@ -654,13 +900,69 @@ defmodule Bitblocks.OrdinalCollections do
     |> Repo.update(stale_error_field: :trace_version)
     |> case do
       {:ok, traced} ->
-        {:ok, traced}
+        traced
 
       {:error, %Ecto.Changeset{}} ->
         case Repo.get(Item, item.id) do
-          nil -> {:error, :gone}
-          current -> {:ok, current}
+          nil -> :gone
+          current -> current
         end
+    end
+    # The owner read a tx; drop it before the next item's.
+    |> tap(fn _ -> settle() end)
+  end
+
+  # Unspent at `at`. An item still where the last trace put it keeps the
+  # owner read then, from the same bytes, so it costs no tx read.
+  defp placed(%{item: %Item{trace_state: "current", current_outpoint: at} = item}, at),
+    do: {"current", at, item.owner, item.trace_reason}
+
+  defp placed(w, at) do
+    case owner_at(at, w.protocol) do
+      nil -> {"current", at, nil, "held by a non-P2PKH lock (e.g. a marketplace listing)"}
+      owner -> {"current", at, owner, nil}
+    end
+  end
+
+  defp answered(item, resume?, steps, state, outpoint, owner, reason, now) do
+    %{
+      trace_state: state,
+      current_outpoint: outpoint,
+      owner: owner,
+      trail: trail(item, resume?, steps),
+      trace_reason: reason,
+      trace_source: "index",
+      traced_at: now,
+      trace_error: nil
+    }
+  end
+
+  # Our index can't say yet whether `at` is spent. That is an answer, not a
+  # failure: the item stops there with the reason, as `partial` (resumed
+  # there next time) or, never placed past its origin, `untraced`.
+  defp beyond_index_changes(item, resume?, at, steps, reason, now) do
+    if at == item.origin and not resume? and steps == [] do
+      %{
+        trace_state: "untraced",
+        current_outpoint: at,
+        owner: nil,
+        trail: [],
+        trace_reason: reason,
+        trace_source: "index",
+        traced_at: now,
+        trace_error: nil
+      }
+    else
+      %{
+        trace_state: "partial",
+        current_outpoint: at,
+        owner: nil,
+        trail: trail(item, resume?, steps),
+        trace_reason: "#{reason}; the next trace continues from here",
+        trace_source: "index",
+        traced_at: now,
+        trace_error: nil
+      }
     end
   end
 
@@ -696,13 +998,16 @@ defmodule Bitblocks.OrdinalCollections do
           owner: nil,
           trail: trail(item, resume?, steps),
           trace_reason: "#{error}; the next trace continues from here",
-          trace_source: "whatsonchain",
+          trace_source: "index",
           trace_error: error
         }
     end
   end
 
-  @doc "Traces every item of a collection, a page at a time. Returns counts by trace_state."
+  @doc """
+  Traces every item of a collection, a page at a time (each page one
+  `trace_batch/1`). Returns counts by trace_state.
+  """
   def trace_all(collection_id), do: trace_pages(collection_id, 0, %{})
 
   defp trace_pages(collection_id, after_id, counts) do
@@ -719,12 +1024,13 @@ defmodule Bitblocks.OrdinalCollections do
         counts
 
       page ->
+        {:ok, traced, _stats} = trace_batch(page)
+
         counts =
-          Enum.reduce(page, counts, fn item, counts ->
-            case trace(item) do
-              {:ok, traced} -> Map.update(counts, traced.trace_state, 1, &(&1 + 1))
-              {:error, :gone} -> counts
-            end
+          Enum.reduce(traced, counts, fn
+            %Item{trace_state: state}, counts -> Map.update(counts, state, 1, &(&1 + 1))
+            # A reorg removed the item while it was traced.
+            :gone, counts -> counts
           end)
 
         trace_pages(collection_id, List.last(page).id, counts)
@@ -878,79 +1184,116 @@ defmodule Bitblocks.OrdinalCollections do
     :ok
   end
 
-  # Returns {result, trail}: trail is the txids the item moved through on this
-  # walk, oldest first (a spend that ends the item's trail is included, as the
-  # last step of its history). result is {state, outpoint, owner, reason}, or
-  # {:failed, outpoint, error} when a lookup failed at outpoint.
-  defp follow(outpoint, hops, protocol, trail \\ [])
+  # -- Our index -----------------------------------------------------------------
 
-  defp follow(outpoint, hops, _protocol, trail) when hops >= @max_hops,
+  # {txid, vout} => its `Chain.Utxos.outpoints/2` status, with the coverage it
+  # was judged against (`through`, `tip`).
+  defp spend_statuses([]), do: %{}
+
+  defp spend_statuses(ops) do
+    ops = Enum.uniq(ops)
+    count(:spend_lookups, length(ops))
+
+    %{outpoints: statuses, indexed_through_height: through, tip_height: tip} =
+      Utxos.outpoints(ops, coverage())
+
+    Map.new(statuses, fn {op, status} ->
+      {op, Map.merge(status, %{through: through, tip: tip})}
+    end)
+  end
+
+  # Why our index can't say where `outpoint` went, naming the height it reaches.
+  defp unknown_reason(outpoint, %{unknown_reason: :not_indexed_yet, tip: nil}),
+    do: "our index holds no block headers yet, so the spend of #{outpoint} can't be looked up"
+
+  defp unknown_reason(outpoint, %{unknown_reason: :not_indexed_yet, through: through, tip: tip})
+       when through < 0,
+       do:
+         "no spend of #{outpoint} in our spend index, which isn't complete from block 0 " <>
+           "yet (tip #{tip}); a spend in any block may not be indexed yet"
+
+  defp unknown_reason(outpoint, %{unknown_reason: :not_indexed_yet, through: through, tip: tip}),
     do:
-      {{"partial", outpoint, nil,
-        "stopped after #{@max_hops} transfers; the next trace continues from here"},
-       Enum.reverse(trail)}
+      "no spend of #{outpoint} in our spend index, which is complete through block " <>
+        "#{through} of #{tip}; a spend from block #{through + 1} on isn't indexed yet"
 
-  defp follow(outpoint, hops, protocol, trail) do
-    settle()
-    [txid, vout] = String.split(outpoint, "_")
+  defp unknown_reason(outpoint, %{unknown_reason: {:spender_not_in_stored_block, by}}),
+    do: "#{outpoint} is spent by #{by}, which isn't in a block we store"
 
-    case Woc.spent(txid, String.to_integer(vout)) do
-      {:ok, :unspent} ->
-        result =
-          case owner_at(outpoint, protocol) do
-            nil ->
-              {"current", outpoint, nil, "held by a non-P2PKH lock (e.g. a marketplace listing)"}
+  defp unknown_reason(outpoint, %{unknown_reason: :tx_not_in_stored_block}),
+    do: "#{outpoint |> String.split("_") |> hd()} isn't in a block we store"
 
-            owner ->
-              {"current", outpoint, owner, nil}
-          end
+  defp unknown_reason(outpoint, _status),
+    do: "our index can't say whether #{outpoint} is spent"
 
-        {result, Enum.reverse(trail)}
+  # The coverage a sync or a trace batch judges every outpoint against, read
+  # once for it (`Sync.complete_through/0` counts blocks).
+  defp with_coverage(fun) do
+    Process.put(@coverage, Utxos.coverage())
 
-      {:ok, %{txid: spender, vin: vin}} ->
-        import_txs([spender])
-        trail = [spender | trail]
-
-        with {:ok, tx, _} <- load_tx(spender),
-             {:ok, next} <- protocol.landing(tx, spender, vin, &output_value/1) do
-          follow(next, hops + 1, protocol, trail)
-        else
-          {:ended, reason} ->
-            {{"ended", outpoint, nil, reason}, Enum.reverse(trail)}
-
-          {:unknown, reason} ->
-            {{"unknown", outpoint, nil, reason}, Enum.reverse(trail)}
-
-          {:error, reason} ->
-            {{:failed, outpoint, reason}, Enum.reverse(trail)}
-
-          :error ->
-            {{:failed, outpoint, "spending tx #{spender} unavailable"}, Enum.reverse(trail)}
-        end
-
-      {:error, reason} ->
-        {{:failed, outpoint, "whatsonchain: #{inspect(reason)}"}, Enum.reverse(trail)}
+    try do
+      fun.()
+    after
+      Process.delete(@coverage)
     end
   end
 
-  # Value of an outpoint, importing its tx if we don't hold it.
-  defp output_value(%BSV.OutPoint{vout: vout} = op) do
-    txid = BSV.OutPoint.get_txid(op)
-    import_txs([txid])
+  defp coverage, do: Process.get(@coverage) || Utxos.coverage()
 
-    with {:ok, tx, _} <- load_tx(txid),
-         %BSV.TxOut{satoshis: sats} <- Enum.at(tx.outputs, vout) do
-      {:ok, sats}
-    else
-      _ -> :error
+  defp count(key, n \\ 1) do
+    case Process.get(@stats) do
+      %{} = stats -> Process.put(@stats, Map.update(stats, key, n, &(&1 + n)))
+      nil -> :ok
+    end
+  end
+
+  defp parse_outpoint(outpoint) do
+    [txid, vout] = String.split(outpoint, "_")
+    {txid, String.to_integer(vout)}
+  end
+
+  # Value of an outpoint from our index, importing its tx if we don't hold it.
+  defp output_value(op) do
+    with :error <- local_value(op) do
+      import_txs([BSV.OutPoint.get_txid(op)])
+      local_value(op)
+    end
+  end
+
+  # Value of an outpoint from a tx we hold; remembered for the hop.
+  defp local_value(%BSV.OutPoint{vout: vout} = op) do
+    txid = BSV.OutPoint.get_txid(op)
+    values = Process.get(@values, %{})
+
+    case values do
+      %{^txid => sats} ->
+        sats_at(sats, vout)
+
+      _ ->
+        case load_tx(txid) do
+          {:ok, tx, _} ->
+            sats = Enum.map(tx.outputs, & &1.satoshis)
+            Process.put(@values, Map.put(values, txid, sats))
+            sats_at(sats, vout)
+
+          _ ->
+            :error
+        end
+    end
+  end
+
+  defp sats_at(sats, vout) do
+    case Enum.at(sats, vout) do
+      nil -> :error
+      value -> {:ok, value}
     end
   end
 
   defp owner_at(outpoint, protocol) do
-    [txid, vout] = String.split(outpoint, "_")
+    {txid, vout} = parse_outpoint(outpoint)
 
     with {:ok, tx, _} <- load_tx(txid),
-         %BSV.TxOut{} = out <- Enum.at(tx.outputs, String.to_integer(vout)) do
+         %BSV.TxOut{} = out <- Enum.at(tx.outputs, vout) do
       protocol.owner(out)
     else
       _ -> nil
@@ -1272,6 +1615,8 @@ defmodule Bitblocks.OrdinalCollections do
   # -- Helpers -------------------------------------------------------------------
 
   defp load_tx(txid) do
+    count(:tx_reads)
+
     with %{} = row <-
            Repo.one(
              from t in Transaction,

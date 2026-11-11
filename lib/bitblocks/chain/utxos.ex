@@ -225,10 +225,18 @@ defmodule Bitblocks.Chain.Utxos do
   The status of each `{txid, vout}` by the rule above (`:spent`, `:unspent`
   or `:unknown`), with the coverage it was judged against. Reads no scripts:
   for outpoints a caller already knows can be spent, such as a listed token
-  UTXO. An outpoint whose tx isn't in a stored block is `:unknown`.
+  UTXO. An outpoint whose tx isn't in a stored block is `:unknown`, unless
+  a spend row names a spender in a stored block: then it is `:spent`.
+
+  `unknown_reason` says why an `:unknown` is unknown (nil otherwise):
+  `:tx_not_in_stored_block`, `{:spender_not_in_stored_block, spending_txid}`,
+  or `:not_indexed_yet` (no spend row, and blocks above
+  `indexed_through_height` aren't synced, so a spend may be there).
 
       %{
-        outpoints: %{{"<txid>", 0} => %{status: :unspent, spent_by: nil, spent_by_vin: nil}},
+        outpoints: %{
+          {"<txid>", 0} => %{status: :unspent, spent_by: nil, spent_by_vin: nil, unknown_reason: nil}
+        },
         indexed_through_height: 900_000,
         tip_height: 900_000
       }
@@ -236,9 +244,8 @@ defmodule Bitblocks.Chain.Utxos do
   Two queries whatever the count: the txs by `txid`, the spends by
   `spend_index (txid, vout)`.
   """
-  @spec outpoints([{String.t(), non_neg_integer()}]) :: map()
-  def outpoints(outpoints) when is_list(outpoints) do
-    coverage = coverage()
+  @spec outpoints([{String.t(), non_neg_integer()}], coverage()) :: map()
+  def outpoints(outpoints, coverage \\ coverage()) when is_list(outpoints) do
     txids = outpoints |> Enum.map(&elem(&1, 0)) |> Enum.uniq()
 
     canonical =
@@ -259,10 +266,23 @@ defmodule Bitblocks.Chain.Utxos do
 
     statuses =
       Map.new(outpoints, fn {txid, _vout} = outpoint ->
-        {status, by, vin} =
-          classify(outpoint, MapSet.member?(canonical, txid), spends, coverage)
+        canonical? = MapSet.member?(canonical, txid)
 
-        {outpoint, %{status: status, spent_by: by, spent_by_vin: vin}}
+        # A spender in a stored block is a fact whether or not we hold the
+        # tx it spends from (the rule above).
+        {status, by, vin} =
+          case spends do
+            %{^outpoint => {by, vin, true}} -> {:spent, by, vin}
+            _ -> classify(outpoint, canonical?, spends, coverage)
+          end
+
+        {outpoint,
+         %{
+           status: status,
+           spent_by: by,
+           spent_by_vin: vin,
+           unknown_reason: unknown_reason(status, outpoint, canonical?, spends)
+         }}
       end)
 
     %{
@@ -369,6 +389,17 @@ defmodule Bitblocks.Chain.Utxos do
       _ -> {:unknown, nil, nil}
     end
   end
+
+  defp unknown_reason(:unknown, _outpoint, false, _spends), do: :tx_not_in_stored_block
+
+  defp unknown_reason(:unknown, outpoint, true, spends) do
+    case spends do
+      %{^outpoint => {by, _vin, false}} -> {:spender_not_in_stored_block, by}
+      _ -> :not_indexed_yet
+    end
+  end
+
+  defp unknown_reason(_status, _outpoint, _canonical?, _spends), do: nil
 
   defp electrum_hash(script) do
     :crypto.hash(:sha256, script)

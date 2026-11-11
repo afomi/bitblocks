@@ -26,7 +26,9 @@ defmodule Bitblocks.Workers.CollectionSyncWorker do
   alias Bitblocks.OrdinalCollections.Item
   alias Bitblocks.Workers.CollectionTraceWorker
 
-  @batch 10
+  # Items per trace batch: a hop's spending txs for the whole batch fit one
+  # WhatsOnChain bulk request (`Woc.bulk_size/0`).
+  @batch 20
 
   @impl Oban.Worker
   def perform(%Oban.Job{args: %{"slug" => slug, "run_started_at" => started} = args}) do
@@ -69,7 +71,7 @@ defmodule Bitblocks.Workers.CollectionSyncWorker do
   defp hint(cid) do
     case OrdinalCollections.config_for(cid) do
       %{hint: :catalog, catalog: catalog} -> {:ok, catalog.mint_txids()}
-      # No index to ask: the walk follows the chain with WhatsOnChain alone.
+      # No hint to ask: the walk follows the chain through our spend index alone.
       %{hint: :none} -> {:ok, []}
       _ -> Bitblocks.Ordinals.Gorillapool.collection_mint_txids(cid)
     end
