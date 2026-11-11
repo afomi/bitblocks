@@ -73,4 +73,18 @@ defmodule BitblocksWeb.AboutLiveTest do
     assert html =~ ~s(href="/blocks/912345")
     assert html =~ "957,301"
   end
+
+  test "the homepage draws coverage as a bar that never claims more than is done", %{conn: conn} do
+    refute conn |> get(~p"/") |> html_response(200) =~ ~s(id="home-coverage-bar")
+
+    put_coverage(%{complete_through: 327_460, our_tip: 975_061})
+    html = build_conn() |> get(~p"/") |> html_response(200)
+
+    assert html =~ ~s(id="home-coverage-bar")
+    assert html =~ "33%"
+    assert html =~ ~s(style="width: 33%")
+    assert html =~ "33% of the chain is indexed, from block 0 through block 327,460."
+    assert BitblocksWeb.PageHTML.coverage_share(975_061, 975_061) == 100
+    assert BitblocksWeb.PageHTML.coverage_share(0, 975_061) == 0
+  end
 end
