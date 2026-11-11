@@ -90,6 +90,10 @@ config :bitblocks, Bitblocks.Chain.SafeTx, max_hex_bytes: 100_000_000
 # at the `config/runtime.exs`.
 config :bitblocks, Bitblocks.Mailer, adapter: Swoosh.Adapters.Local
 
+# S3, EC2 and instance-metadata calls go through Finch, not ExAws's default
+# hackney, which we no longer ship (#65).
+config :ex_aws, http_client: Bitblocks.HTTP.ExAwsClient
+
 # Configure esbuild (the version is required)
 config :esbuild,
   version: "0.17.11",

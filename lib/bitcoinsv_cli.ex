@@ -312,15 +312,14 @@ defmodule BitcoinsvCli do
             %{jsonrpc: "1.0", id: index, method: method, params: params}
         end)
 
-      {timeout, recv_timeout} = batch_rpc_timeouts()
+      {_connect, recv_timeout} = batch_rpc_timeouts()
 
       with {:ok, url} <- bitcoin_url(),
            {:ok, body} <- Jason.encode(batch_commands),
-           {:ok, %HTTPoison.Response{status_code: 200, body: response_body}} <-
+           {:ok, %Finch.Response{status: 200, body: response_body}} <-
              post_with_backoff(url, body,
-               timeout: timeout,
-               recv_timeout: recv_timeout,
-               max_body_length: 500_000_000
+               receive_timeout: recv_timeout,
+               max_body_length: rpc_max_body_bytes()
              ),
            {:ok, responses} <- Jason.decode(response_body) do
         # Convert array of responses to a map keyed by ID
@@ -344,13 +343,13 @@ defmodule BitcoinsvCli do
         {:error, :missing_bitcoin_url} ->
           {:error, :missing_bitcoin_url}
 
-        {:ok, %HTTPoison.Response{status_code: 429}} ->
+        {:ok, %Finch.Response{status: 429}} ->
           {:error, :rate_limited}
 
-        {:ok, %HTTPoison.Response{status_code: status, body: body}} ->
+        {:ok, %Finch.Response{status: status, body: body}} ->
           {:error, {:http_error, status, body}}
 
-        {:error, %HTTPoison.Error{reason: reason}} ->
+        {:error, {:transport, reason}} ->
           {:error, {:connection_error, reason}}
 
         {:error, %Jason.DecodeError{} = error} ->
@@ -484,17 +483,15 @@ defmodule BitcoinsvCli do
 
       # IO.inspect(command, label: "Bitcoin RPC Command")
 
-      {timeout, recv_timeout} = rpc_timeouts()
+      {_connect, recv_timeout} = rpc_timeouts()
 
       with {:ok, url} <- bitcoin_url(),
            {:ok, body} <- Jason.encode(command),
-           {:ok, %HTTPoison.Response{status_code: status, body: response_body}}
+           {:ok, %Finch.Response{status: status, body: response_body}}
            when status != 429 <-
              post_with_backoff(url, body,
-               timeout: timeout,
-               recv_timeout: recv_timeout,
-               # 500MB max response
-               max_body_length: 500_000_000
+               receive_timeout: recv_timeout,
+               max_body_length: rpc_max_body_bytes()
              ),
            {:ok, %{"error" => nil, "result" => result}} <- Jason.decode(response_body) do
         result
@@ -503,11 +500,11 @@ defmodule BitcoinsvCli do
           Logger.error("Bitcoin RPC Error: BITCOIN_NODE_URL is not configured")
           {:error, :missing_bitcoin_url}
 
-        {:ok, %HTTPoison.Response{status_code: 429}} ->
+        {:ok, %Finch.Response{status: 429}} ->
           Logger.warning("Bitcoin RPC rate limited on #{method} after retries")
           {:error, :rate_limited}
 
-        {:ok, %HTTPoison.Response{status_code: status, body: body}} ->
+        {:ok, %Finch.Response{status: status, body: body}} ->
           Logger.error("Bitcoin RPC HTTP #{status}: #{redact(body)}")
           {:error, {:http_error, status, body}}
 
@@ -536,7 +533,7 @@ defmodule BitcoinsvCli do
         # The node down or restarting: each caller retries or backs off, and
         # Bitblocks.Ops emails "node unreachable" while it lasts, so one call
         # is a warning, not an error.
-        {:error, %HTTPoison.Error{reason: reason}} ->
+        {:error, {:transport, reason}} ->
           Logger.warning("Bitcoin RPC connection error: #{redact(reason)}")
           {:error, {:connection_error, reason}}
 
@@ -559,8 +556,8 @@ defmodule BitcoinsvCli do
     retries = Application.get_env(:bitblocks, :rpc_rate_limit_retries, 5)
     base_ms = Application.get_env(:bitblocks, :rpc_rate_limit_backoff_ms, 2_000)
 
-    case HTTPoison.post(url, body, headers(), opts) do
-      {:ok, %HTTPoison.Response{status_code: 429}} when attempt <= retries ->
+    case http_post(url, body, opts) do
+      {:ok, %Finch.Response{status: 429}} when attempt <= retries ->
         wait = base_ms * Integer.pow(2, attempt - 1)
         Logger.warning("Bitcoin RPC 429 (attempt #{attempt}); backing off #{wait}ms")
         Process.sleep(wait)
@@ -570,6 +567,20 @@ defmodule BitcoinsvCli do
         other
     end
   end
+
+  # The transport's error comes back tagged, so it can't be mistaken for one of
+  # the {:error, _} answers further down the `with` chains that read it.
+  defp http_post(url, body, opts) do
+    case Bitblocks.HTTP.post(url, body, headers(), opts) do
+      {:ok, resp} -> {:ok, resp}
+      {:error, reason} -> {:error, {:transport, reason}}
+    end
+  end
+
+  # A JSON-RPC answer over this many bytes is refused rather than read; nil
+  # reads it whole (config/test.exs, for the cassette suites).
+  defp rpc_max_body_bytes,
+    do: Application.get_env(:bitblocks, :bitcoin_rpc_max_body_bytes, 500_000_000)
 
   defp bitcoin_url do
     case Bitblocks.Config.bitcoin_url() do
@@ -594,19 +605,18 @@ defmodule BitcoinsvCli do
   `{:error, reason}` (`{:http_error, 404}` when REST is off or the block unknown).
   """
   def rest_block(hash, max_bytes) do
-    {timeout, recv_timeout} = rpc_timeouts()
+    {_connect, recv_timeout} = rpc_timeouts()
 
     with {:ok, base} <- rest_base(),
-         {:ok, %HTTPoison.Response{status_code: 200, body: body}} <-
-           HTTPoison.get("#{base}/rest/block/#{hash}.bin", [],
-             timeout: timeout,
-             recv_timeout: recv_timeout,
+         {:ok, %Finch.Response{status: 200, body: body}} <-
+           rest_get("#{base}/rest/block/#{hash}.bin",
+             receive_timeout: recv_timeout,
              max_body_length: max_bytes
            ) do
       {:ok, body}
     else
-      {:ok, %HTTPoison.Response{status_code: status}} -> {:error, {:http_error, status}}
-      {:error, %HTTPoison.Error{reason: reason}} -> {:error, {:connection_error, reason}}
+      {:ok, %Finch.Response{status: status}} -> {:error, {:http_error, status}}
+      {:error, {:transport, reason}} -> {:error, {:connection_error, reason}}
       {:error, reason} -> {:error, reason}
     end
   end
@@ -616,19 +626,25 @@ defmodule BitcoinsvCli do
   `{:error, reason}` (`{:http_error, 404}` when REST is off).
   """
   def rest_chaininfo do
-    {timeout, recv_timeout} = rpc_timeouts()
+    {_connect, recv_timeout} = rpc_timeouts()
 
     with {:ok, base} <- rest_base(),
-         {:ok, %HTTPoison.Response{status_code: 200, body: body}} <-
-           HTTPoison.get("#{base}/rest/chaininfo.json", [],
-             timeout: timeout,
-             recv_timeout: recv_timeout
+         {:ok, %Finch.Response{status: 200, body: body}} <-
+           rest_get("#{base}/rest/chaininfo.json",
+             receive_timeout: recv_timeout
            ) do
       {:ok, body}
     else
-      {:ok, %HTTPoison.Response{status_code: status}} -> {:error, {:http_error, status}}
-      {:error, %HTTPoison.Error{reason: reason}} -> {:error, {:connection_error, reason}}
+      {:ok, %Finch.Response{status: status}} -> {:error, {:http_error, status}}
+      {:error, {:transport, reason}} -> {:error, {:connection_error, reason}}
       {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp rest_get(url, opts) do
+    case Bitblocks.HTTP.get(url, [], opts) do
+      {:ok, resp} -> {:ok, resp}
+      {:error, reason} -> {:error, {:transport, reason}}
     end
   end
 
@@ -645,6 +661,10 @@ defmodule BitcoinsvCli do
     end
   end
 
+  # {connect, per-chunk receive}. Under hackney the first was the connect
+  # timeout; on Finch the connect timeout is the pool's (Bitblocks.HTTP), so it
+  # now only seeds the receive timeout's default. Neither bounds a whole
+  # response: a large block keeps streaming as long as its chunks keep coming.
   defp rpc_timeouts do
     timeout = Application.get_env(:bitblocks, :bitcoin_rpc_timeout_ms, 60_000)
     recv_timeout = Application.get_env(:bitblocks, :bitcoin_rpc_recv_timeout_ms, timeout)

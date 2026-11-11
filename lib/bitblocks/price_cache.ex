@@ -97,17 +97,14 @@ defmodule Bitblocks.PriceCache do
   end
 
   defp fetch_price do
-    case HTTPoison.get(@url, [{"Accept", "application/json"}],
-           timeout: 10_000,
-           recv_timeout: 10_000
-         ) do
-      {:ok, %HTTPoison.Response{status_code: 200, body: body}} ->
+    case Bitblocks.HTTP.get(@url, [{"accept", "application/json"}], receive_timeout: 10_000) do
+      {:ok, %Finch.Response{status: 200, body: body}} ->
         parse(body)
 
-      {:ok, %HTTPoison.Response{status_code: status}} ->
+      {:ok, %Finch.Response{status: status}} ->
         {:error, {:http_status, status}}
 
-      {:error, %HTTPoison.Error{reason: reason}} ->
+      {:error, reason} ->
         {:error, reason}
     end
   end

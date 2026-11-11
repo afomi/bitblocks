@@ -7,9 +7,6 @@ defmodule Bitblocks.Application do
 
   @impl true
   def start(_type, _args) do
-    # Ensure Hackney pool is started for HTTPoison
-    :hackney_pool.start_pool(:default, timeout: 150_000, max_connections: 100)
-
     # Initialize IP blocker and request tracking ETS tables
     BitblocksWeb.Plugs.IpBlocker.start_link()
     BitblocksWeb.Plugs.RequestLogger.start_link()
@@ -22,6 +19,9 @@ defmodule Bitblocks.Application do
 
     children = [
       BitblocksWeb.Telemetry,
+      # Every outbound HTTP call (node RPC, WhatsOnChain, S3, mail): Bitblocks.HTTP.
+      # First, so the cluster strategy and the caches below can reach out at start.
+      Bitblocks.HTTP.finch_child_spec(),
       {TelemetryMetricsPrometheus.Core,
        name: Bitblocks.TelemetryPrometheus, metrics: BitblocksWeb.Telemetry.prometheus_metrics()},
       Bitblocks.Repo,
@@ -56,8 +56,6 @@ defmodule Bitblocks.Application do
       Bitblocks.ChainTiles.Cache,
       # One shared live sync snapshot for /syncing: computed once, broadcast to every viewer
       Bitblocks.SyncProgress,
-      # Start the Finch HTTP client for sending emails
-      {Finch, name: Bitblocks.Finch},
       # Start Oban for background job processing
       # (a read-only node runs no queues: Bitblocks.NodeRole)
       {Oban, Bitblocks.NodeRole.oban_config(Application.fetch_env!(:bitblocks, Oban))},

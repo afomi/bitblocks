@@ -149,7 +149,8 @@ Instead of loading entire response into memory:
 
 ```elixir
 # Use a streaming JSON parser
-{:ok, stream} = HTTPoison.get(url, headers(), stream_to: self())
+# (Finch.stream/5 hands the body over chunk by chunk, as Bitblocks.HTTP does for :max_body_length)
+{:ok, stream} = stream_body(url, headers())
 
 # Process JSON as it arrives
 Jaxon.Stream.from_enumerable(stream)

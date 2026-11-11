@@ -12,7 +12,7 @@
         "recv_timeout": 60000,
         "connect_timeout": 60000
       },
-      "url": "http://testnode:18332"
+      "url": "http://testnode:18332/"
     },
     "response": {
       "binary": false,

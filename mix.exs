@@ -25,7 +25,7 @@ defmodule Bitblocks.MixProject do
   def application do
     [
       mod: {Bitblocks.Application, []},
-      extra_applications: [:logger, :runtime_tools, :hackney]
+      extra_applications: [:logger, :runtime_tools]
     ]
   end
 
@@ -39,7 +39,6 @@ defmodule Bitblocks.MixProject do
   defp deps do
     [
       {:bsv, "~> 2.1.0"},
-      {:httpoison, "~> 2.3.0"},
       {:phoenix, "~> 1.8.1"},
       {:phoenix_ecto, "~> 4.4"},
       {:ecto_sql, "~> 3.10"},
@@ -52,6 +51,10 @@ defmodule Bitblocks.MixProject do
       {:a11y_audit, "~> 0.3.1", only: :test},
       {:wallaby, "~> 0.30", only: :test},
       {:exvcr, "~> 0.15", only: :test},
+      # Wallaby still needs HTTPoison; 3.x runs on hackney 4, clear of the
+      # hackney 1.x advisories (#65). ExVCR's optional httpoison ~> 2.0 would
+      # pin it back, and our cassette suites replay through Finch instead.
+      {:httpoison, "~> 3.0", only: :test, override: true},
       {:phoenix_live_dashboard, "~> 0.8.3"},
       {:esbuild, "~> 0.8", runtime: Mix.env() == :dev},
       {:tailwind, "~> 0.2", runtime: Mix.env() == :dev},
@@ -80,10 +83,9 @@ defmodule Bitblocks.MixProject do
       # Oban for background job processing
       {:oban, "~> 2.18"},
       # AWS S3 support
-      {:ex_aws, "~> 2.5"},
+      {:ex_aws, "~> 2.7"},
       {:ex_aws_s3, "~> 2.5"},
       {:sweet_xml, "~> 0.7"},
-      {:hackney, "~> 1.25.0"},
       {:cors_plug, "~> 3.0"},
       {:ueberauth, "~> 0.10"},
       {:ueberauth_github, "~> 0.8"}

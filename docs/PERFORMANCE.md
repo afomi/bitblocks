@@ -66,15 +66,21 @@ config :bitblocks,
   max_transactions_per_block: 1000        # Limit per block when fetching tx details
 ```
 
-### Hackney HTTP Connection Pool
+### HTTP Connection Pool
+
+Every outbound call goes through `Bitblocks.HTTP` on Finch (#65), which replaced HTTPoison and hackney.
 
 ```elixir
-# lib/bitblocks/application.ex
-:hackney_pool.start_pool(:default,
-  timeout: 150_000,        # 150 second timeout
-  max_connections: 100     # Support up to 100 parallel connections
-)
+# lib/bitblocks/http.ex, started first in lib/bitblocks/application.ex
+{Finch,
+ name: Bitblocks.Finch,
+ pools: %{
+   default: [size: 100, conn_opts: [transport_opts: [timeout: 10_000]]]
+ }}
 ```
+
+Up to 100 connections per host, with a 10 s connect timeout.
+The per-chunk receive timeout is the caller's (`:bitcoin_rpc_recv_timeout_ms` for the node).
 
 ## Performance Metrics
 
@@ -99,7 +105,7 @@ config :bitblocks,
 
 2. **Increase concurrency if you have bandwidth** — raise the Oban `transactions` queue concurrency (`config/prod.exs`) and/or `transaction_fetcher_concurrency` (`config/config.exs`).
 
-3. **Monitor connection pool usage** — if you see connection errors, increase `max_connections` in `application.ex`.
+3. **Monitor connection pool usage** — if you see `:checkout_timeout` connection errors, increase the pool `size` in `lib/bitblocks/http.ex`.
 
 ### Timeout Errors
 
@@ -110,7 +116,7 @@ config :bitblocks,
      -d '{"jsonrpc":"1.0","method":"getblockchaininfo","params":[]}'
    ```
 
-2. **Increase the hackney `timeout`** in `application.ex` if the node is legitimately slow on large blocks.
+2. **Increase `:bitcoin_rpc_recv_timeout_ms`** (the wait for each chunk of a response) if the node is legitimately slow on large blocks.
 
 ### Large Blocks Causing Issues
 

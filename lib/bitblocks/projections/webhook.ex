@@ -87,13 +87,14 @@ defmodule Bitblocks.Projections.Webhook do
   @spec post(String.t(), String.t(), [{String.t(), String.t()}]) ::
           {:ok, integer()} | {:error, term()}
   def post(url, body, headers) do
-    case HTTPoison.post(url, body, headers,
-           timeout: 5_000,
-           recv_timeout: 10_000,
-           follow_redirect: false
+    # Bitblocks.HTTP never follows a redirect; the request bound keeps a slow
+    # receiver from holding a delivery much past the old 5 s connect + 10 s read.
+    case Bitblocks.HTTP.post(url, body, headers,
+           receive_timeout: 10_000,
+           request_timeout: 15_000
          ) do
-      {:ok, %HTTPoison.Response{status_code: status}} -> {:ok, status}
-      {:error, %HTTPoison.Error{reason: reason}} -> {:error, reason}
+      {:ok, %Finch.Response{status: status}} -> {:ok, status}
+      {:error, reason} -> {:error, reason}
     end
   end
 end

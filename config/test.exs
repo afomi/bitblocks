@@ -67,6 +67,11 @@ config :bitblocks, fork_tracker_poll_interval: nil
 # unreachable node — so tests that don't stub keep their current behavior.
 config :bitblocks, :bitcoinsv_cli, BitcoinsvCliMock
 
+# The ExVCR cassette suites replay Finch.request/3, which a streamed (size
+# capped) read bypasses, so the RPC reads its body whole in test. The cap
+# itself is covered in test/bitblocks/http_test.exs.
+config :bitblocks, :bitcoin_rpc_max_body_bytes, nil
+
 # Disable Oban queues in test (but keep the supervisor running)
 config :bitblocks, Oban, testing: :manual, queues: false
 

@@ -1,6 +1,6 @@
 defmodule Bitblocks.ForkTrackerTest do
   use ExUnit.Case, async: false
-  use ExVCR.Mock, adapter: ExVCR.Adapter.Hackney
+  use ExVCR.Mock, adapter: ExVCR.Adapter.Finch
 
   import Bitblocks.DataCase, only: [setup_bitcoin_rpc: 0]
 
