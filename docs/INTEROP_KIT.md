@@ -210,6 +210,19 @@ That is the strongest thing this check can say, and it still covers inclusion al
 `failed` means the evidence doesn't hold against these headers.
 That usually means it's wrong, and after a reorg a good payment's old path reads `failed` until the path is replaced.
 
+## In the standards register
+
+The Civic Studio standards register records what this kit follows, under Chain (BSV): `civic-studio-org/standards/REGISTER.md#chain-bsv`, the last four rows of its table (decided 2026-11-06, each row checked against its source on 2026-11-10).
+
+| Thing | Register status |
+|---|---|
+| Payment evidence statement (BRC-237) | adopted, in part: we read statements and make distance-only ones with no section 2.3 checks; BRC-77 signing of a statement is not built yet |
+| Payment acceptance record (`interop-kit/payment-acceptance/v0`) | proposed |
+| Network ids (CAIP-2 `bsv:mainnet`, `bsv:testnet`) | adopted |
+| Agent payment protocols (x402, AP2) | considered, not declined |
+
+The register lives in the civic-studio-org repository, which isn't public yet, so the anchor is a path rather than a link.
+
 ## Known gaps
 
 - Scripts, signatures, amounts and double spends aren't checked here, so an anchored transaction may still be invalid.
