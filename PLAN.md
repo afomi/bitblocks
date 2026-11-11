@@ -81,6 +81,7 @@ Phase 2 is built (2026-11-04): stable template hashes (script analysis v7), `Bit
 P2PK and P2SH are types (classifier v2), so early coinbases no longer read `custom`.
 STAS tokens are `stas` (classifier v3, #78), and transactions#show lists each STAS output's token id, owner and amount.
 HodLocker posts and likes are `hodlocker` (classifier v4, #75), and transactions#show says what each time lock backs, its sats, owner and unlock height.
+A post's page also lists who backs it from `timelocks` (the 50 largest locks, each with owner, sats, unlock height and its tx), and says how far the time lock index reaches (`Timelocks.indexed_through/1`: applied timelocks backfill runs from block 0, capped at complete_through), as does `meta.indexed_through_height` on the API.
 A tx whose nLockTime binds and sits more than 2,016 blocks below its block is `nlocktime` (classifier v5, #76); transactions#show shows every binding lock time, until which block or time, whether our tip has reached it, and labels the anti-fee-sniping ones.
 Script time locks (1Sat Lock, CLTV, CSV) are rows in `timelocks` (#76), with whether each binds and whether only on one branch, and `GET /api/v1/hodlocker/posts/:txid` sums what they back a post with.
 Needs on prod, with Ryan's OK: `Release.backfill_timelocks` (inserts only) and the v5 tx_types backfill, which should change few rows (1 in 6,051 sampled txs from 2016 to 2018).

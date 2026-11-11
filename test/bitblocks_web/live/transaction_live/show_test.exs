@@ -103,6 +103,66 @@ defmodule BitblocksWeb.TransactionLive.ShowTest do
       assert totals =~ "1 of the transactions behind them are likes"
     end
 
+    test "a post names who backs it, with each lock's sats and unlock height (#75)", %{
+      conn: conn
+    } do
+      post = "f76b5b61f8c2d643d10aad4dd7256090c986799293447080041a23145d253ed9"
+      like = "7f496c643364501f7b1c3f1593fd827b6e2af7207b3ead3ec04bb5666c16a88b"
+
+      for txid <- [post, like] do
+        tx = insert_tx(Map.fetch!(@hodlocker_txs, txid), txid)
+        Bitblocks.Timelocks.index(tx, Bitblocks.Chain.get_block(tx.block_hash))
+      end
+
+      {:ok, view, _html} = live(conn, ~p"/transactions/#{post}")
+
+      backer = view |> element("#hodlocker-backer-#{like}-0") |> render()
+      assert backer =~ "13PnV1oUFYAeMUzzvoKFWX9FpjnMxyUpM9"
+      assert backer =~ "2,100,000,000"
+      assert backer =~ "858,404"
+      assert has_element?(view, ~s(#hodlocker-backer-#{like}-0 a[href="/transactions/#{like}"]))
+
+      # The post's own lock is listed as the post.
+      assert view |> element("#hodlocker-backer-#{post}-0") |> render() =~ "This post"
+    end
+
+    test "a post says how far the time lock index reaches (#75)", %{conn: conn} do
+      alias Bitblocks.SyncProgress
+
+      post = "f76b5b61f8c2d643d10aad4dd7256090c986799293447080041a23145d253ed9"
+      insert_tx(Map.fetch!(@hodlocker_txs, post), post)
+
+      {:ok, view, _html} = live(conn, ~p"/transactions/#{post}")
+
+      assert view |> element("#tx-hodlocker-coverage") |> render() =~
+               "does not yet cover the chain from its first block"
+
+      Bitblocks.Repo.insert!(%Bitblocks.Derivations.Run{
+        derivation: "timelocks",
+        version: Bitblocks.Timelocks.version(),
+        from_height: 0,
+        to_height: 900_000,
+        applied: true,
+        outcome: "ok",
+        started_at: DateTime.utc_now()
+      })
+
+      snapshot = SyncProgress.empty_snapshot()
+
+      :ets.insert(
+        SyncProgress,
+        {:snapshot, put_in(snapshot.overview.complete_through, 840_000)}
+      )
+
+      on_exit(fn -> :ets.insert(SyncProgress, {:snapshot, SyncProgress.empty_snapshot()}) end)
+
+      {:ok, view, _html} = live(conn, ~p"/transactions/#{post}")
+
+      coverage = view |> element("#tx-hodlocker-coverage") |> render()
+      assert coverage =~ "Every block through"
+      assert coverage =~ "840,000"
+    end
+
     test "a post with no indexed lock says so", %{conn: conn} do
       post = "f76b5b61f8c2d643d10aad4dd7256090c986799293447080041a23145d253ed9"
       insert_tx(Map.fetch!(@hodlocker_txs, post), post)
