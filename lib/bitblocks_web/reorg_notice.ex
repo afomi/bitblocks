@@ -42,11 +42,16 @@ defmodule BitblocksWeb.ReorgNotice do
   end
 
   attr(:notice, :any, default: nil)
+  attr(:admin, :boolean, default: false)
 
+  @doc """
+  The banner, for admins only: a reorg here is our index disagreeing with
+  the node we follow, which is operator news, not a fact about the network.
+  """
   def banner(assigns) do
     ~H"""
     <div
-      :if={@notice}
+      :if={@notice && @admin}
       id="reorg-notice"
       role="status"
       class={[
@@ -76,7 +81,7 @@ defmodule BitblocksWeb.ReorgNotice do
           href="/reorgs"
           class="underline font-semibold"
         >
-          Read the reorg timeline.
+          What a reorganization is.
         </a>
       </p>
     </div>

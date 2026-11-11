@@ -149,7 +149,10 @@
     </script>
   </head>
   <body class="bg-white dark:bg-gray-900 antialiased">
-    <BitblocksWeb.ReorgNotice.banner notice={assigns[:reorg_notice]} />
+    <BitblocksWeb.ReorgNotice.banner
+      notice={assigns[:reorg_notice]}
+      admin={assigns[:admin?] == true}
+    />
     <BitblocksWeb.IndexNotice.banner notice={assigns[:index_notice]} />
     <BitblocksWeb.NavComponent.nav
       current_user={assigns[:current_user]}

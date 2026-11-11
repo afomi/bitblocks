@@ -253,7 +253,7 @@ defmodule Bitblocks.Workers.SyncHeadersWorker do
     end
   end
 
-  # Phase 1 of #34: an annotation and a site notice. Transaction rows are
+  # Phase 1 of #34: an annotation and a notice for admins. Transaction rows are
   # reconciled afterwards by ReconcileOrphanWorker. Returns :first_report for
   # a new row, :repeat for the same fork seen again, so a repeat sends no
   # email. A row that couldn't be written still counts as a first report.

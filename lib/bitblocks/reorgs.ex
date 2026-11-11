@@ -3,7 +3,7 @@ defmodule Bitblocks.Reorgs do
   Records of chain reorganizations.
 
   Phase 1 of #34: write an annotation when tip sync sees a fork, and surface
-  the recent one as a site notice. Transaction rows and their spend edges are
+  the recent one as a notice for admins. Transaction rows and their spend edges are
   reconciled after the fact (`Bitblocks.Reorgs.Reconcile`), and token, listing
   and collection rows go with them, each by its own protocol's rules
   (`Bitblocks.Reorgs.ProtocolRewind`).

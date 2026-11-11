@@ -52,4 +52,49 @@ defmodule BitblocksWeb.ReorgLiveTest do
     assert html =~ "A chain reorganization needs a person."
     assert html =~ ~s(href="/reorgs")
   end
+
+  describe "with the gate on, as in production" do
+    setup do
+      previous = Application.get_env(:bitblocks, :admin_auth)
+      Application.put_env(:bitblocks, :admin_auth, enabled: true)
+      on_exit(fn -> Application.put_env(:bitblocks, :admin_auth, previous) end)
+
+      {:ok, _} =
+        Reorgs.record_observed(
+          %{fork_height: 800_020, fork_point: nil, orphan_count: nil, outcome: "needs_attention"},
+          DateTime.utc_now() |> DateTime.truncate(:second)
+        )
+
+      :ok
+    end
+
+    test "a visitor never sees the banner: it is our index, not the network", %{conn: conn} do
+      html = conn |> get("/reorgs") |> html_response(200)
+
+      refute html =~ "id=\"reorg-notice\""
+      refute html =~ "800020"
+    end
+
+    test "an admin sees it, linked to what a reorganization is", %{conn: conn} do
+      {:ok, user} =
+        Bitblocks.Accounts.upsert_github_user(%Ueberauth.Auth{
+          provider: :github,
+          uid: 4242,
+          info: %Ueberauth.Auth.Info{nickname: "op", name: "op"},
+          extra: %Ueberauth.Auth.Extra{raw_info: %{user: %{"id" => 4242, "login" => "op"}}}
+        })
+
+      {:ok, _} = Bitblocks.Accounts.set_admin("op", true)
+
+      html =
+        conn
+        |> init_test_session(%{"user_id" => user.id})
+        |> get("/reorgs")
+        |> html_response(200)
+
+      assert html =~ "id=\"reorg-notice\""
+      assert html =~ "800020"
+      assert html =~ "What a reorganization is."
+    end
+  end
 end
