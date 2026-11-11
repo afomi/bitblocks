@@ -71,7 +71,7 @@ defmodule Mix.Tasks.TxTypes.Propose do
   defp start_repo do
     Mix.Task.run("app.config")
     {:ok, _} = Application.ensure_all_started(:ecto_sql)
-    {:ok, _} = Application.ensure_all_started(:httpoison)
+    :ok = Bitblocks.HTTP.ensure_started()
     {:ok, _} = Bitblocks.Repo.start_link(pool_size: 2)
   end
 

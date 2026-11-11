@@ -307,5 +307,7 @@ if config_env() == :prod do
     adapter: Swoosh.Adapters.AmazonSES,
     region: System.get_env("SES_REGION", "us-east-1")
 
-  config :swoosh, :api_client, Swoosh.ApiClient.Hackney
+  # Mail goes through the app's shared Finch pool; hackney isn't shipped (#65).
+  config :swoosh, :api_client, Swoosh.ApiClient.Finch
+  config :swoosh, :finch_name, Bitblocks.Finch
 end

@@ -5,7 +5,7 @@ defmodule Bitblocks.Release do
 
   These functions are designed to be called via `rpc` which runs them
   in the context of the already-running application, ensuring all
-  dependencies (like Hackney) are properly initialized.
+  dependencies (like the Finch HTTP pool) are properly initialized.
   """
   require Logger
 
@@ -71,7 +71,7 @@ defmodule Bitblocks.Release do
       fun.()
     else
       load_app()
-      {:ok, _} = Application.ensure_all_started(:httpoison)
+      :ok = Bitblocks.HTTP.ensure_started()
 
       {:ok, result, _} =
         Ecto.Migrator.with_repo(Bitblocks.Repo, fn _ -> fun.() end, pool_size: 2)

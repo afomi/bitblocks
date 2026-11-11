@@ -29,7 +29,7 @@ defmodule Mix.Tasks.Data.Export.Range do
 
   @impl Mix.Task
   def run(args) do
-    Application.ensure_all_started(:httpoison)
+    :ok = Bitblocks.HTTP.ensure_started()
 
     {opts, _, _} = OptionParser.parse(args, strict: @switches)
 

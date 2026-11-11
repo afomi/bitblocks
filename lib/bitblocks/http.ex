@@ -44,6 +44,27 @@ defmodule Bitblocks.HTTP do
      }}
   end
 
+  @doc """
+  Starts the Finch pool outside the application's supervisor, for
+  `bin/bitblocks eval` and mix tasks, where the app isn't running. A no-op
+  when the pool is already up.
+  """
+  @spec ensure_started() :: :ok
+  def ensure_started do
+    {:ok, _} = Application.ensure_all_started(:finch)
+
+    if Process.whereis(@finch) do
+      :ok
+    else
+      {Finch, opts} = finch_child_spec()
+
+      case Finch.start_link(opts) do
+        {:ok, _} -> :ok
+        {:error, {:already_started, _}} -> :ok
+      end
+    end
+  end
+
   @doc "A GET. See the module doc for options and return shapes."
   @spec get(String.t(), headers(), keyword()) :: {:ok, Finch.Response.t()} | {:error, term()}
   def get(url, headers \\ [], opts \\ []), do: request(:get, url, headers, nil, opts)
