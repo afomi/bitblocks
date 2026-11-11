@@ -22,8 +22,8 @@ defmodule Bitblocks.Ordinals.Gorillapool do
     url =
       "#{@base}/inscriptions/search?q=#{URI.encode_www_form(query)}&limit=#{@page}&offset=#{offset}"
 
-    with {:ok, %HTTPoison.Response{status_code: 200, body: body}} <-
-           HTTPoison.get(url, [], recv_timeout: 60_000),
+    with {:ok, %Finch.Response{status: 200, body: body}} <-
+           Bitblocks.HTTP.get(url, [], receive_timeout: 60_000),
          {:ok, rows} when is_list(rows) <- Jason.decode(body) do
       acc =
         for %{"origin" => %{"outpoint" => origin}} <- rows, into: acc do
@@ -34,7 +34,7 @@ defmodule Bitblocks.Ordinals.Gorillapool do
         do: {:ok, MapSet.to_list(acc)},
         else: fetch(query, offset + @page, acc)
     else
-      {:ok, %HTTPoison.Response{status_code: status}} -> {:error, {:http_status, status}}
+      {:ok, %Finch.Response{status: status}} -> {:error, {:http_status, status}}
       {:error, reason} -> {:error, reason}
       other -> {:error, {:unexpected, other}}
     end

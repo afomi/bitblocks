@@ -190,13 +190,8 @@ config :bitblocks,
 
 ### HTTP Connection Pool
 
-```elixir
-# lib/bitblocks/application.ex
-:hackney_pool.start_pool(:default, [
-  timeout: 150_000,
-  max_connections: 100
-])
-```
+Finch, through `Bitblocks.HTTP` (`lib/bitblocks/http.ex`): up to 100 connections per host, a 10 s connect timeout.
+HTTPoison and hackney are gone from the app (#65).
 
 ## Performance Targets
 

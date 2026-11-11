@@ -45,7 +45,7 @@ defmodule Bitblocks.DataCase do
   @doc """
   Sets a fake Bitcoin node URL for the duration of a test so that
   `BitcoinsvCli` passes its URL check and ExVCR cassettes can intercept
-  the resulting HTTPoison request.
+  the resulting Finch request (`Bitblocks.HTTP`).
   Call this in a `setup` block for any test that uses ExVCR cassettes
   against the Bitcoin RPC.
   """

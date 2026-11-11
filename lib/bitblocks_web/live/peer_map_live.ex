@@ -156,28 +156,26 @@ defmodule BitblocksWeb.PeerMapLive do
   defp geolocate_chunk(ips) do
     body = Jason.encode!(ips)
 
-    case HTTPoison.post(
+    case Bitblocks.HTTP.post(
            "http://ip-api.com/batch?fields=query,status,country,city,lat,lon,isp",
            body,
-           [{"Content-Type", "application/json"}],
-           timeout: 10_000,
-           recv_timeout: 10_000
+           [{"content-type", "application/json"}],
+           receive_timeout: 10_000
          ) do
-      {:ok, %HTTPoison.Response{status_code: 200, body: response_body}} ->
+      {:ok, %Finch.Response{status: 200, body: response_body}} ->
         Jason.decode(response_body)
 
-      {:ok, %HTTPoison.Response{status_code: 429}} ->
+      {:ok, %Finch.Response{status: 429}} ->
         # Rate limited — wait and retry once
         Process.sleep(1_000)
 
-        case HTTPoison.post(
+        case Bitblocks.HTTP.post(
                "http://ip-api.com/batch?fields=query,status,country,city,lat,lon,isp",
                body,
-               [{"Content-Type", "application/json"}],
-               timeout: 10_000,
-               recv_timeout: 10_000
+               [{"content-type", "application/json"}],
+               receive_timeout: 10_000
              ) do
-          {:ok, %HTTPoison.Response{status_code: 200, body: response_body}} ->
+          {:ok, %Finch.Response{status: 200, body: response_body}} ->
             Jason.decode(response_body)
 
           _ ->

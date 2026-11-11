@@ -10,7 +10,7 @@
       ],
       "method": "post",
       "options": [],
-      "url": "http://testnode:18332",
+      "url": "http://testnode:18332/",
       "request_body": "{\"jsonrpc\":\"1.0\",\"method\":\"getblockheader\",\"params\":[\"fork_120\",1]}"
     },
     "response": {
@@ -36,7 +36,7 @@
       ],
       "method": "post",
       "options": [],
-      "url": "http://testnode:18332",
+      "url": "http://testnode:18332/",
       "request_body": "{\"jsonrpc\":\"1.0\",\"method\":\"getblockheader\",\"params\":[\"fork_119\",1]}"
     },
     "response": {
@@ -62,7 +62,7 @@
       ],
       "method": "post",
       "options": [],
-      "url": "http://testnode:18332",
+      "url": "http://testnode:18332/",
       "request_body": "{\"jsonrpc\":\"1.0\",\"method\":\"getblockheader\",\"params\":[\"common_118\",1]}"
     },
     "response": {
@@ -88,7 +88,7 @@
       ],
       "method": "post",
       "options": [],
-      "url": "http://testnode:18332",
+      "url": "http://testnode:18332/",
       "request_body": "{\"jsonrpc\":\"1.0\",\"method\":\"getblockheader\",\"params\":[\"common_117\",1]}"
     },
     "response": {

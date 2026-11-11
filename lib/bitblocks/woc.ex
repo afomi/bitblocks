@@ -162,18 +162,18 @@ defmodule Bitblocks.Woc do
     defp request(method, path, body, attempt \\ 1) do
       Process.sleep(interval_ms())
       headers = [{"content-type", "application/json"}, {"accept", "application/json"}] ++ auth()
-      opts = [timeout: 10_000, recv_timeout: 60_000]
+      opts = [receive_timeout: 60_000]
 
-      case HTTPoison.request(method, @base <> path, body, headers, opts) do
-        {:ok, %HTTPoison.Response{status_code: 429}} when attempt < 5 ->
+      case Bitblocks.HTTP.request(method, @base <> path, headers, body, opts) do
+        {:ok, %Finch.Response{status: 429}} when attempt < 5 ->
           Logger.warning("WoC 429 on #{path}; backing off (attempt #{attempt})")
           Process.sleep(2_000 * attempt)
           request(method, path, body, attempt + 1)
 
-        {:ok, %HTTPoison.Response{status_code: status, body: resp}} ->
+        {:ok, %Finch.Response{status: status, body: resp}} ->
           {:ok, status, decode(resp)}
 
-        {:error, %HTTPoison.Error{reason: reason}} ->
+        {:error, reason} ->
           {:error, reason}
       end
     end

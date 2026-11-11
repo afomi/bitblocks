@@ -1,6 +1,6 @@
 defmodule BitblocksWeb.ForkGraphLiveTest do
   use BitblocksWeb.ConnCase
-  use ExVCR.Mock, adapter: ExVCR.Adapter.Hackney
+  use ExVCR.Mock, adapter: ExVCR.Adapter.Finch
 
   import Phoenix.LiveViewTest
 

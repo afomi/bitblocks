@@ -25,7 +25,7 @@ defmodule Bitblocks.MixProject do
   def application do
     [
       mod: {Bitblocks.Application, []},
-      extra_applications: [:logger, :runtime_tools, :hackney]
+      extra_applications: [:logger, :runtime_tools]
     ]
   end
 
