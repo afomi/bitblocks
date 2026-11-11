@@ -105,6 +105,7 @@ ElectrumSV works well here: it imports BIP39 mnemonics with a custom derivation 
   Each scanned block is a `support_block_scans` row with its hash then, so a reorged block is read again.
   A block that can't be read (REST off for a streamed block, a failed check, a tx over `:block_stream_max_tx_bytes`, 256 MB) stops the scan there, with the reason in the log, and is tried again next run; it is never skipped.
   No third-party address history is used.
+  A block being read, or one whose read failed, has a row too (`status` reading or failed, with the error and how many tries), which never counts; `received_note` names it, so a stopped scan always says why.
   `received_through_height` is the block the totals are complete through, `received_pending_from_height` the first block not counted yet, and `received_note` says so in a sentence; `received_sources` names `index` and `scan` with their heights.
   `received_sats_30d` is nil, with `received_30d_reason`, while our data doesn't reach the last 30 days, so a 0 is never mistaken for a checked answer.
 

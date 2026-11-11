@@ -113,28 +113,82 @@ defmodule Bitblocks.Support.Scan do
   """
   @spec read_block(String.t(), Block.t()) :: {:ok, non_neg_integer()} | {:error, term()}
   def read_block(address, %Block{} = block) do
-    with {:ok, pkh} <- pubkey_hash(address),
-         {:ok, gifts} <- gifts_in(block, address, pkh) do
-      sats = Enum.sum_by(gifts, &elem(&1, 1))
+    mark(address, block, :reading)
 
-      # Only now, with the block's bytes checked against its header, does
-      # anything the read saw count.
-      Repo.insert!(
-        %BlockScan{
-          height: block.height,
-          block_hash: block.hash,
-          address: address,
-          gift_sats: sats,
-          gift_txids: Enum.map(gifts, &elem(&1, 0)),
-          scanned_at: DateTime.utc_now() |> DateTime.truncate(:second)
-        },
-        on_conflict: {:replace, [:block_hash, :gift_sats, :gift_txids, :scanned_at]},
-        conflict_target: [:address, :height]
-      )
+    result =
+      with {:ok, pkh} <- pubkey_hash(address),
+           {:ok, gifts} <- gifts_in(block, address, pkh) do
+        {:ok, gifts}
+      end
 
-      {:ok, sats}
+    case result do
+      {:ok, gifts} ->
+        sats = Enum.sum_by(gifts, &elem(&1, 1))
+
+        # Only now, with the block's bytes checked against its header, does
+        # anything the read saw count.
+        Repo.insert!(
+          %BlockScan{
+            height: block.height,
+            block_hash: block.hash,
+            address: address,
+            gift_sats: sats,
+            gift_txids: Enum.map(gifts, &elem(&1, 0)),
+            status: "read",
+            error: nil,
+            attempts: 0,
+            scanned_at: now()
+          },
+          on_conflict:
+            {:replace,
+             [:block_hash, :gift_sats, :gift_txids, :status, :error, :attempts, :scanned_at]},
+          conflict_target: [:address, :height]
+        )
+
+        {:ok, sats}
+
+      {:error, reason} ->
+        mark(address, block, {:failed, reason})
+        {:error, reason}
     end
   end
+
+  # A row for a block not (yet) read: being read now, or failed, with the
+  # reason. It never counts: coverage and gifts read `status: "read"` only.
+  defp mark(address, block, state) do
+    {status, error} =
+      case state do
+        :reading -> {"reading", nil}
+        {:failed, reason} -> {"failed", inspect(reason)}
+      end
+
+    base = %BlockScan{
+      height: block.height,
+      block_hash: block.hash,
+      address: address,
+      status: status,
+      error: error,
+      attempts: if(status == "failed", do: 1, else: 0),
+      started_at: if(status == "reading", do: now()),
+      scanned_at: now()
+    }
+
+    update =
+      case status do
+        "reading" ->
+          [set: [status: "reading", block_hash: block.hash, started_at: now(), scanned_at: now()]]
+
+        "failed" ->
+          [
+            set: [status: "failed", error: error, block_hash: block.hash, scanned_at: now()],
+            inc: [attempts: 1]
+          ]
+      end
+
+    Repo.insert!(base, on_conflict: update, conflict_target: [:address, :height])
+  end
+
+  defp now, do: DateTime.utc_now() |> DateTime.truncate(:second)
 
   # `[{txid, sats}]` in block order. A block within the raw cap is fetched
   # whole; a larger one streams through a bounded parser (#66), whose txs are
@@ -221,7 +275,7 @@ defmodule Bitblocks.Support.Scan do
       from(s in BlockScan,
         join: b in Block,
         on: b.height == s.height and b.hash == s.block_hash,
-        where: s.address == ^address and s.height >= ^from,
+        where: s.address == ^address and s.height >= ^from and s.status == "read",
         order_by: [asc: s.height],
         select: s.height
       )
@@ -243,7 +297,7 @@ defmodule Bitblocks.Support.Scan do
     from(s in BlockScan,
       join: b in Block,
       on: b.height == s.height and b.hash == s.block_hash,
-      where: s.address == ^address and s.height >= ^lo and s.height <= ^hi,
+      where: s.address == ^address and s.height >= ^lo and s.height <= ^hi and s.status == "read",
       select: fragment("coalesce(sum(?), 0)::bigint", s.gift_sats)
     )
     |> Repo.one()
@@ -253,17 +307,35 @@ defmodule Bitblocks.Support.Scan do
   Why the scan stops after `through`, in a sentence, or nil when it is at
   our tip.
   """
-  @spec stop_reason(integer()) :: String.t() | nil
-  def stop_reason(through) do
+  @spec stop_reason(integer(), String.t() | nil) :: String.t() | nil
+  def stop_reason(through, address \\ address()) do
     case Repo.get_by(Block, height: through + 1) do
       nil ->
         nil
 
       block ->
-        if RawBlock.eligible?(block),
-          do: "Block #{block.height} is next to read.",
-          else: "Block #{block.height} is next to read, streamed from our node for its size."
+        scan = address && Repo.get_by(BlockScan, address: address, height: block.height)
+        describe(block, scan)
     end
+  end
+
+  defp describe(block, %BlockScan{status: "failed", block_hash: hash} = scan)
+       when hash == block.hash do
+    "Block #{block.height} couldn't be read yet (#{scan.error}; " <>
+      "#{scan.attempts} #{if scan.attempts == 1, do: "try", else: "tries"}, last at " <>
+      "#{Calendar.strftime(scan.scanned_at, "%H:%M UTC")}); it is tried again every two minutes."
+  end
+
+  defp describe(block, %BlockScan{status: "reading", block_hash: hash} = scan)
+       when hash == block.hash do
+    "Block #{block.height} is being read now, streamed from our node, " <>
+      "since #{Calendar.strftime(scan.started_at || scan.scanned_at, "%H:%M UTC")}."
+  end
+
+  defp describe(block, _scan) do
+    if RawBlock.eligible?(block),
+      do: "Block #{block.height} is next to read.",
+      else: "Block #{block.height} is next to read, streamed from our node for its size."
   end
 
   defp config, do: Application.get_env(:bitblocks, :support, [])

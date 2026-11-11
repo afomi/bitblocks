@@ -116,29 +116,54 @@ defmodule Bitblocks.Support.ScanTest do
     assert Support.summary().received_sats_total == 70_000
   end
 
-  test "a streamed block that fails a check stops the scan with nothing recorded" do
+  test "a streamed block that fails a check counts nothing, and the figures say why" do
     genesis_header(%{size: 64 * 1024 * 1024})
     bytes = Base.decode16!(@genesis_hex, case: :lower)
     RpcStub.stub_rest_block(@genesis_hash, {:ok, binary_part(bytes, 0, byte_size(bytes) - 1)})
 
     assert {:ok, %{read: 0, stopped: {0, {:truncated, 284}}}} = Scan.run()
-    assert Repo.all(BlockScan) == []
+    assert [%BlockScan{status: "failed", attempts: 1, gift_sats: 0}] = Repo.all(BlockScan)
+    assert %{through: -1} = Scan.coverage(@address, -1)
 
     # REST off: no fallback for a block this size.
     RpcStub.stub_rest_block(@genesis_hash, {:error, {:http_error, 404}})
     assert {:ok, %{read: 0, stopped: {0, {:http_error, 404}}}} = Scan.run()
     assert RpcStub.calls(:getblock) == []
 
+    summary = Support.summary()
+    assert summary.received_sats_total == 0
+    assert summary.received_note =~ "Block 0 couldn't be read yet ({:http_error, 404}; 2 tries"
+
     RpcStub.stub_rest_block(@genesis_hash, {:ok, bytes})
     assert {:ok, %{read: 1, gift_sats: 5_000_000_000}} = Scan.run()
+    assert [%BlockScan{status: "read", error: nil, attempts: 0}] = Repo.all(BlockScan)
   end
 
-  test "a block that fails to fetch stops the scan with nothing recorded" do
+  test "a block that fails to fetch counts nothing, and its reason is kept" do
     genesis_header(%{hash: "elsewhere"})
     RpcStub.stub_rest_block("elsewhere", {:ok, Base.decode16!(@genesis_hex, case: :lower)})
 
     assert {:ok, %{read: 0, stopped: {0, :block_hash_mismatch}}} = Scan.run()
-    assert Repo.all(BlockScan) == []
+    assert [%BlockScan{status: "failed", error: ":block_hash_mismatch"}] = Repo.all(BlockScan)
+    assert Scan.gifts(@address, 0, 0) == 0
+  end
+
+  test "a block left mid-read (a deploy) says it is being read, and still counts nothing" do
+    block = genesis_header()
+
+    Repo.insert!(%BlockScan{
+      height: 0,
+      block_hash: block.hash,
+      address: @address,
+      status: "reading",
+      started_at: ~U[2026-11-11 22:00:00Z],
+      scanned_at: ~U[2026-11-11 22:00:00Z]
+    })
+
+    assert Scan.stop_reason(-1, @address) =~
+             "Block 0 is being read now, streamed from our node, since 22:00 UTC."
+
+    assert %{through: -1} = Scan.coverage(@address, -1)
   end
 
   test "nothing is read before scan_from_height, nor without it" do

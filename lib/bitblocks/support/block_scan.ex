@@ -12,5 +12,10 @@ defmodule Bitblocks.Support.BlockScan do
     field :gift_sats, :integer, default: 0
     field :gift_txids, {:array, :string}, default: []
     field :scanned_at, :utc_datetime
+    # read | reading | failed; only read rows count (Support.Scan.coverage/3)
+    field :status, :string, default: "read"
+    field :error, :string
+    field :attempts, :integer, default: 0
+    field :started_at, :utc_datetime
   end
 end
