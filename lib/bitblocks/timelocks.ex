@@ -21,9 +21,12 @@ defmodule Bitblocks.Timelocks do
 
   alias Bitblocks.Chain.{Block, RawTx, Transaction}
   alias Bitblocks.{HodLocker, Repo, ScriptLocks}
+  alias Bitblocks.Derivations.Run
   alias Bitblocks.Timelocks.Lock
 
   @version 1
+  # How many of a post's backing locks a page lists (#75).
+  @backers_limit 50
 
   @doc "The index_timelocks step's version, stamped on each row."
   @spec version() :: pos_integer()
@@ -164,6 +167,62 @@ defmodule Bitblocks.Timelocks do
     |> Map.update!(:locked_satoshis, &if(tip_height, do: to_integer(&1)))
     |> Map.put(:post_txid, post_txid)
   end
+
+  @doc """
+  The indexed locks that back a HodLocker post (#75), largest first, at most
+  `limit` (#{@backers_limit}): each lock's tx and output, its sats, its owner
+  (who locked them, and who may spend them once they unlock), its unlock
+  height and the block it was mined in. One query on the `backs_txid`
+  index; `post_totals/2` counts them all.
+  """
+  @spec backers(String.t(), pos_integer()) :: [map()]
+  def backers(post_txid, limit \\ @backers_limit) do
+    Repo.all(
+      from(l in Lock,
+        where: l.backs_txid == ^post_txid,
+        order_by: [desc: l.satoshis, asc: l.block_height, asc: l.txid, asc: l.vout],
+        limit: ^limit,
+        select: map(l, [:txid, :vout, :satoshis, :owner, :unlock_height, :block_height])
+      )
+    )
+  end
+
+  @doc "How many of a post's backing locks `backers/1` lists."
+  @spec backers_limit() :: pos_integer()
+  def backers_limit, do: @backers_limit
+
+  @doc """
+  How far `timelocks` is known to reach (#75): the highest height H such
+  that applied, finished runs of the timelocks backfill at the current
+  version cover every block 0..H, capped at `complete_through` (a block not
+  yet stored whole holds txs no step has met). nil when no such run starts
+  at block 0, or `complete_through` is unknown.
+
+  A lower bound: the `index_timelocks` step indexes every block the sync
+  completes, but nothing records from which height it began, so those
+  blocks count here once a backfill run covers them. Reads
+  `derivation_runs`, a small table.
+  """
+  @spec indexed_through(integer() | nil) :: non_neg_integer() | nil
+  def indexed_through(complete_through) when is_integer(complete_through) do
+    through =
+      from(r in Run,
+        where:
+          r.derivation == "timelocks" and r.applied and r.outcome == "ok" and
+            r.version == ^@version and not is_nil(r.from_height) and not is_nil(r.to_height),
+        order_by: [asc: r.from_height, desc: r.to_height],
+        select: {r.from_height, r.to_height}
+      )
+      |> Repo.all()
+      |> Enum.reduce_while(-1, fn {from, to}, through ->
+        if from <= through + 1, do: {:cont, max(through, to)}, else: {:halt, through}
+      end)
+      |> min(complete_through)
+
+    if through >= 0, do: through
+  end
+
+  def indexed_through(_complete_through), do: nil
 
   defp to_integer(%Decimal{} = d), do: Decimal.to_integer(d)
   defp to_integer(n), do: n

@@ -174,9 +174,26 @@ defmodule BitblocksWeb.TransactionLive.Show do
       :hodlocker_totals,
       hodlocker && Bitblocks.Timelocks.post_totals(hodlocker.post_txid, tip)
     )
+    |> assign(:hodlocker_backers, hodlocker_backers(hodlocker))
+    |> assign(:hodlocker_indexed_through, hodlocker_indexed_through(hodlocker))
     |> assign(:nlocktime, nlocktime || nil)
     |> assign(:tip_height, tip)
     |> assign(:tip_time, tip_time(nlocktime, tip))
+  end
+
+  # #75: who backs a post, read on a post or reply's own page; a like links
+  # to its post, which lists them.
+  defp hodlocker_backers(%{kind: kind, post_txid: post}) when kind in [:post, :reply],
+    do: Bitblocks.Timelocks.backers(post)
+
+  defp hodlocker_backers(_hodlocker), do: []
+
+  # How far the timelocks index reaches, so the page says what it may miss.
+  defp hodlocker_indexed_through(nil), do: nil
+
+  defp hodlocker_indexed_through(_hodlocker) do
+    Bitblocks.SyncProgress.snapshot().overview.complete_through
+    |> Bitblocks.Timelocks.indexed_through()
   end
 
   # A time lock is compared with the tip block's time.

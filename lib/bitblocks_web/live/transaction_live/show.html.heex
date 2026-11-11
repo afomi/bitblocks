@@ -572,6 +572,22 @@
         <% end %>
       <% end %>
     </p>
+    <%!-- #75: how far the timelocks index reaches, so a missing lock is never read as none --%>
+    <p
+      :if={@hodlocker_totals}
+      id="tx-hodlocker-coverage"
+      class="text-sm text-gray-600 dark:text-gray-400 mb-4"
+    >
+      <%= if @hodlocker_indexed_through do %>
+        Every block through
+        <span class="font-mono tabular-nums"><%= BitblocksWeb.Sats.delimit(@hodlocker_indexed_through) %></span>
+        is indexed for time locks.
+        A lock mined above it may not be counted yet.
+      <% else %>
+        The time lock index does not yet cover the chain from its first block.
+        These counts hold only the locks indexed so far, and a lock not yet indexed is missing from them.
+      <% end %>
+    </p>
     <p
       :if={@hodlocker.locks == []}
       class="text-sm text-gray-600 dark:text-gray-400"
@@ -629,6 +645,81 @@
         </tr>
       </tbody>
     </table>
+    <%!-- #75: every indexed lock that backs this post, largest first, from Timelocks.backers/1 --%>
+    <div
+      :if={@hodlocker_backers != []}
+      id="tx-hodlocker-backers"
+      class="mt-6"
+    >
+      <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-1">
+        Who backs this post
+      </h3>
+      <p class="text-sm text-gray-600 dark:text-gray-400 mb-2">
+        Each owner locked these sats and can spend them again from the unlock height.
+        <%= if @hodlocker_totals && @hodlocker_totals.locks > length(@hodlocker_backers) do %>
+          The <%= BitblocksWeb.Sats.delimit(length(@hodlocker_backers)) %> largest of <%= BitblocksWeb.Sats.delimit(@hodlocker_totals.locks) %> locks are shown.
+        <% end %>
+      </p>
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="text-left text-gray-600 dark:text-gray-400">
+            <th class="py-1 pr-4 font-medium">
+              Locked by
+            </th>
+            <th class="py-1 pr-4 font-medium text-right">
+              Sats locked
+            </th>
+            <th class="py-1 pr-4 font-medium">
+              Unlocks
+            </th>
+            <th class="py-1 font-medium">
+              In
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr
+            :for={backer <- @hodlocker_backers}
+            id={"hodlocker-backer-#{backer.txid}-#{backer.vout}"}
+            class="border-t border-gray-200 dark:border-gray-700"
+          >
+            <td class="py-1 pr-4 font-mono text-xs break-all text-gray-800 dark:text-gray-200">
+              <%= backer.owner || "Unknown" %>
+            </td>
+            <td class="py-1 pr-4 text-right font-mono tabular-nums text-gray-800 dark:text-gray-200">
+              <%= BitblocksWeb.Sats.delimit(backer.satoshis) %>
+            </td>
+            <td class="py-1 pr-4 text-gray-800 dark:text-gray-200">
+              <%= if backer.unlock_height do %>
+                At block <span class="font-mono tabular-nums"><%= BitblocksWeb.Sats.delimit(backer.unlock_height) %></span>.
+                <span class="text-gray-600 dark:text-gray-400">
+                  <%= case BitblocksWeb.TransactionLive.Show.lock_state(backer.unlock_height, @tip_height) do %>
+                    <% {:locked, left} -> %>
+                      <%= BitblocksWeb.Sats.delimit(left) %> blocks to go.
+                    <% :unlocked -> %>
+                      Reached.
+                    <% :unknown -> %>
+                      We hold no blocks yet to count from.
+                  <% end %>
+                </span>
+              <% else %>
+                Unknown.
+              <% end %>
+            </td>
+            <td class="py-1 font-mono text-xs">
+              <%= if backer.txid == @transaction.txid do %>
+                <span class="text-gray-800 dark:text-gray-200">This post</span>
+              <% else %>
+                <.link
+                  navigate={~p"/transactions/#{backer.txid}"}
+                  class="underline text-blue-700 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
+                ><%= String.slice(backer.txid, 0, 16) %>…</.link>
+              <% end %>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
   </section>
 
   <%!-- STAS tokens (#78): read from each output's script by Bitblocks.Stas --%>
