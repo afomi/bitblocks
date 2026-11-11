@@ -89,15 +89,48 @@ defmodule Bitblocks.Support.ScanTest do
     assert Support.summary().received_sats_total == 5_000_000_000
   end
 
-  test "a block too large to read whole stops the scan there, and the figures say so" do
-    genesis_header(%{size: 64 * 1024 * 1024})
+  test "a block over the raw-block cap streams, and its gift counts" do
+    {:ok, %{pubkey_hash: pkh}} = BSV.Address.from_string(@address)
+    big = Bitblocks.SyntheticBlock.build(33 * 1024 * 1024, pay_to: pkh, pay_sats: 70_000)
+    RpcStub.stub_rest_block(big.hash, {:ok, big.bytes})
 
-    assert {:ok, %{read: 0, stopped: {0, :block_too_large}}} = Scan.run()
+    block_fixture(%{
+      height: 0,
+      hash: big.hash,
+      merkleroot: big.merkleroot,
+      num_tx: length(big.txids),
+      size: byte_size(big.bytes),
+      tx: [],
+      sync_state: "header_only"
+    })
 
-    summary = Support.summary()
-    assert summary.received_sats_total == 0
-    assert summary.received_note =~ "Block 0 is larger than the scan reads whole"
+    assert Support.summary().received_note =~
+             "Block 0 is next to read, streamed from our node for its size."
+
+    assert {:ok, %{read: 1, gift_sats: 70_000, stopped: :tip}} = Scan.run()
+    assert [%BlockScan{gift_txids: [gift_txid]}] = Repo.all(BlockScan)
+    assert gift_txid == Enum.at(big.txids, 1)
+
     assert RpcStub.calls(:rest_block) == []
+    assert RpcStub.calls(:rest_block_stream) == [[big.hash]]
+    assert Support.summary().received_sats_total == 70_000
+  end
+
+  test "a streamed block that fails a check stops the scan with nothing recorded" do
+    genesis_header(%{size: 64 * 1024 * 1024})
+    bytes = Base.decode16!(@genesis_hex, case: :lower)
+    RpcStub.stub_rest_block(@genesis_hash, {:ok, binary_part(bytes, 0, byte_size(bytes) - 1)})
+
+    assert {:ok, %{read: 0, stopped: {0, {:truncated, 284}}}} = Scan.run()
+    assert Repo.all(BlockScan) == []
+
+    # REST off: no fallback for a block this size.
+    RpcStub.stub_rest_block(@genesis_hash, {:error, {:http_error, 404}})
+    assert {:ok, %{read: 0, stopped: {0, {:http_error, 404}}}} = Scan.run()
+    assert RpcStub.calls(:getblock) == []
+
+    RpcStub.stub_rest_block(@genesis_hash, {:ok, bytes})
+    assert {:ok, %{read: 1, gift_sats: 5_000_000_000}} = Scan.run()
   end
 
   test "a block that fails to fetch stops the scan with nothing recorded" do

@@ -99,7 +99,11 @@ ElectrumSV works well here: it imports BIP39 mnemonics with a custom derivation 
 - **The received totals come from our own data, and say how far it reaches** (#74, decided 2026-11-11: option 2, then option 3).
   Blocks up to `complete_through` are read from our index.
   The blocks above it are read by us for this address alone (`Bitblocks.Support.Scan`, every two minutes on its own lane): each block once, by its raw bytes from our node, checked against the header's merkle root, from `scan_from_height` (971,500, a few days before the address was derived) or the block after `complete_through`, whichever is later.
-  Each scanned block is a `support_block_scans` row with its hash then, so a reorged block is read again, and a block too large to read whole stops the scan there, with a reason, until the sync reaches it.
+  A block over the raw-block cap (32 MB), as most near the tip are, streams from the node's REST interface through a bounded parser instead (`Chain.BlockStream`, #66): each tx is looked at as its bytes arrive, the same checks apply at the end, and memory stays near one tx plus one chunk however large the block.
+  Nothing is recorded for a block until those checks pass, so a read cut off mid-block (a deploy's SIGTERM, a node timeout) leaves no row and the block is read again next run.
+  The two-minute run budget is checked between blocks, so a GB block is always read to its end.
+  Each scanned block is a `support_block_scans` row with its hash then, so a reorged block is read again.
+  A block that can't be read (REST off for a streamed block, a failed check, a tx over `:block_stream_max_tx_bytes`, 256 MB) stops the scan there, with the reason in the log, and is tried again next run; it is never skipped.
   No third-party address history is used.
   `received_through_height` is the block the totals are complete through, `received_pending_from_height` the first block not counted yet, and `received_note` says so in a sentence; `received_sources` names `index` and `scan` with their heights.
   `received_sats_30d` is nil, with `received_30d_reason`, while our data doesn't reach the last 30 days, so a 0 is never mistaken for a checked answer.

@@ -7,7 +7,9 @@ defmodule Bitblocks.Support.Scan do
   address can have been paid in (`config :bitblocks, :support,
   scan_from_height:`), is read once by its raw bytes from our node
   (`Chain.RawBlock`: the same fetch the sync uses, checked against the
-  header's merkle root). Its txs are counted by the same rule as the index
+  header's merkle root). A block over the raw-block cap, as most near the
+  tip are, streams through `Chain.BlockStream` instead: the same checks, in
+  bounded memory, from the node's REST interface only (#66). Its txs are counted by the same rule as the index
   (`Support.Received`: what a tx that spends from the address pays back
   there is change, not a gift), and one `support_block_scans` row records
   the block, its hash then, and the sats it gave.
@@ -15,19 +17,25 @@ defmodule Bitblocks.Support.Scan do
   Coverage is contiguous and says how far it reaches: `coverage/2` is the
   highest block such that every block from the start is read, under the
   hash its header has now. A reorged block's row no longer matches, so the
-  scan reads it again. A block over the raw-block cap stops the scan there,
-  with a reason naming it, until large blocks stream (#66); it is never
-  skipped. No third party is asked anything.
+  scan reads it again. A block that can't be read (the node unreachable,
+  REST off for a streamed block, a check failing, a tx over
+  `:block_stream_max_tx_bytes`) stops the scan there with the reason, and is
+  read again next run; it is never skipped. Nothing is recorded for a block
+  until every check has passed, so a read cut off mid-block (a deploy, a
+  timeout) leaves no row and is simply read again. No third party is asked
+  anything.
 
   `Bitblocks.Workers.SupportScanWorker` runs `run/1` every two minutes on
-  its own lane, one block at a time, for a bounded time.
+  its own lane, one block at a time. The time budget is checked between
+  blocks, so a GB block, which streams in about as long as the node takes
+  to serve it, is always read to its end.
   """
 
   import Ecto.Query
 
   require Logger
 
-  alias Bitblocks.Chain.{Block, RawBlock}
+  alias Bitblocks.Chain.{Block, BlockStream, RawBlock}
   alias Bitblocks.Repo
   alias Bitblocks.Support.{BlockScan, Received}
 
@@ -105,36 +113,98 @@ defmodule Bitblocks.Support.Scan do
   """
   @spec read_block(String.t(), Block.t()) :: {:ok, non_neg_integer()} | {:error, term()}
   def read_block(address, %Block{} = block) do
-    if RawBlock.eligible?(block) do
-      with {:ok, txs, _stats} <- RawBlock.fetch(block) do
-        gifts =
-          for {txid, bytes} <- txs,
-              json = RawBlock.tx_json(txid, bytes),
-              sats = Received.sats(address, json["vin"], json["vout"]),
-              sats > 0,
-              do: {txid, sats}
+    with {:ok, pkh} <- pubkey_hash(address),
+         {:ok, gifts} <- gifts_in(block, address, pkh) do
+      sats = Enum.sum_by(gifts, &elem(&1, 1))
 
-        sats = Enum.sum_by(gifts, &elem(&1, 1))
+      # Only now, with the block's bytes checked against its header, does
+      # anything the read saw count.
+      Repo.insert!(
+        %BlockScan{
+          height: block.height,
+          block_hash: block.hash,
+          address: address,
+          gift_sats: sats,
+          gift_txids: Enum.map(gifts, &elem(&1, 0)),
+          scanned_at: DateTime.utc_now() |> DateTime.truncate(:second)
+        },
+        on_conflict: {:replace, [:block_hash, :gift_sats, :gift_txids, :scanned_at]},
+        conflict_target: [:address, :height]
+      )
 
-        Repo.insert!(
-          %BlockScan{
-            height: block.height,
-            block_hash: block.hash,
-            address: address,
-            gift_sats: sats,
-            gift_txids: Enum.map(gifts, &elem(&1, 0)),
-            scanned_at: DateTime.utc_now() |> DateTime.truncate(:second)
-          },
-          on_conflict: {:replace, [:block_hash, :gift_sats, :gift_txids, :scanned_at]},
-          conflict_target: [:address, :height]
-        )
-
-        {:ok, sats}
-      end
-    else
-      {:error, :block_too_large}
+      {:ok, sats}
     end
   end
+
+  # `[{txid, sats}]` in block order. A block within the raw cap is fetched
+  # whole; a larger one streams through a bounded parser (#66), whose txs are
+  # unverified until it returns :ok.
+  defp gifts_in(block, address, pkh) do
+    if RawBlock.eligible?(block) do
+      with {:ok, txs, _stats} <- RawBlock.fetch(block) do
+        {:ok,
+         for({txid, bytes} <- txs, sats = gift(bytes, address, pkh), sats > 0, do: {txid, sats})}
+      end
+    else
+      collect = fn {txid, bytes}, acc ->
+        case gift(bytes, address, pkh) do
+          0 -> acc
+          sats -> [{txid, sats} | acc]
+        end
+      end
+
+      with {:ok, gifts, stats} <- BlockStream.each_tx(block, [], collect) do
+        Logger.info(
+          "support scan: streamed block #{block.height}, #{stats.bytes} bytes, " <>
+            "#{stats.txs} txs in #{stats.ms} ms"
+        )
+
+        {:ok, Enum.reverse(gifts)}
+      end
+    end
+  end
+
+  # Sats the tx gives `address`, by `Support.Received`'s rule. Most txs pay
+  # it nothing, so the inputs are only looked at when an output pays it.
+  defp gift(bytes, address, pkh) do
+    {inputs, outputs} = RawBlock.tx_io(bytes)
+
+    case for {sats, script} <- outputs, pays?(script, pkh), do: sats do
+      [] ->
+        0
+
+      paid ->
+        # A coinbase input unlocks nothing (RawBlock.tx_json/2 gives it no scriptSig).
+        vin =
+          for {prev, vout, script} <- inputs,
+              not (prev == <<0::256>> and vout == 0xFFFFFFFF),
+              do: %{"scriptSig" => %{"hex" => hex(script)}}
+
+        vout =
+          for sats <- paid,
+              do: %{"value" => sats / 100_000_000, "scriptPubKey" => %{"addresses" => [address]}}
+
+        Received.sats(address, vin, vout)
+    end
+  end
+
+  # The scripts `RawBlock.script_address/1` reads an address from: P2PKH and
+  # P2PK, compared by pubkey hash rather than encoding every output's address.
+  defp pays?(<<0x76, 0xA9, 0x14, pkh::binary-20, 0x88, 0xAC>>, pkh), do: true
+
+  defp pays?(<<len, pubkey::binary-size(len), 0xAC>>, pkh) when len in [33, 65],
+    do: :crypto.hash(:ripemd160, :crypto.hash(:sha256, pubkey)) == pkh
+
+  defp pays?(_script, _pkh), do: false
+
+  defp pubkey_hash(address) do
+    case BSV.Address.from_string(address) do
+      {:ok, %{pubkey_hash: pkh}} -> {:ok, pkh}
+      _ -> {:error, :invalid_address}
+    end
+  end
+
+  defp hex(bin), do: Base.encode16(bin, case: :lower)
 
   @doc """
   How far the scan reaches above `complete_through`: `%{from: f, through: t}`,
@@ -192,8 +262,7 @@ defmodule Bitblocks.Support.Scan do
       block ->
         if RawBlock.eligible?(block),
           do: "Block #{block.height} is next to read.",
-          else:
-            "Block #{block.height} is larger than the scan reads whole; it counts once the sync reaches it."
+          else: "Block #{block.height} is next to read, streamed from our node for its size."
     end
   end
 
