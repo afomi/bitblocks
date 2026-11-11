@@ -150,6 +150,9 @@ config :bitblocks, Oban,
        {"*/5 * * * *", Bitblocks.Workers.ChainTilesWorker, args: %{"mode" => "incremental"}},
        # Health check: emails when the node is unreachable or the index stalls.
        {"*/5 * * * *", Bitblocks.Workers.OpsAlertWorker},
+       # Gifts to the donation address in blocks above the sync, read by us
+       # (#74, Support.Scan): a no-op until scan_from_height is set.
+       {"*/2 * * * *", Bitblocks.Workers.SupportScanWorker},
        # A new Bitcom registry snapshot, if the registry changed (#21).
        {"17 4 * * *", Bitblocks.Workers.BitcomSnapshotWorker}
      ]}
@@ -174,7 +177,9 @@ config :bitblocks, Oban,
     blocks: 3,
     # Chain-scrubber tile builds (#48): own lane so a full build never
     # contends with sync.
-    chain_tiles: 1
+    chain_tiles: 1,
+    # The donation address's newest blocks (#74): one block at a time.
+    support_scan: 1
   ]
 
 # Blocks the sync loop works at once, cluster-wide, until an admin picks a
@@ -217,10 +222,15 @@ config :bitblocks, :github_oauth, []
 #   monthly_costs: [{"Bitcoin SV full node", 1000}, …]  # USD per month
 #   sponsor_url: "https://…"  # footer "Sponsor" link; hidden while nil
 #   bsv_address: "1…"  # donations; received total is read from the index
+#   scan_from_height: n  # the address can't be paid before block n; blocks
+#     above the sync are read for gifts from max(n, complete_through + 1)
 config :bitblocks, :support,
   monthly_costs: [{"Bitcoin SV full node and hosting", 1200}],
   sponsor_url: nil,
-  bsv_address: "1Hs9u37fyWZNHKC9LCmup3m1TroNzKHGoT"
+  bsv_address: "1Hs9u37fyWZNHKC9LCmup3m1TroNzKHGoT",
+  # Set 2026-11-06, derived as written up on 2026-10-20 (docs/DONATION_ADDRESS.md);
+  # block 971,500 is a few days before that, so the scan covers its whole life.
+  scan_from_height: 971_500
 
 # Import environment specific config. This must remain at the bottom
 # of this file so it overrides the configuration defined above.

@@ -309,7 +309,7 @@ GET /api/v1/ops/node            — ops_read key: node height and headers, RPC a
 GET /api/v1/ops/errors          — ops_read key: recent error log lines, secrets and addresses removed (?limit=)
 POST /api/v1/ops/mcp            — ops_read key: the same four tools over MCP (Streamable HTTP, JSON)
 GET /api/v1/price/bsv           — cached BSV spot price (USD) from CoinGecko
-GET /api/v1/support             — sponsorship numbers for the off-site page: monthly costs, target, BSV received from our own index through complete_through (received_through_height, received_pending_from_height, received_note; received_sats_30d nil with received_30d_reason until the index reaches the last 30 days) (CORS *)
+GET /api/v1/support             — sponsorship numbers for the off-site page: monthly costs, target, BSV received from our own data: the index through complete_through, then our own read of newer blocks for the donation address (Support.Scan, from scan_from_height); received_through_height, received_pending_from_height, received_note, received_sources (index, scan); received_sats_30d nil with received_30d_reason until our data reaches the last 30 days (CORS *)
 GET /api/v1/stream/blocks       — SSE stream: `block_updated` (height, hash, sync_state; each new header and state change) and `reorg` (fork_point, fork_height, orphans)
 GET /api/v1/metanet/:txid       — Metanet node with parent, children, MURL path
 GET /api/v1/metanet/:txid/children — children of a Metanet node

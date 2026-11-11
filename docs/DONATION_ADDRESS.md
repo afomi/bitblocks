@@ -96,11 +96,13 @@ ElectrumSV works well here: it imports BIP39 mnemonics with a custom derivation 
   The wallet's default internal change addresses (`…/1'/1/n`) are correct, so don't turn on "send change to the same address".
 - **Every spend is an expense** and gets a line in visible-dao's `_data/bitblocks_ledger.yml`, with the txid and the receipt.
 - Received totals come from the chain and expenses come from the ledger. Neither one is typed in from memory.
-- **The received totals come from our own index, and say how far it reaches** (#74, decided 2026-11-11: option 2 now, option 3 next).
-  Blocks up to `complete_through` are read from our index, and nothing else: no third-party address history.
-  `received_through_height` is the block the totals are complete through, `received_pending_from_height` the first block not counted yet, and `received_note` says so in a sentence.
-  `received_sats_30d` is nil, with `received_30d_reason`, while the index doesn't reach the last 30 days, so a 0 is never mistaken for a checked answer.
-  Next (option 3): read the newest blocks for the donation address ourselves, from raw blocks we fetch, ahead of the sync.
+- **The received totals come from our own data, and say how far it reaches** (#74, decided 2026-11-11: option 2, then option 3).
+  Blocks up to `complete_through` are read from our index.
+  The blocks above it are read by us for this address alone (`Bitblocks.Support.Scan`, every two minutes on its own lane): each block once, by its raw bytes from our node, checked against the header's merkle root, from `scan_from_height` (971,500, a few days before the address was derived) or the block after `complete_through`, whichever is later.
+  Each scanned block is a `support_block_scans` row with its hash then, so a reorged block is read again, and a block too large to read whole stops the scan there, with a reason, until the sync reaches it.
+  No third-party address history is used.
+  `received_through_height` is the block the totals are complete through, `received_pending_from_height` the first block not counted yet, and `received_note` says so in a sentence; `received_sources` names `index` and `scan` with their heights.
+  `received_sats_30d` is nil, with `received_30d_reason`, while our data doesn't reach the last 30 days, so a 0 is never mistaken for a checked answer.
 
 ## Optional: publish the account xpub
 

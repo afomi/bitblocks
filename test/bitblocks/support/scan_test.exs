@@ -1,0 +1,118 @@
+defmodule Bitblocks.Support.ScanTest do
+  @moduledoc """
+  The donation address's newest blocks, read by us (#74, option 3): the
+  real genesis block pays 50 BSV to 1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa, so
+  it stands in for a block above the sync that holds a gift.
+  """
+  use Bitblocks.DataCase, async: false
+
+  import Bitblocks.ChainFixtures
+
+  alias Bitblocks.Support
+  alias Bitblocks.Support.{BlockScan, Scan}
+  alias BitblocksWeb.RpcStub
+
+  @address "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa"
+  @genesis_hash "000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f"
+  @genesis_merkleroot "4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b"
+  @genesis_hex "0100000000000000000000000000000000000000000000000000000000000000000000003ba3edfd7a7b12b27ac72c3e67768f617fc81bc3888a51323a9fb8aa4b1e5e4a29ab5f49ffff001d1dac2b7c" <>
+                 "01" <>
+                 "01000000010000000000000000000000000000000000000000000000000000000000000000ffffffff4d04ffff001d0104455468652054696d65732030332f4a616e2f32303039204368616e63656c6c6f72206f6e206272696e6b206f66207365636f6e64206261696c6f757420666f722062616e6b73ffffffff0100f2052a01000000434104678afdb0fe5548271967f1a67130b7105cd6a828e03909a67962e0ea1f61deb649f6bc3f4cef38c4f35504e51ec112de5c384df7ba0b8d578a4c702b6bf11d5fac00000000"
+
+  setup do
+    RpcStub.setup()
+    RpcStub.clear()
+    original = Application.get_env(:bitblocks, :support)
+    on_exit(fn -> Application.put_env(:bitblocks, :support, original) end)
+
+    Application.put_env(:bitblocks, :support,
+      monthly_costs: [],
+      sponsor_url: nil,
+      bsv_address: @address,
+      scan_from_height: 0
+    )
+
+    RpcStub.stub_rest_block(@genesis_hash, {:ok, Base.decode16!(@genesis_hex, case: :lower)})
+    :ok
+  end
+
+  # The genesis bytes, as a header-only block above complete_through.
+  defp genesis_header(attrs \\ %{}) do
+    block_fixture(
+      Map.merge(
+        %{
+          height: 0,
+          hash: @genesis_hash,
+          merkleroot: @genesis_merkleroot,
+          num_tx: 1,
+          size: 285,
+          tx: [],
+          sync_state: "header_only"
+        },
+        attrs
+      )
+    )
+  end
+
+  test "reads a block above the sync once, and the support figures count its gift" do
+    genesis_header()
+
+    assert {:ok, %{read: 1, gift_sats: 5_000_000_000, stopped: :tip}} = Scan.run()
+    assert %{from: 0, through: 0} = Scan.coverage(@address, -1)
+
+    summary = Support.summary()
+    assert summary.received_sats_total == 5_000_000_000
+    assert summary.received_through_height == 0
+    assert summary.received_pending_from_height == 1
+    assert summary.received_note =~ "our own read of blocks 0 through 0 for this address"
+    assert summary.received_note =~ "That is our tip."
+
+    assert [
+             %{source: "index", through_height: -1},
+             %{source: "scan", from_height: 0, through_height: 0}
+           ] = summary.received_sources
+
+    # Caught up: the next run reads nothing.
+    assert {:ok, %{read: 0, stopped: :tip}} = Scan.run()
+    assert [_one] = Repo.all(BlockScan)
+  end
+
+  test "a block whose hash changed (a reorg) is read again, and the old row no longer counts" do
+    genesis_header()
+    {:ok, _} = Scan.run()
+
+    Repo.update_all(BlockScan, set: [block_hash: "orphaned"])
+    assert %{through: -1} = Scan.coverage(@address, -1)
+    assert Support.summary().received_sats_total == 0
+
+    assert {:ok, %{read: 1}} = Scan.run()
+    assert Support.summary().received_sats_total == 5_000_000_000
+  end
+
+  test "a block too large to read whole stops the scan there, and the figures say so" do
+    genesis_header(%{size: 64 * 1024 * 1024})
+
+    assert {:ok, %{read: 0, stopped: {0, :block_too_large}}} = Scan.run()
+
+    summary = Support.summary()
+    assert summary.received_sats_total == 0
+    assert summary.received_note =~ "Block 0 is larger than the scan reads whole"
+    assert RpcStub.calls(:rest_block) == []
+  end
+
+  test "a block that fails to fetch stops the scan with nothing recorded" do
+    genesis_header(%{hash: "elsewhere"})
+    RpcStub.stub_rest_block("elsewhere", {:ok, Base.decode16!(@genesis_hex, case: :lower)})
+
+    assert {:ok, %{read: 0, stopped: {0, :block_hash_mismatch}}} = Scan.run()
+    assert Repo.all(BlockScan) == []
+  end
+
+  test "nothing is read before scan_from_height, nor without it" do
+    genesis_header()
+
+    assert {:ok, %{stopped: :not_configured}} = Scan.run(since: nil)
+    assert {:ok, %{read: 0, stopped: :tip}} = Scan.run(since: 1)
+    assert Repo.all(BlockScan) == []
+  end
+end

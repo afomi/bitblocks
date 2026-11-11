@@ -10,6 +10,7 @@ defmodule Bitblocks.Support do
   """
 
   alias Bitblocks.Chain
+  alias Bitblocks.Support.Scan
 
   # ~30 days of blocks at 10 minutes each.
   @month_of_blocks 30 * 24 * 6
@@ -24,13 +25,15 @@ defmodule Bitblocks.Support do
       when no costs are configured)
     * `sponsor_url`, `bsv_address` — nil when not configured
     * `received_sats_total` — given to `bsv_address` (nil without an
-      address), from our own index through `complete_through`
+      address), from our own index through `complete_through`, then our
+      own read of the newer blocks for this address (`Support.Scan`)
     * `received_sats_30d` — the same over the last 30 days, or nil with
       `received_30d_reason` while the index doesn't reach into that window
     * `received_through_height` — the block the totals are complete through
     * `received_pending_from_height` — the first block not counted yet, and
       `received_note`, a sentence saying so
-    * `received_sources` — the one source, our index, with its heights
+    * `received_sources` — `index`, and `scan` once it reads past the
+      index, each with the heights it covers
     * `received_usd_30d` — at the cached spot price (nil without a price)
   """
   def summary do
@@ -73,11 +76,13 @@ defmodule Bitblocks.Support do
       sources: []
     }
 
-  # Our own index only, through complete_through, where every block is
-  # stored (#74, option 2: no third-party history). A gift in a newer block
-  # counts once the sync reaches it, and the summary says where that starts.
+  # Our own data only (#74): the index through complete_through, where every
+  # block is stored, then our own read of the newer blocks for this address
+  # (Support.Scan), as far as it reaches. No third-party history.
   defp received(address) do
     indexed_through = Bitblocks.Sync.complete_through()
+    scan = Scan.coverage(address, indexed_through)
+    through = max(scan.through, indexed_through)
 
     min_height =
       case Chain.get_latest_block() do
@@ -85,29 +90,69 @@ defmodule Bitblocks.Support do
         nil -> 0
       end
 
-    total = Chain.received_for_address(address, max_height: indexed_through)
+    total =
+      Chain.received_for_address(address, max_height: indexed_through) +
+        Scan.gifts(address, indexed_through + 1, through)
 
-    # The 30-day window is only an answer once the index reaches into it;
+    # The 30-day window is only an answer once our data reaches into it;
     # below that a 0 would read as "no gifts", so it is nil with a reason.
     {last_30d, last_30d_reason} =
-      if indexed_through >= min_height do
-        {Chain.received_for_address(address, min_height: min_height, max_height: indexed_through),
-         nil}
+      if through >= min_height do
+        indexed =
+          if indexed_through >= min_height,
+            do:
+              Chain.received_for_address(address,
+                min_height: min_height,
+                max_height: indexed_through
+              ),
+            else: 0
+
+        {indexed + Scan.gifts(address, max(min_height, indexed_through + 1), through), nil}
       else
         {nil,
-         "The last 30 days start at block #{min_height}, and the index is complete through block #{indexed_through}."}
+         "The last 30 days start at block #{min_height}, and our figures are complete through block #{through}."}
       end
 
     %{
       total: total,
       last_30d: last_30d,
       last_30d_reason: last_30d_reason,
-      through_height: indexed_through,
-      pending_from_height: indexed_through + 1,
-      note:
-        "Counted from our own index through block #{indexed_through}. Gifts in later blocks count once the sync reaches them.",
-      sources: [%{source: "index", from_height: 0, through_height: indexed_through}]
+      through_height: through,
+      pending_from_height: through + 1,
+      note: note(indexed_through, scan, through),
+      sources: sources(indexed_through, scan)
     }
+  end
+
+  defp note(indexed_through, scan, through) when through > indexed_through do
+    "Counted from our own index through block #{indexed_through}, " <>
+      "and our own read of blocks #{scan.from} through #{through} for this address. " <>
+      pending(through)
+  end
+
+  defp note(indexed_through, _scan, _through) do
+    "Counted from our own index through block #{indexed_through}. " <> pending(indexed_through)
+  end
+
+  defp pending(through) do
+    if is_integer(Scan.scan_from_height()), do: scan_pending(through), else: sync_pending()
+  end
+
+  defp sync_pending, do: "Gifts in later blocks count once the sync reaches them."
+
+  defp scan_pending(through) do
+    case Scan.stop_reason(through) do
+      nil -> "That is our tip."
+      reason -> "Gifts in later blocks count as we read them. " <> reason
+    end
+  end
+
+  defp sources(indexed_through, %{from: from, through: through}) do
+    index = %{source: "index", from_height: 0, through_height: indexed_through}
+
+    if through >= from,
+      do: [index, %{source: "scan", from_height: from, through_height: through}],
+      else: [index]
   end
 
   defp to_usd(nil), do: nil
