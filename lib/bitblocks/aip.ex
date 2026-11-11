@@ -93,6 +93,60 @@ defmodule Bitblocks.Aip do
     |> Enum.uniq()
   end
 
+  @doc """
+  Who wrote `data`, by its first AIP section.
+
+  Returns `%{status: :signed, address: address, pubkey: hex}` when the
+  signature holds (the public key recovered from it, compressed or not as the
+  signature says), `%{status: :unsigned}` when there is no AIP section, and
+  `%{status: :signature_fails}` when there is one that doesn't hold.
+  qart's `receipt_v1_authorship` vectors (`priv/data/interop/receipt_v2_v1.json`)
+  give the author each of their three receipts should report.
+  """
+  @spec author(list()) ::
+          %{status: :signed, address: String.t(), pubkey: String.t()}
+          | %{status: :unsigned | :signature_fails}
+  def author(data) when is_list(data) do
+    stripped = strip_opcodes(data)
+
+    case Enum.find_index(stripped, &(&1 == @prefix)) do
+      nil ->
+        %{status: :unsigned}
+
+      i ->
+        left = Enum.take(stripped, i)
+
+        with %{valid: true, address: address, field_indexes: indexes} <-
+               check(left, Enum.drop(stripped, i + 1)),
+             [_algorithm, _address, signature | _] <- Enum.drop(stripped, i + 1),
+             {:ok, pubkey} <- recover_pubkey(signed_bytes(left, indexes), signature) do
+          %{status: :signed, address: address, pubkey: pubkey}
+        else
+          _ -> %{status: :signature_fails}
+        end
+    end
+  end
+
+  # The key a Bitcoin Signed Message signature was made with, as hex.
+  defp recover_pubkey(message, signature) do
+    with {:ok, encoding} <- signature_encoding(signature),
+         {:ok, raw} <- if(encoding == :raw, do: {:ok, signature}, else: Base.decode64(signature)),
+         %Curvy.Key{} = key <- Curvy.recover_key(raw, bsm_digest(message), hash: false) do
+      {:ok, key |> Curvy.Key.to_pubkey() |> Base.encode16(case: :lower)}
+    else
+      _ -> :error
+    end
+  end
+
+  defp bsm_digest(message) do
+    prefix = "Bitcoin Signed Message:\n"
+
+    BSV.Hash.sha256_sha256(
+      BSV.VarInt.encode(byte_size(prefix)) <>
+        prefix <> BSV.VarInt.encode(byte_size(message)) <> message
+    )
+  end
+
   # `left` is everything before the AIP prefix (it should end with "|").
   defp check(left, [algorithm, address, signature | indexes])
        when is_binary(algorithm) and is_binary(address) and is_binary(signature) do

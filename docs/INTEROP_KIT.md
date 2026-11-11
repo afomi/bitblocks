@@ -117,8 +117,9 @@ Every check offers one: `POST /api/v1/beef/verify` answers with `data.statement`
 `statement.status` is `made`, with `canonical` (the statement's exact bytes, section 4) and `sha256` (their hash, the value an acceptance record's `evidenceHash` takes); `refused`, with BRC-237's `code`; or `unavailable`, when we hold no verified header at our tip for it to name.
 It is made from the headers we hold that are both verified and canonical, with event `received` and `conflicts.checked` false, because we look for no conflict.
 `madeAt` is the moment of the check, so two checks of one BEEF differ there and nowhere else.
-Not yet: BRC-77 signing.
-No published format covers acceptance, so the acceptance record is our candidate, `interop-kit/payment-acceptance/v0`, until a second implementation reads it.
+Not yet: BRC-77 signing of statements.
+No published format covers acceptance, so the acceptance record is our candidate, `interop-kit/payment-acceptance/v0`.
+A second implementation writes it with its own code, and its receipt format, `receipt_v2`, points at a record by hash.
 
 Evidence says what was checked.
 Acceptance says what the receiver took as payment.
@@ -131,7 +132,7 @@ The acceptance record is RFC 8785 canonical JSON, signed with BRC-77 for anyone 
 |---|---|---|
 | `version` | string | `interop-kit/payment-acceptance/v0` |
 | `acceptedBy` | string | The receiver's identity key, compressed hex, and the BRC-77 signer |
-| `network` | string | CAIP-2: `bsv:mainnet` or `bsv:testnet` |
+| `network` | string | CAIP-2: `bsv:mainnet` or `bsv:testnet` ([the `bsv` namespace](https://github.com/ChainAgnostic/namespaces/blob/main/bsv/caip2.md), Draft, 2026-07-10) |
 | `outputs` | array | `{"txid", "vout", "satoshis"}` for each output accepted as this payment, sorted by `txid` then `vout` |
 | `termsHash` | string or null | SHA-256 of the exact terms bytes from step 1 |
 | `evidenceHash` | string or null | SHA-256 of the exact bytes of the BRC-237 statement it relied on |
@@ -146,6 +147,41 @@ We left out a hash of the BEEF, because those bytes change once the BUMP arrives
 Anyone holding the record, its terms and the BEEF can check the signature, match the outputs to the transaction, and hash the terms, then make their own statement from their own headers.
 A payment that a mined conflict has spent reads as void from that conflict's proof, whatever the record says.
 The record stays true as a statement of what was accepted.
+
+### Reading and writing it
+
+Bitblocks reads and writes the record (`Bitblocks.Interop.PaymentAcceptance`).
+`parse/1` is strict: every field present and no other, each of its type, `outputs` sorted by `txid` then `vout` with none repeated, and the bytes already canonical.
+`verify/1` takes `{"body", "signature"}` and checks the BRC-77 signature over the exact body bytes, for anyone, by `acceptedBy`.
+`sign/3` signs with a receiver's identity key, and refuses a key that isn't `acceptedBy`.
+BRC-77 and BRC-42 are in `Bitblocks.Interop.Brc77`, and the canonical form in `Bitblocks.Interop.Jcs`.
+
+The canonical form is RFC 8785 over a restricted set of values: strings, integers within ±(2^53 - 1), `null`, arrays and objects.
+A reader refuses floats, booleans, larger integers, duplicate member names, and bytes that parse but aren't already canonical.
+With no floats, no reader needs RFC 8785's number serializer to agree byte for byte.
+The `receipt_v2` body uses the same set.
+
+Vectors:
+
+- `priv/data/interop/payment_acceptance_v0.json`: our record, signed with a test key made from a public label, with seven records a reader must refuse; built by `scripts/payment_acceptance_v0_vectors.exs` and held to the file by `test/bitblocks/interop/payment_acceptance_test.exs`.
+- `priv/data/interop/receipt_v2_v1.json`: the `receipt_v2` vectors, copied unchanged from the implementation that wrote them.
+  `test/bitblocks/interop/receipt_v2_vectors_test.exs` reads its acceptance record (set 6): the BRC-77 signature, the v0 fields, and the SHA-256 the receipt names as `acceptanceHash`.
+  It also reads the canonical forms and refusals (sets 1 and 2), the BRC-77 vectors (set 4), the MAP anchor (set 5, through `Bitblocks.MapParser`) and the AIP authorship of `receipt_v1` (set 7, through `Bitblocks.Aip.author/1`).
+  Set 3, the receipt's own commitment, isn't something we index.
+
+Each implementation signs and reads records with its own code, so each is the other's second reader.
+Every vector in their file reads here as it says it should, and our record has gone to them to read (2026-11-10).
+
+### Two canonical forms
+
+A receipt that carries both halves holds bytes in two canonical forms.
+The BRC-237 statement takes the form BRC-237 section 4 sets out: keys sorted by their bytes, no whitespace, values that need no escaping (civic-studio's standards steward traces it to BRC-179 section 7.2).
+The acceptance record takes RFC 8785.
+Each format's own spec picks its form, and a hash only means something over the bytes its own spec makes, so neither is rewritten into the other.
+`evidenceHash` is the SHA-256 of the statement's exact bytes, whatever form made them.
+So a verifier of a full receipt needs both canonicalizers: one to check the statement against its spec, and one to read the record.
+The record took RFC 8785 because it is a published, general scheme that any JSON stack can follow, and BRC-237's form is defined for the statement's own fields.
+Should BRC-237 adopt RFC 8785, or a later BRC define acceptance in BRC-237's form, the next version of the record follows it.
 
 ## Our statuses and BRC-237
 
@@ -186,7 +222,7 @@ That usually means it's wrong, and after a reorg a good payment's old path reads
 - BRC-237 reads BRC-95 as permitting ancestors beyond a BUMP, while `Beef.Reader` refuses them, and neither has a vector settling it; the statement maker refuses them `MALFORMED`, as it does a VarInt not in its shortest form and a tx with no BUMP ahead of its parent.
   This is a decision, not a gap to close: Bitblocks reads BEEF the stricter way (Ryan, 2026-11-08), so the verifier and the statement maker refuse the same framings, and a statement is only ever made from bytes the verifier also reads.
   A writer that follows "What a conforming sender does" above never meets the difference.
-- No acceptance record vectors exist yet.
+- The acceptance record has two readers so far, and no wallet yet signs one with `createSignature`.
 - BRC-96 treats a txid-only entry as agreed between two parties, and a third-party check has no such agreement, so we answer `unknown`.
 - The size and count limits in `Beef.Reader` have no vectors, because a limit is a reader's own choice.
 - No live wallet has been tried, and one SDK run is a start rather than a result.
