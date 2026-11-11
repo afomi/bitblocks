@@ -962,14 +962,7 @@ defmodule Bitblocks.Release do
   defp print_chain_status(s) do
     IO.puts(chain_line(s.chain))
 
-    IO.puts(
-      "  #{s.ranges_done} of #{s.ranges_total} range(s) finished" <>
-        if(s.current, do: ", working #{s.current.command}", else: "") <>
-        if(s.chain.status == "running" and not s.alive and is_nil(s.current),
-          do: ", queued",
-          else: ""
-        )
-    )
+    IO.puts("  #{s.ranges_done} of #{s.ranges_total} range(s) finished" <> chain_progress(s))
 
     IO.puts("  #{s.blocks_examined} block(s), #{s.rows_examined} row(s) examined")
     IO.puts("  #{s.rows_changed} row(s) #{if s.chain.applied, do: "changed", else: "to change"}")
@@ -982,6 +975,25 @@ defmodule Bitblocks.Release do
 
     if s.chain.error, do: IO.puts("  error: #{s.chain.error}")
   end
+
+  # What the chain is doing now. A paused or cancelled chain never reads as
+  # working: it says so, and names the range it takes next.
+  defp chain_progress(%{chain: %{status: status}, current: %{command: command}})
+       when status in ["paused", "cancelled"],
+       do: ", #{status}, finishing #{command}"
+
+  defp chain_progress(%{current: %{command: command}}), do: ", working #{command}"
+
+  defp chain_progress(%{chain: %{status: "running"}, alive: false} = s),
+    do: ", queued" <> range_note(" for", s.next_range)
+
+  defp chain_progress(%{chain: %{status: "running"}}), do: ""
+
+  defp chain_progress(%{chain: %{status: status}} = s),
+    do: ", #{status}" <> range_note("; next", s.next_range)
+
+  defp range_note(_lead, nil), do: ""
+  defp range_note(lead, {from, to}), do: "#{lead} #{from}..#{to}"
 
   defp print_tx_types_backfill(r) do
     print_run_header(r, "tx types for completed blocks")
