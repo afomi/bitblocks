@@ -49,7 +49,12 @@ defmodule BitblocksWeb.Api.HodlockerControllerTest do
                "first_unlock_height" => 833_548,
                "last_unlock_height" => 858_404
              },
-             "meta" => %{"tip_height" => 833_405, "source" => "timelocks"}
+             "meta" => %{
+               "tip_height" => 833_405,
+               # No backfill run covers the chain from block 0 here.
+               "indexed_through_height" => nil,
+               "source" => "timelocks"
+             }
            } = body
   end
 

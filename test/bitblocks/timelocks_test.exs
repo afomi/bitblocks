@@ -86,6 +86,75 @@ defmodule Bitblocks.TimelocksTest do
     assert %{satoshis: 0, locks: 0, likes: 0} = Timelocks.post_totals(String.duplicate("0", 64))
   end
 
+  test "backers/2 names who locked sats to a post, largest first (#75)" do
+    {post, post_block} = store(@post)
+    {like, like_block} = store(@like)
+    Timelocks.index(post, post_block)
+    Timelocks.index(like, like_block)
+
+    assert [
+             %{
+               txid: @like,
+               vout: 0,
+               satoshis: 2_100_000_000,
+               owner: "13PnV1oUFYAeMUzzvoKFWX9FpjnMxyUpM9",
+               unlock_height: 858_404,
+               block_height: 833_405
+             },
+             %{txid: @post, satoshis: 1, unlock_height: 833_548}
+           ] = Timelocks.backers(@post)
+
+    assert [%{txid: @like}] = Timelocks.backers(@post, 1)
+    assert Timelocks.backers(String.duplicate("0", 64)) == []
+  end
+
+  describe "indexed_through/1 (#75)" do
+    defp run!(from, to, attrs \\ %{}) do
+      Repo.insert!(
+        struct(
+          %Bitblocks.Derivations.Run{
+            derivation: "timelocks",
+            version: Timelocks.version(),
+            from_height: from,
+            to_height: to,
+            applied: true,
+            outcome: "ok",
+            started_at: DateTime.utc_now()
+          },
+          attrs
+        )
+      )
+    end
+
+    test "nil until an applied run covers block 0" do
+      assert Timelocks.indexed_through(500) == nil
+
+      run!(0, 100, %{applied: false})
+      run!(10, 200)
+      assert Timelocks.indexed_through(500) == nil
+    end
+
+    test "joins the runs that touch from block 0, up to the first gap" do
+      run!(0, 100)
+      run!(101, 300)
+      run!(250, 400)
+      run!(500, 900)
+      # A run that stopped, or at an older version, covers nothing.
+      run!(401, 499, %{outcome: "partial"})
+      run!(401, 499, %{version: Timelocks.version() - 1})
+
+      assert Timelocks.indexed_through(10_000) == 400
+    end
+
+    test "never reaches past complete_through" do
+      run!(0, 1_000)
+
+      assert Timelocks.indexed_through(321) == 321
+      assert Timelocks.indexed_through(-1) == nil
+      assert Timelocks.indexed_through(nil) == nil
+    end
+  end
+
   describe "the backfill" do
     test "dry run counts, apply inserts, a rerun writes nothing" do
       store(@like)
