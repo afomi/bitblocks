@@ -45,26 +45,30 @@ defmodule BitblocksWeb.TypeLive.Index do
       %{
         level: 4,
         title: "Application protocols",
-        summary: "Data protocols and applications.",
-        href: "#protocols"
+        summary: "Data protocols and applications, named by an address in their data.",
+        href: "#protocols",
+        here: true
       },
       %{
         level: 3,
         title: "Transactions",
-        summary: "Inputs, outputs, scripts and signatures. The types below describe this layer.",
-        href: "#group-cash"
+        summary: "Inputs, outputs, scripts and signatures, typed by what each output does.",
+        href: "#transactions",
+        here: true
       },
       %{
         level: 2,
         title: "Blocks",
         summary: "Block header, merkle tree, timestamp and difficulty.",
-        href: "/blocks"
+        href: "/blocks",
+        here: false
       },
       %{
         level: 1,
         title: "Blockchain",
         summary: "The ledger, proof of work and the chain of blocks.",
-        href: nil
+        href: nil,
+        here: false
       }
     ]
   end

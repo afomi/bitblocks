@@ -15,78 +15,42 @@
       /api/v1/types
     </a>.
   </p>
-  <div
-    id="type-counts-coverage"
-    class="mb-8 max-w-3xl rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm text-gray-700 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300"
-  >
-    <%= case @counts do %>
-      <% %{status: :ok, through_height: through} = counts when through >= 0 -> %>
-        <p>
-          Counts cover blocks
-          <span class="font-mono tabular-nums">0</span>
-          to
-          <span class="font-mono tabular-nums"><%= delimit(through) %></span>
-          of <span class="font-mono tabular-nums"><%= delimit(counts.tip) %></span> known.
-          Every block in that range is verified complete and typed, so the counts grow as the sync climbs toward the tip.
-          <%= if through < counts.complete_through do %>
-            Blocks
-            <span class="font-mono tabular-nums"><%= delimit(through + 1) %></span>
-            to
-            <span class="font-mono tabular-nums"><%= delimit(counts.complete_through) %></span>
-            are complete and not typed yet.
-          <% end %>
-        </p>
-        <p class="mt-2 text-gray-600 dark:text-gray-400">
-          A transaction with several types counts once under each, and anything no type matches counts as custom.
-          Computed by type counts v<%= counts.version %> at
-          <time
-            datetime={DateTime.to_iso8601(counts.computed_at)}
-            class="font-mono tabular-nums"
-          ><%= Calendar.strftime(counts.computed_at, "%Y-%m-%d %H:%M UTC") %></time>, from the block tallies.
-        </p>
-      <% %{status: :ok} = counts -> %>
-        <p id="types-no-counts">
-          <%= Counts.coverage_note(counts) %>
-        </p>
-      <% %{status: :pending} -> %>
-        <p>
-          Counts are being computed.
-          They appear here within a few minutes.
-        </p>
-      <% _ -> %>
-        <p>
-          Counts are unavailable right now.
-        </p>
-    <% end %>
-  </div>
-
-  <section
+  <nav
     id="layers"
     aria-labelledby="layers-heading"
-    class="mb-10"
+    class="mb-12 max-w-3xl"
   >
     <h2
       id="layers-heading"
-      class="text-2xl font-semibold text-gray-900 dark:text-white mb-1"
+      class="text-sm font-semibold uppercase tracking-widest text-gray-500 dark:text-gray-400 mb-3"
     >
       Building on Bitcoin
     </h2>
     <p class="text-gray-600 dark:text-gray-400 mb-4">
       Four layers, each resting on the one below.
+      This page covers the top two.
     </p>
     <ol
       role="list"
-      class="space-y-2"
+      class="overflow-hidden rounded-lg border border-gray-200 divide-y divide-gray-200 dark:border-gray-700 dark:divide-gray-700"
     >
       <li
         :for={layer <- layers()}
         id={"layer-#{layer.level}"}
-        class="flex items-start gap-4 bg-white border border-gray-200 rounded-lg p-4 dark:bg-gray-800 dark:border-gray-700"
+        class={[
+          "flex items-center gap-4 px-4 py-3",
+          layer.here && "border-l-4 border-orange-400 bg-white dark:bg-gray-800",
+          !layer.here && "border-l-4 border-transparent bg-gray-50 dark:bg-gray-900"
+        ]}
       >
-        <span class="font-mono text-2xl font-bold text-gray-500 dark:text-gray-400">
+        <span class={[
+          "font-mono text-xl font-bold w-6 shrink-0",
+          layer.here && "text-orange-700 dark:text-orange-300",
+          !layer.here && "text-gray-400 dark:text-gray-500"
+        ]}>
           <%= layer.level %>
         </span>
-        <span>
+        <span class="min-w-0 flex-1">
           <span class="block font-semibold text-gray-900 dark:text-white">
             <%= if layer.href do %>
               <a
@@ -99,66 +63,149 @@
               <%= layer.title %>
             <% end %>
           </span>
-          <span class="block text-sm text-gray-700 dark:text-gray-300">
+          <span class="block text-sm text-gray-600 dark:text-gray-400">
             <%= layer.summary %>
           </span>
         </span>
+        <span
+          :if={layer.here}
+          class="shrink-0 rounded-full bg-orange-50 px-2.5 py-0.5 text-xs font-semibold text-orange-800 dark:bg-orange-950 dark:text-orange-200"
+        >
+          On this page
+        </span>
       </li>
     </ol>
-  </section>
+  </nav>
 
   <section
-    :for={group <- @groups}
-    id={"group-#{group.id}"}
-    aria-labelledby={"group-#{group.id}-heading"}
-    class="mb-10"
+    id="transactions"
+    aria-labelledby="transactions-heading"
+    class="mb-14"
   >
+    <p class="text-sm font-semibold uppercase tracking-widest text-orange-700 dark:text-orange-300 mb-1">
+      Layer 3
+    </p>
     <h2
-      id={"group-#{group.id}-heading"}
-      class="text-2xl font-semibold text-gray-900 dark:text-white mb-1"
+      id="transactions-heading"
+      class="text-3xl font-bold text-gray-900 dark:text-white mb-2"
     >
-      <%= group.title %>
+      Transaction types
     </h2>
-    <p class="text-gray-600 dark:text-gray-400 mb-4">
-      <%= group.summary %>
+    <p class="text-gray-700 dark:text-gray-300 mb-4 max-w-3xl">
+      Every output is typed by its script, in <%= length(@groups) %> groups.
     </p>
     <ul
+      id="type-groups-nav"
       role="list"
-      class="grid grid-cols-1 gap-3 sm:grid-cols-2"
+      class="flex flex-wrap gap-2 mb-6"
     >
-      <li :for={type <- group.types}>
-        <.link
-          id={"type-#{type.id}"}
-          navigate={~p"/types/#{type.id}"}
-          class="block h-full bg-white border border-gray-200 rounded-lg p-4 hover:border-orange-400 dark:bg-gray-800 dark:border-gray-700"
+      <li :for={group <- @groups}>
+        <a
+          href={"#group-#{group.id}"}
+          class="inline-block rounded-full border border-gray-300 px-3 py-1 text-sm text-gray-800 hover:border-orange-400 dark:border-gray-600 dark:text-gray-200"
         >
-          <span class="flex items-center justify-between gap-3 mb-1">
-            <span class="font-semibold text-gray-900 dark:text-white">
-              <%= type.title %>
-            </span>
-            <span class="shrink-0 rounded-full bg-gray-100 px-2.5 py-0.5 font-mono text-xs font-semibold text-gray-800 dark:bg-gray-900 dark:text-gray-200">
-              <%= type.short %>
-            </span>
-          </span>
-          <span class="block text-sm text-gray-700 dark:text-gray-300">
-            <%= type.summary %>
-          </span>
-          <span
-            :if={count = count(@counts, type)}
-            id={"type-#{type.id}-count"}
-            class="mt-2 block text-xs text-gray-600 dark:text-gray-400"
-          >
-            <%= if count.txs > 0 do %>
-              <span class="font-mono tabular-nums"><%= txs(count.txs) %></span>
-              since block
-              <span class="font-mono tabular-nums"><%= delimit(count.first_height) %></span>
-            <% else %>
-              none yet in the blocks counted
-            <% end %>
-          </span>
-        </.link>
+          <%= group.title %>
+        </a>
       </li>
     </ul>
+    <div
+      id="type-counts-coverage"
+      class="mb-8 max-w-3xl rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm text-gray-700 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300"
+    >
+      <%= case @counts do %>
+        <% %{status: :ok, through_height: through} = counts when through >= 0 -> %>
+          <p>
+            Counts cover blocks
+            <span class="font-mono tabular-nums">0</span>
+            to
+            <span class="font-mono tabular-nums"><%= delimit(through) %></span>
+            of <span class="font-mono tabular-nums"><%= delimit(counts.tip) %></span> known.
+            Every block in that range is verified complete and typed, so the counts grow as the sync climbs toward the tip.
+            <%= if through < counts.complete_through do %>
+              Blocks
+              <span class="font-mono tabular-nums"><%= delimit(through + 1) %></span>
+              to
+              <span class="font-mono tabular-nums"><%= delimit(counts.complete_through) %></span>
+              are complete and not typed yet.
+            <% end %>
+          </p>
+          <p class="mt-2 text-gray-600 dark:text-gray-400">
+            A transaction with several types counts once under each, and anything no type matches counts as custom.
+            Computed by type counts v<%= counts.version %> at
+            <time
+              datetime={DateTime.to_iso8601(counts.computed_at)}
+              class="font-mono tabular-nums"
+            ><%= Calendar.strftime(counts.computed_at, "%Y-%m-%d %H:%M UTC") %></time>, from the block tallies.
+          </p>
+        <% %{status: :ok} = counts -> %>
+          <p id="types-no-counts">
+            <%= Counts.coverage_note(counts) %>
+          </p>
+        <% %{status: :pending} -> %>
+          <p>
+            Counts are being computed.
+            They appear here within a few minutes.
+          </p>
+        <% _ -> %>
+          <p>
+            Counts are unavailable right now.
+          </p>
+      <% end %>
+    </div>
+
+    <section
+      :for={group <- @groups}
+      id={"group-#{group.id}"}
+      aria-labelledby={"group-#{group.id}-heading"}
+      class="mb-10 scroll-mt-4"
+    >
+      <h3
+        id={"group-#{group.id}-heading"}
+        class="text-xl font-semibold text-gray-900 dark:text-white mb-1"
+      >
+        <%= group.title %>
+      </h3>
+      <p class="text-gray-600 dark:text-gray-400 mb-4">
+        <%= group.summary %>
+      </p>
+      <ul
+        role="list"
+        class="grid grid-cols-1 gap-3 sm:grid-cols-2"
+      >
+        <li :for={type <- group.types}>
+          <.link
+            id={"type-#{type.id}"}
+            navigate={~p"/types/#{type.id}"}
+            class="block h-full bg-white border border-gray-200 rounded-lg p-4 hover:border-orange-400 dark:bg-gray-800 dark:border-gray-700"
+          >
+            <span class="flex items-center justify-between gap-3 mb-1">
+              <span class="font-semibold text-gray-900 dark:text-white">
+                <%= type.title %>
+              </span>
+              <span class="shrink-0 rounded-full bg-gray-100 px-2.5 py-0.5 font-mono text-xs font-semibold text-gray-800 dark:bg-gray-900 dark:text-gray-200">
+                <%= type.short %>
+              </span>
+            </span>
+            <span class="block text-sm text-gray-700 dark:text-gray-300">
+              <%= type.summary %>
+            </span>
+            <span
+              :if={count = count(@counts, type)}
+              id={"type-#{type.id}-count"}
+              class="mt-2 block text-xs text-gray-600 dark:text-gray-400"
+            >
+              <%= if count.txs > 0 do %>
+                <span class="font-mono tabular-nums"><%= txs(count.txs) %></span>
+                since block
+                <span class="font-mono tabular-nums"><%= delimit(count.first_height) %></span>
+              <% else %>
+                none yet in the blocks counted
+              <% end %>
+            </span>
+          </.link>
+        </li>
+      </ul>
+    </section>
   </section>
 
   <section
@@ -166,15 +213,18 @@
     aria-labelledby="protocols-heading"
     class="mb-10"
   >
+    <p class="text-sm font-semibold uppercase tracking-widest text-orange-700 dark:text-orange-300 mb-1">
+      Layer 4
+    </p>
     <h2
       id="protocols-heading"
-      class="text-2xl font-semibold text-gray-900 dark:text-white mb-1"
+      class="text-3xl font-bold text-gray-900 dark:text-white mb-2"
     >
-      Registered protocols
+      Application protocols
     </h2>
     <p class="text-gray-600 dark:text-gray-400 mb-1 max-w-3xl">
       <%= @protocol_count %> application protocols, each named by a Bitcoin address placed first in its data.
-      Some are also a type above, and each of those links to its type.
+      Some are also a transaction type, and each of those links to its type.
     </p>
     <p class="text-gray-600 dark:text-gray-400 mb-4 max-w-3xl">
       Who owns an address is on the

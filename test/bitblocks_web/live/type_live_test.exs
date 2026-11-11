@@ -59,6 +59,20 @@ defmodule BitblocksWeb.TypeLiveTest do
 
       for level <- 1..4, do: assert(has_element?(view, "#layer-#{level}"))
       assert has_element?(view, ~s(#layer-4 a[href="#protocols"]))
+      assert has_element?(view, ~s(#layer-3 a[href="#transactions"]))
+    end
+
+    test "the layers are the page's map: the types sit under layer 3, the registry is layer 4",
+         %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/types")
+
+      assert has_element?(view, "#layer-3", "On this page")
+      assert has_element?(view, "#layer-4", "On this page")
+      refute has_element?(view, "#layer-2", "On this page")
+      assert has_element?(view, "#transactions #group-cash h3", "Cash")
+      assert has_element?(view, "#transactions #type-counts-coverage")
+      assert has_element?(view, ~s(#type-groups-nav a[href="#group-cash"]))
+      assert has_element?(view, "#protocols", "Layer 4")
     end
 
     test "a seeded protocol reads Curated, never Verified", %{conn: conn} do
