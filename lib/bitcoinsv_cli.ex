@@ -622,6 +622,29 @@ defmodule BitcoinsvCli do
   end
 
   @doc """
+  The same REST block, `GET /rest/block/<hash>.bin`, handed to `fun` chunk by
+  chunk as it arrives instead of held whole (#66; `Bitblocks.Chain.BlockStream`
+  parses it). `fun.(chunk, acc)` returns `{:cont, acc}` or `{:halt, acc}`.
+  Each chunk must arrive within the RPC receive timeout; the whole read has
+  no bound of its own. Returns `{:ok, acc}`, or `{:error, reason}`
+  (`{:http_error, 404}` when REST is off or the block unknown). There is no
+  RPC fallback: `getblock(hash, 0)` returns the block as one hex string.
+  """
+  def rest_block_stream(hash, acc, fun) do
+    {_connect, recv_timeout} = rpc_timeouts()
+
+    with {:ok, base} <- rest_base() do
+      case Bitblocks.HTTP.stream_get("#{base}/rest/block/#{hash}.bin", [], acc, fun,
+             receive_timeout: recv_timeout
+           ) do
+        {:ok, 200, acc} -> {:ok, acc}
+        {:ok, status, _acc} -> {:error, {:http_error, status}}
+        {:error, reason} -> {:error, {:connection_error, reason}}
+      end
+    end
+  end
+
+  @doc """
   The node's REST chain info, the cheapest REST call: `{:ok, body}` or
   `{:error, reason}` (`{:http_error, 404}` when REST is off).
   """

@@ -74,6 +74,55 @@ defmodule Bitblocks.HTTP do
           {:ok, Finch.Response.t()} | {:error, term()}
   def post(url, body, headers \\ [], opts \\ []), do: request(:post, url, headers, body, opts)
 
+  @doc """
+  A GET whose body is handed to `fun` chunk by chunk as it arrives, so it is
+  never held whole (#66). `fun.(chunk, acc)` returns `{:cont, acc}` or
+  `{:halt, acc}`; halting closes the connection. Only a 2xx body reaches
+  `fun`; any other status ends the read at once.
+
+  Returns `{:ok, status, acc}` (`acc` as `fun` left it; untouched for a
+  non-2xx), or `{:error, reason}` when the transport fails, a chunk takes
+  longer than `:receive_timeout`, or the whole read takes longer than
+  `:request_timeout`. Takes the same timeout options as `request/5`.
+  """
+  @spec stream_get(
+          String.t(),
+          headers(),
+          acc,
+          (binary(), acc -> {:cont, acc} | {:halt, acc}),
+          keyword()
+        ) :: {:ok, non_neg_integer(), acc} | {:error, term()}
+        when acc: term()
+  def stream_get(url, headers, acc, fun, opts \\ []) do
+    opts = Keyword.take(opts, [:receive_timeout, :request_timeout, :pool_timeout])
+
+    step = fn
+      {:status, status}, {_status, acc} when status in 200..299 ->
+        {:cont, {status, acc}}
+
+      {:status, status}, {_status, acc} ->
+        {:halt, {status, acc}}
+
+      {:data, data}, {status, acc} ->
+        case fun.(data, acc) do
+          {:cont, acc} -> {:cont, {status, acc}}
+          {:halt, acc} -> {:halt, {status, acc}}
+        end
+
+      {_headers_or_trailers, _}, state ->
+        {:cont, state}
+    end
+
+    with {:ok, req} <- build(:get, url, headers, nil) do
+      case Finch.stream_while(req, @finch, {nil, acc}, step, opts) do
+        {:ok, {status, acc}} -> {:ok, status, acc}
+        {:error, error, _acc} -> {:error, reason(error)}
+      end
+    end
+  catch
+    :exit, exit_reason -> {:error, exit_reason(exit_reason)}
+  end
+
   @doc "Any request. See the module doc for options and return shapes."
   @spec request(method(), String.t(), headers(), iodata() | nil, keyword()) ::
           {:ok, Finch.Response.t()} | {:error, term()}

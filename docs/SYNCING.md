@@ -46,7 +46,7 @@ A header gap below it is found by an index-only count of heights, and only searc
    No `getrawtransaction` is sent for these blocks.
    SV's `getblockheader` reports no size, so until a raw fetch records `size` the gate is `num_tx` at most 20,000; REST refuses a body over the cap either way.
    Larger blocks, and blocks the node can't serve whole (pruned, unreachable), use the txid list (`TxidSource`, merkleroot-checked) and fetch bodies per chunk (`TxSources`).
-   Streaming a GB block through a bounded parser is the follow-up.
+   A bounded streaming parser for blocks of any size exists (`Chain.BlockStream`, #66) and reads the donation scan's large blocks; the sync doesn't use it yet.
 5. **Bounded runs.**
    A run stops after `:tx_fetch_run_ms` (30 s, inside Oban's 60 s shutdown grace), saves the chunk it reached in the job's meta, and snoozes; the same job resumes there.
    A raw block is downloaded again on each resumed run, which only happens to blocks that take longer than a run to store.

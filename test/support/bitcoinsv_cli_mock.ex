@@ -26,6 +26,27 @@ defmodule BitcoinsvCliMock do
     call(:rest_block, [hash], {:rest_block, hash})
   end
 
+  # The rest_block stub's bytes, handed to `fun` in 64 KB chunks the way
+  # Finch would hand them over.
+  def rest_block_stream(hash, acc, fun) do
+    case call(:rest_block_stream, [hash], {:rest_block, hash}) do
+      {:ok, bytes} when is_binary(bytes) -> {:ok, feed(bytes, acc, fun)}
+      other -> other
+    end
+  end
+
+  defp feed(<<>>, acc, _fun), do: acc
+
+  defp feed(bytes, acc, fun) do
+    size = min(byte_size(bytes), 65_536)
+    <<chunk::binary-size(size), rest::binary>> = bytes
+
+    case fun.(chunk, acc) do
+      {:cont, acc} -> feed(rest, acc, fun)
+      {:halt, acc} -> acc
+    end
+  end
+
   def getblockhash(height) do
     call(:getblockhash, [height], {:getblockhash, height})
   end

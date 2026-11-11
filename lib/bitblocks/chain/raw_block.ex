@@ -18,8 +18,8 @@ defmodule Bitblocks.Chain.RawBlock do
   `getblockheader` reports no size, so the gate is the stored `size` when a
   raw fetch has recorded it, else `num_tx` at most `:raw_block_max_txs`
   (default 20,000); REST also refuses a body over the cap. Larger blocks
-  keep the per-tx path. Streaming a GB block through a bounded parser is the
-  follow-up.
+  keep the per-tx path; `Chain.BlockStream` reads a block of any size as a
+  stream, in bounded memory (#66).
 
   ## Checks
   The first 80 bytes must hash to the block's hash. Every txid is derived
@@ -285,6 +285,31 @@ defmodule Bitblocks.Chain.RawBlock do
       "vin" => inputs,
       "vout" => outputs |> Enum.with_index() |> Enum.map(fn {out, n} -> Map.put(out, "n", n) end)
     }
+  end
+
+  @doc """
+  A tx's inputs as `{prev_txid, vout, script_sig}` (`prev_txid` in internal
+  byte order; all zeros for a coinbase) and its outputs as `{sats, script}`,
+  every binary a sub-binary of `tx_bytes`: nothing hex-encoded or copied, for
+  readers that look at a few fields of every tx in a large block.
+  """
+  @spec tx_io(binary()) ::
+          {[{binary(), non_neg_integer(), binary()}], [{non_neg_integer(), binary()}]}
+  def tx_io(tx_bytes) do
+    <<_version::binary-4, rest::binary>> = tx_bytes
+    {inputs, rest} = read_items(rest, &read_raw_input/1)
+    {outputs, <<_locktime::binary-4>>} = read_items(rest, &read_raw_output/1)
+    {inputs, outputs}
+  end
+
+  defp read_raw_input(<<prev::binary-32, vout::little-32, rest::binary>>) do
+    {script, <<_sequence::binary-4, rest::binary>>} = read_script(rest)
+    {{prev, vout, script}, rest}
+  end
+
+  defp read_raw_output(<<satoshis::little-64, rest::binary>>) do
+    {script, rest} = read_script(rest)
+    {{satoshis, script}, rest}
   end
 
   defp read_items(bytes, read_one) do
