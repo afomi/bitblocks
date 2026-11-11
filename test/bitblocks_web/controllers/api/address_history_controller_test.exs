@@ -1,7 +1,9 @@
 defmodule BitblocksWeb.Api.AddressHistoryControllerTest do
   # WhatsOnChain answers from this process's dictionary (Bitblocks.WocStub)
   # and the cache is keyed by a fresh address per test, so tests stay apart.
-  use BitblocksWeb.ConnCase, async: true
+  # Not async: every test stores the same heights (0..9) and spends the same
+  # funding outpoint, so two at once deadlock in Postgres on those keys.
+  use BitblocksWeb.ConnCase, async: false
 
   import Bitblocks.ChainFixtures
 
