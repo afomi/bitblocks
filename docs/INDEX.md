@@ -30,6 +30,7 @@ Docs marked *(mixed)* are mostly aspirational but contain sections that accurate
 - `USAGE_METERING.md` — usage metering (#61): requests, response bytes, database time and upstream calls by caller and endpoint class, rolled up hourly, read with `Release.usage_report/1`, `/usage` and `GET /api/v1/usage`; measured, nobody charged.
 - `SITEMAP.md` — all routes, grouped by access level and function.
 - `field-notes/` — dated, single-claim research notes from reading the chain with Bitblocks (see its README).
+- `WOC_USE.md` — WhatsOnChain as a raw-tx source only: the rule, collection tracing from our own spend index, every other WhatsOnChain use with what our index would answer instead, and the tracked-outputs proposal.
 - `BSV20_TOKENS.md` — the implemented BSV-20/BSV-21 token indexer (read side of the DEX).
 - `BAP.md` — the BAP identity index (#32): the rules for valid, accepted, rotation and newest, and how to read it.
 - `BITCOM.md` — the live Bitcom registry: command log, tiers, `/bitcom` pages, JSON export.
