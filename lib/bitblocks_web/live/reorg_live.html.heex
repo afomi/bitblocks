@@ -9,70 +9,11 @@
       Their transactions are not lost: most were also mined on the winning branch, and the rest return to the mempool to be mined again.
     </p>
     <p
-      id="reorg-scope"
-      class="mb-10 leading-relaxed"
+      id="reorg-what-happens"
+      class="leading-relaxed"
     >
-      Bitblocks is an index, not a miner, so it reads the chain from the Bitcoin SV node it follows.
-      Each entry below is a moment that node switched branches at a height we had already stored, as we saw it from that node.
-      We then realign our headers to the winning branch and set aside the rows from the stale blocks.
+      Most reorganizations are one block deep and settle when the next block arrives, and the deeper a block sits under later blocks, the less likely it is to change.
+      That is why a payment is treated as more final with each confirmation, and why an explorer or index follows its node to the winning branch rather than keeping the stale one.
     </p>
-
-    <%= if @reorgs == [] do %>
-      <p
-        id="reorg-empty"
-        class="text-gray-900 dark:text-gray-100"
-      >
-        No reorganization has been recorded yet.
-      </p>
-    <% else %>
-      <ol class="border-l border-gray-300 dark:border-gray-600 ml-2 space-y-8">
-        <%= for reorg <- @reorgs do %>
-          <li
-            id={"reorg-#{reorg.id}"}
-            class="pl-6 relative"
-          >
-            <span
-              class="absolute -left-1.5 top-1.5 h-3 w-3 rounded-full bg-gray-500 dark:bg-gray-400"
-              aria-hidden="true"
-            >
-            </span>
-            <p class="font-mono text-sm text-gray-600 dark:text-gray-400 mb-1">
-              <time datetime={DateTime.to_iso8601(reorg.detected_at)}>
-                <%= annotation_time(reorg) %>
-              </time>
-              <% by = @resolved_later[reorg.id] %>
-              <%= cond do %>
-                <% by -> %>
-                  <span class="ml-2 uppercase tracking-wide font-semibold text-gray-700 dark:text-gray-300">
-                    Resolved later
-                  </span>
-                <% reorg.outcome == "needs_attention" -> %>
-                  <span class="ml-2 uppercase tracking-wide font-semibold text-red-700 dark:text-red-400">
-                    Needs a person
-                  </span>
-                <% true -> %>
-                  <span class="ml-2 uppercase tracking-wide font-semibold text-gray-700 dark:text-gray-300">
-                    Headers realigned
-                  </span>
-              <% end %>
-            </p>
-            <p class="text-gray-900 dark:text-gray-100 leading-relaxed">
-              <%= reorg.summary %>
-            </p>
-            <p
-              :if={by}
-              class="mt-1 text-sm text-gray-700 dark:text-gray-300"
-            >
-              A later run resolved this fork, at
-              <a
-                href={"#reorg-#{by.id}"}
-                class="underline text-blue-700 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
-              ><%= annotation_time(by) %></a>.
-              Nothing is left for a person to do.
-            </p>
-          </li>
-        <% end %>
-      </ol>
-    <% end %>
   </div>
 </div>

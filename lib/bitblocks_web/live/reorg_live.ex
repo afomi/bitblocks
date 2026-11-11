@@ -1,7 +1,6 @@
 defmodule BitblocksWeb.ReorgLive do
   use BitblocksWeb, :live_view
 
-  alias Bitblocks.Reorgs
   alias BitblocksWeb.Seo
 
   @impl true
@@ -10,20 +9,10 @@ defmodule BitblocksWeb.ReorgLive do
       Seo.public_page(
         page_title: "Chain reorganizations",
         meta_description:
-          "What a Bitcoin SV chain reorganization is and what happens to its blocks, and the times the node Bitblocks follows switched branches at a height we had stored.",
+          "What a Bitcoin SV chain reorganization is, and what happens to the stale blocks and their transactions.",
         canonical_path: "/reorgs"
       )
 
-    reorgs = Reorgs.list_reorgs()
-
-    {:ok,
-     socket
-     |> assign(seo)
-     |> assign(reorgs: reorgs, resolved_later: Reorgs.resolved_later(reorgs))}
-  end
-
-  @doc false
-  def annotation_time(%{detected_at: %DateTime{} = detected_at}) do
-    Calendar.strftime(detected_at, "%Y-%m-%d %H:%M UTC")
+    {:ok, assign(socket, seo)}
   end
 end

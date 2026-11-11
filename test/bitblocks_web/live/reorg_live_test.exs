@@ -11,34 +11,26 @@ defmodule BitblocksWeb.ReorgLiveTest do
     assert ReorgNotice.current(fn -> raise "relation \"reorgs\" does not exist" end) == nil
   end
 
-  test "the timeline explains itself when nothing has been recorded", %{conn: conn} do
-    {:ok, _view, html} = live(conn, ~p"/reorgs")
+  test "the page explains what a reorganization is and what happens", %{conn: conn} do
+    {:ok, view, html} = live(conn, ~p"/reorgs")
 
     assert html =~ "Chain reorganizations"
-    assert html =~ "No reorganization has been recorded yet."
+    assert html =~ "the branch with the most work"
+    assert has_element?(view, "#reorg-what-happens", "confirmation")
     refute html =~ "id=\"reorg-notice\""
   end
 
-  test "a recorded reorg is an annotation on the timeline", %{conn: conn} do
+  test "the page is instructional only: recorded reorgs are not listed", %{conn: conn} do
     {:ok, reorg} =
       Reorgs.record_observed(
-        %{
-          fork_height: 800_000,
-          fork_point: 799_998,
-          orphan_count: 2,
-          outcome: "resolved"
-        },
-        DateTime.utc_now() |> DateTime.truncate(:second)
+        %{fork_height: 654_321, fork_point: 654_311, orphan_count: 10, outcome: "resolved"},
+        ~U[2020-01-01 00:00:00Z]
       )
 
     {:ok, _view, html} = live(conn, ~p"/reorgs")
 
-    assert html =~ "id=\"reorg-#{reorg.id}\""
-    assert html =~ "800000"
-    assert html =~ "799998"
-    assert html =~ "2 blocks"
-    assert html =~ "id=\"reorg-notice\""
-    refute html =~ "No reorganization has been recorded yet."
+    refute html =~ "id=\"reorg-#{reorg.id}\""
+    refute html =~ "654321"
   end
 
   test "a fresh reorg is announced on other pages", %{conn: conn} do
@@ -59,56 +51,5 @@ defmodule BitblocksWeb.ReorgLiveTest do
     assert html =~ "800010"
     assert html =~ "A chain reorganization needs a person."
     assert html =~ ~s(href="/reorgs")
-  end
-
-  test "an old resolved reorg stays on the timeline and leaves the banner", %{conn: conn} do
-    {:ok, reorg} =
-      Reorgs.record_observed(
-        %{fork_height: 654_321, fork_point: 654_311, orphan_count: 10, outcome: "resolved"},
-        ~U[2020-01-01 00:00:00Z]
-      )
-
-    {:ok, _view, html} = live(conn, ~p"/reorgs")
-
-    assert html =~ "id=\"reorg-#{reorg.id}\""
-    assert html =~ "654321"
-    refute html =~ "id=\"reorg-notice\""
-  end
-
-  test "a fork a later run resolved reads as resolved, not as needing a person", %{conn: conn} do
-    first = ~U[2026-11-03 23:50:00Z]
-
-    {:ok, stale} =
-      Reorgs.record_observed(%{fork_height: 957_302, outcome: "needs_attention"}, first)
-
-    {:ok, resolved} =
-      Reorgs.record_observed(
-        %{fork_height: 957_302, fork_point: 957_300, orphan_count: 1, outcome: "resolved"},
-        ~U[2026-11-04 00:56:00Z]
-      )
-
-    {:ok, view, _html} = live(conn, ~p"/reorgs")
-
-    refute has_element?(view, "#reorg-#{stale.id}", "Needs a person")
-    assert has_element?(view, "#reorg-#{stale.id}", "Resolved later")
-    assert has_element?(view, ~s(#reorg-#{stale.id} a[href="#reorg-#{resolved.id}"]))
-    assert has_element?(view, "#reorg-#{resolved.id}", "Headers realigned")
-  end
-
-  test "a fork nothing resolved still needs a person", %{conn: conn} do
-    {:ok, open} =
-      Reorgs.record_observed(
-        %{fork_height: 900_000, outcome: "needs_attention"},
-        ~U[2026-11-04 00:00:00Z]
-      )
-
-    {:ok, _} =
-      Reorgs.record_observed(
-        %{fork_height: 800_000, fork_point: 799_999, orphan_count: 1, outcome: "resolved"},
-        ~U[2026-11-04 01:00:00Z]
-      )
-
-    {:ok, view, _html} = live(conn, ~p"/reorgs")
-    assert has_element?(view, "#reorg-#{open.id}", "Needs a person")
   end
 end
