@@ -92,18 +92,47 @@ defmodule Bitblocks.Support.Scan do
             Map.put(stats, :stopped, :tip)
 
           block ->
-            case read_block(address, block) do
-              {:ok, sats} ->
-                read_from(address, height + 1, deadline, %{
-                  stats
-                  | read: stats.read + 1,
-                    gift_sats: stats.gift_sats + sats
-                })
-
-              {:error, reason} ->
-                Map.put(stats, :stopped, {height, reason})
+            case backing_off(address, block) do
+              {:wait, until} -> Map.put(stats, :stopped, {height, {:backing_off, until}})
+              :go -> read_and_continue(address, block, height, deadline, stats)
             end
         end
+    end
+  end
+
+  defp read_and_continue(address, block, height, deadline, stats) do
+    case read_block(address, block) do
+      {:ok, sats} ->
+        read_from(address, height + 1, deadline, %{
+          stats
+          | read: stats.read + 1,
+            gift_sats: stats.gift_sats + sats
+        })
+
+      {:error, reason} ->
+        Map.put(stats, :stopped, {height, reason})
+    end
+  end
+
+  # A block whose reads keep failing is tried again after 1, 2, 4 ... minutes,
+  # capped at an hour, as the sync backs off its own failures, so a block the
+  # node can't serve isn't asked for every two minutes.
+  @max_backoff_minutes 60
+
+  @doc false
+  def next_try(%BlockScan{status: "failed", attempts: n, scanned_at: at}) when n > 0,
+    do: DateTime.add(at, min(Integer.pow(2, n - 1), @max_backoff_minutes) * 60, :second)
+
+  def next_try(_scan), do: nil
+
+  defp backing_off(address, block) do
+    with %BlockScan{block_hash: hash} = scan when hash == block.hash <-
+           Repo.get_by(BlockScan, address: address, height: block.height),
+         %DateTime{} = until <- next_try(scan),
+         :gt <- DateTime.compare(until, DateTime.utc_now()) do
+      {:wait, until}
+    else
+      _ -> :go
     end
   end
 
@@ -323,7 +352,8 @@ defmodule Bitblocks.Support.Scan do
        when hash == block.hash do
     "Block #{block.height} couldn't be read yet (#{scan.error}; " <>
       "#{scan.attempts} #{if scan.attempts == 1, do: "try", else: "tries"}, last at " <>
-      "#{Calendar.strftime(scan.scanned_at, "%H:%M UTC")}); it is tried again every two minutes."
+      "#{Calendar.strftime(scan.scanned_at, "%H:%M UTC")}); the next try is at " <>
+      "#{Calendar.strftime(next_try(scan), "%H:%M UTC")}."
   end
 
   defp describe(block, %BlockScan{status: "reading", block_hash: hash} = scan)

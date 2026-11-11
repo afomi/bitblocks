@@ -125,6 +125,10 @@ defmodule Bitblocks.Support.ScanTest do
     assert [%BlockScan{status: "failed", attempts: 1, gift_sats: 0}] = Repo.all(BlockScan)
     assert %{through: -1} = Scan.coverage(@address, -1)
 
+    # Tried again only after the backoff: 1 minute after the first failure.
+    assert {:ok, %{read: 0, stopped: {0, {:backing_off, _until}}}} = Scan.run()
+    Repo.update_all(BlockScan, set: [scanned_at: ~U[2020-01-01 00:00:00Z]])
+
     # REST off: no fallback for a block this size.
     RpcStub.stub_rest_block(@genesis_hash, {:error, {:http_error, 404}})
     assert {:ok, %{read: 0, stopped: {0, {:http_error, 404}}}} = Scan.run()
@@ -133,10 +137,23 @@ defmodule Bitblocks.Support.ScanTest do
     summary = Support.summary()
     assert summary.received_sats_total == 0
     assert summary.received_note =~ "Block 0 couldn't be read yet ({:http_error, 404}; 2 tries"
+    assert summary.received_note =~ "the next try is at"
 
     RpcStub.stub_rest_block(@genesis_hash, {:ok, bytes})
+    Repo.update_all(BlockScan, set: [scanned_at: ~U[2020-01-01 00:00:00Z]])
     assert {:ok, %{read: 1, gift_sats: 5_000_000_000}} = Scan.run()
     assert [%BlockScan{status: "read", error: nil, attempts: 0}] = Repo.all(BlockScan)
+  end
+
+  test "failed reads back off 1, 2, 4 ... minutes, capped at an hour" do
+    at = ~U[2026-11-11 22:00:00Z]
+
+    for {n, minutes} <- [{1, 1}, {2, 2}, {3, 4}, {7, 60}, {30, 60}] do
+      scan = %BlockScan{status: "failed", attempts: n, scanned_at: at}
+      assert Scan.next_try(scan) == DateTime.add(at, minutes * 60, :second)
+    end
+
+    assert Scan.next_try(%BlockScan{status: "read"}) == nil
   end
 
   test "a block that fails to fetch counts nothing, and its reason is kept" do
