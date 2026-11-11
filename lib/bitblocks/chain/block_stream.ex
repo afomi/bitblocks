@@ -69,7 +69,13 @@ defmodule Bitblocks.Chain.BlockStream do
     started = System.monotonic_time(:millisecond)
     state = new(block, Keyword.get(opts, :max_tx_bytes, max_tx_bytes()))
 
+    # Bytes received, kept outside the stream's accumulator so a transport
+    # failure mid-block can still say how far it got (time limit or size?).
+    received = :counters.new(1, [])
+
     feed = fn chunk, {state, acc} ->
+      :counters.add(received, 1, byte_size(chunk))
+
       case push(state, chunk, acc, fun) do
         {:ok, state, acc} -> {:cont, {state, acc}}
         {:error, reason} -> {:halt, {{:error, reason}, acc}}
@@ -93,7 +99,14 @@ defmodule Bitblocks.Chain.BlockStream do
         end
 
       {:error, reason} ->
-        {:error, reason}
+        case :counters.get(received, 1) do
+          0 ->
+            {:error, reason}
+
+          bytes ->
+            {:error,
+             {reason, after_bytes: bytes, after_ms: System.monotonic_time(:millisecond) - started}}
+        end
     end
   end
 

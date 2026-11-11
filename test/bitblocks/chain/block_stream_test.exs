@@ -211,12 +211,16 @@ defmodule Bitblocks.Chain.BlockStreamTest do
              collect(%Block{hash: String.duplicate("ab", 32), num_tx: 1, height: 1})
   end
 
-  test "a chunk slower than the receive timeout ends the read" do
+  test "a chunk slower than the receive timeout ends the read, saying how far it got" do
     meta = serve_block(200_000)
     serve_as(meta.hash, &Map.merge(&1, %{stall_after: 50_000, stall_ms: 600}))
     Application.put_env(:bitblocks, :bitcoin_rpc_recv_timeout_ms, 200)
 
-    assert {:error, {:connection_error, :timeout}} = collect(block(meta))
+    assert {:error, {{:connection_error, :timeout}, after_bytes: bytes, after_ms: ms}} =
+             collect(block(meta))
+
+    assert bytes >= 50_000 and bytes < 200_000
+    assert ms >= 200
   end
 
   # #66's acceptance test: a block far over the 32 MB raw cap parses with
