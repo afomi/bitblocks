@@ -10,7 +10,6 @@ defmodule Bitblocks.Support do
   """
 
   alias Bitblocks.Chain
-  alias Bitblocks.Support.Recent
 
   # ~30 days of blocks at 10 minutes each.
   @month_of_blocks 30 * 24 * 6
@@ -24,13 +23,14 @@ defmodule Bitblocks.Support do
     * `costs` — `[%{item, usd}]`, and `monthly_target_usd` (their sum, or nil
       when no costs are configured)
     * `sponsor_url`, `bsv_address` — nil when not configured
-    * `received_sats_30d`, `received_sats_total` — given to `bsv_address`
-      (nil without an address): from our index through `complete_through`,
-      plus the blocks above it from WhatsOnChain (`Support.Recent`)
-    * `received_through_height` — the block both totals are complete
-      through: WhatsOnChain's tip when it answered, else `complete_through`
-    * `received_sources` — each source with the heights it covers and, for
-      WhatsOnChain, `status` ok or unavailable (then its gifts are left out)
+    * `received_sats_total` — given to `bsv_address` (nil without an
+      address), from our own index through `complete_through`
+    * `received_sats_30d` — the same over the last 30 days, or nil with
+      `received_30d_reason` while the index doesn't reach into that window
+    * `received_through_height` — the block the totals are complete through
+    * `received_pending_from_height` — the first block not counted yet, and
+      `received_note`, a sentence saying so
+    * `received_sources` — the one source, our index, with its heights
     * `received_usd_30d` — at the cached spot price (nil without a price)
   """
   def summary do
@@ -51,7 +51,10 @@ defmodule Bitblocks.Support do
       bsv_address: address,
       received_sats_total: received.total,
       received_sats_30d: received.last_30d,
+      received_30d_reason: received.last_30d_reason,
       received_through_height: received.through_height,
+      received_pending_from_height: received.pending_from_height,
+      received_note: received.note,
       received_sources: received.sources,
       received_usd_30d: to_usd(received.last_30d)
     }
@@ -59,10 +62,20 @@ defmodule Bitblocks.Support do
 
   defp config, do: Application.get_env(:bitblocks, :support, [])
 
-  defp received(nil), do: %{total: nil, last_30d: nil, through_height: nil, sources: []}
+  defp received(nil),
+    do: %{
+      total: nil,
+      last_30d: nil,
+      last_30d_reason: nil,
+      through_height: nil,
+      pending_from_height: nil,
+      note: nil,
+      sources: []
+    }
 
-  # Our index through complete_through, where every block is stored, and
-  # WhatsOnChain above it, so no block is counted twice or skipped.
+  # Our own index only, through complete_through, where every block is
+  # stored (#74, option 2: no third-party history). A gift in a newer block
+  # counts once the sync reaches it, and the summary says where that starts.
   defp received(address) do
     indexed_through = Bitblocks.Sync.complete_through()
 
@@ -72,41 +85,28 @@ defmodule Bitblocks.Support do
         nil -> 0
       end
 
-    stored = Chain.received_for_address(address, max_height: indexed_through)
+    total = Chain.received_for_address(address, max_height: indexed_through)
 
-    stored_30d =
-      Chain.received_for_address(address, min_height: min_height, max_height: indexed_through)
+    # The 30-day window is only an answer once the index reaches into it;
+    # below that a 0 would read as "no gifts", so it is nil with a reason.
+    {last_30d, last_30d_reason} =
+      if indexed_through >= min_height do
+        {Chain.received_for_address(address, min_height: min_height, max_height: indexed_through),
+         nil}
+      else
+        {nil,
+         "The last 30 days start at block #{min_height}, and the index is complete through block #{indexed_through}."}
+      end
 
-    index = %{source: "index", from_height: 0, through_height: indexed_through}
-
-    case Recent.get(address, indexed_through) do
-      {:ok, %{gifts: gifts, through_height: woc_through}} ->
-        recent = Enum.sum_by(gifts, & &1.sats)
-        recent_30d = gifts |> Enum.filter(&(&1.height >= min_height)) |> Enum.sum_by(& &1.sats)
-
-        %{
-          total: stored + recent,
-          last_30d: stored_30d + recent_30d,
-          through_height: woc_through || indexed_through,
-          sources: [index, woc_source("ok", indexed_through, woc_through)]
-        }
-
-      {:error, _reason} ->
-        %{
-          total: stored,
-          last_30d: stored_30d,
-          through_height: indexed_through,
-          sources: [index, woc_source("unavailable", indexed_through, nil)]
-        }
-    end
-  end
-
-  defp woc_source(status, indexed_through, through_height) do
     %{
-      source: "whatsonchain",
-      from_height: indexed_through + 1,
-      through_height: through_height,
-      status: status
+      total: total,
+      last_30d: last_30d,
+      last_30d_reason: last_30d_reason,
+      through_height: indexed_through,
+      pending_from_height: indexed_through + 1,
+      note:
+        "Counted from our own index through block #{indexed_through}. Gifts in later blocks count once the sync reaches them.",
+      sources: [%{source: "index", from_height: 0, through_height: indexed_through}]
     }
   end
 

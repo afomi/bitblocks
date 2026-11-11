@@ -5,9 +5,9 @@ defmodule Bitblocks.Woc.AddressHistory do
 
   Our index answers through `Sync.complete_through/0`; this answers above
   it, so a reader sees a payment soon after it confirms rather than when
-  the sync climbs to its block. Two readers share it: the donation totals
-  (`Bitblocks.Support.Recent`, #74) and address history
-  (`Bitblocks.Chain.AddressHistory`, #80).
+  the sync climbs to its block. Its reader is address history
+  (`Bitblocks.Chain.AddressHistory`, #80); the donation totals no longer use
+  it (#74 counts from our own index only).
 
   `above/2` reads the address's confirmed history, keeps the entries above
   a height, and fetches those transactions (getrawtransaction-style maps
