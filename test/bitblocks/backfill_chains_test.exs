@@ -136,6 +136,74 @@ defmodule Bitblocks.BackfillChainsTest do
     assert reload(chain).status == "running"
   end
 
+  defp dead_run(chain, command) do
+    Repo.insert!(%Run{
+      derivation: chain.derivation,
+      version: 1,
+      chain_id: chain.id,
+      outcome: "running",
+      applied: chain.applied,
+      command: command,
+      started_at: minutes_ago(30)
+    })
+  end
+
+  defp status_output(chain), do: capture_io(fn -> Release.backfill_status(chain.id) end)
+
+  # https://github.com/afomi/bitblocks/issues/82
+  test "a paused chain's status says paused and names its next range", %{tx: tx} do
+    chain = size_chain(tx, apply: true)
+    dead_run(chain, "chain ##{chain.id} tx_size #{tx.id}..#{tx.id + 1}")
+    {:ok, _} = BackfillChains.pause(chain.id)
+
+    assert %{current: nil, next_range: {from, to}} = BackfillChains.status(chain.id)
+    assert {from, to} == {tx.id, tx.id + 1}
+
+    output = status_output(chain)
+    assert output =~ "paused; next #{tx.id}..#{tx.id + 1}"
+    refute output =~ "working"
+  end
+
+  test "a chain paused mid-range says it is finishing that range", %{tx: tx} do
+    chain = size_chain(tx, apply: true)
+    command = "chain ##{chain.id} tx_size #{tx.id}..#{tx.id + 1}"
+    dead_run(chain, command)
+    set_heartbeat(chain, DateTime.utc_now())
+    {:ok, _} = BackfillChains.pause(chain.id)
+
+    output = status_output(chain)
+    assert output =~ "paused, finishing #{command}"
+    refute output =~ "working"
+  end
+
+  test "a running chain with a live job reads working", %{tx: tx} do
+    chain = size_chain(tx, apply: true)
+    command = "chain ##{chain.id} tx_size #{tx.id}..#{tx.id + 1}"
+    dead_run(chain, command)
+    set_heartbeat(chain, DateTime.utc_now())
+
+    assert status_output(chain) =~ "working #{command}"
+  end
+
+  test "cancelled and done chains never read working", %{tx: tx} do
+    chain = size_chain(tx, apply: true)
+    dead_run(chain, "chain ##{chain.id} tx_size #{tx.id}..#{tx.id + 1}")
+    {:ok, _} = BackfillChains.cancel(chain.id)
+
+    output = status_output(chain)
+    assert output =~ "cancelled; next #{tx.id}..#{tx.id + 1}"
+    refute output =~ "working"
+
+    Repo.delete_all(Run)
+    other = size_chain(tx, apply: true)
+    :ok = perform(other, tx.id)
+    :ok = perform(other, tx.id + 2)
+
+    output = status_output(other)
+    assert output =~ "2 of 2 range(s) finished, done"
+    refute output =~ "working"
+  end
+
   test "a cancel ends the chain", %{tx: tx} do
     chain = size_chain(tx, apply: true)
     {:ok, _} = BackfillChains.cancel(chain.id)

@@ -306,16 +306,21 @@ defmodule Bitblocks.BackfillChains do
     Repo.all(from(c in BackfillChain, order_by: [desc: c.id], limit: ^limit))
   end
 
+  # `current` is the run a live job is working on. A run left `running` with
+  # no live heartbeat belongs to a job that died (a restart, say, with the
+  # chain paused before the rerun): nothing works on it, so it is not current.
   defp summarize(chain) do
     runs = Repo.all(from(r in Run, where: r.chain_id == ^chain.id, order_by: [asc: r.id]))
     counted = Enum.filter(runs, &(&1.outcome == "ok"))
+    alive = alive?(chain)
 
     %{
       chain: chain,
-      alive: alive?(chain),
+      alive: alive,
       ranges_done: length(counted),
       ranges_total: ranges_total(chain),
-      current: Enum.find(runs, &(&1.outcome == "running")),
+      current: if(alive, do: Enum.find(runs, &(&1.outcome == "running"))),
+      next_range: next_range(chain),
       rows_examined: sum(counted, & &1.rows_examined),
       rows_changed: sum(counted, & &1.rows_changed),
       rows_below_version: sum(counted, &(&1.rows_below_version || 0)),
@@ -326,6 +331,10 @@ defmodule Bitblocks.BackfillChains do
   end
 
   defp ranges_total(c), do: ceil((c.range_to - c.range_from + 1) / c.range_step)
+
+  # The range the chain takes next, or nil once it has passed its end.
+  defp next_range(%{next_from: from, range_to: to}) when from > to, do: nil
+  defp next_range(c), do: {c.next_from, min(c.next_from + c.range_step - 1, c.range_to)}
 
   defp sum(runs, fun), do: runs |> Enum.map(fun) |> Enum.sum()
 
