@@ -102,7 +102,8 @@ defmodule BitblocksWeb.TxPipelinePagesTest do
     assert view |> element("#block-miner-reward") |> render() =~ "—"
   end
 
-  test "the homepage's recent blocks show fees and reward, a dash until completed", %{conn: conn} do
+  test "the homepage's recent blocks show fees and reward once completed, and nothing before",
+       %{conn: conn} do
     block_fixture(%{height: 50, sync_state: "completed", fees: 2_500, miner_reward: 625_002_500})
     block_fixture(%{height: 51, sync_state: "header_only"})
 
@@ -110,7 +111,8 @@ defmodule BitblocksWeb.TxPipelinePagesTest do
 
     assert html =~ "fees 2,500 sats"
     assert html =~ "reward 6.250025 BSV"
-    assert html =~ "fees —"
+    refute html =~ "fees —"
+    assert Regex.scan(~r/fees /, html) |> length() == 1
   end
 
   describe "provenance (docs/DERIVED_DATA.md)" do

@@ -58,6 +58,7 @@ defmodule BitblocksWeb.RecentBlocksComponent do
               {format_count(block.num_tx)} tx
             </span>
             <span
+              :if={Map.get(block, :sync_state) == "completed"}
               class="hidden sm:inline"
               title="Fees paid to the miner, and the miner's reward (subsidy plus fees)"
             >

@@ -69,9 +69,12 @@ defmodule BitblocksWeb.BlockLive.Show do
   end
 
   defp assign_tx_page(socket, page) do
+    txids = Bitblocks.Chain.BlockTxids.page(socket.assigns.block, page, @tx_page_size)
+
     socket
     |> assign(:tx_page, page)
-    |> assign(:txids, Bitblocks.Chain.BlockTxids.page(socket.assigns.block, page, @tx_page_size))
+    |> assign(:txids, txids)
+    |> assign(:tx_summaries, Bitblocks.Chain.BlockTxids.summaries(socket.assigns.block, txids))
   end
 
   defp total_pages(0), do: 1
@@ -83,6 +86,38 @@ defmodule BitblocksWeb.BlockLive.Show do
   def tx_total_pages(total), do: total_pages(total)
 
   defp page_title(:show), do: "Show Block"
+
+  # What `completed` means (docs/SYNCING.md), said for this block.
+  @doc false
+  def complete_sentence(1), do: "Its one transaction is stored, and its txid is the merkle root."
+
+  def complete_sentence(n) when is_integer(n) and n > 1,
+    do:
+      "All #{format_number(n)} transactions are stored, and their txids rebuild the merkle root."
+
+  def complete_sentence(_),
+    do: "Every transaction is stored, and their txids rebuild the merkle root."
+
+  # A stored tx's types as short labels, `custom` last and only when alone
+  # with nothing else, so the row reads what the tx does.
+  @doc false
+  def type_labels(%{tx_types: types}) when is_list(types) do
+    named = Enum.reject(types, &(&1 == "custom"))
+    ids = if named == [], do: types, else: named
+
+    for id <- ids, type = Bitblocks.TxTypes.get(id), do: {id, type.short}
+  end
+
+  def type_labels(_), do: []
+
+  # The sync stages a block passes through, in words.
+  @doc false
+  def step_label("header_only"), do: "Header"
+  def step_label("header_synced"), do: "Txid list"
+  def step_label("txs_queued"), do: "Queued"
+  def step_label("txs_syncing"), do: "Fetching txs"
+  def step_label("completed"), do: "Complete"
+  def step_label(step), do: String.replace(step, "_", " ")
 
   defp format_number(number) when is_integer(number) do
     number

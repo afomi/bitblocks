@@ -83,7 +83,31 @@
       </div>
 
       <div
-        :if={@block.sync_state != "failed"}
+        :if={@block.sync_state == "completed"}
+        id="block-sync-complete"
+        class="flex items-start gap-3 text-sm text-gray-800 dark:text-gray-200"
+      >
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          viewBox="0 0 20 20"
+          fill="currentColor"
+          aria-hidden="true"
+          class="mt-0.5 size-5 shrink-0 text-green-700 dark:text-green-400"
+        >
+          <path
+            fill-rule="evenodd"
+            d="M10 18a8 8 0 1 0 0-16 8 8 0 0 0 0 16Zm3.857-9.809a.75.75 0 0 0-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 1 0-1.06 1.061l2.5 2.5a.75.75 0 0 0 1.137-.089l4-5.5Z"
+            clip-rule="evenodd"
+          />
+        </svg>
+        <p>
+          <span class="font-semibold">Complete.</span>
+          <%= complete_sentence(@block.num_tx) %>
+        </p>
+      </div>
+
+      <div
+        :if={@block.sync_state not in ["failed", "completed"]}
         id="block-sync-steps"
         class="flex items-center gap-1"
       >
@@ -101,7 +125,7 @@
             ]}>
             </div>
             <p class="font-mono text-[10px] text-neutral-500 mt-1.5 text-center">
-              <%= String.replace(step, "_", " ") %>
+              <%= step_label(step) %>
             </p>
           </div>
           <div
@@ -285,11 +309,39 @@
             class="border-t border-neutral-800"
           >
             <%= for txid <- @txids do %>
+              <% summary = @tx_summaries[txid] %>
               <.link
                 navigate={~p"/transactions/#{txid}"}
-                class="block py-2 border-b border-neutral-800 font-mono text-xs text-neutral-400 hover:text-brand-strong dark:hover:text-brand transition-colors duration-150 break-all"
+                id={"block-tx-#{txid}"}
+                class="group block py-2.5 border-b border-neutral-800"
               >
-                <%= txid %>
+                <span class="block font-mono text-xs text-neutral-400 group-hover:text-brand-strong dark:group-hover:text-brand transition-colors duration-150 break-all">
+                  <%= txid %>
+                </span>
+                <span
+                  :if={summary}
+                  class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs"
+                >
+                  <span
+                    :if={summary.coinbase}
+                    class="rounded bg-amber-100 px-1.5 py-0.5 font-semibold text-amber-900 dark:bg-amber-900/40 dark:text-amber-200"
+                  >
+                    Coinbase
+                  </span>
+                  <span
+                    :for={{id, short} <- type_labels(summary)}
+                    data-type={id}
+                    class="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-gray-800 dark:bg-gray-800 dark:text-gray-200"
+                  >
+                    <%= short %>
+                  </span>
+                  <span
+                    :if={is_integer(summary.sats_out)}
+                    class="ml-auto font-mono tabular-nums text-gray-700 dark:text-gray-300"
+                  >
+                    <%= BitblocksWeb.Sats.bsv(summary.sats_out) %>
+                  </span>
+                </span>
               </.link>
             <% end %>
           </div>

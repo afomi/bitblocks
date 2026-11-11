@@ -34,6 +34,25 @@ defmodule Bitblocks.Chain.BlockTxids do
     )
   end
 
+  @doc """
+  What the block page shows beside each txid on a page: the stored row's
+  types, total output and whether it is the coinbase, keyed by txid. One
+  query on the txid index for at most a page of txids; a txid we don't
+  store is absent.
+  """
+  @spec summaries(Block.t(), [String.t()]) :: %{String.t() => map()}
+  def summaries(_block, []), do: %{}
+
+  def summaries(%Block{hash: hash}, txids) when is_list(txids) do
+    from(t in Transaction,
+      where: t.txid in ^txids and t.block_hash == ^hash,
+      select:
+        {t.txid, %{tx_types: t.tx_types, sats_out: t.total_output_satoshis, coinbase: t.coinbase}}
+    )
+    |> Repo.all()
+    |> Map.new()
+  end
+
   @doc "How many of the block's transactions are stored (one indexed count)."
   @spec count(Block.t()) :: non_neg_integer()
   def count(%Block{hash: hash}) do
