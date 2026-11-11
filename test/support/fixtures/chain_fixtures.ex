@@ -43,13 +43,23 @@ defmodule Bitblocks.ChainFixtures do
     block
   end
 
+  # Advisory lock key for completed_chain_fixture/1; any fixed integer.
+  @fixed_chain_lock 4_150_001
+
   @doc """
   Fills heights 0..`through` with `completed` block rows, skipping heights
   already stored, so `Sync.complete_through/0` reaches `through` once the
   stored ones are completed too. Hashes are `"chain-<height>"`.
+
+  Every caller inserts the same heights and hashes, so two async tests doing
+  it at once could deadlock in Postgres (40P01). The fixture first takes a
+  transaction-scoped advisory lock, held until the test's sandbox rolls
+  back, so tests that build a fixed chain wait for each other instead.
   """
   def completed_chain_fixture(through) do
     require Ecto.Query
+
+    Bitblocks.Repo.query!("SELECT pg_advisory_xact_lock($1)", [@fixed_chain_lock])
 
     stored =
       Bitblocks.Repo.all(
