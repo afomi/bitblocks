@@ -145,6 +145,18 @@ defmodule Bitblocks.Support.ScanTest do
     assert [%BlockScan{status: "read", error: nil, attempts: 0}] = Repo.all(BlockScan)
   end
 
+  test "a header with no size and few txs, over the cap, streams; getblock is never asked" do
+    # Block 971,525 in miniature: 367 txs looked small, the block was 145.9 MB.
+    genesis_header(%{size: nil, num_tx: 1})
+    Application.put_env(:bitblocks, :raw_block_max_bytes, 100)
+    on_exit(fn -> Application.delete_env(:bitblocks, :raw_block_max_bytes) end)
+
+    assert {:ok, %{read: 1, gift_sats: 5_000_000_000}} = Scan.run()
+    assert RpcStub.calls(:rest_block) == [[@genesis_hash]]
+    assert RpcStub.calls(:rest_block_stream) == [[@genesis_hash]]
+    assert RpcStub.calls(:getblock) == []
+  end
+
   test "failed reads back off 1, 2, 4 ... minutes, capped at an hour" do
     at = ~U[2026-11-11 22:00:00Z]
 

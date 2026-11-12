@@ -223,27 +223,40 @@ defmodule Bitblocks.Support.Scan do
   # whole; a larger one streams through a bounded parser (#66), whose txs are
   # unverified until it returns :ok.
   defp gifts_in(block, address, pkh) do
-    if RawBlock.eligible?(block) do
-      with {:ok, txs, _stats} <- RawBlock.fetch(block) do
+    # A header may carry no size, and a block of few txs can still be over
+    # the cap (971,525: 367 txs, 145.9 MB), so "too large" from the whole
+    # fetch means stream it, not stop.
+    whole =
+      if RawBlock.eligible?(block), do: RawBlock.fetch(block), else: {:error, :block_too_large}
+
+    case whole do
+      {:ok, txs, _stats} ->
         {:ok,
          for({txid, bytes} <- txs, sats = gift(bytes, address, pkh), sats > 0, do: {txid, sats})}
-      end
-    else
-      collect = fn {txid, bytes}, acc ->
-        case gift(bytes, address, pkh) do
-          0 -> acc
-          sats -> [{txid, sats} | acc]
-        end
-      end
 
-      with {:ok, gifts, stats} <- BlockStream.each_tx(block, [], collect) do
-        Logger.info(
-          "support scan: streamed block #{block.height}, #{stats.bytes} bytes, " <>
-            "#{stats.txs} txs in #{stats.ms} ms"
-        )
+      {:error, :block_too_large} ->
+        stream_gifts(block, address, pkh)
 
-        {:ok, Enum.reverse(gifts)}
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp stream_gifts(block, address, pkh) do
+    collect = fn {txid, bytes}, acc ->
+      case gift(bytes, address, pkh) do
+        0 -> acc
+        sats -> [{txid, sats} | acc]
       end
+    end
+
+    with {:ok, gifts, stats} <- BlockStream.each_tx(block, [], collect) do
+      Logger.info(
+        "support scan: streamed block #{block.height}, #{stats.bytes} bytes, " <>
+          "#{stats.txs} txs in #{stats.ms} ms"
+      )
+
+      {:ok, Enum.reverse(gifts)}
     end
   end
 

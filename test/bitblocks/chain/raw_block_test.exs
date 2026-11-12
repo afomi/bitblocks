@@ -95,6 +95,24 @@ defmodule Bitblocks.Chain.RawBlockTest do
       assert {:error, {:merkleroot_verification_failed, _}} = RawBlock.fetch(block)
     end
 
+    test "a block REST says is over the cap is too large, never fetched again as hex" do
+      Application.put_env(:bitblocks, :raw_block_max_bytes, 100)
+      on_exit(fn -> Application.delete_env(:bitblocks, :raw_block_max_bytes) end)
+      RpcStub.stub_rest_block(@genesis_hash, {:ok, genesis_bytes()})
+
+      assert {:error, :block_too_large} = RawBlock.fetch(genesis_block(%{size: nil}))
+      assert RpcStub.calls(:getblock) == []
+    end
+
+    test "getblock(hash, 0) over the cap is too large, and isn't decoded" do
+      Application.put_env(:bitblocks, :raw_block_source, :rpc)
+      Application.put_env(:bitblocks, :raw_block_max_bytes, 100)
+      on_exit(fn -> Application.delete_env(:bitblocks, :raw_block_max_bytes) end)
+      RpcStub.stub_getblock(@genesis_hash, 0, @genesis_hex)
+
+      assert {:error, :block_too_large} = RawBlock.fetch(genesis_block())
+    end
+
     test "a REST 404 falls back to getblock(hash, 0)" do
       RpcStub.stub_rest_block(@genesis_hash, {:error, {:http_error, 404}})
       RpcStub.stub_getblock(@genesis_hash, 0, @genesis_hex)

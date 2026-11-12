@@ -97,6 +97,13 @@ defmodule Bitblocks.Chain.RawBlock do
       {:ok, _, _} = ok ->
         ok
 
+      # REST answered: the block is over the cap. getblock(hash, 0) would
+      # hand over the same block as hex, twice the size and uncapped, so it is
+      # never the fallback for size (2026-11-12, block 971,525: a header with
+      # no size and 367 txs, 145.9 MB). The caller streams it or goes per tx.
+      {:error, :body_too_large} ->
+        {:error, :block_too_large}
+
       {:error, reason} ->
         Logger.info(
           "RawBlock #{hash}: REST unavailable (#{inspect(reason)}); using getblock(hash, 0)"
@@ -116,6 +123,7 @@ defmodule Bitblocks.Chain.RawBlock do
 
   defp rpc_raw(hash) do
     with hex when is_binary(hex) <- rpc().getblock(hash, 0),
+         :ok <- within_cap(hex),
          {:ok, bytes} <- Base.decode16(hex, case: :mixed) do
       {:ok, bytes, :rpc}
     else
@@ -123,6 +131,12 @@ defmodule Bitblocks.Chain.RawBlock do
       :error -> {:error, :invalid_block_hex}
       other -> {:error, {:unexpected, other}}
     end
+  end
+
+  # The RPC path holds the hex before the cap can be checked; at least the
+  # decoded block isn't built when it's over.
+  defp within_cap(hex) do
+    if div(byte_size(hex), 2) > max_bytes(), do: {:error, :block_too_large}, else: :ok
   end
 
   # -- Parsing -------------------------------------------------------------------
