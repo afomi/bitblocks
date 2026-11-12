@@ -66,6 +66,19 @@ defmodule Bitblocks.Chain.BlockStream do
           {:ok, acc, map()} | {:error, term()}
         when acc: term()
   def each_tx(%Block{} = block, acc, fun, opts \\ []) do
+    case read(block, acc, fun, opts) do
+      # Closed before a single byte: most often a pooled keep-alive connection
+      # the node had already dropped as idle. A GET is safe to repeat, so it
+      # is tried once more on a fresh connection before the error counts.
+      {:error, {{:connection_error, :closed}, after_bytes: 0, after_ms: _}} ->
+        read(block, acc, fun, opts)
+
+      result ->
+        result
+    end
+  end
+
+  defp read(block, acc, fun, opts) do
     started = System.monotonic_time(:millisecond)
     state = new(block, Keyword.get(opts, :max_tx_bytes, max_tx_bytes()))
 
@@ -98,15 +111,17 @@ defmodule Bitblocks.Chain.BlockStream do
            }}
         end
 
-      {:error, reason} ->
-        case :counters.get(received, 1) do
-          0 ->
-            {:error, reason}
+      # How far it got and how long it took tell a stale connection (0 bytes,
+      # at once), a server timeout (0 bytes, at a fixed time) and a size
+      # limit (a fixed byte count) apart.
+      {:error, {:connection_error, _} = reason} ->
+        {:error,
+         {reason,
+          after_bytes: :counters.get(received, 1),
+          after_ms: System.monotonic_time(:millisecond) - started}}
 
-          bytes ->
-            {:error,
-             {reason, after_bytes: bytes, after_ms: System.monotonic_time(:millisecond) - started}}
-        end
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 

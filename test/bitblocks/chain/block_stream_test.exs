@@ -18,8 +18,20 @@ defmodule Bitblocks.Chain.BlockStreamTest do
       hash = String.trim_trailing(file, ".bin")
 
       case Agent.get(Bitblocks.Chain.BlockStreamTest.Blocks, &Map.get(&1, hash)) do
-        nil -> Plug.Conn.send_resp(conn, 404, "")
-        served -> serve(Plug.Conn.send_chunked(conn, 200), served)
+        nil ->
+          Plug.Conn.send_resp(conn, 404, "")
+
+        %{drops: n} when n > 0 ->
+          # Close the connection before a single byte, as a node does with
+          # a keep-alive connection it has dropped as idle.
+          Agent.update(Bitblocks.Chain.BlockStreamTest.Blocks, fn blocks ->
+            Map.update!(blocks, hash, &%{&1 | drops: n - 1})
+          end)
+
+          Process.exit(self(), :kill)
+
+        served ->
+          serve(Plug.Conn.send_chunked(conn, 200), served)
       end
     end
 
@@ -209,6 +221,18 @@ defmodule Bitblocks.Chain.BlockStreamTest do
   test "no REST is a 404, with no fallback" do
     assert {:error, {:http_error, 404}} =
              collect(%Block{hash: String.duplicate("ab", 32), num_tx: 1, height: 1})
+  end
+
+  test "a connection closed before any bytes is tried once more, and then counts" do
+    meta = serve_block(200_000)
+    serve_as(meta.hash, &Map.put(&1, :drops, 1))
+    assert {:ok, txids, %{txs: n}} = collect(block(meta))
+    assert n == meta.tx_count and length(txids) == n
+
+    serve_as(meta.hash, &Map.put(&1, :drops, 2))
+
+    assert {:error, {{:connection_error, :closed}, after_bytes: 0, after_ms: _}} =
+             collect(block(meta))
   end
 
   test "a chunk slower than the receive timeout ends the read, saying how far it got" do
