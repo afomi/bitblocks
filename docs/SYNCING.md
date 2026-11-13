@@ -209,7 +209,7 @@ Tip sync also finds the reorgs no new block reveals.
 When the node isn't ahead of us, its best block hash is compared with the block we store at its height; a difference is checked against the node's live answer, then resolved.
 A node on our chain but behind us is not a reorg, and a node on a shorter branch rewinds us only when its chainwork is at least ours.
 
-The stream sends `reorg` (`fork_point`, `fork_height`, `orphans`) on `GET /api/v1/stream/blocks`, and webhook projections get their `reorg` event.
+The stream sends `reorg` (`fork_point`, `fork_height`, `orphans`) on `GET /api/v1/stream/blocks`, and webhook projections and projection follow streams get their `reorg` event.
 
 A fork deeper than 10 blocks stops tip sync at that height: the reorg row stays `needs_attention`, `Reorgs.halted/0` names it, `/syncing` and `/status` say so, `GET /api/v1/status` lists `reorg_halted`, and one email goes out for the fork, however many tip runs meet it.
 

@@ -11,6 +11,8 @@ defmodule BitblocksWeb.Api.ProjectionController do
     * `GET /api/v1/projections/:id/status` — `index_state` (ready |
       backfilling), `stable_through_height`, `lag_blocks`, `tip_height`,
       `node_tip_height`.
+    * `GET /api/v1/projections/:id/follow` — SSE follow from a block height,
+      served by `BitblocksWeb.Api.StreamController.projection/2`.
 
   Projections are registered from the CLI (`Release.create_projection/1`)
   until tenant keys exist (#29 step 5). Matching txs are public chain data.
@@ -86,7 +88,8 @@ defmodule BitblocksWeb.Api.ProjectionController do
 
   # Raw hex is included so a tenant can fold without a second request; the
   # proof link lets it store a merkle proof alongside each row.
-  defp tx_to_json(tx) do
+  @doc false
+  def tx_to_json(tx) do
     %{
       txid: tx.txid,
       block_height: tx.block_height,

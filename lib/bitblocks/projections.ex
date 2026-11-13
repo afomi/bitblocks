@@ -182,6 +182,78 @@ defmodule Bitblocks.Projections do
     |> Repo.all()
   end
 
+  @follow_max_blocks 1_000
+  @follow_max_rows 1_000
+
+  @doc """
+  Follow over SSE (#29 step 6): the matching txs in completed blocks above
+  `after_height`, through our tip, oldest first, for a stream's catch-up.
+
+  Bounded so a stream never becomes a second hydrate: more than
+  #{@follow_max_blocks} blocks behind, or more than #{@follow_max_rows}
+  matches, is `{:error, :too_far_behind}`, and the tenant hydrates first.
+  """
+  @spec follow_since(Projection.t(), integer()) ::
+          {:ok, [Transaction.t()]} | {:error, :too_far_behind}
+  def follow_since(%Projection{} = projection, after_height) do
+    tip = tip_height()
+
+    cond do
+      is_nil(tip) or tip <= after_height ->
+        {:ok, []}
+
+      tip - after_height > @follow_max_blocks ->
+        {:error, :too_far_behind}
+
+      true ->
+        rows =
+          projection
+          |> follow_query()
+          |> where([t, b], t.block_height > ^after_height and t.block_height <= ^tip)
+          |> limit(^(@follow_max_rows + 1))
+          |> Repo.all()
+
+        if length(rows) > @follow_max_rows, do: {:error, :too_far_behind}, else: {:ok, rows}
+    end
+  end
+
+  @doc """
+  Follow over SSE: the matching txs stored under one completed block, by hash.
+  Empty when the block is below the projection's `from_height`.
+  """
+  @spec block_matches(Projection.t(), String.t()) :: [Transaction.t()]
+  def block_matches(%Projection{} = projection, block_hash) do
+    projection
+    |> follow_query()
+    |> where([t, b], b.hash == ^block_hash)
+    |> Repo.all()
+  end
+
+  @doc """
+  Follow over SSE: the height a stream that started after `start` can resume
+  after without missing a block, the last height with every block from
+  `start + 1` (or `from_height`) through our tip completed, and never below
+  `start`. Blocks near the tip can complete out of order, so this, not the
+  latest block, is the stream's cursor. Counts at most the window above
+  `start`, which follow keeps within #{@follow_max_blocks} blocks.
+  """
+  @spec follow_resume(Projection.t(), integer()) :: integer()
+  def follow_resume(%Projection{from_height: from}, start) do
+    max(indexed_through(max(from, start + 1), tip_height()), start)
+  end
+
+  # Matching txs under a stored, completed block at the row's own height, from
+  # the projection's from_height on, in hydrate's order.
+  defp follow_query(projection) do
+    projection
+    |> query()
+    |> join(:inner, [t], b in Bitblocks.Chain.Block,
+      on: b.hash == t.block_hash and b.height == t.block_height
+    )
+    |> where([t, b], b.sync_state == "completed" and t.block_height >= ^projection.from_height)
+    |> order_by([t], asc: t.block_height, asc: t.txid)
+  end
+
   @default_limit 100
   @max_limit 500
 
@@ -249,7 +321,9 @@ defmodule Bitblocks.Projections do
     end
   end
 
-  defp tip_height, do: Repo.one(from b in Bitblocks.Chain.Block, select: max(b.height))
+  @doc "Our highest stored block height, or nil."
+  @spec tip_height() :: integer() | nil
+  def tip_height, do: Repo.one(from b in Bitblocks.Chain.Block, select: max(b.height))
 
   # Fetches one row past the limit, so a full last page doesn't hand out a
   # cursor to an empty page.

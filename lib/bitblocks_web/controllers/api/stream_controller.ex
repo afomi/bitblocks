@@ -8,6 +8,7 @@ defmodule BitblocksWeb.Api.StreamController do
                                   and sync_state; `reorg` with the fork point and
                                   the replaced hashes
   GET /api/v1/stream/order-book — order book listing events
+  GET /api/v1/projections/:id/follow — a projection's matches (`projection/2`)
 
   Events reach a stream on any node that shares PubSub with the publisher.
   """
@@ -92,6 +93,148 @@ defmodule BitblocksWeb.Api.StreamController do
       {:error, _} ->
         conn |> put_status(400) |> json(%{error: "Invalid token_id"})
     end
+  end
+
+  @doc """
+  Follow a projection over SSE (#29 step 6): `GET /api/v1/projections/:id/follow`.
+
+  The position is a block height: `?after_height=` (a hydrate
+  `snapshot_height`, or the last checkpoint kept), else the `Last-Event-ID`
+  header an EventSource resends on reconnect, else our tip. The stream first
+  catches up on matches in completed blocks above it, then sends each block as
+  it completes:
+
+    * `tx`: the tx, in hydrate's shape.
+    * `checkpoint` (id: `resume_height`): after the catch-up and after each
+      completed block above the position, with or without matches.
+      `resume_height` is the last height with every block above the position
+      completed (`Projections.follow_resume/2`); blocks near the tip can
+      complete out of order, so resume from it, not from the block's height.
+    * `reorg`: `rewind_height`; drop rows above it. The position moves down
+      to it, so the new chain's blocks arrive as they complete.
+
+  At least once: a reconnect after `resume_height` can replay blocks above
+  it, so dedupe on `{txid, block_hash}`. More than 1,000 blocks or 1,000
+  matches behind is a 409: hydrate first.
+  """
+  def projection(conn, %{"id" => id} = params) do
+    with {:ok, projection} <- fetch_projection(id),
+         {:ok, after_height} <- follow_position(conn, params) do
+      with_sse_slot(conn, fn conn -> follow(conn, projection, after_height) end)
+    else
+      {:error, :not_found} ->
+        conn |> put_status(404) |> json(%{error: "Projection not found"})
+
+      {:error, :invalid_position} ->
+        conn |> put_status(400) |> json(%{error: "Invalid after_height"})
+    end
+  end
+
+  defp follow(conn, projection, after_height) do
+    # Subscribe before the catch-up query, so a block completing between the
+    # two is sent (twice at worst), never missed.
+    Phoenix.PubSub.subscribe(@pubsub, "blocks")
+
+    case Bitblocks.Projections.follow_since(projection, after_height) do
+      {:ok, catch_up} ->
+        conn = start_event_stream(conn)
+
+        with {:ok, conn} <- send_txs(conn, catch_up),
+             {:ok, conn} <- checkpoint(conn, projection, after_height, nil) do
+          projection_loop(conn, projection, after_height, deadline())
+        else
+          {:error, _} -> conn
+        end
+
+      {:error, :too_far_behind} ->
+        Phoenix.PubSub.unsubscribe(@pubsub, "blocks")
+
+        conn
+        |> put_status(409)
+        |> json(%{
+          error: "Too far behind to follow; hydrate first",
+          hydrate: "/api/v1/projections/#{projection.id}/txs"
+        })
+    end
+  end
+
+  defp fetch_projection(id) do
+    with {id, ""} <- Integer.parse(id),
+         %{} = projection <- Bitblocks.Projections.get(id) do
+      {:ok, projection}
+    else
+      _ -> {:error, :not_found}
+    end
+  end
+
+  defp follow_position(conn, params) do
+    case params["after_height"] || List.first(get_req_header(conn, "last-event-id")) do
+      nil ->
+        {:ok, Bitblocks.Projections.tip_height() || -1}
+
+      value ->
+        case Integer.parse(value) do
+          {h, ""} when h >= -1 -> {:ok, h}
+          _ -> {:error, :invalid_position}
+        end
+    end
+  end
+
+  defp projection_loop(conn, projection, position, deadline) do
+    receive do
+      {:block_updated, %{sync_state: "completed", height: h, hash: hash}}
+      when is_integer(h) and h > position and h >= projection.from_height ->
+        txs = Bitblocks.Projections.block_matches(projection, hash)
+
+        with {:ok, conn} <- send_txs(conn, txs),
+             {:ok, conn} <- checkpoint(conn, projection, position, {h, hash}) do
+          projection_loop(conn, projection, position, deadline)
+        else
+          {:error, _} -> conn
+        end
+
+      {:reorg, %{fork_point: fork_point}} when is_integer(fork_point) ->
+        case sse(conn, "reorg", %{projection_id: projection.id, rewind_height: fork_point}, nil) do
+          {:ok, conn} -> projection_loop(conn, projection, min(position, fork_point), deadline)
+          {:error, _} -> conn
+        end
+
+      _ ->
+        projection_loop(conn, projection, position, deadline)
+    after
+      heartbeat_ms() ->
+        if expired?(deadline) do
+          close_stream(conn)
+        else
+          case chunk(conn, ": heartbeat\n\n") do
+            {:ok, conn} -> projection_loop(conn, projection, position, deadline)
+            {:error, _} -> conn
+          end
+        end
+    end
+  end
+
+  defp checkpoint(conn, projection, position, block) do
+    resume = Bitblocks.Projections.follow_resume(projection, position)
+    {height, hash} = block || {nil, nil}
+    data = %{resume_height: resume, block_height: height, block_hash: hash}
+    sse(conn, "checkpoint", data, resume)
+  end
+
+  defp send_txs(conn, txs) do
+    Enum.reduce_while(txs, {:ok, conn}, fn tx, {:ok, conn} ->
+      data = BitblocksWeb.Api.ProjectionController.tx_to_json(tx)
+
+      case sse(conn, "tx", data, nil) do
+        {:ok, conn} -> {:cont, {:ok, conn}}
+        error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp sse(conn, event, data, id) do
+    id_line = if id, do: "id: #{id}\n", else: ""
+    chunk(conn, "event: #{event}\n#{id_line}data: #{Jason.encode!(data)}\n\n")
   end
 
   # nil token_id means "all listings" — valid. A present one must pass validation.

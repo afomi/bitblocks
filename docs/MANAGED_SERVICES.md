@@ -57,9 +57,9 @@ The prototype takes that route.
 Missing for a managed service:
 - tenant identity (API keys) and quotas, which ties to #12 and #13;
 - a cursor-paged hydrate API;
-- SSE follow with a cursor (qart, step 6).
 
 Built (#29 steps 1–4): the projection record, hydrate, status and webhook follow: `Bitblocks.Projections`, `/api/v1/projections/:id/{txs,status}`, `ProjectionWebhookWorker`.
+Built from step 6: SSE follow with a cursor, `GET /api/v1/projections/:id/follow`.
 Built from step 5: webhooks reach public hosts only (`Projections.WebhookTarget`), and a key's `requests_per_minute` is already a tenant's quota.
 Open in step 5: whether tenants must present a key to read their projection, which is a decision on #12.
 
@@ -99,7 +99,7 @@ It wants its own Postgres to be a projection of the chain, rebuildable at any ti
   The AND is the part that matters: it is a filter only qart's key can satisfy, so spoofed `app=qart` transactions are ignored.
 - **Map:** none on the Bitblocks side. The fold (open listings, receipt status) stays in qart, per `USE_CASES.md` § C.
 - **Hydrate, then follow over SSE with a cursor.** On a reorg, qart rewinds to the last canonical height.
-- **Today:** the tags exist. Hydrate, follow-with-cursor, and the AND across two tag columns don't.
+- **Today:** hydrate, the AND across two tag columns and SSE follow with a cursor are built; qart hasn't moved onto them yet.
 
 ### Tenant 3: the Bitcom registry, as a tenant of itself
 
@@ -156,6 +156,16 @@ Build in dependency order, each step with a test, and do it CLI-first: a context
    This is the first real step on #12 (anonymous load) and #13 (edge rate limiting).
 6. **Tenant 2 (qart)** on the same API, which exercises the AND filter and SSE follow.
    Then **Tenant 3**: serve `bitcom_commands` through it.
+   Built: SSE follow, `GET /api/v1/projections/:id/follow` (`StreamController.projection/2`, `Projections.follow_since/2`, `block_matches/2`, `follow_resume/2`).
+   The position is a block height: `?after_height=` (hydrate's `snapshot_height`), else `Last-Event-ID`, else our tip.
+   The stream catches up on matches in completed blocks above it, then sends each block as it completes.
+   Events: `tx` (hydrate's shape), `checkpoint` (id and `resume_height`: the last height with every block above the position completed), and `reorg` (`rewind_height`).
+   Blocks near the tip can complete out of order, so a tenant resumes from `resume_height`, never from a block's height, and an EventSource does that by itself through `Last-Event-ID`.
+   At least once: dedupe on `{txid, block_hash}`.
+   Bounded: more than 1,000 blocks or 1,000 matches behind is a 409 that points at hydrate, and the stream takes an SSE slot with the usual lifetime cap.
+   It adds no table and no index: it reads the existing tag GIN indexes per completed block, and only for blocks above the position.
+   Test: `test/bitblocks_web/controllers/api/projection_follow_test.exs` (qart's AND filter, catch-up, a live block, an out-of-order block, a reorg, the bounds).
+   Left: qart moving onto hydrate plus follow (a qart change), and Tenant 3.
 
 Done for the prototype means:
 - Visible DAO's sponsor page rebuilds from `hydrate` alone, and gets a webhook within one block of a donation;
