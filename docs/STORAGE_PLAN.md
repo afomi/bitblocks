@@ -13,6 +13,30 @@ Related: [TX_STORAGE.md](TX_STORAGE.md) (the tx store and its order of work), [D
 - **Long term:** raw bytes in S3 (block objects already being written), no decoded JSON, no row for bulk data-carrier txs, and the duplicate indexes dropped.
 - **Spin-down:** at a 400,000 cap the final dump is about 150 to 190 GB compressed and 2 to 4 hours (est.), or about 50 to 60 GB and under an hour if `raw`, `inputs` and `outputs` are left out of it.
 
+## Measured on prod, 2026-11-13
+
+Infra ran Q1, Q2, Q4, Q5 and Q6 read-only at about 19:40 UTC (`complete_through` 348,921); Q3 follows off-peak.
+
+- **Database: 370 GB**, so about **5.3 KB per stored tx** (69,840,462 txs in 353,645 completed blocks), against the 6.3 KB estimated above.
+- `transactions` is 308 GB: heap 123 GB, TOAST 125 GB, indexes 60 GB, 71.9M rows. `spend_index` is 60 GB (29 GB heap, 31 GB indexes), 405 bytes per row with its indexes. Everything else is under 2 GB.
+- RDS storage autoscaling is **on**: 433 GB allocated of a 1,000 GB max, gp3, db.m7g.large. Each step up is permanent until a dump and restore.
+- Only **167,242 of 353,645 completed blocks (47%)** have their S3 block object, so the other 186,403 need `Release.store_block_objects` before any move that drops `raw`.
+- **Indexes with 0 scans**, about 16 GB:
+
+  | Index | Size | Recommendation |
+  |---|---|---|
+  | `output_script_hashes` | 9.6 GB | keep: it serves `/api/v1/script/:scripthash/*` and projection filters, which have no callers yet |
+  | `total_output_satoshis` | 1.4 GB | drop: no query filters or sorts on it |
+  | `total_input_satoshis` | 1.3 GB | drop: the same |
+  | `inserted_at` | 0.8 GB | drop: the same |
+  | `script_analysis_version` | 0.7 GB | drop: backfills select by block range, then filter on the version |
+  | `output_count`, `input_count` | 0.7 GB each | drop: the admin list's `> 0` and `>= min` filters aren't selective enough to use them |
+  | `aip_signers` | 0.1 GB | keep: Qart's projection filters on the AIP signer |
+
+  Dropping the six frees about **5.5 GB now** and their share of every row written after; it's Ryan's call, as one migration with `DROP INDEX CONCURRENTLY`.
+  `txid_prefix_idx` and the unique `txid` index (8.4 GB each, both busy) look like a near-duplicate pair; folding them into one needs a look at the `?txid=` prefix query's collation first.
+- Q4 came back empty because `size_bytes` is null on most rows; the corrected Q4 below reads `octet_length(raw) / 2` where it is.
+
 ## 1. What fills the database
 
 Measured on prod:
@@ -158,11 +182,23 @@ FROM transactions t TABLESAMPLE SYSTEM (0.05)
 GROUP BY 1 ORDER BY 1;
 
 -- Q4. Share of tx bytes in txs with an OP_RETURN output, and in txs over 100 KB and 1 MB.
-SELECT round(100.0 * sum(size_bytes) FILTER (WHERE output_types ? 'op_return') / sum(size_bytes), 1) AS pct_bytes_op_return_txs,
-       round(100.0 * avg((output_types ? 'op_return')::int), 1) AS pct_txs_op_return,
-       round(100.0 * sum(size_bytes) FILTER (WHERE size_bytes > 100000) / sum(size_bytes), 1) AS pct_bytes_over_100k,
-       round(100.0 * sum(size_bytes) FILTER (WHERE size_bytes > 1000000) / sum(size_bytes), 1) AS pct_bytes_over_1m
-FROM transactions TABLESAMPLE SYSTEM (0.05);
+-- size_bytes is null on most older rows, so the size falls back to the hex in raw.
+WITH s AS (
+  SELECT coalesce(size_bytes, octet_length(raw) / 2) AS bytes,
+         output_types ? 'op_return' AS op_return,
+         size_bytes IS NULL AS no_size,
+         raw IS NULL AS no_raw
+  FROM transactions TABLESAMPLE SYSTEM (0.05)
+)
+SELECT count(*) AS sampled,
+       count(*) FILTER (WHERE no_size) AS no_size_bytes,
+       count(*) FILTER (WHERE bytes IS NULL) AS no_size_at_all,
+       round(100.0 * sum(bytes) FILTER (WHERE op_return) / nullif(sum(bytes), 0), 1) AS pct_bytes_op_return_txs,
+       round(100.0 * avg(op_return::int), 1) AS pct_txs_op_return,
+       round(100.0 * coalesce(sum(bytes) FILTER (WHERE bytes > 100000), 0) / nullif(sum(bytes), 0), 2) AS pct_bytes_over_100k,
+       round(100.0 * coalesce(sum(bytes) FILTER (WHERE bytes > 1000000), 0) / nullif(sum(bytes), 0), 2) AS pct_bytes_over_1m,
+       round(avg(bytes)) AS avg_tx_bytes
+FROM s;
 
 -- Q5. spend_index: rows, and bytes per row with its indexes.
 SELECT reltuples::bigint AS rows,
