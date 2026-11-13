@@ -396,6 +396,8 @@ defmodule BitblocksWeb.StartInteropLiveTest do
             "## What a conforming sender does",
             "## What a conforming receiver does",
             "## One payment, end to end",
+            "## The live payment, a runbook",
+            "test/support/fixtures/brc/live_wallet_v1.json",
             "## Anchored and proven",
             "## Known gaps",
             "## Further experiments",

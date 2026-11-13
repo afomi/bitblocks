@@ -105,6 +105,48 @@ These notes record provenance, and they aren't legal advice.
 Keep the BEEF as received.
 A later BEEF carries the BUMP and has different bytes, so each statement describes the evidence it was made from.
 
+## The live payment, a runbook
+
+No live wallet has been through the kit yet, and this is how the first one will ([#64](https://github.com/afomi/bitblocks/issues/64)).
+It needs a wallet holding a few thousand satoshis, which waits on a funded address ([#58](https://github.com/afomi/bitblocks/issues/58)), and nothing else from outside.
+Any wallet and any receiver can run it without us, and we welcome the result.
+
+What it takes:
+
+- A BRC-100 wallet holding at least 2,000 satoshis.
+- A script to pay: any P2PKH address does, because the check covers inclusion, not who was paid.
+- The terms, written down before the payment: 1,000 satoshis, that script, and a random salt.
+
+The one step, in the wallet:
+
+1. Call `createAction` with a `description`, one output of 1,000 satoshis to that script, and `options.noSend` set to true, then save the result's `txid` and `tx` (Atomic BEEF) as they come back.
+   With `noSend` the wallet holds its inputs until the payment is sent, so call `abortAction` if it won't be.
+
+What to capture, in one file, `test/support/fixtures/brc/live_wallet_v1.json`:
+
+- `atomicBeef`: the hex of `tx`, byte for byte, never re-encoded.
+- `txid`: the result's `txid`.
+- `wallet`: the wallet's name and version, and the date, as the wallet reports them.
+- `terms`: the amount, the script and the salt, as written down beforehand.
+- `source`: who ran it and how, in their own words.
+
+The receiver's half, which needs no money:
+
+2. Paste the hex into `/start/interop`, or send it to `POST /api/v1/beef/verify`.
+   The payment should read `anchored`, each parent `proven` or `anchored`, and `data.statement.status` should be `made`.
+   Save the report beside the fixture, and note each BUMP's height.
+3. Send the raw payment to the network through any broadcaster, since Bitblocks doesn't broadcast.
+4. Once it is mined, fetch its BUMP and save it to the same fixture as `bump`, with `blockHeight` and `merkleRoot`.
+
+Which vectors it becomes:
+
+- `live-wallet-atomic`: the bytes from step 1, valid, basis BRC-95, with the wallet as its source and the outcomes from step 2 written by hand.
+- `live-wallet-mined`: the payment with its own BUMP from step 4, as BEEF V1, expected `proven`.
+- Each BUMP's block goes into `Bitblocks.RealHeaders` and into `headers` in `scripts/interop_vectors_v1.exs`, with its real header.
+- The file's version rises to 1.1.0, `tried_against` and "What has been tried" name the wallet, and the sources table gains its row.
+
+It is done when `/interop/vectors/v1.json` serves both vectors and `test/bitblocks/interop/vectors_test.exs` holds them to the code.
+
 ## A receipt is two things
 
 BRC-237 defines the evidence half, and this kit follows it.
@@ -240,6 +282,7 @@ The register lives in the civic-studio-org repository, which isn't public yet, s
 - BRC-96 treats a txid-only entry as agreed between two parties, and a third-party check has no such agreement, so we answer `unknown`.
 - The size and count limits in `Beef.Reader` have no vectors, because a limit is a reader's own choice.
 - No live wallet has been tried, and one SDK run is a start rather than a result.
+  The runbook above makes the first try one step in a funded wallet.
 - The page's limits are per LiveView: a size limit and one check a second.
   Before it's published, note that a socket frame has no size limit of its own (`max_frame_size` is unset in the endpoint), and that a visitor can open several sockets.
 
