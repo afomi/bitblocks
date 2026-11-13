@@ -61,7 +61,9 @@ defmodule Bitblocks.Workers.FetchTransactionsWorker do
   import Ecto.Query
 
   alias Bitblocks.{Chain, Repo, Sync}
-  alias Bitblocks.Chain.{Block, BlockStream, RawBlock, TxIngest, TxidSource, TxSources}
+  alias Bitblocks.Chain.{Block, BlockStream, RawBlock, Spend, TxIngest, TxidSource, TxSources}
+  alias Bitblocks.Reorgs.ProtocolRewind
+  alias Bitblocks.Timelocks.Lock
   alias Bitblocks.SyncProgress.Tracker
   alias Bitblocks.TxStore.BlockObject
 
@@ -330,11 +332,22 @@ defmodule Bitblocks.Workers.FetchTransactionsWorker do
     end
   end
 
-  # -- A block over the raw cap, streamed (#66) ---------------------------------
+  # -- A block over the raw cap, streamed (#66, #86) ----------------------------
   #
   # Chain.BlockStream reads the block from the node's REST interface tx by
   # tx in bounded memory; the txs go through store_chunk/3 (diff, then the
   # tx pipeline via TxIngest) in chunks as they arrive.
+  #
+  # Reader and writer (#86): the read runs in its own process, which cuts
+  # the txs into chunks and sends each to the job process, which stores it
+  # and acks. So the socket keeps being read while a chunk is written, and a
+  # slow chunk no longer stalls the read past the node's HTTP timeout. The
+  # reader stops reading (it blocks in the stream callback) while
+  # :sync_stream_buffer_chunks chunks (16) or :sync_stream_buffer_bytes
+  # (64 MB) are sent and not yet acked, counting the one being written; one
+  # chunk is always allowed, so a single tx over the byte bound still moves.
+  # A reader failure (a check, a cut, a crash) fails the block; a writer
+  # failure, the deadline, or the job process going down stops the reader.
   #
   # Resuming: a stream can't start mid-block, so every run reads the block
   # from its first byte. The job's meta keeps `stream: %{hash, offset}`, the
@@ -347,86 +360,187 @@ defmodule Bitblocks.Workers.FetchTransactionsWorker do
   # Completion: only a run that reads the block to its end gets
   # `{:ok, ...}` from BlockStream, meaning the header hashed to the block's
   # hash, the tx count matched and the txids of the whole block, every one
-  # derived from its bytes, rebuilt the header's merkleroot. That same run
-  # has seen every tx confirmed stored, chunk by chunk, so it marks the block
-  # completed. A halted, failed or mismatched run never does.
+  # derived from its bytes, rebuilt the header's merkleroot. The reader sends
+  # its last chunk and then that result, in order, so by then the writer has
+  # seen every tx confirmed stored, and it marks the block completed. A
+  # halted, failed or mismatched run never does.
   #
-  # Rows stored by a run are written before the merkleroot is known. The
-  # header has been checked by then, and each row's txid is its own bytes'
-  # hash; a block whose root then fails is marked failed, and no run
-  # completes it.
+  # Rows before the root (#86): rows are written before the merkleroot is
+  # known. Each row's txid is its own bytes' hash, so a row is a real tx;
+  # what is unproven is that it belongs to this block. When the block's
+  # bytes fail a check (see unproven_block?/1), every row under its hash is
+  # removed, with the spend edges, time locks and protocol rows they
+  # recorded, and the offset goes back to 0: the block is not completed, so
+  # nothing else vouches for those rows, and the next read that verifies
+  # stores every tx again. A read cut off by the transport keeps its rows.
 
   @verify_batch 1_000
   # A chunk is stored at this many bytes, whatever its count, so a chunk of
   # big txs stays bounded in memory.
   @stream_chunk_bytes 8 * 1024 * 1024
+  @default_buffer_chunks 16
+  @default_buffer_bytes 64 * 1024 * 1024
 
   defp stream(block, job, deadline) do
     offset = stream_progress(job, block) || 0
-    # How far txs are known stored, kept outside the stream's accumulator so
-    # a read that fails mid-block still saves what it stored.
-    reached = :counters.new(1, [])
-    :counters.put(reached, 1, offset)
     total = block.num_tx || 0
+    ref = make_ref()
+    writer = self()
+    limits = buffer_limits()
 
-    acc = %{
+    {reader, monitor} =
+      spawn_monitor(fn -> read_block(block, offset, writer, ref, limits) end)
+
+    w = %{
       block: block,
-      offset: offset,
+      ref: ref,
+      reader: reader,
+      monitor: monitor,
       deadline: deadline,
-      reached: reached,
+      reached: offset,
+      tracker: Tracker.new(block, total, min(offset, total))
+    }
+
+    {outcome, w} = write_chunks(w)
+    stop_reader(w)
+    Tracker.finish(w.tracker)
+
+    case outcome do
+      {:ok, stats} ->
+        block = record_stream(block, stats)
+
+        Logger.info(
+          "FetchTxs block=#{block.height} streamed #{stats.bytes} bytes, " <>
+            "#{stats.txs} txs, merkleroot verified"
+        )
+
+        mark_completed(block)
+        :ok
+
+      :paused ->
+        save_stream_progress(job, block, w.reached)
+        if (block.tx_sync_attempts || 0) > 0, do: reset_failures(block)
+        {:snooze, 1}
+
+      {:read_error, reason} ->
+        cond do
+          stream_unavailable?(reason) ->
+            {:fallback, reason}
+
+          unproven_block?(reason) ->
+            discard_unproven_rows(block, reason)
+            save_stream_progress(job, block, 0)
+            fail(block, reason)
+
+          true ->
+            save_stream_progress(job, block, w.reached)
+            fail(block, reason)
+        end
+
+      {:write_error, reason} ->
+        save_stream_progress(job, block, w.reached)
+        fail(block, reason)
+    end
+  end
+
+  # The writer: the job process, storing chunks in the order they were read.
+  defp write_chunks(%{ref: ref, monitor: monitor} = w) do
+    receive do
+      {^ref, :chunk, chunk} ->
+        case store_chunk(chunk.txs, w.block, %{}) do
+          :ok ->
+            tracker =
+              if chunk.stored?,
+                do: Tracker.chunk(w.tracker, Enum.map(chunk.txs, &txid_of/1)),
+                else: w.tracker
+
+            w = %{w | tracker: tracker, reached: max(w.reached, chunk.to)}
+
+            :telemetry.execute(
+              [:bitblocks, :sync, :stream_chunk],
+              %{txs: length(chunk.txs), bytes: chunk.bytes},
+              %{height: w.block.height, stored?: chunk.stored?}
+            )
+
+            send(w.reader, {ref, :ack, chunk.bytes})
+
+            if chunk.stored? and System.monotonic_time(:millisecond) >= w.deadline,
+              do: {:paused, w},
+              else: write_chunks(w)
+
+          {:error, reason} ->
+            {{:write_error, reason}, w}
+        end
+
+      {^ref, :done, {:ok, stats}} ->
+        {{:ok, stats}, w}
+
+      {^ref, :done, {:error, reason}} ->
+        {{:read_error, reason}, w}
+
+      # A process's messages arrive before its exit, so a :done it sent is
+      # always read first: this is a reader that crashed.
+      {:DOWN, ^monitor, :process, _pid, reason} ->
+        {{:read_error, {:stream_reader_down, reason}}, w}
+    end
+  end
+
+  # The reader is done, or no longer wanted: killed if still reading (Finch
+  # drops a connection whose caller dies mid-response), and anything it sent
+  # that was never read is dropped.
+  defp stop_reader(%{ref: ref, reader: reader, monitor: monitor}) do
+    Process.demonitor(monitor, [:flush])
+    Process.exit(reader, :kill)
+    flush_reader(ref)
+  end
+
+  defp flush_reader(ref) do
+    receive do
+      {^ref, _, _} -> flush_reader(ref)
+    after
+      0 -> :ok
+    end
+  end
+
+  defp buffer_limits do
+    %{
+      chunks: Application.get_env(:bitblocks, :sync_stream_buffer_chunks, @default_buffer_chunks),
+      bytes: Application.get_env(:bitblocks, :sync_stream_buffer_bytes, @default_buffer_bytes)
+    }
+  end
+
+  # The reader: its own process, reading the block and sending chunks.
+  # It touches no database; the writer does all of that.
+  defp read_block(block, offset, writer, ref, limits) do
+    acc = %{
+      writer: writer,
+      writer_monitor: Process.monitor(writer),
+      ref: ref,
+      limits: limits,
+      offset: offset,
       index: 0,
       buf: [],
       buf_start: 0,
       buf_n: 0,
       buf_bytes: 0,
-      tracker: Tracker.new(block, total, min(offset, total)),
-      status: :ok
+      in_flight: 0,
+      in_flight_bytes: 0
     }
 
-    case BlockStream.each_tx(block, acc, &stream_tx/2) do
-      {:ok, acc, stats} ->
-        block = record_stream(block, stats)
+    result =
+      case BlockStream.each_tx(block, acc, &read_tx/2) do
+        {:ok, acc, stats} ->
+          send_chunk(acc)
+          {:ok, stats}
 
-        case flush(acc) do
-          {:ok, acc} ->
-            Tracker.finish(acc.tracker)
+        {:error, reason} ->
+          {:error, reason}
+      end
 
-            Logger.info(
-              "FetchTxs block=#{block.height} streamed #{stats.bytes} bytes, " <>
-                "#{stats.txs} txs, merkleroot verified"
-            )
-
-            mark_completed(block)
-            :ok
-
-          {:error, reason, acc} ->
-            Tracker.finish(acc.tracker)
-            save_stream_progress(job, block, :counters.get(reached, 1))
-            fail(block, reason)
-        end
-
-      {:halted, %{status: {:paused, at}} = acc, _stats} ->
-        Tracker.finish(acc.tracker)
-        save_stream_progress(job, block, at)
-        if (block.tx_sync_attempts || 0) > 0, do: reset_failures(block)
-        {:snooze, 1}
-
-      {:halted, %{status: {:error, reason}} = acc, _stats} ->
-        Tracker.finish(acc.tracker)
-        save_stream_progress(job, block, :counters.get(reached, 1))
-        fail(block, reason)
-
-      {:error, reason} ->
-        if stream_unavailable?(reason) do
-          {:fallback, reason}
-        else
-          save_stream_progress(job, block, :counters.get(reached, 1))
-          fail(block, reason)
-        end
-    end
+    send(writer, {ref, :done, result})
   end
 
-  defp stream_tx({txid, bytes}, acc) do
+  defp read_tx({txid, bytes}, acc) do
     acc = %{
       acc
       | buf: [{txid, :binary.copy(bytes)} | acc.buf],
@@ -435,7 +549,7 @@ defmodule Bitblocks.Workers.FetchTransactionsWorker do
         index: acc.index + 1
     }
 
-    if flush?(acc), do: flush_and_go_on(acc), else: acc
+    if flush?(acc), do: send_chunk(acc), else: acc
   end
 
   # A chunk ends at its count, at its bytes, or where the stored region ends.
@@ -446,38 +560,116 @@ defmodule Bitblocks.Workers.FetchTransactionsWorker do
 
   defp verifying?(acc), do: acc.buf_start < acc.offset
 
-  defp flush_and_go_on(acc) do
-    stored? = not verifying?(acc)
+  defp send_chunk(%{buf: []} = acc), do: acc
 
-    case flush(acc) do
-      {:ok, acc} ->
-        if stored? and System.monotonic_time(:millisecond) >= acc.deadline,
-          do: {:halt, %{acc | status: {:paused, acc.index}}},
-          else: acc
+  defp send_chunk(acc) do
+    acc = await_room(acc, acc.buf_bytes)
 
-      {:error, reason, acc} ->
-        {:halt, %{acc | status: {:error, reason}}}
+    chunk = %{
+      txs: Enum.reverse(acc.buf),
+      to: acc.index,
+      bytes: acc.buf_bytes,
+      stored?: not verifying?(acc)
+    }
+
+    send(acc.writer, {acc.ref, :chunk, chunk})
+
+    %{
+      acc
+      | buf: [],
+        buf_n: 0,
+        buf_bytes: 0,
+        buf_start: acc.index,
+        in_flight: acc.in_flight + 1,
+        in_flight_bytes: acc.in_flight_bytes + chunk.bytes
+    }
+  end
+
+  # Back-pressure: waits for acks until the chunk fits under both bounds.
+  # A writer that has gone ends the reader.
+  defp await_room(acc, bytes) do
+    acc = take_acks(acc, 0)
+    if room?(acc, bytes), do: acc, else: await_room(take_acks(acc, :infinity), bytes)
+  end
+
+  defp room?(acc, bytes) do
+    acc.in_flight == 0 or
+      (acc.in_flight < acc.limits.chunks and acc.in_flight_bytes + bytes <= acc.limits.bytes)
+  end
+
+  # Every ack waiting (timeout 0), or at least one (:infinity).
+  defp take_acks(%{ref: ref, writer_monitor: monitor} = acc, timeout) do
+    receive do
+      {^ref, :ack, bytes} ->
+        acc = %{acc | in_flight: acc.in_flight - 1, in_flight_bytes: acc.in_flight_bytes - bytes}
+        take_acks(acc, 0)
+
+      {:DOWN, ^monitor, :process, _pid, _reason} ->
+        exit(:normal)
+    after
+      timeout -> acc
     end
   end
 
-  defp flush(%{buf: []} = acc), do: {:ok, acc}
+  # The block's bytes failed a check that says they aren't this block's, or
+  # aren't all of it: the rows stored from them are unproven members.
+  defp unproven_block?({:merkleroot_verification_failed, _}), do: true
+  defp unproven_block?({:tx_count_mismatch, _, _}), do: true
+  defp unproven_block?(:block_hash_mismatch), do: true
+  defp unproven_block?({:truncated, _}), do: true
+  defp unproven_block?(:trailing_bytes), do: true
+  defp unproven_block?(_reason), do: false
 
-  defp flush(acc) do
-    chunk = Enum.reverse(acc.buf)
+  @discard_batch 1_000
 
-    case store_chunk(chunk, acc.block, %{}) do
-      :ok ->
-        tracker =
-          if verifying?(acc),
-            do: acc.tracker,
-            else: Tracker.chunk(acc.tracker, Enum.map(chunk, &txid_of/1))
+  # Every row under the block's hash, with what it recorded: spend edges,
+  # time locks and protocol rows (Reorgs.ProtocolRewind, as a reorg removes
+  # a tx no block holds). In batches, each its own database transaction.
+  # Bitcom and BAP rows aren't rewound, as in Reorgs.Reconcile.
+  defp discard_unproven_rows(block, reason) do
+    removed = discard_batches(block.hash, 0)
 
-        if acc.index > :counters.get(acc.reached, 1), do: :counters.put(acc.reached, 1, acc.index)
+    if removed > 0 do
+      Logger.warning(
+        "FetchTxs block=#{block.height} #{inspect(reason)}: removed #{removed} unproven rows"
+      )
+    end
 
-        {:ok, %{acc | buf: [], buf_n: 0, buf_bytes: 0, buf_start: acc.index, tracker: tracker}}
+    removed
+  end
 
-      {:error, reason} ->
-        {:error, reason, acc}
+  defp discard_batches(hash, removed) do
+    txids =
+      Repo.all(
+        from(t in Chain.Transaction,
+          where: t.block_hash == ^hash,
+          select: t.txid,
+          limit: @discard_batch
+        )
+      )
+
+    if txids == [] do
+      removed
+    else
+      {:ok, n} =
+        Repo.transaction(fn ->
+          Repo.delete_all(from(s in Spend, where: s.spending_txid in ^txids))
+
+          {n, gone} =
+            Repo.delete_all(
+              from(t in Chain.Transaction,
+                where: t.txid in ^txids and t.block_hash == ^hash,
+                select: t.txid
+              )
+            )
+
+          # After the rows and spend edges: what the protocols recompute reads them.
+          ProtocolRewind.removed(gone)
+          Repo.delete_all(from(l in Lock, where: l.txid in ^gone))
+          n
+        end)
+
+      if n == 0, do: removed, else: discard_batches(hash, removed + n)
     end
   end
 

@@ -48,6 +48,9 @@ A header gap below it is found by an index-only count of heights, and only searc
    **Larger blocks stream (#66).**
    A block over the cap, by its stored `size`, by `num_tx` over 20,000, or because REST refused it as too large, is read from REST as a stream (`Chain.BlockStream`), tx by tx, in memory near one tx plus one chunk.
    Its txs go through the same `TxIngest.store_chunk/2` pipeline as they arrive, in chunks of 100 txs or 8 MB, whichever comes first.
+   The read runs in its own process and hands each chunk to the job process, which stores it and acks (#86), so the socket keeps being read while a chunk is written and a slow chunk can't stall the read past the node's HTTP timeout.
+   The reader waits while 16 chunks (`:sync_stream_buffer_chunks`) or 64 MB (`:sync_stream_buffer_bytes`) are sent and not yet stored, always letting one through, so memory stays bounded.
+   A reader failure fails the block; a writer failure, the run's deadline or the job ending stops the reader.
    The header must hash to the block's hash and the tx count must match `num_tx` before any tx is stored; the txids of the whole block must rebuild the merkleroot before it can complete.
    A block over `:block_stream_max_block_bytes` (1 GiB) or a tx over `:block_stream_max_tx_bytes` (256 MB) fails the block loudly and is never skipped; raise the setting to read it.
    A stream that fails a check, or is cut off after its first bytes, fails the block and is tried again with the usual backoff.
@@ -60,7 +63,12 @@ A header gap below it is found by an index-only count of heights, and only searc
    The job's meta keeps `stream: %{hash, offset}`, the txs earlier runs stored; txs before the offset are checked in chunks of 1,000 (one query each, which refills any that went missing), and storing resumes at the offset.
    The run stops after its first stored chunk past the deadline, saves the offset and snoozes; a resumed run goes straight to the stream.
    Only a run that reads the whole block, with its merkleroot verified and every tx confirmed stored along the way, marks it `completed`.
-   Rows a run stores are written before the root is known; a block whose root then fails stays `failed` and is never completed.
+   Rows a run stores are written before the root is known (#86).
+   Each row's txid is the hash of its own bytes, so every row is a real tx; what the root proves is that it belongs to this block.
+   So when the block's bytes fail a check (merkleroot, tx count, header hash, ending short or with bytes to spare), every row under the block's hash is removed, with the spend edges, time locks and token, listing and collection rows it recorded, and the offset goes back to 0.
+   The block isn't `completed`, so nothing else vouches for those rows, and the next read that verifies stores every tx again; the block stays `failed` until then.
+   A read cut off by the transport keeps its rows: nothing says those bytes were wrong.
+   While a stream is under way its rows read as confirmed (the block is `txs_syncing`), as on every path.
 6. **Checked before it counts.**
    After the last chunk, a count by txid confirms every transaction is stored; only then is the block `completed`.
    That change is broadcast; a run goes on to its next block, and when the job ends the coordinator hands the slot on.

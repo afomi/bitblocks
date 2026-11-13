@@ -281,6 +281,192 @@ defmodule Bitblocks.Workers.FetchTransactionsStreamTest do
     no_per_tx_calls!()
   end
 
+  describe "reader and writer (#86)" do
+    # Each stored chunk emits [:bitblocks, :sync, :stream_chunk] from the
+    # writer (the job process, here the test process). A handler that sleeps
+    # makes a slow writer; while it sleeps, the chunks the reader sent and
+    # the writer hasn't taken wait in this process's mailbox.
+    defp slow_writer(sleep_ms) do
+      test = self()
+      seen = :counters.new(2, [])
+      id = "slow-writer-#{System.unique_integer([:positive])}"
+
+      :telemetry.attach(
+        id,
+        [:bitblocks, :sync, :stream_chunk],
+        fn _event, _measurements, _meta, _config ->
+          if self() == test do
+            :counters.add(seen, 1, 1)
+
+            # Poll the mailbox through the sleep: the most chunks ever waiting.
+            for _ <- 1..div(sleep_ms, 10) do
+              Process.sleep(10)
+              waiting = waiting_chunks()
+              if waiting > :counters.get(seen, 2), do: :counters.put(seen, 2, waiting)
+            end
+          end
+        end,
+        nil
+      )
+
+      on_exit(fn -> :telemetry.detach(id) end)
+      seen
+    end
+
+    defp waiting_chunks do
+      {:messages, messages} = Process.info(self(), :messages)
+      Enum.count(messages, &match?({ref, :chunk, _} when is_reference(ref), &1))
+    end
+
+    setup do
+      saved =
+        for key <- [:sync_stream_buffer_chunks, :sync_stream_buffer_bytes],
+            do: {key, Application.fetch_env(:bitblocks, key)}
+
+      on_exit(fn ->
+        for {key, value} <- saved do
+          case value do
+            {:ok, v} -> Application.put_env(:bitblocks, key, v)
+            :error -> Application.delete_env(:bitblocks, key)
+          end
+        end
+      end)
+
+      # About 850 small txs: nine chunks of 100.
+      %{many: SyntheticBlock.build(300_000, big_every: 1_000_000)}
+    end
+
+    test "the read goes on while a slow chunk is written, and completes the block",
+         %{many: many} do
+      assert length(many.txids) > 800
+      seen = slow_writer(100)
+      block = header(many, %{size: byte_size(many.bytes)})
+      RpcStub.stub_rest_block(many.hash, {:ok, many.bytes})
+
+      assert :ok = FetchTransactionsWorker.perform(%Oban.Job{args: %{"block_hash" => block.hash}})
+
+      assert Chain.get_block!(0).sync_state == "completed"
+      assert stored() == length(many.txids)
+      # Chunks queued up behind the slow one: the reader kept reading.
+      assert :counters.get(seen, 2) >= 2
+      # And none left behind.
+      assert waiting_chunks() == 0
+    end
+
+    test "the buffer between them is bounded by count", %{many: many} do
+      Application.put_env(:bitblocks, :sync_stream_buffer_chunks, 3)
+      seen = slow_writer(60)
+      block = header(many, %{size: byte_size(many.bytes)})
+      RpcStub.stub_rest_block(many.hash, {:ok, many.bytes})
+
+      assert :ok = FetchTransactionsWorker.perform(%Oban.Job{args: %{"block_hash" => block.hash}})
+      assert stored() == length(many.txids)
+
+      # Three in flight, counting the one being written: two waiting at most.
+      assert :counters.get(seen, 2) == 2
+    end
+
+    test "and by bytes, always letting one chunk through", %{many: many} do
+      # Under one chunk's worth: one at a time, never a chunk waiting.
+      Application.put_env(:bitblocks, :sync_stream_buffer_bytes, 1_000)
+      seen = slow_writer(30)
+      block = header(many, %{size: byte_size(many.bytes)})
+      RpcStub.stub_rest_block(many.hash, {:ok, many.bytes})
+
+      assert :ok = FetchTransactionsWorker.perform(%Oban.Job{args: %{"block_hash" => block.hash}})
+      assert stored() == length(many.txids)
+      assert :counters.get(seen, 1) >= 8
+      assert :counters.get(seen, 2) == 0
+    end
+
+    test "the deadline stops the reader: the offset is what was written, nothing left behind",
+         %{many: many} do
+      Application.put_env(:bitblocks, :tx_fetch_run_ms, 0)
+      _seen = slow_writer(50)
+      block = header(many, %{size: byte_size(many.bytes)})
+      RpcStub.stub_rest_block(many.hash, {:ok, many.bytes})
+      {:ok, job} = Oban.insert(FetchTransactionsWorker.new(%{block_hash: block.hash}))
+
+      assert {:snooze, 1} = perform(job)
+      # The reader had read ahead; only the written chunk counts.
+      assert Repo.reload!(job).meta["stream"]["offset"] == 100
+      assert stored() == 100
+      assert waiting_chunks() == 0
+    end
+  end
+
+  describe "rows before the root (#86)" do
+    test "a merkleroot failure removes the rows earlier runs stored, and starts over",
+         %{big: big} do
+      Application.put_env(:bitblocks, :tx_fetch_run_ms, 0)
+      block = header(big, %{size: byte_size(big.bytes)})
+      other = transaction_fixture(%{block_hash: "another block"})
+      RpcStub.stub_rest_block(big.hash, {:ok, big.bytes})
+      {:ok, job} = Oban.insert(FetchTransactionsWorker.new(%{block_hash: block.hash}))
+
+      # Two bounded runs store 200 rows, with the spend edges they record.
+      assert {:snooze, 1} = perform(job)
+      assert {:snooze, 1} = perform(job)
+      assert stored() == 201
+      assert spends_of(big.txids) > 0
+
+      # Then the node serves bytes whose txids don't rebuild the root.
+      Application.put_env(:bitblocks, :tx_fetch_run_ms, 60_000)
+      RpcStub.stub_rest_block(big.hash, {:ok, tamper(big.bytes)})
+      assert {:snooze, 60} = perform(job)
+
+      failed = Chain.get_block!(0)
+      assert failed.sync_state == "failed"
+      assert failed.tx_sync_error =~ "merkleroot_verification_failed"
+
+      assert Repo.aggregate(
+               from(t in Chain.Transaction, where: t.block_hash == ^big.hash),
+               :count
+             ) == 0
+
+      assert spends_of(big.txids) == 0
+      assert Repo.reload!(job).meta["stream"]["offset"] == 0
+      # Another block's row is not touched.
+      assert Chain.get_transaction(other.txid)
+
+      # The next good read stores every tx again and completes the block.
+      RpcStub.stub_rest_block(big.hash, {:ok, big.bytes})
+      assert :ok = perform(job)
+      assert Chain.get_block!(0).sync_state == "completed"
+      assert stored() == length(big.txids) + 1
+    end
+
+    test "a tx count that no longer matches removes them too", %{big: big} do
+      Application.put_env(:bitblocks, :tx_fetch_run_ms, 0)
+      block = header(big, %{size: byte_size(big.bytes)})
+      RpcStub.stub_rest_block(big.hash, {:ok, big.bytes})
+      {:ok, job} = Oban.insert(FetchTransactionsWorker.new(%{block_hash: block.hash}))
+
+      assert {:snooze, 1} = perform(job)
+      assert stored() == 100
+
+      {:ok, _} = block |> Ecto.Changeset.change(num_tx: length(big.txids) + 1) |> Repo.update()
+      assert {:snooze, 60} = perform(job)
+      assert Chain.get_block!(0).tx_sync_error =~ "tx_count_mismatch"
+      assert stored() == 0
+      assert Repo.reload!(job).meta["stream"]["offset"] == 0
+    end
+
+    test "a read cut off by the transport keeps its rows", %{big: big} do
+      block = header(big, %{size: byte_size(big.bytes)})
+      cut = div(byte_size(big.bytes), 2)
+      RpcStub.stub_rest_block(big.hash, {:partial, binary_part(big.bytes, 0, cut), :closed})
+
+      assert {:snooze, 60} =
+               FetchTransactionsWorker.perform(%Oban.Job{args: %{"block_hash" => block.hash}})
+
+      assert stored() >= 100
+    end
+  end
+
+  defp spends_of(txids),
+    do: Repo.aggregate(from(s in Chain.Spend, where: s.spending_txid in ^txids), :count)
+
   describe "REST unavailable" do
     # The real genesis block, its row claiming 64 MB so it is over the cap.
     @genesis_hash "000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f"

@@ -47,8 +47,8 @@ defmodule Bitblocks.Chain.BlockStream do
   ## Stopping early
   `fun` may return `{:halt, acc}` to stop the read after that tx; `each_tx/4`
   then returns `{:halted, acc, stats}`, with nothing verified past the
-  header and the tx count. The sync's block job does this at the end of a
-  bounded run, and reads the block again on its next run.
+  header and the tx count. (The sync's block job reads in a process of its
+  own instead, and stops that process at the end of a bounded run; #86.)
 
   Used by `Bitblocks.Support.Scan` and by the sync's
   `Bitblocks.Workers.FetchTransactionsWorker`, for blocks over the raw-block
