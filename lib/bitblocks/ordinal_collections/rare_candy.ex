@@ -116,6 +116,8 @@ defmodule Bitblocks.OrdinalCollections.RareCandy do
     end
   end
 
+  def lock(_), do: nil
+
   # Only what an item keeps is copied out; the JSON is a slice of the mint.
   defp metadata([json | _]) when is_binary(json) do
     case Jason.decode(json) do

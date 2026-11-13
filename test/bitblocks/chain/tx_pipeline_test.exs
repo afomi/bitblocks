@@ -518,7 +518,22 @@ defmodule Bitblocks.Chain.TxPipelineTest do
       TxIngest.store_chunk([tx_json(run), tx_json(plain)], %Block{hash: "r", height: 13})
 
       assert %{nft?: true, run?: true, inscriptions: []} = Chain.nft_facts(run_txid)
-      assert %{nft?: false, run?: false, collections: []} = Chain.nft_facts(plain_txid)
+
+      assert %{nft?: false, run?: false, rare_candy: [], collections: []} =
+               Chain.nft_facts(plain_txid)
+    end
+
+    test "a real Rare Candy mint is an NFT, each item locked to its collection (#77)" do
+      # Planetary Skies' mint: 99 outputs locked to hash160 of the collection tx.
+      txid = "0ef416e3b3f280b357e8a16e2f16cdda35f749cb8545ee031a21e39c030e9a7f"
+      hex = File.read!("test/fixtures/collections/#{txid}.hex") |> String.trim()
+      assert :ok = TxIngest.store(tx_json({txid, hex}), %Block{hash: "rc", height: 717_087})
+
+      assert %{nft?: true, inscriptions: [], run?: false, rare_candy: rare_candy} =
+               Chain.nft_facts(txid)
+
+      assert length(rare_candy) == 99
+      assert hd(rare_candy) == %{vout: 0, collection: "planetary-skies"}
     end
 
     test "a BSV-20 token inscription is fungible, not an NFT" do

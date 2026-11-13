@@ -111,7 +111,7 @@ mix assets.deploy           # Build and minify for production
 - A tx already stored when its block is fetched is skipped, so it meets no step; `Chain.TxPipeline.CatchUp` (`CatchUpBlockWorker`, queue `:derived`) brings such a block's rows up to version after it completes.
 - The block steps run once the block is `completed`: `block_totals` (`sats_out`, `fees`, `miner_reward`, `subsidy`, `burned`, and `fees_verified`: `miner_reward <= subsidy + fees`), then `type_counts` (`blocks.type_counts`, txs per type, which `/types` sums through `Bitblocks.TxTypes.Counts`).
 - A failing step is logged and reported (telemetry `[:bitblocks, :tx_pipeline, :step_failed]`) and never loses the stored tx.
-- Read-time facts, never stored: `Chain.output_status/1` (spent, unspent, unknown or unspendable per output; unspent only when the index reaches the tip, see `Bitblocks.Chain.Utxos`) and `Chain.nft_facts/1` (inscription or Run jig, and collection membership).
+- Read-time facts, never stored: `Chain.output_status/1` (spent, unspent, unknown or unspendable per output; unspent only when the index reaches the tip, see `Bitblocks.Chain.Utxos`) and `Chain.nft_facts/1` (inscription, Run jig or Rare Candy item lock, and collection membership).
 - `Release.backfill_tx_tallies(from, to, apply: true)` fills the tally columns for blocks completed before the steps; dry run by default.
 
 - **Derived data** (authoritative: `docs/DERIVED_DATA.md`): everything `Chain.TxPipeline` adds after ingestion carries its provenance.

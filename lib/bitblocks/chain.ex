@@ -1103,6 +1103,7 @@ defmodule Bitblocks.Chain do
         nft?: true,
         inscriptions: [%{vout: 0, content_type: "image/png"}],
         run?: false,
+        rare_candy: [],
         collections: [
           %{slug: "grand-tardinians", name: "Grand Tardinians", item: "Grand Tardinians 1",
             origin: "<txid>_0", current_outpoint: "<txid>_0", role: :origin}
@@ -1111,7 +1112,9 @@ defmodule Bitblocks.Chain do
 
   An NFT is a 1Sat inscription output (an `OP_FALSE OP_IF "ord"` envelope;
   a BSV-20/21 token inscription is fungible, so it doesn't count) or a Run
-  jig (the tx is tagged `Run`). Collection membership comes from
+  jig (the tx is tagged `Run`) or a Rare Candy item (`rare_candy`: each output
+  locked to a collection txid's hash, with the known collection it names, #77).
+  Collection membership comes from
   `collection_items`, matched on any of the tx's outpoints by origin (`role:
   :origin`, the mint) or current outpoint (`role: :current`, where it is now).
 
@@ -1146,14 +1149,33 @@ defmodule Bitblocks.Chain do
               do: %{vout: vout, content_type: inscription.content_type}
 
         run? = "Run" in (protocols || [])
+        rare_candy = rare_candy_outputs(outputs)
 
         %{
-          nft?: inscriptions != [] or run?,
+          nft?: inscriptions != [] or run? or rare_candy != [],
           inscriptions: inscriptions,
           run?: run?,
+          rare_candy: rare_candy,
           collections: collection_memberships(txid, length(outputs))
         }
     end
+  end
+
+  # Outputs carrying a Rare Candy item lock (#77). `collection` is the slug of
+  # the known collection whose txid hashes to the lock, or nil; the lock alone
+  # is a claim, so membership itself still comes from `collection_items`.
+  defp rare_candy_outputs(outputs) do
+    alias Bitblocks.OrdinalCollections.RareCandy
+
+    hashes =
+      for {slug, cid} <- Bitblocks.OrdinalCollections.known(),
+          Bitblocks.OrdinalCollections.config_for(cid)[:protocol] == RareCandy,
+          into: %{},
+          do: {RareCandy.collection_hash(cid), slug}
+
+    for {%BSV.TxOut{script: script}, vout} <- Enum.with_index(outputs),
+        %{hash: hash} <- [RareCandy.lock(script)],
+        do: %{vout: vout, collection: Map.get(hashes, hash)}
   end
 
   defp collection_memberships(_txid, 0), do: []

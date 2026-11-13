@@ -71,6 +71,8 @@ Rexxies (Run) is built on the same engine (`/api/v1/collections/rexxies`): membe
 #79 adds two more RelayX collections on the same `RunJig` code, PixMoji and Glossy Spheres, found from relayx.com/market pages in the Wayback Machine.
 #77 reads Rare Candy's own format (`OrdinalCollections.RareCandy`): Planetary Skies, Astro Apes, Oni Society and Fox Syndicate.
 Each fills on prod after `Release.sync_ordinal_collection("<slug>")`.
+On 2026-11-13 Planetary Skies (99), Astro Apes (2,000) and Oni Society (2,222) were live on prod; Fox Syndicate showed no items, so its sync is still to run or to check.
+A tx page marks a Rare Candy item lock with an `NFT: Rare Candy` badge (`Chain.nft_facts/1`), linking to the known collection the lock names.
 Grand Tardinians is 999 items: the 1,494 in #30 counted transfers ([field note](docs/field-notes/2026-11-02-the-495-tardinians.md)).
 #33 TXSTORE: raw tx bytes in S3 (one immutable CDN URL per txid), collections first; images parsed from raw txs on the fly at `/content/:outpoint`.
 #32 BAP identity index is built ([docs/BAP.md](docs/BAP.md)): `/api/v1/bap/:bap_id`, with the rules for valid, accepted, rotation and newest written down.

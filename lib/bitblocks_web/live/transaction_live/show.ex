@@ -427,6 +427,15 @@ defmodule BitblocksWeb.TransactionLive.Show do
   defp page_title(:show), do: "Show Transaction"
   defp page_title(:edit), do: "Edit Transaction"
 
+  # The collection the Rare Candy lock names when it is a known one, else the
+  # collections index.
+  defp rare_candy_path(outputs) do
+    case Enum.find_value(outputs, & &1.collection) do
+      nil -> ~p"/collections"
+      slug -> ~p"/collections/#{slug}"
+    end
+  end
+
   defp collection_holding(Bitblocks.Rexxies, item), do: Bitblocks.Rexxies.holding(item)
   defp collection_holding(_module, _item), do: nil
 end

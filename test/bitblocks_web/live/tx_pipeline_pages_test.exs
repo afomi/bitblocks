@@ -70,6 +70,21 @@ defmodule BitblocksWeb.TxPipelinePagesTest do
     refute has_element?(view, "#badge-run")
   end
 
+  test "a Rare Candy mint links to the collection its lock names (#77)", %{conn: conn} do
+    block = block_fixture(%{height: 33})
+    txid = "0ef416e3b3f280b357e8a16e2f16cdda35f749cb8545ee031a21e39c030e9a7f"
+    hex = File.read!("test/fixtures/collections/#{txid}.hex") |> String.trim()
+    assert :ok = TxIngest.store(tx_json({txid, hex}), block)
+
+    {:ok, view, _html} = live(conn, ~p"/transactions/#{txid}")
+
+    assert view
+           |> element("#badge-rare-candy[href='/collections/planetary-skies']")
+           |> render() =~ "NFT: Rare Candy"
+
+    refute has_element?(view, "#badge-run")
+  end
+
   test "a Run tx links to the Run type", %{conn: conn} do
     block = block_fixture(%{height: 32})
     {txid, _} = t = tx([funding_outpoint()], [run_payload(%{}), p2pkh(address(), 1)])
