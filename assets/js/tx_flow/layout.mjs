@@ -197,12 +197,12 @@ export function edgeSource(flow, edge) {
 
 // Line-segment vertices for every edge: positions, the height it was spent
 // at (born), and t along the arc for the flow shimmer.
-export function edgeGeometry(flow) {
-  const segs = ARC_SEGMENTS
+export function edgeGeometry(flow, segs = ARC_SEGMENTS) {
   const count = flow.edges.length * segs * 2
   const pos = new Float32Array(count * 3)
   const born = new Float32Array(count)
   const along = new Float32Array(count)
+  const weight = new Float32Array(count)
   const edgeOf = new Int32Array(count)
   let v = 0
   flow.edges.forEach((edge, e) => {
@@ -219,12 +219,13 @@ export function edgeGeometry(flow) {
         pos[v * 3 + 2] = pts[j][2]
         born[v] = h
         along[v] = j / segs
+        weight[v] = edge.weight == null ? 1 : edge.weight
         edgeOf[v] = e
         v++
       }
     }
   })
-  return {pos, born, along, edgeOf, count}
+  return {pos, born, along, weight, edgeOf, count}
 }
 
 // What is true at playhead height `h`: txs mined, spends made, and outputs
@@ -315,4 +316,204 @@ export function fmtCoins(sats) {
   const coins = sats / 1e8
   if (coins >= 1000) return Math.round(coins).toLocaleString("en-US")
   return coins.toLocaleString("en-US", {maximumFractionDigits: 8})
+}
+
+// ---------------------------------------------------------------- flow tiles
+//
+// Past the near view's caps (ChainFlow.max_blocks/0, max_txs/0) the range is
+// drawn from flow tiles (lib/bitblocks/flow_tiles/codec.ex, #67): one node per
+// block, or per group of blocks when the range holds more than
+// MAX_SUMMARY_NODES, and one arc per age bin of the coins its inputs spend,
+// from the spine at that age back to the node. The result has the shape
+// `decode` returns, with `summary: true`, so the scene draws it the same way.
+
+export const FLOW_MAGIC = "BBF1"
+export const FLOW_HEADER_BYTES = 32
+export const AGE_BINS = 16
+export const MAX_SUMMARY_NODES = 3000
+export const SUMMARY_ARC_SEGMENTS = 8
+
+// Decodes one flow tile's bytes into flat arrays, one entry per height.
+export function decodeFlowTile(buffer) {
+  const view = new DataView(buffer)
+  const magic = String.fromCharCode(view.getUint8(0), view.getUint8(1), view.getUint8(2), view.getUint8(3))
+  if (magic !== FLOW_MAGIC) throw new Error("not a flow tile")
+  const bins = view.getUint8(5)
+  const recordBytes = view.getUint16(6, true)
+  const firstHeight = view.getUint32(8, true)
+  const count = view.getUint32(12, true)
+  const tile = {
+    firstHeight,
+    count,
+    bins,
+    time: new Uint32Array(count),
+    numTx: new Uint32Array(count),
+    stored: new Uint32Array(count),
+    nIn: new Uint32Array(count),
+    nOut: new Uint32Array(count),
+    unknown: new Uint32Array(count),
+    satsOut: new Float64Array(count),
+    hist: new Uint32Array(count * bins)
+  }
+  for (let i = 0; i < count; i++) {
+    const o = FLOW_HEADER_BYTES + i * recordBytes
+    tile.time[i] = view.getUint32(o, true)
+    tile.numTx[i] = view.getUint32(o + 4, true)
+    tile.stored[i] = view.getUint32(o + 8, true)
+    tile.nIn[i] = view.getUint32(o + 12, true)
+    tile.nOut[i] = view.getUint32(o + 16, true)
+    tile.unknown[i] = view.getUint32(o + 20, true)
+    tile.satsOut[i] = view.getFloat64(o + 24, true)
+    for (let b = 0; b < bins; b++) tile.hist[i * bins + b] = view.getUint32(o + 32 + b * 4, true)
+  }
+  return tile
+}
+
+// The tiles a range needs from a flow manifest: [{idx, hash}], built ones only.
+export function tilesForRange(manifest, from, to) {
+  const per = manifest.tile_records || 1024
+  const last = Math.min(to, manifest.built_through)
+  const out = []
+  if (last < from) return out
+  for (let idx = Math.floor(from / per); idx <= Math.floor(last / per); idx++) {
+    const hash = manifest.tiles[idx]
+    if (hash) out.push({idx, hash})
+  }
+  return out
+}
+
+// Calls fn(height, tile, i) for every built record in [from, to].
+function eachRecord(tiles, from, to, fn) {
+  for (const tile of tiles) {
+    const lo = Math.max(from, tile.firstHeight)
+    const hi = Math.min(to, tile.firstHeight + tile.count - 1)
+    for (let h = lo; h <= hi; h++) {
+      const i = h - tile.firstHeight
+      if (tile.numTx[i] > 0 || tile.stored[i] > 0) fn(h, tile, i)
+    }
+  }
+}
+
+// Txs the header counts in [from, to], over the built blocks.
+export function summaryTxCount(tiles, from, to) {
+  let n = 0
+  eachRecord(tiles, from, to, (h, tile, i) => (n += tile.numTx[i]))
+  return n
+}
+
+// The age an arc in bin b draws at: the middle of [2^(b-1), 2^b).
+export function binAge(b) {
+  if (b <= 0) return 0
+  if (b === 1) return 1
+  return Math.round(1.5 * 2 ** (b - 1))
+}
+
+export function summaryFlow(tiles, from, to, opts = {}) {
+  const maxNodes = opts.maxNodes || MAX_SUMMARY_NODES
+  const span = Math.max(1, to - from + 1)
+  const group = Math.max(1, Math.ceil(span / maxNodes))
+  const gap = gapFor(from, to)
+
+  const byGroup = new Map()
+  eachRecord(tiles, from, to, (h, tile, i) => {
+    const g = Math.floor((h - from) / group)
+    let node = byGroup.get(g)
+    if (!node) {
+      node = {
+        height: from + g * group,
+        last: Math.min(to, from + (g + 1) * group - 1),
+        time: tile.time[i],
+        blocks: 0,
+        numTx: 0,
+        stored: 0,
+        nIn: 0,
+        nOut: 0,
+        unknown: 0,
+        satsOut: 0,
+        hist: new Float64Array(tile.bins)
+      }
+      byGroup.set(g, node)
+    }
+    node.blocks++
+    node.numTx += tile.numTx[i]
+    node.stored += tile.stored[i]
+    node.nIn += tile.nIn[i]
+    node.nOut += tile.nOut[i]
+    node.unknown += tile.unknown[i]
+    node.satsOut = node.satsOut < 0 || tile.satsOut[i] < 0 ? -1 : node.satsOut + tile.satsOut[i]
+    for (let b = 0; b < tile.bins; b++) node.hist[b] += tile.hist[i * tile.bins + b]
+  })
+  const nodes = [...byGroup.keys()].sort((a, b) => a - b).map((g) => byGroup.get(g))
+
+  const n = nodes.length
+  const txPos = new Float32Array(n * 3)
+  const txHeight = new Float32Array(n)
+  const txSize = new Float32Array(n)
+  const edges = []
+  let maxCount = 1
+  nodes.forEach((node, i) => {
+    txPos[i * 3] = (node.height - from) * gap
+    txHeight[i] = node.height
+    txSize[i] = 0.6 + Math.min(1.6, Math.log10(1 + node.stored) / 3)
+    node.hist.forEach((count, b) => {
+      if (count <= 0) return
+      maxCount = Math.max(maxCount, count)
+      edges.push({src: -1, vout: 0, dst: i, sats: -1, sourceHeight: node.height - binAge(b), count, bin: b})
+    })
+  })
+  for (const e of edges) e.weight = 0.25 + (0.75 * Math.log(1 + e.count)) / Math.log(1 + maxCount)
+
+  return {
+    summary: true,
+    group,
+    from,
+    to,
+    gap,
+    truncated: false,
+    builtThrough: opts.builtThrough,
+    spendsKnownThrough: opts.builtThrough,
+    nodes,
+    blocks: nodes.map((node) => [node.height, node.time, node.numTx, node.stored]),
+    txs: nodes.map((node) => [node.height, null, 0, node.nIn, node.satsOut]),
+    external: [],
+    n,
+    txPos,
+    txHeight,
+    txSize,
+    txCoinbase: new Uint8Array(n),
+    txIndex: new Map(),
+    outCount: 0,
+    outPos: new Float32Array(0),
+    outBorn: new Float32Array(0),
+    outSpent: new Float32Array(0),
+    outSats: new Float64Array(0),
+    outOffset: new Int32Array(n + 1),
+    edges
+  }
+}
+
+// Running totals by height for the readout: txs, inputs spent, outputs.
+export function summaryStats(flow) {
+  const n = flow.nodes.length
+  const heights = new Float64Array(n)
+  const txs = new Float64Array(n + 1)
+  const spends = new Float64Array(n + 1)
+  const outputs = new Float64Array(n + 1)
+  flow.nodes.forEach((node, i) => {
+    heights[i] = node.last
+    txs[i + 1] = txs[i] + node.stored
+    spends[i + 1] = spends[i] + node.nIn
+    outputs[i + 1] = outputs[i] + node.nOut
+  })
+  return {heights, txs, spends, outputs}
+}
+
+export function summaryStatsAt(stats, h) {
+  const k = upperBound(stats.heights, h)
+  return {txs: stats.txs[k], spends: stats.spends[k], outputs: stats.outputs[k]}
+}
+
+// The node that holds height h, or undefined.
+export function nodeAt(flow, h) {
+  return flow.nodes.find((node) => h >= node.height && h <= node.last)
 }

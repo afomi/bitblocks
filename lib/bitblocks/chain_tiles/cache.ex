@@ -29,6 +29,7 @@ defmodule Bitblocks.ChainTiles.Cache do
 
   @table :chain_tiles_cache
   @manifest_key :__manifest__
+  @flow_manifest_key :__flow_manifest__
   @topic "chain_tiles"
 
   def start_link(opts), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
@@ -128,15 +129,19 @@ defmodule Bitblocks.ChainTiles.Cache do
   @spec put(Tile.t()) :: :ok
   def put(%Tile{} = tile) do
     :ets.insert(@table, {{tile.level, tile.idx}, tile})
-    :ets.delete(@table, @manifest_key)
-    :ok
+    forget_manifests()
   end
 
   @doc "Removes a tile from the cache."
   @spec delete(non_neg_integer(), non_neg_integer()) :: :ok
   def delete(level, idx) do
     :ets.delete(@table, {level, idx})
+    forget_manifests()
+  end
+
+  defp forget_manifests do
     :ets.delete(@table, @manifest_key)
+    :ets.delete(@table, @flow_manifest_key)
     :ok
   end
 
@@ -174,10 +179,49 @@ defmodule Bitblocks.ChainTiles.Cache do
         manifest
 
       [] ->
-        manifest = build_manifest(all())
+        alias Bitblocks.ChainTiles.Codec
+        manifest = all() |> Enum.filter(&(&1.level <= Codec.max_level())) |> build_manifest()
         if manifest, do: :ets.insert(@table, {@manifest_key, manifest})
         manifest
     end
+  end
+
+  @doc """
+  The flow tiles' manifest (`Bitblocks.FlowTiles`, #67): the height they are
+  built through and the content hash of every tile (`nil` where none is
+  stored). Memoised in ETS until the next write; nil before a first build.
+  """
+  @spec flow_manifest() :: map() | nil
+  def flow_manifest do
+    case :ets.lookup(@table, @flow_manifest_key) do
+      [{_, manifest}] ->
+        manifest
+
+      [] ->
+        level = Bitblocks.FlowTiles.level()
+        manifest = all() |> Enum.filter(&(&1.level == level)) |> build_flow_manifest()
+        if manifest, do: :ets.insert(@table, {@flow_manifest_key, manifest})
+        manifest
+    end
+  end
+
+  defp build_flow_manifest([]), do: nil
+
+  defp build_flow_manifest(tiles) do
+    alias Bitblocks.FlowTiles.Codec
+
+    by_idx = Map.new(tiles, &{&1.idx, &1})
+    last_idx = tiles |> Enum.map(& &1.idx) |> Enum.max()
+
+    %{
+      version: 1,
+      built_through: tiles |> Enum.map(&(&1.first_height + &1.count - 1)) |> Enum.max(),
+      built_at: tiles |> Enum.map(&DateTime.to_unix(&1.built_at)) |> Enum.max(),
+      tile_records: Codec.tile_records(),
+      record_bytes: Codec.record_bytes(),
+      age_bins: Codec.age_bins(),
+      tiles: for(idx <- 0..last_idx, do: by_idx[idx] && by_idx[idx].hash)
+    }
   end
 
   defp build_manifest([]), do: nil

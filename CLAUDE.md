@@ -158,7 +158,7 @@ GET /api/v1/status/derivations` shows the versions and latest runs.
   - `/start`, `/start/api`, `/start/guidance`, `/start/interop` - public builder onboarding, API reference, our dated views and a BEEF check by hand, see `docs/DEMOS_CAMPAIGN.md`
   - `/syncing` - signed-in live sync view: blocks fetching on each lane with synced and processed x of y, recent completions, tips and blocks by sync_state, from one shared snapshot (`Bitblocks.SyncProgress`; `docs/SYNCING.md`); admins also get the operator panel there: pause, worker slots, node load, failed blocks, the audit. `/sync` redirects to it
   - `/chain-scrubber` - admin only: scrub the chain genesis to tip in three.js from precomputed tiles (`docs/CHAIN_SCRUBBER.md`); `/chain-scrubber/tiles/manifest` and `/chain-scrubber/tiles/:level/:idx` serve the tiles from ETS with no DB query
-  - `/tx-graph` - admin only: the transaction flow space, a block range in three.js with every input as an arc to the output it spends, scrubbed by a playhead (`docs/TX_FLOW.md`); data from `/chain-scrubber/flow?from=&to=` (`Bitblocks.ChainFlow`)
+  - `/tx-graph` - admin only: the transaction flow space, a block range in three.js with every input as an arc to the output it spends, scrubbed by a playhead (`docs/TX_FLOW.md`); data from `/chain-scrubber/flow?from=&to=` (`Bitblocks.ChainFlow`), and past 50,000 txs one node per block from the flow tiles (`Bitblocks.FlowTiles`, ETS, `/chain-scrubber/flow-tiles/*`)
   - `/burns` - admin only: the blocks that burned sats (`blocks.burned`), most first or newest first, each opening to its stored txs by `burned_satoshis` (`Bitblocks.Burns`)
   - `/annotations` - admin only: CRUD for chain annotations (forks, upgrades, halvings, mintings, milestones, world events), placed by height, txid or date (`Bitblocks.Annotations`); drawn on both scenes
   - `/dev/dashboard` - LiveDashboard (dev only)
@@ -275,6 +275,10 @@ bin/bitblocks rpc 'Bitblocks.Release.start_backfill("timelocks", 0, 980_000, app
 # Chain-scrubber tiles (#48): full build once, then the cron keeps them current
 bin/bitblocks rpc 'Bitblocks.Release.build_chain_tiles()'
 bin/bitblocks rpc 'Bitblocks.Release.chain_tiles_status()'
+
+# Flow tiles for the /tx-graph far view (#67): once, then the cron follows complete_through
+bin/bitblocks rpc 'Bitblocks.Release.build_flow_tiles()'
+bin/bitblocks rpc 'Bitblocks.Release.flow_tiles_status()'
 
 # The tx store (CDN) counted against the chain: declared, stored, in the store, sampled (read-only)
 bin/bitblocks rpc 'Bitblocks.Release.tx_store_reconcile(0, 9_999)'

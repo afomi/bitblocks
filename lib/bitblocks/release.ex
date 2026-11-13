@@ -1810,6 +1810,58 @@ defmodule Bitblocks.Release do
   end
 
   @doc """
+  Starts (or, with `from:` below the built height, rebuilds) the `/tx-graph`
+  flow tiles (#67), from `from:` (default 0) up to `Sync.complete_through/0`.
+
+  Queued on the `:chain_tiles` lane as a chain of two-minute jobs; the
+  five-minute cron keeps the tiles current after that. Reads `blocks`, a
+  grouped tally of `transactions` and a grouped `spend_index` join per
+  batch of about 20,000 txs. `inline: true` runs one budgeted pass here.
+
+      bin/bitblocks rpc 'Bitblocks.Release.build_flow_tiles()'
+      bin/bitblocks rpc 'Bitblocks.Release.build_flow_tiles(from: 300_000)'
+  """
+  def build_flow_tiles(opts \\ []) do
+    from = Keyword.get(opts, :from, 0)
+
+    if Keyword.get(opts, :inline, false) do
+      {elapsed_us, result} = :timer.tc(fn -> Bitblocks.FlowTiles.build(from: from) end)
+      IO.puts("flow tiles: #{inspect(result, limit: 20)} in #{div(elapsed_us, 1000)} ms")
+      result
+    else
+      case %{"from" => from} |> Bitblocks.Workers.FlowTilesWorker.new() |> Oban.insert() do
+        {:ok, %Oban.Job{id: id, conflict?: false} = job} ->
+          IO.puts("flow tiles build from #{from} queued (Oban ##{id}); check flow_tiles_status()")
+          {:ok, job}
+
+        {:ok, %Oban.Job{conflict?: true} = job} ->
+          IO.puts("a flow tiles build is already queued (Oban ##{job.id})")
+          {:ok, job}
+
+        {:error, reason} ->
+          IO.puts("failed to queue: #{inspect(reason)}")
+          {:error, reason}
+      end
+    end
+  end
+
+  @doc """
+  Prints how far the flow tiles reach (#67).
+
+      bin/bitblocks rpc 'Bitblocks.Release.flow_tiles_status()'
+  """
+  def flow_tiles_status do
+    status = Bitblocks.FlowTiles.status()
+
+    IO.puts(
+      "flow tiles: #{status.tiles} stored, #{status.cached} cached, built through " <>
+        "#{inspect(status.built_through)} of complete_through #{inspect(status.complete_through)}"
+    )
+
+    status
+  end
+
+  @doc """
   Writes a Bitcom registry snapshot if the registry changed, and prints the
   version and hash (#21). The daily cron does the same.
 

@@ -438,6 +438,8 @@ defmodule BitblocksWeb.Router do
     get "/tiles/manifest", ChainTileController, :manifest
     get "/tiles/:level/:idx", ChainTileController, :tile
     get "/flow", ChainFlowController, :show
+    get "/flow-tiles/manifest", FlowTileController, :manifest
+    get "/flow-tiles/:idx", FlowTileController, :tile
   end
 
   scope "/" do

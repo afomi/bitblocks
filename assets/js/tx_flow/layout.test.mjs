@@ -136,3 +136,92 @@ describe("external sources", () => {
     assert.equal(g.born[0], 3)
   })
 })
+
+// A flow tile as lib/bitblocks/flow_tiles/codec.ex writes it.
+function flowTile(firstHeight, records) {
+  const buf = new ArrayBuffer(32 + records.length * 96)
+  const v = new DataView(buf)
+  "BBF1".split("").forEach((c, i) => v.setUint8(i, c.charCodeAt(0)))
+  v.setUint8(4, 1)
+  v.setUint8(5, 16)
+  v.setUint16(6, 96, true)
+  v.setUint32(8, firstHeight, true)
+  v.setUint32(12, records.length, true)
+  records.forEach((r, i) => {
+    const o = 32 + i * 96
+    v.setUint32(o, r.time || 0, true)
+    v.setUint32(o + 4, r.numTx || 0, true)
+    v.setUint32(o + 8, r.stored || 0, true)
+    v.setUint32(o + 12, r.nIn || 0, true)
+    v.setUint32(o + 16, r.nOut || 0, true)
+    v.setUint32(o + 20, r.unknown || 0, true)
+    v.setFloat64(o + 24, r.satsOut || 0, true)
+    for (const [b, n] of Object.entries(r.hist || {})) v.setUint32(o + 32 + Number(b) * 4, n, true)
+  })
+  return buf
+}
+
+describe("flow tiles", () => {
+  const records = []
+  for (let h = 0; h < 200; h++) records.push({time: 1000 + h, numTx: 1, stored: 1, nOut: 1, satsOut: 5e9})
+  records[170] = {time: 1170, numTx: 2, stored: 2, nIn: 1, nOut: 3, satsOut: 1e10, hist: {8: 1}}
+  records[10] = {} // not built
+  const tile = layout.decodeFlowTile(flowTile(0, records))
+
+  test("decodes a tile's records", () => {
+    assert.equal(tile.firstHeight, 0)
+    assert.equal(tile.count, 200)
+    assert.equal(tile.nIn[170], 1)
+    assert.equal(tile.hist[170 * 16 + 8], 1)
+    assert.equal(tile.satsOut[170], 1e10)
+  })
+
+  test("rejects bytes that aren't a flow tile", () => {
+    assert.throws(() => layout.decodeFlowTile(new ArrayBuffer(32)))
+  })
+
+  test("picks the built tiles a range needs", () => {
+    const manifest = {tile_records: 1024, built_through: 2100, tiles: ["a", null, "c"]}
+    assert.deepEqual(layout.tilesForRange(manifest, 0, 5000), [
+      {idx: 0, hash: "a"},
+      {idx: 2, hash: "c"}
+    ])
+    assert.deepEqual(layout.tilesForRange(manifest, 3000, 5000), [])
+  })
+
+  test("one node per built block, one arc per age bin, drawn back by that age", () => {
+    const flow = layout.summaryFlow([tile], 0, 199, {builtThrough: 199})
+    assert.equal(flow.summary, true)
+    assert.equal(flow.group, 1)
+    assert.equal(flow.n, 199) // block 10 isn't built
+    assert.equal(layout.summaryTxCount([tile], 0, 199), 200)
+    assert.equal(flow.edges.length, 1)
+    const [edge] = flow.edges
+    assert.equal(flow.txHeight[edge.dst], 170)
+    assert.equal(edge.sourceHeight, 170 - layout.binAge(8))
+    assert.ok(layout.binAge(8) >= 128 && layout.binAge(8) < 256)
+    assert.equal(edge.weight, 1)
+
+    const stats = layout.summaryStats(flow)
+    assert.deepEqual(layout.summaryStatsAt(stats, 169), {txs: 169, spends: 0, outputs: 169})
+    assert.deepEqual(layout.summaryStatsAt(stats, 170), {txs: 171, spends: 1, outputs: 172})
+    assert.equal(layout.nodeAt(flow, 170).nIn, 1)
+
+    // The scene's arc geometry takes the summary as it is.
+    const geo = layout.edgeGeometry(flow, layout.SUMMARY_ARC_SEGMENTS)
+    assert.equal(geo.count, layout.SUMMARY_ARC_SEGMENTS * 2)
+    assert.equal(geo.weight[0], 1)
+  })
+
+  test("a long range groups blocks into at most maxNodes nodes, keeping the sums", () => {
+    const flow = layout.summaryFlow([tile], 0, 199, {maxNodes: 20})
+    assert.equal(flow.group, 10)
+    assert.equal(flow.n, 20)
+    const node = layout.nodeAt(flow, 175)
+    assert.equal(node.height, 170)
+    assert.equal(node.last, 179)
+    assert.equal(node.stored, 11)
+    assert.equal(node.nIn, 1)
+    assert.equal(flow.nodes.reduce((s, n) => s + n.stored, 0), 200)
+  })
+})

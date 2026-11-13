@@ -37,7 +37,7 @@ defmodule BitblocksWeb.TxGraphLiveTest do
 
   test "range/2 caps a range at the block limit" do
     {from, to, nil} = TxGraphLive.range(%{"from" => "0", "to" => "99999999"}, "")
-    assert {from, to} == {0, Bitblocks.ChainFlow.max_blocks() - 1}
+    assert {from, to} == {0, Bitblocks.FlowTiles.max_blocks() - 1}
   end
 
   test "annotation changes are pushed to the scene", %{conn: conn} do

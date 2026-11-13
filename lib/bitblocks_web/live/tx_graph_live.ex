@@ -5,11 +5,13 @@ defmodule BitblocksWeb.TxGraphLive do
   output it spends, scrubbed with a playhead (the `TxFlow` hook).
 
       /tx-graph                    blocks 0..999
-      /tx-graph?from=0&to=5000     a range (at most ChainFlow.max_blocks/0 blocks)
+      /tx-graph?from=0&to=5000     a range (at most FlowTiles.max_blocks/0 blocks)
       /tx-graph?txid=<txid>        the 200 blocks around a tx, with its lineage lit
 
-  The graph is read by the hook from `/chain-scrubber/flow`
-  (`Bitblocks.ChainFlow`); this LiveView owns the range form and the
+  The graph is read by the hook: every tx from `/chain-scrubber/flow`
+  (`Bitblocks.ChainFlow`) while the range fits its caps, else one node per
+  block from the flow tiles (`/chain-scrubber/flow-tiles`,
+  `Bitblocks.FlowTiles`, #67). This LiveView owns the range form and the
   annotation layer (`Bitblocks.ChainScrubber.annotations/0`).
 
   The scene grows as the sync does: when a block in the open range
@@ -22,7 +24,7 @@ defmodule BitblocksWeb.TxGraphLive do
 
   import Ecto.Query
 
-  alias Bitblocks.{ChainFlow, ChainScrubber, Repo}
+  alias Bitblocks.{ChainFlow, ChainScrubber, FlowTiles, Repo}
   alias Bitblocks.Chain.Transaction
 
   @default_span 1_000
@@ -41,7 +43,9 @@ defmodule BitblocksWeb.TxGraphLive do
         to: to,
         txid: txid,
         error: error,
-        max_blocks: ChainFlow.max_blocks(),
+        max_blocks: FlowTiles.max_blocks(),
+        detail_max_blocks: ChainFlow.max_blocks(),
+        detail_max_txs: ChainFlow.max_txs(),
         annotation_count: Enum.count(annotations, &(&1.height >= from and &1.height <= to))
       )
 
@@ -91,7 +95,7 @@ defmodule BitblocksWeb.TxGraphLive do
 
   @doc """
   The range to open: `?from=&to=` when both are heights with `from <= to`
-  (cut to the block cap), else the blocks around `txid` when we hold it, else
+  (cut to `FlowTiles.max_blocks/0`), else the blocks around `txid` when we hold it, else
   blocks 0..999. The third element explains a txid we couldn't place.
   """
   def range(params, txid) do
@@ -100,7 +104,7 @@ defmodule BitblocksWeb.TxGraphLive do
 
     cond do
       is_integer(from) and is_integer(to) and from >= 0 and to >= from ->
-        {from, min(to, from + ChainFlow.max_blocks() - 1), nil}
+        {from, min(to, from + FlowTiles.max_blocks() - 1), nil}
 
       txid != "" ->
         case tx_height(txid) do

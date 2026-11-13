@@ -22,6 +22,7 @@ The container's disk does not survive a deploy (`restart.yml` replaces the conta
 `chain_tiles` is about a thousand rows and 17.5 MB.
 `Bitblocks.ChainTiles.Cache` holds a copy in ETS, warmed at boot in one query off the supervisor path, and written through by the builder, so a tile request never queries the database.
 Moving the store to S3 later is an adapter, not a redesign.
+The `/tx-graph` flow tiles share the table and the cache at level 100 (`Bitblocks.FlowTiles`, `docs/TX_FLOW.md`); this page's manifest reads levels 0 to 3 only.
 
 **Unchanged input changes nothing.**
 Tiles are content-addressed: the bytes carry no build time, so the same blocks encode to the same hash and the builder skips the write.

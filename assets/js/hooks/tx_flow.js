@@ -9,6 +9,11 @@
 // created by H and not yet spent glows gold (the live UTXO set), a spent one
 // fades to ash; an arc appears in the block that spent it, flashes, then
 // settles. Reduced motion turns off the shimmer, the flash and camera easing.
+//
+// Past the near view's caps (data-detail-max-blocks, data-detail-max-txs) the
+// range comes from the flow tiles instead (#67): one node per block, or per
+// group of blocks, and one arc per age of the coins its inputs spend. A click
+// on a node opens its blocks in the near view.
 
 import * as THREE from "three"
 import {OrbitControls} from "three/examples/jsm/controls/OrbitControls.js"
@@ -79,6 +84,7 @@ const EDGE_VERT = `
   attribute float aBorn;
   attribute float aAlong;
   attribute float aSel;
+  attribute float aWeight;
   uniform float uPlay;
   uniform float uTime;
   uniform float uMotion;
@@ -91,7 +97,7 @@ const EDGE_VERT = `
     float shimmer = uMotion * born * 0.35 * (0.5 + 0.5 * sin((aAlong - uTime * 0.35) * 18.0));
     vec3 c = mix(vec3(1.0, 0.62, 0.20), vec3(1.0, 0.95, 0.85), aAlong);
     c = mix(c, vec3(0.40, 0.95, 1.0), aSel);
-    float a = born * (0.38 + shimmer + 0.6 * flash) + (1.0 - born) * 0.025;
+    float a = (born * (0.38 + shimmer + 0.6 * flash) + (1.0 - born) * 0.025) * aWeight;
     vColor = vec4(c, max(a, aSel * 0.95));
   }
 `
@@ -139,6 +145,9 @@ export default {
     }
     this.from = parseInt(this.el.dataset.from, 10)
     this.to = parseInt(this.el.dataset.to, 10)
+    this.requestedTo = this.to
+    this.detailMaxBlocks = parseInt(this.el.dataset.detailMaxBlocks, 10) || 5000
+    this.detailMaxTxs = parseInt(this.el.dataset.detailMaxTxs, 10) || 50000
     this.focusTxid = this.el.dataset.txid || ""
     const media = typeof window.matchMedia === "function" ? window.matchMedia("(prefers-reduced-motion: reduce)") : null
     this.reducedMotion = !!(media && media.matches)
@@ -260,7 +269,7 @@ export default {
   // ---------------------------------------------------------------- data
 
   async fetchFlow() {
-    const res = await fetch(`/chain-scrubber/flow?from=${this.from}&to=${this.to}`, {
+    const res = await fetch(`/chain-scrubber/flow?from=${this.from}&to=${this.requestedTo}`, {
       credentials: "same-origin",
       headers: {accept: "application/json"}
     })
@@ -269,20 +278,60 @@ export default {
     return payload
   },
 
+  // The flow tiles covering the range, or null when none are built for it
+  // (or a tile is stale): ETS on the server, immutable in the browser cache.
+  async fetchSummary() {
+    const opts = {credentials: "same-origin"}
+    const res = await fetch("/chain-scrubber/flow-tiles/manifest", {...opts, headers: {accept: "application/json"}})
+    if (!res.ok) return null
+    const manifest = await res.json()
+    const wanted = layout.tilesForRange(manifest, this.from, this.requestedTo)
+    if (!wanted.length) return null
+    const tiles = await Promise.all(
+      wanted.map(async ({idx, hash}) => {
+        const r = await fetch(`/chain-scrubber/flow-tiles/${idx}?v=${hash}`, opts)
+        if (!r.ok) throw new Error(`tile ${idx}: HTTP ${r.status}`)
+        return layout.decodeFlowTile(await r.arrayBuffer())
+      })
+    )
+    return {manifest, tiles}
+  },
+
+  // Every tx while the range fits the near view's caps; past them, the flow
+  // tiles when they are built, else the near view cut at its caps.
+  async readRange() {
+    const span = this.requestedTo - this.from + 1
+    let summary = null
+    try {
+      summary = await this.fetchSummary()
+    } catch (e) {
+      summary = null
+    }
+    if (summary) {
+      const txs = layout.summaryTxCount(summary.tiles, this.from, this.requestedTo)
+      if (span > this.detailMaxBlocks || txs > this.detailMaxTxs) {
+        return layout.summaryFlow(summary.tiles, this.from, this.requestedTo, {
+          builtThrough: summary.manifest.built_through
+        })
+      }
+    }
+    return layout.decode(await this.fetchFlow())
+  },
+
   async load() {
     this.setStatus(`Loading blocks ${fmtInt(this.from)} to ${fmtInt(this.to)}…`)
-    let payload
+    let flow
     try {
-      payload = await this.fetchFlow()
+      flow = await this.readRange()
     } catch (e) {
       this.setStatus(`Couldn't load the range: ${e.message}.`)
       return
     }
     if (this.disposed) return
-    this.applyFlow(payload)
+    this.applyFlow(flow)
     this.frameRange()
 
-    const focus = this.focusTxid ? this.flow.txIndex.get(this.focusTxid) : undefined
+    const focus = this.focusTxid && !this.flow.summary ? this.flow.txIndex.get(this.focusTxid) : undefined
     if (focus !== undefined) {
       this.select(focus)
       this.setPlay(this.flow.txHeight[focus])
@@ -302,35 +351,36 @@ export default {
   // playhead and selection stay, and placement is fixed by the data, so
   // nothing already drawn moves.
   async refresh() {
-    let payload
+    let flow
     try {
-      payload = await this.fetchFlow()
+      flow = await this.readRange()
     } catch (e) {
-      payload = null
+      flow = null
     } finally {
       this.refreshTimer = null
     }
-    if (!payload || this.disposed) return
+    if (!flow || this.disposed) return
     const play = this.play
-    const selectedTxid = this.selected >= 0 ? this.flow.txs[this.selected][1] : null
-    this.applyFlow(payload)
+    const selectedTxid = this.selected >= 0 && !this.flow.summary ? this.flow.txs[this.selected][1] : null
+    this.applyFlow(flow)
     const again = selectedTxid ? this.flow.txIndex.get(selectedTxid) : undefined
     this.select(again === undefined ? -1 : again)
     this.setPlay(play)
     this.renderStatus()
   },
 
-  applyFlow(payload) {
+  applyFlow(flow) {
     this.lastLoad = Date.now()
-    this.flow = layout.decode(payload)
+    this.flow = flow
     this.to = this.flow.to
-    this.stats = layout.prepareStats(this.flow)
+    this.stats = flow.summary ? layout.summaryStats(flow) : layout.prepareStats(flow)
     this.buildGraph()
     this.drawMinimap()
     this.buildLabels()
   },
 
   renderStatus() {
+    if (this.flow.summary) return this.renderSummaryStatus()
     const first = layout.firstSpend(this.flow)
     const stored = this.flow.blocks.reduce((s, b) => s + b[3], 0)
     const expected = this.flow.blocks.reduce((s, b) => s + b[2], 0)
@@ -344,6 +394,23 @@ export default {
     if (first) parts.push(`First spend here: block ${fmtInt(first.height)}.`)
     if (Number.isFinite(this.flow.spendsKnownThrough)) {
       parts.push(`Spends are known through block ${fmtInt(this.flow.spendsKnownThrough)}.`)
+    }
+    this.setStatus(parts.join(" "))
+  },
+
+  renderSummaryStatus() {
+    const f = this.flow
+    const stored = f.nodes.reduce((s, n) => s + n.stored, 0)
+    const inputs = f.nodes.reduce((s, n) => s + n.nIn, 0)
+    const parts = [
+      `${fmtInt(stored)} txs and ${fmtInt(inputs)} spends in blocks ${fmtInt(this.from)} to ${fmtInt(this.to)}, from the flow tiles.`,
+      f.group > 1
+        ? `Each node is ${fmtInt(f.group)} blocks; each arc, the inputs spending coins of one age.`
+        : "Each node is a block; each arc, the inputs spending coins of one age.",
+      "Click a node to open its blocks with every transaction."
+    ]
+    if (Number.isFinite(f.builtThrough) && f.builtThrough < this.to) {
+      parts.push(`The flow tiles reach block ${fmtInt(f.builtThrough)}; later blocks join as they are built.`)
     }
     this.setStatus(parts.join(" "))
   },
@@ -392,12 +459,13 @@ export default {
     this.scene.add(this.outPoints)
 
     // Arcs.
-    const e = layout.edgeGeometry(f)
+    const e = layout.edgeGeometry(f, f.summary ? layout.SUMMARY_ARC_SEGMENTS : layout.ARC_SEGMENTS)
     this.edgeOf = e.edgeOf
     const eg = new THREE.BufferGeometry()
     eg.setAttribute("position", new THREE.BufferAttribute(e.pos, 3))
     eg.setAttribute("aBorn", new THREE.BufferAttribute(e.born, 1))
     eg.setAttribute("aAlong", new THREE.BufferAttribute(e.along, 1))
+    eg.setAttribute("aWeight", new THREE.BufferAttribute(e.weight, 1))
     this.edgeSel = new THREE.BufferAttribute(new Float32Array(e.count), 1)
     eg.setAttribute("aSel", this.edgeSel)
     this.edgeLines = new THREE.LineSegments(
@@ -421,7 +489,8 @@ export default {
     this.scene.add(this.spine)
 
     let maxDisc = 0
-    for (const b of f.blocks) maxDisc = Math.max(maxDisc, layout.discRadius(b[3] || 1, f.gap))
+    if (f.summary) maxDisc = f.gap * 2
+    else for (const b of f.blocks) maxDisc = Math.max(maxDisc, layout.discRadius(b[3] || 1, f.gap))
     const ring = new THREE.RingGeometry(maxDisc + f.gap * 0.6, maxDisc + f.gap * 0.75, 96)
     ring.rotateY(Math.PI / 2)
     this.playRing = new THREE.Mesh(
@@ -487,9 +556,23 @@ export default {
   renderReadout() {
     if (!this.els.readout || !this.flow) return
     const h = Math.floor(this.play)
+    const here = this.annotations.filter((a) => a.height === h)
+    if (this.flow.summary) {
+      const node = layout.nodeAt(this.flow, h)
+      const s = layout.summaryStatsAt(this.stats, h)
+      this.els.readout.innerHTML =
+        `<span class="font-semibold text-gray-900 dark:text-white">Block ${fmtInt(h)}</span>` +
+        ` <span>${escapeHtml(fmtTime(node && node.time))}</span>` +
+        ` <span>· ${fmtInt(s.txs)} txs mined</span>` +
+        ` <span>· ${fmtInt(s.spends)} spends</span>` +
+        ` <span>· ${fmtInt(s.outputs)} outputs made</span>` +
+        here
+          .map((a) => ` <span class="font-medium text-gray-900 dark:text-white">· ${escapeHtml(a.label)}</span>`)
+          .join("")
+      return
+    }
     const block = this.flow.blocks.find((b) => b[0] === h)
     const s = layout.statsAt(this.stats, h)
-    const here = this.annotations.filter((a) => a.height === h)
     this.els.readout.innerHTML =
       `<span class="font-semibold text-gray-900 dark:text-white">Block ${fmtInt(h)}</span>` +
       ` <span>${escapeHtml(fmtTime(block && block[1]))}</span>` +
@@ -523,9 +606,13 @@ export default {
 
     // Txs per block (log), and spends per block above them.
     const spends = new Map()
-    for (const e of this.flow.edges) {
-      const bh = this.flow.txHeight[e.dst]
-      spends.set(bh, (spends.get(bh) || 0) + 1)
+    if (this.flow.summary) {
+      for (const node of this.flow.nodes) if (node.nIn > 0) spends.set(node.height, node.nIn)
+    } else {
+      for (const e of this.flow.edges) {
+        const bh = this.flow.txHeight[e.dst]
+        spends.set(bh, (spends.get(bh) || 0) + 1)
+      }
     }
     let maxTx = 1
     for (const b of this.flow.blocks) maxTx = Math.max(maxTx, b[3])
@@ -605,8 +692,32 @@ export default {
     return hits.length ? hits[0].index : -1
   },
 
+  nodeDetail(i, withLinks) {
+    const node = this.flow.nodes[i]
+    const blocks =
+      node.last > node.height ? `Blocks ${fmtInt(node.height)} to ${fmtInt(node.last)}` : `Block ${fmtInt(node.height)}`
+    const oldest = node.hist.reduce((top, count, b) => (count > 0 ? b : top), -1)
+    const lines = [
+      `<div class="text-gray-900 dark:text-white">${blocks}</div>`,
+      `<div>${escapeHtml(fmtTime(node.time))}</div>`,
+      `<div>${fmtInt(node.stored)} of ${fmtInt(node.numTx)} txs stored · ${fmtInt(node.nIn)} inputs · ${fmtInt(node.nOut)} outputs</div>`,
+      `<div>${node.satsOut >= 0 ? `${escapeHtml(layout.fmtCoins(node.satsOut))} coins out` : "Value not tallied for every tx"}</div>`
+    ]
+    if (oldest > 0) lines.push(`<div>Oldest coins spent: about ${fmtInt(layout.binAge(oldest))} blocks old</div>`)
+    if (node.unknown > 0) lines.push(`<div>${fmtInt(node.unknown)} inputs spend coins we don't hold yet</div>`)
+    if (withLinks) {
+      const to = Math.min(node.last, node.height + this.detailMaxBlocks - 1)
+      lines.push(
+        `<div class="mt-1 flex gap-3"><a class="text-blue-700 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300" href="/tx-graph?from=${node.height}&to=${to}">Every tx</a>` +
+          `<a class="text-blue-700 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300" href="/blocks/${node.height}">Block</a></div>`
+      )
+    }
+    return lines.join("")
+  },
+
   txDetail(i, withLinks) {
     const f = this.flow
+    if (f.summary) return this.nodeDetail(i, withLinks)
     const [h, txid, cb, nIn, satsOut] = f.txs[i]
     const outs = f.outOffset[i + 1] - f.outOffset[i]
     let spent = 0
@@ -631,7 +742,11 @@ export default {
     this.selected = i
     this.txSel.array.fill(0)
     this.edgeSel.array.fill(0)
-    if (i >= 0) {
+    if (i >= 0 && f.summary) {
+      this.txSel.array[i] = 1
+      for (let v = 0; v < this.edgeOf.length; v++) if (f.edges[this.edgeOf[v]].dst === i) this.edgeSel.array[v] = 1
+      if (this.els.detail) this.els.detail.innerHTML = this.nodeDetail(i, true)
+    } else if (i >= 0) {
       const {txs, edges} = layout.lineage(f, i)
       for (const t of txs) this.txSel.array[t] = 1
       for (let v = 0; v < this.edgeOf.length; v++) if (edges.has(this.edgeOf[v])) this.edgeSel.array[v] = 1

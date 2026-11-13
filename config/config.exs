@@ -148,6 +148,9 @@ config :bitblocks, Oban,
        # otherwise, and does nothing until a person has run a full build
        # (Release.build_chain_tiles/1). Never heavy work on deploy.
        {"*/5 * * * *", Bitblocks.Workers.ChainTilesWorker, args: %{"mode" => "incremental"}},
+       # Flow tiles for /tx-graph (#67): resumes after the highest height
+       # built, up to complete_through; a no-op until Release.build_flow_tiles/1.
+       {"2-59/5 * * * *", Bitblocks.Workers.FlowTilesWorker},
        # Health check: emails when the node is unreachable or the index stalls.
        {"*/5 * * * *", Bitblocks.Workers.OpsAlertWorker},
        # Gifts to the donation address in blocks above the sync, read by us
