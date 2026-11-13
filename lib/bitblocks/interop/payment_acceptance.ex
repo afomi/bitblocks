@@ -72,7 +72,7 @@ defmodule Bitblocks.Interop.PaymentAcceptance do
 
   Returns `{:ok, record}` or `{:error, reason}`: any `Jcs.decode/1` reason,
   `{:missing_field, name}`, `{:unknown_field, name}`, `:wrong_version`, or
-  `{:invalid, name}` for a field of the wrong shape.
+  `{:invalid_field, name}` for a field of the wrong shape.
   """
   @spec parse(binary()) :: {:ok, record()} | {:error, term()}
   def parse(bytes) when is_binary(bytes) do
@@ -155,22 +155,22 @@ defmodule Bitblocks.Interop.PaymentAcceptance do
   defp fields(record) do
     cond do
       not pubkey?(record["acceptedBy"]) ->
-        {:error, {:invalid, "acceptedBy"}}
+        {:error, {:invalid_field, "acceptedBy"}}
 
       record["network"] not in @networks ->
-        {:error, {:invalid, "network"}}
+        {:error, {:invalid_field, "network"}}
 
       not outputs?(record["outputs"]) ->
-        {:error, {:invalid, "outputs"}}
+        {:error, {:invalid_field, "outputs"}}
 
       not hash_or_nil?(record["termsHash"]) ->
-        {:error, {:invalid, "termsHash"}}
+        {:error, {:invalid_field, "termsHash"}}
 
       not hash_or_nil?(record["evidenceHash"]) ->
-        {:error, {:invalid, "evidenceHash"}}
+        {:error, {:invalid_field, "evidenceHash"}}
 
       not (is_integer(record["acceptedAt"]) and record["acceptedAt"] >= 0) ->
-        {:error, {:invalid, "acceptedAt"}}
+        {:error, {:invalid_field, "acceptedAt"}}
 
       true ->
         :ok

@@ -139,7 +139,7 @@ refusals = [
     "The outputs in reverse order: v0 sorts them by txid, then vout; signed",
     unsorted,
     resign.(unsorted),
-    O.new(reason: "invalid", field: "outputs")
+    O.new(reason: "invalid_field", field: "outputs")
   ),
   refusal.(
     "boolean",

@@ -129,7 +129,7 @@
       "basis": "The outputs in reverse order: v0 sorts them by txid, then vout; signed",
       "signed": "{\"body\":\"{\\\"acceptedAt\\\":1794268800,\\\"acceptedBy\\\":\\\"02c2c67083d6a96b7c7fdfd04b912a5ab45d37c0e1eba61ddeb65bfd1058d7d724\\\",\\\"evidenceHash\\\":null,\\\"network\\\":\\\"bsv:testnet\\\",\\\"outputs\\\":[{\\\"satoshis\\\":250,\\\"txid\\\":\\\"f759dec1fe4b3632e85efa3fba1079d11399d87702cff0aeb84f288dda5c7800\\\",\\\"vout\\\":3},{\\\"satoshis\\\":4000,\\\"txid\\\":\\\"f759dec1fe4b3632e85efa3fba1079d11399d87702cff0aeb84f288dda5c7800\\\",\\\"vout\\\":1},{\\\"satoshis\\\":1000,\\\"txid\\\":\\\"9896ff15238aee536efaaf93369ab41339d8e2f1f4a6019e85e10130537b2415\\\",\\\"vout\\\":0}],\\\"termsHash\\\":\\\"d2ce9e33963a199e406d0d2c3607c807baea188ebc8bfb94044f360ff5f48eb8\\\",\\\"version\\\":\\\"interop-kit/payment-acceptance/v0\\\"}\",\"signature\":\"QkIzAQLCxnCD1qlrfH/f0EuRKlq0XTfA4eumHd62W/0QWNfXJABiaXRibG9ja3MgYWNjZXB0YW5jZSB0ZXN0IGtleSAwMTBEAiAVAeVsALa4+3jhwd9UNe908IyJLM5rK9Unm3U1VIu4fAIgSFBdQOKpDKpPLQDeU1v/LakYUk3mtv9lCgiLLqeDmS4=\"}",
       "expected": {
-        "reason": "invalid",
+        "reason": "invalid_field",
         "field": "outputs"
       }
     },

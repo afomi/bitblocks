@@ -133,7 +133,7 @@ The acceptance record is RFC 8785 canonical JSON, signed with BRC-77 for anyone 
 | `version` | string | `interop-kit/payment-acceptance/v0` |
 | `acceptedBy` | string | The receiver's identity key, compressed hex, and the BRC-77 signer |
 | `network` | string | CAIP-2: `bsv:mainnet` or `bsv:testnet` ([the `bsv` namespace](https://github.com/ChainAgnostic/namespaces/blob/main/bsv/caip2.md), Draft, 2026-07-10) |
-| `outputs` | array | `{"txid", "vout", "satoshis"}` for each output accepted as this payment, sorted by `txid` then `vout` |
+| `outputs` | array | `{"txid", "vout", "satoshis"}` for each output accepted as this payment, sorted by `txid` then `vout`, with no `{txid, vout}` repeated |
 | `termsHash` | string or null | SHA-256 of the exact terms bytes from step 1 |
 | `evidenceHash` | string or null | SHA-256 of the exact bytes of the BRC-237 statement it relied on |
 | `acceptedAt` | integer | Unix seconds, the receiver's own word |
@@ -152,6 +152,7 @@ The record stays true as a statement of what was accepted.
 
 Bitblocks reads and writes the record (`Bitblocks.Interop.PaymentAcceptance`).
 `parse/1` is strict: every field present and no other, each of its type, `outputs` sorted by `txid` then `vout` with none repeated, and the bytes already canonical.
+Its refusals are named alike across readers: `missing_field`, `unknown_field` and `invalid_field` (a field of the wrong shape, unsorted `outputs` or a repeated outpoint), each with the field's name.
 `verify/1` takes `{"body", "signature"}` and checks the BRC-77 signature over the exact body bytes, for anyone, by `acceptedBy`.
 `sign/3` signs with a receiver's identity key, and refuses a key that isn't `acceptedBy`.
 BRC-77 and BRC-42 are in `Bitblocks.Interop.Brc77`, and the canonical form in `Bitblocks.Interop.Jcs`.
