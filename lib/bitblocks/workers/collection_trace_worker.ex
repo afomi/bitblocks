@@ -37,7 +37,8 @@ defmodule Bitblocks.Workers.CollectionTraceWorker do
               do: [from: :origin],
               else: []
 
-          {:ok, _} = OrdinalCollections.trace(item, opts)
+          # {:error, :gone}: a reorg removed the item while it was traced.
+          {_ok_or_gone, _} = OrdinalCollections.trace(item, opts)
         end)
       end)
 

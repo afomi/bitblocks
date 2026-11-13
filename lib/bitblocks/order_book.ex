@@ -521,12 +521,17 @@ defmodule Bitblocks.OrderBook do
     {undone, kept} = Enum.split_with(fills(listing), &MapSet.member?(gone, &1["txid"]))
     closed_by_gone? = MapSet.member?(gone, listing.spent_txid)
 
-    remaining =
-      Enum.reduce(
-        undone,
-        parse_quantity(state["quantity_remaining"] || listing.parsed_data["quantity"]),
-        &(parse_quantity(&1["quantity"]) + &2)
-      )
+    undone_quantity = Enum.reduce(undone, 0, &(parse_quantity(&1["quantity"]) + &2))
+
+    # A kept tx filled the listing (#73): it took the whole token outpoint, so
+    # nothing remains and its fill takes the quantity an undone earlier fill had.
+    {remaining, kept} =
+      if not closed_by_gone? and state["status"] == "filled" do
+        {0, absorb_fill(kept, listing.spent_txid, undone_quantity)}
+      else
+        {parse_quantity(state["quantity_remaining"] || listing.parsed_data["quantity"]) +
+           undone_quantity, kept}
+      end
 
     status =
       cond do
@@ -545,6 +550,18 @@ defmodule Bitblocks.OrderBook do
 
     updated = listing |> Instance.changeset(Map.put(attrs, :state, new_state)) |> Repo.update!()
     settle_recorded_spend(updated)
+  end
+
+  defp absorb_fill(fills, _txid, 0), do: fills
+
+  defp absorb_fill(fills, txid, quantity) do
+    Enum.map(fills, fn
+      %{"txid" => ^txid} = fill ->
+        Map.put(fill, "quantity", to_string(parse_quantity(fill["quantity"]) + quantity))
+
+      fill ->
+        fill
+    end)
   end
 
   @doc """

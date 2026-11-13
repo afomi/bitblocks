@@ -609,8 +609,12 @@ defmodule Bitblocks.OrdinalCollections do
   location keeps it, its owner and its state, and the failure is recorded in
   `trace_error` and `trace_checked_at` so a later run retries. `traced_at`
   dates the last trace that answered.
+
+  A trace writes only if the row is as it read it (`trace_version`, #73): when
+  a reorg marked the item meanwhile, the mark stands and this returns the row
+  as it now is, or `{:error, :gone}` when the reorg removed the item.
   """
-  @spec trace(Item.t(), keyword()) :: {:ok, Item.t()}
+  @spec trace(Item.t(), keyword()) :: {:ok, Item.t()} | {:error, :gone}
   def trace(%Item{} = item, opts \\ []) do
     # current, ended: re-check from where it sat; partial: resume where the last
     # trace stopped; otherwise (or with from: :origin) start from the origin,
@@ -641,9 +645,23 @@ defmodule Bitblocks.OrdinalCollections do
           }
       end
 
+    # Compare-and-set on trace_version (#73): a reorg that marked the item
+    # while this trace walked has bumped it, and the mark wins. The re-trace
+    # that mark queued starts from the origin.
     item
     |> Ecto.Changeset.change(Map.put(changes, :trace_checked_at, now))
-    |> Repo.update()
+    |> Ecto.Changeset.optimistic_lock(:trace_version)
+    |> Repo.update(stale_error_field: :trace_version)
+    |> case do
+      {:ok, traced} ->
+        {:ok, traced}
+
+      {:error, %Ecto.Changeset{}} ->
+        case Repo.get(Item, item.id) do
+          nil -> {:error, :gone}
+          current -> {:ok, current}
+        end
+    end
   end
 
   defp trail(item, true, steps), do: Enum.uniq((item.trail || []) ++ steps)
@@ -703,8 +721,10 @@ defmodule Bitblocks.OrdinalCollections do
       page ->
         counts =
           Enum.reduce(page, counts, fn item, counts ->
-            {:ok, traced} = trace(item)
-            Map.update(counts, traced.trace_state, 1, &(&1 + 1))
+            case trace(item) do
+              {:ok, traced} -> Map.update(counts, traced.trace_state, 1, &(&1 + 1))
+              {:error, :gone} -> counts
+            end
           end)
 
         trace_pages(collection_id, List.last(page).id, counts)
@@ -840,7 +860,8 @@ defmodule Bitblocks.OrdinalCollections do
             trace_error: nil,
             trace_checked_at: nil,
             updated_at: ^now
-          ]
+          ],
+          inc: [trace_version: 1]
         ]
       ),
       []

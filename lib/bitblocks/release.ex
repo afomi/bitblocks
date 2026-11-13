@@ -1608,7 +1608,7 @@ defmodule Bitblocks.Release do
       retraced =
         if Keyword.get(opts, :retrace, true) do
           for item <- items, item.trail == [], item.current_outpoint != item.origin do
-            {:ok, _} = OrdinalCollections.trace(item, from: :origin)
+            {_ok_or_gone, _} = OrdinalCollections.trace(item, from: :origin)
           end
           |> length()
         else
@@ -1977,6 +1977,79 @@ defmodule Bitblocks.Release do
         IO.puts("reconcile_orphaned_block: failed: #{inspect(reason)}")
         {:error, reason}
     end
+  end
+
+  @doc """
+  Sweeps the protocol rows left by reorgs reconciled before the rewinds
+  shipped (#73), such as 957,301: token, listing and collection rows whose
+  `block_hash` no stored block has. Each follows its tx from our own index:
+  moved with it to the block that holds it, or removed when no tx row is left
+  and the block at its height is complete. See `Bitblocks.Reorgs.Sweep`.
+
+  **Dry run by default**: prints what it found and would change, and writes
+  nothing. Pass `apply: true` to sweep. Rows whose tx still carries the
+  orphan's hash are listed; run `reconcile_orphaned_block/2` on that hash.
+
+  ## Options
+    - apply: true to write (default false)
+    - from:, to: bound the rows' block height
+
+  ## Usage
+
+      bin/bitblocks rpc 'Bitblocks.Release.sweep_earlier_reorgs()'
+      bin/bitblocks rpc 'Bitblocks.Release.sweep_earlier_reorgs(apply: true)'
+  """
+  def sweep_earlier_reorgs(opts \\ []) do
+    with_running_repo(fn ->
+      case Bitblocks.Reorgs.Sweep.run(opts) do
+        {:ok, report} ->
+          print_sweep(report)
+          {:ok, report}
+
+        {:error, reason} ->
+          IO.puts("sweep_earlier_reorgs: failed: #{inspect(reason)}")
+          {:error, reason}
+      end
+    end)
+  end
+
+  defp print_sweep(%{applied: applied, plan: plan, result: result}) do
+    IO.puts(
+      if(applied, do: "APPLIED", else: "DRY RUN (nothing written)") <>
+        ": #{plan.rows} protocol row(s) under a block hash no stored block has"
+    )
+
+    for {name, n} <- Enum.sort(plan.by_protocol), do: IO.puts("  #{n}  #{name}")
+
+    for {hash, height, n} <- plan.orphans,
+        do: IO.puts("  orphan #{hash} (height #{inspect(height)}): #{n} row(s)")
+
+    for {hash, height, txids} <- plan.moved,
+        do: IO.puts("  move #{length(txids)} tx(s) to #{hash} (height #{height})")
+
+    IO.puts("  remove #{length(plan.removed)} tx(s): no tx row, their block is complete")
+    Enum.each(Enum.take(plan.removed, 20), &IO.puts("    #{&1}"))
+    if length(plan.removed) > 20, do: IO.puts("    ... #{length(plan.removed) - 20} more")
+
+    for {hash, txids} <- plan.unreconciled do
+      IO.puts(
+        "  leave #{length(txids)} tx(s) still under #{hash}: " <>
+          "run reconcile_orphaned_block(#{inspect(hash)}) first"
+      )
+    end
+
+    IO.puts("  leave #{length(plan.pending)} tx(s) whose block isn't complete yet")
+
+    IO.puts(
+      "  #{length(plan.unindexed_hops)} collection item(s) with a hop not in our index " <>
+        "(reported only; a re-trace on request settles them)"
+    )
+
+    for {id, txids} <- Enum.take(plan.unindexed_hops, 20),
+        do: IO.puts("    item #{id}: #{Enum.join(txids, ", ")}")
+
+    IO.puts("  protocol rows of those moved and removed:")
+    print_protocol_rewind(if(applied, do: result, else: plan.protocols))
   end
 
   @doc """

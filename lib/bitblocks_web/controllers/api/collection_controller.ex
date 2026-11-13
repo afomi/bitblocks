@@ -131,8 +131,11 @@ defmodule BitblocksWeb.Api.CollectionController do
         DateTime.diff(DateTime.utc_now(), item.traced_at) > @refresh_after_seconds
 
     if stale? do
-      {:ok, traced} = OrdinalCollections.trace(item)
-      traced
+      case OrdinalCollections.trace(item) do
+        {:ok, traced} -> traced
+        # A reorg removed it mid-trace; answer from what we read.
+        {:error, :gone} -> item
+      end
     else
       item
     end

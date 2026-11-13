@@ -251,4 +251,18 @@ Add `orphan_count: n` to correct the reorg row's count of blocks set aside.
 The output lists the protocol rows it would move, remove, reopen and mark.
 These follow the transactions the run moves or removes, so an orphan whose transaction rows were settled before #52 and #53 shipped has nothing left to drive them.
 
+For those, sweep the protocol rows still under a block hash no stored block has (#73, `Bitblocks.Reorgs.Sweep`), dry run first:
+
+```bash
+bin/bitblocks rpc 'Bitblocks.Release.sweep_earlier_reorgs()'
+bin/bitblocks rpc 'Bitblocks.Release.sweep_earlier_reorgs(apply: true)'
+```
+
+Each row follows its tx in our own index: to the stored block that holds it now, or out when no tx row is left and the block at its height is complete.
+A row whose tx still carries the orphan's hash is listed for `reconcile_orphaned_block` instead.
+Collection items through a swept tx are moved, removed or marked as a reconcile would.
+An item with a hop that has no tx row at all is only reported: our index can't tell a removed tx from a lookup that failed, and a trace runs only on request.
+
+A trace already running when a reorg marks its item can't overwrite the mark: the mark bumps `collection_items.trace_version`, and a trace writes only if the row still holds the version it read (#73).
+
 ---

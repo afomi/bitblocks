@@ -240,6 +240,9 @@ bin/bitblocks rpc 'Bitblocks.Release.backfill_tx_sizes(apply: true)'
 # A reorg's orphaned tx rows (#34): dry run first, then add apply: true
 bin/bitblocks rpc 'Bitblocks.Release.reconcile_orphaned_block("<orphan hash>")'
 
+# Protocol rows left under an orphan reconciled before the rewinds (#73): dry run first, then add apply: true
+bin/bitblocks rpc 'Bitblocks.Release.sweep_earlier_reorgs()'
+
 # Block objects in the tx store (docs/TX_STORAGE.md): dry run first, then add apply: true
 bin/bitblocks rpc 'Bitblocks.Release.store_block_objects(0, 9_999)'
 

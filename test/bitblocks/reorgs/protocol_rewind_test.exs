@@ -548,4 +548,148 @@ defmodule Bitblocks.Reorgs.ProtocolRewindTest do
                reload(crossing)
     end
   end
+
+  describe "the trace race (#73)" do
+    test "a trace that read the item before a reorg marked it doesn't overwrite the mark" do
+      owner = address()
+      origin_txid = tx([funding_outpoint()], [p2pkh(owner, 1)]) |> publish()
+      OrdinalCollections.import_txs([origin_txid])
+      origin = "#{origin_txid}_0"
+
+      # What a running trace read: settled, its trail through a tx the reorg removes.
+      read =
+        item(@tardinians, origin_txid, ["hop_gone"], %{current_outpoint: origin})
+
+      # The reorg marks the item while that trace walks.
+      assert %{retrace: 1} = OrdinalCollections.rewind_removed(["hop_gone"])
+
+      # The trace finishes with an answer from its stale read; the mark stands.
+      assert {:ok, %{trace_state: "untraced", trail: []}} = OrdinalCollections.trace(read)
+      assert_marked(read, origin)
+
+      # The re-trace the mark queued answers from the row as it now is.
+      assert {:ok, %{trace_state: "current", owner: ^owner, trail: []}} =
+               OrdinalCollections.trace(reload(read))
+    end
+
+    test "a trace of an item the reorg removed says so" do
+      read = item(@tardinians, "mintgone", [])
+      OrdinalCollections.rewind_removed(["mintgone"])
+
+      assert {:error, :gone} = OrdinalCollections.trace(read)
+    end
+  end
+
+  describe "partial fills (#73)" do
+    test "undoing an earlier partial fill leaves a listing a kept tx filled filled, nothing remaining",
+         ctx do
+      listing("list_old", ctx.ancestor.hash)
+      transaction_fixture(%{txid: "part_gone", block_hash: @orphan, block_height: @height})
+      {:ok, _} = OrderBook.fill_listing("list_old", "part_gone", "30")
+      settled_by("fill_kept", ctx.ancestor.hash)
+      assert %{spent: true, state: %{"quantity_remaining" => "0"}} = row("list_old")
+
+      resolve_fork()
+      reconcile!()
+
+      assert %{spent: true, spent_txid: "fill_kept", state: state} = row("list_old")
+      assert state["status"] == "filled"
+      assert state["quantity_remaining"] == "0"
+      assert [%{"txid" => "fill_kept", "quantity" => "100"}] = state["fills"]
+    end
+  end
+
+  describe "earlier reorgs: the sweep (#73)" do
+    alias Bitblocks.Reorgs.Sweep
+
+    # A reconcile from before the rewinds: the tx rows and spend edges went,
+    # the protocol rows stayed under the orphan's hash.
+    defp old_reconcile_removed(txid) do
+      Repo.delete_all(from(s in Spend, where: s.spending_txid == ^txid))
+      Repo.delete_all(from(t in Bitblocks.Chain.Transaction, where: t.txid == ^txid))
+    end
+
+    test "a dry run finds the rows and changes none; apply removes them", ctx do
+      token_id = mint(ctx.ancestor, ctx.alice)
+      xfer = transfer(ctx.orphan, token_id, token_id, ctx.bob)
+      crossing = item(@tardinians, "mint_a", [xfer])
+      resolve_fork()
+      old_reconcile_removed(xfer)
+
+      assert {:ok, %{applied: false, plan: plan}} = Sweep.run()
+      assert plan.rows == 1
+      assert [{@orphan, @height, 1}] = plan.orphans
+      assert plan.removed == [xfer]
+      assert plan.protocols.tokens.removed == 1
+      assert plan.protocols.collection_items.retrace == 1
+      assert row(xfer)
+      assert Tokens.balance_of(token_id, ctx.bob) == 1000
+
+      assert {:ok, %{applied: true, result: result}} = Sweep.run(apply: true)
+      assert result.tokens.removed == 1
+      refute row(xfer)
+      assert Tokens.balance_of(token_id, ctx.alice) == 1000
+      assert_marked(crossing, "mint_a_0")
+
+      assert {:ok, %{plan: %{rows: 0}}} = Sweep.run()
+    end
+
+    test "a row whose tx sits in a stored block now moves with it" do
+      transaction_fixture(%{txid: "list_both", block_hash: @orphan, block_height: @height})
+
+      {:ok, _} =
+        OrderBook.index_listing(%{
+          txid: "list_both",
+          vout: 0,
+          block_height: @height,
+          block_hash: @orphan,
+          parsed_data: %{"op" => "list", "token_id" => "t", "quantity" => "1"}
+        })
+
+      replacement = resolve_fork(["list_both"])
+
+      Repo.update_all(from(t in Bitblocks.Chain.Transaction, where: t.txid == "list_both"),
+        set: [block_hash: replacement.hash]
+      )
+
+      assert {:ok, %{plan: %{moved: [{@replacement, @height, ["list_both"]}]}}} =
+               Sweep.run(apply: true)
+
+      assert %{block_hash: @replacement} = row("list_both")
+    end
+
+    test "a row whose tx still carries the orphan's hash waits for its reconcile", ctx do
+      token_id = mint(ctx.ancestor, ctx.alice)
+      xfer = transfer(ctx.orphan, token_id, token_id, ctx.bob)
+      resolve_fork()
+
+      assert {:ok, %{plan: plan}} = Sweep.run(apply: true)
+      assert plan.unreconciled == [{@orphan, [xfer]}]
+      assert plan.removed == []
+      assert row(xfer)
+    end
+
+    test "a removed tx whose block isn't complete yet is left for a later run", ctx do
+      token_id = mint(ctx.ancestor, ctx.alice)
+      xfer = transfer(ctx.orphan, token_id, token_id, ctx.bob)
+      replacement = resolve_fork()
+
+      Repo.update_all(from(b in Block, where: b.id == ^replacement.id),
+        set: [sync_state: "header_only"]
+      )
+
+      old_reconcile_removed(xfer)
+
+      assert {:ok, %{plan: %{pending: [^xfer], removed: []}}} = Sweep.run(apply: true)
+      assert row(xfer)
+    end
+
+    test "an item with a hop not in our index is reported, not marked" do
+      crossing = item(@tardinians, "mint_unknown", ["hop_unknown"])
+
+      assert {:ok, %{plan: plan}} = Sweep.run(apply: true)
+      assert {crossing.id, ["mint_unknown", "hop_unknown"]} in plan.unindexed_hops
+      assert_settled(crossing, "hop_unknown_0", ["hop_unknown"])
+    end
+  end
 end

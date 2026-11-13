@@ -32,6 +32,9 @@ defmodule Bitblocks.OrdinalCollections.Item do
     field :trace_checked_at, :utc_datetime
     # Txids the item moved through, oldest first (provenance; kept in the blob store).
     field :trail, {:array, :string}, default: []
+    # Bumped by every trace write and every reorg mark (#73): a trace writes
+    # only if the row still holds the version it read.
+    field :trace_version, :integer, default: 0
 
     timestamps(type: :utc_datetime)
   end
