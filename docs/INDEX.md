@@ -21,6 +21,7 @@ Docs marked *(mixed)* are mostly aspirational but contain sections that accurate
 - `LARGE_BLOCKS.md` — handling multi-million-tx blocks and hundreds-of-MB RPC responses.
 - `blog/` — dated articles for readers outside the team; `blog/2026-11-12-big-blocks-big-transactions.md` is how block 971,525 (146 MB, 367 txs) stuck the donation scan and what reading BSV at its real size takes (#66).
 - `LARGE_SCALE_DB.md` — running Bitblocks against a 20TB+ PostgreSQL database.
+- `STORAGE_PLAN.md` — draft (2026-11-13): what fills the database per tx, size at full tip, what moves out of Postgres, the pause height until it lands, and the read-only SQL that turns its estimates into measurements.
 - `IP_BLOCKING.md` — blocking abusive IPs, including the auto-ban feature.
 - `MERKLE_PROOFS.md` — the `/api/v1/txs/:txid/proof` endpoint and `MerkleVerifier` internals.
 - `INTEROP_KIT.md` — the interoperability kit: open test vectors at `/interop/vectors/v1.json`, the check page, what a sender and receiver do, and the known gaps.
