@@ -213,7 +213,8 @@ defmodule Bitblocks.Chain.TxPipeline.TxTypesBackfill do
     Repo.all(
       from(t in Transaction,
         where: t.block_hash == ^block.hash and t.id > ^after_id,
-        order_by: [asc: t.id],
+        # `id + 0`, not `id`: see Bitblocks.Chain.TxPipeline.Backfill.page/3.
+        order_by: fragment("? + 0", t.id),
         limit: ^ctx.tx_batch,
         select: %{
           id: t.id,

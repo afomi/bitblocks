@@ -127,7 +127,8 @@ defmodule Bitblocks.Chain.TxPipeline.TimelocksBackfill do
     from(t in Transaction,
       where: t.block_hash == ^block.hash and t.id > ^after_id,
       where: is_nil(t.output_types) or fragment("jsonb_exists(?, 'unknown')", t.output_types),
-      order_by: t.id,
+      # `id + 0`, not `id`: see Bitblocks.Chain.TxPipeline.Backfill.page/3.
+      order_by: fragment("? + 0", t.id),
       limit: ^ctx.tx_batch,
       select: %{id: t.id, txid: t.txid, raw: t.raw}
     )

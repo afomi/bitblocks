@@ -186,7 +186,15 @@ defmodule Bitblocks.Chain.TxPipeline.Backfill do
     Repo.all(
       from(t in Transaction,
         where: t.block_hash == ^block.hash and t.id > ^after_id,
-        order_by: [asc: t.id],
+        # `id + 0`, not `id`: ordered by the bare primary key with a LIMIT,
+        # the planner may walk the pkey from after_id and filter on
+        # block_hash, which for a block whose rows were stored late (high
+        # ids) reads tens of millions of rows and passes the statement
+        # timeout (tx_types chain #12 at 160,000, 2026-11-10). `id + 0` can't
+        # use the pkey for order, so it reads the block's rows by
+        # block_hash and sorts them; below the 400,000 stop a block holds a
+        # few thousand txs at most.
+        order_by: fragment("? + 0", t.id),
         limit: ^ctx.tx_batch,
         select: %{
           id: t.id,

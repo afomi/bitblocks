@@ -108,7 +108,8 @@ defmodule Bitblocks.Chain.TxPipeline.TxStepsBackfill do
         |> without_spends()
         |> analysed(ctx)
         |> where([t], t.id > ^after_id)
-        |> order_by([t], asc: t.id)
+        # `id + 0`, not `id`: see Bitblocks.Chain.TxPipeline.Backfill.page/3.
+        |> order_by([t], fragment("? + 0", t.id))
         |> limit(^ctx.tx_batch)
         |> Repo.all()
 

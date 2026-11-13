@@ -111,7 +111,6 @@ defmodule Bitblocks.Chain.TxPipeline.ScriptAnalysisBackfill do
     query =
       from(t in Transaction,
         where: t.id > ^after_id and not is_nil(t.raw),
-        order_by: [asc: t.id],
         limit: ^ctx.batch_size,
         select: [:id, :txid, :raw, :block_height, :block_hash]
       )
@@ -126,7 +125,15 @@ defmodule Bitblocks.Chain.TxPipeline.ScriptAnalysisBackfill do
             is_nil(t.script_analysis_version) or t.script_analysis_version < ^ctx.version
           )
 
-    query = if block, do: where(query, [t], t.block_hash == ^block.hash), else: query
+    # Within a block, `id + 0`, not `id`: see Bitblocks.Chain.TxPipeline.Backfill.page/3.
+    # Across the table (no block) the pkey order is the right plan.
+    query =
+      if block,
+        do:
+          query
+          |> where([t], t.block_hash == ^block.hash)
+          |> order_by([t], fragment("? + 0", t.id)),
+        else: order_by(query, [t], asc: t.id)
 
     Derivations.bounded(ctx.opts, fn -> Repo.all(query) end)
   end
