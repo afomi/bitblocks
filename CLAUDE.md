@@ -42,6 +42,11 @@ mix ecto.reset              # Drop, create, and migrate DB
 mix test                    # Run test suite
 ```
 
+Each checkout or worktree gets its own test database (`bitblocks_test_<8 hex>`) and endpoint port (40000–48999), derived from a hash of its absolute path (`config/test_checkout.exs`, #85).
+So suites run at once from different worktrees don't collide, and `mix test` creates and migrates that database itself.
+`MIX_TEST_PARTITION=_name` and `TEST_PORT=nnnn` still override both.
+Two runs in the same checkout still share them; give one an override.
+
 **Assets:**
 ```bash
 mix assets.build            # Build Tailwind and esbuild

@@ -1,22 +1,20 @@
 import Config
 
-# Configure your database
-#
-# The MIX_TEST_PARTITION environment variable can be used
-# to provide built-in test partitioning in CI environment.
-# Run `mix help test` for more information.
+# Each checkout gets its own test database and endpoint port (#85), so suites
+# run from different worktrees at once don't collide. MIX_TEST_PARTITION and
+# TEST_PORT override them. See config/test_checkout.exs.
+{test_checkout, _} = Code.eval_file("test_checkout.exs", __DIR__)
+
+%{partition: test_partition, port: test_port} =
+  test_checkout.(Path.expand("..", __DIR__), System.get_env())
+
 config :bitblocks, Bitblocks.Repo,
   username: "postgres",
   password: "postgres",
   hostname: "localhost",
-  database: "bitblocks_test#{System.get_env("MIX_TEST_PARTITION")}",
+  database: "bitblocks_test#{test_partition}",
   pool: Ecto.Adapters.SQL.Sandbox,
   pool_size: 10
-
-# We don't run a server during test. If one is required,
-# you can enable the server option below.
-# TEST_PORT lets two suites run at once (qart's test server also takes 4002).
-test_port = String.to_integer(System.get_env("TEST_PORT", "4002"))
 
 config :bitblocks, BitblocksWeb.Endpoint,
   http: [ip: {127, 0, 0, 1}, port: test_port],
