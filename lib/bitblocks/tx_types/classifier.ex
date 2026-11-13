@@ -68,7 +68,8 @@ defmodule Bitblocks.TxTypes.Classifier do
   # v4 (#75): a tx with a HodLocker MAP record is also `hodlocker`.
   # v5 (#76): a tx whose nLockTime binds, and isn't the anti-fee-sniping
   # lock near its block's tip, is also `nlocktime`.
-  @version 5
+  # v6 (#78): STAS-20 outputs are `stas` too (a second STAS contract).
+  @version 6
 
   @b "19HxigV4QyBv3tHpQVcUEQyq1pzZVdoAut"
   @map "1PuQa7K62MiKCtssSLKy1kh56WWU7MtUR5"

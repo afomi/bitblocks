@@ -19,6 +19,12 @@ defmodule Bitblocks.StasTest do
               |> Map.fetch!("vectors")
               |> Enum.find(&(&1["name"] == "chain_stas"))
 
+  @chain_stas20 "priv/data/tx_types/chain_vectors.json"
+                |> File.read!()
+                |> Jason.decode!()
+                |> Map.fetch!("vectors")
+                |> Enum.find(&(&1["name"] == "chain_stas20"))
+
   defp script(%{"script_hex" => hex}), do: BSV.Script.from_binary!(hex, encoding: :hex)
   defp output(txid), do: Map.fetch!(@outputs, txid)
 
@@ -31,6 +37,7 @@ defmodule Bitblocks.StasTest do
     assert token.token_id == "12xBMnFKjatg1djQwFnCMyu1PN9uH4hUBJ"
     assert token.owner_pkh == "1567a67c7efcbd12825e7cd0480fa3100e1d58b9"
     assert token.owner == "12xBMnFKjatg1djQwFnCMyu1PN9uH4hUBJ"
+    assert token.version == "STAS"
     assert token.flags == "01"
     assert token.splittable == false
     assert token.data == ["Token"]
@@ -57,9 +64,28 @@ defmodule Bitblocks.StasTest do
     assert %{"author" => _} = Jason.decode!(json)
   end
 
+  test "a STAS-20 output: its own contract, no flags byte, always splittable" do
+    # Output 0 of 7b678504…c233, block 787,411: the STAS SDK's instantMint
+    # example, issued with the STAS-20 template.
+    out = output("7b678504f67fc87e93ddd6816800d73915cd43a09ad2a53d177cc539b3f8c233")
+    assert out["script_hex"] == @chain_stas20["script_hex"]
+    assert {:ok, token} = Stas.parse(script(out))
+
+    # Issued to the issuer's own key, as the example does.
+    assert token.version == "STAS-20"
+    assert token.owner_pkh == "c2cebcc42b70706d28c9f5ac645b0a9babb3c05a"
+    assert token.owner == token.token_id
+    assert token.redemption_pkh == "c2cebcc42b70706d28c9f5ac645b0a9babb3c05a"
+    assert token.flags == nil
+    assert token.splittable == true
+    assert token.data == ["TESTTOKEN001", "STAS TOKEN TESTING"]
+  end
+
   test "every STAS output is typed stas, whatever data follows" do
     for out <- [
           @chain_stas,
+          @chain_stas20,
+          output("7b678504f67fc87e93ddd6816800d73915cd43a09ad2a53d177cc539b3f8c233"),
           output("55945951d953e13254e7213d3e75a143f2c9bf9dfdc273df8637981bf7f1e8a4"),
           output("fac78ebc53e6b6bcf66367d0e93bcd7b66d2b28f99e0b555181fc5999f55b682"),
           output("15f5f0ebfb2981c1ac739cddeeed059f09448a4287ef551a0309a4ae5cd8aef5")
@@ -83,12 +109,15 @@ defmodule Bitblocks.StasTest do
   end
 
   test "one changed byte in the contract isn't STAS" do
-    <<head::binary-100, byte, rest::binary>> =
-      Base.decode16!(@chain_stas["script_hex"], case: :lower)
+    for vector <- [@chain_stas, @chain_stas20] do
+      <<head::binary-100, byte, rest::binary>> =
+        Base.decode16!(vector["script_hex"], case: :lower)
 
-    tampered = head <> <<Bitwise.bxor(byte, 1)>> <> rest
+      tampered = head <> <<Bitwise.bxor(byte, 1)>> <> rest
 
-    assert Stas.parse(tampered) == :error
+      assert Stas.parse(tampered) == :error
+    end
+
     assert Stas.parse(<<0x76, 0xA9, 0x14>>) == :error
   end
 

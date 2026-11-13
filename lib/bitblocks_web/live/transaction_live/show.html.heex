@@ -786,6 +786,7 @@
           <td class="py-1 pr-4 font-mono text-xs break-all text-gray-800 dark:text-gray-200">
             <%= token.token_id %>
             <span class="block font-sans text-gray-600 dark:text-gray-400">
+              <%= token.version %> ·
               <%= case token.splittable do %>
                 <% true -> %>
                   Splittable

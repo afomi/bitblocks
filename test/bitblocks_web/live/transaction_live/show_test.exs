@@ -260,6 +260,7 @@ defmodule BitblocksWeb.TransactionLive.ShowTest do
       assert row =~ "12xBMnFKjatg1djQwFnCMyu1PN9uH4hUBJ"
       assert row =~ "4,000"
       assert row =~ "Not splittable"
+      assert row =~ "STAS ·"
       assert row =~ "Token"
     end
 

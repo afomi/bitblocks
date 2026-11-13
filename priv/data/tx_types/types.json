@@ -897,11 +897,13 @@
         "A STAS output starts as a P2PKH lock: the owner's pubkey hash.",
         "A fixed contract follows that reads the spending transaction, so the sats can only move on to outputs with the same contract and the same token.",
         "After OP_RETURN come the token's data: the issuer's redemption pubkey hash, which is the token's id, a flag byte (00 splittable, 01 not), then the symbol and any other data.",
-        "Each satoshi is one unit of the token, so the amount is the output's value."
+        "Each satoshi is one unit of the token, so the amount is the output's value.",
+        "Each version of STAS is its own contract: the original STAS (1,384 bytes) and STAS-20 (1,288 bytes), a divisible template for stablecoins that only the issuer can redeem and that writes no flag byte."
       ],
       "history": [
         "TAAL published STAS with the stas-js library and a white paper in 2021.",
-        "The tokens WhatsOnChain lists were issued from September 2021, around block 706,000."
+        "The tokens WhatsOnChain lists were issued from September 2021, around block 706,000.",
+        "The STAS SDK added the STAS-20, STAS-789 and STAS-50 templates in 2023; the first STAS-20 output we read is in block 787,411."
       ],
       "spec": {
         "label": "STAS white paper (TAAL)",
@@ -915,7 +917,7 @@
           },
           {
             "token": "<contract>",
-            "label": "1,384 bytes of fixed contract code that checks the spending transaction's outputs."
+            "label": "Fixed contract code that checks the spending transaction's outputs: 1,384 bytes for STAS, 1,288 for STAS-20."
           },
           {
             "token": "OP_RETURN <redemption pubkey hash>",
@@ -923,18 +925,19 @@
           },
           {
             "token": "<flags>",
-            "label": "One byte: 00 when the token may be split, 01 when it may not."
+            "label": "One byte: 00 when the token may be split, 01 when it may not. STAS-20 has none: it may always be split."
           },
           {
             "token": "<symbol and data>",
             "label": "What the issuer wrote, such as the symbol."
           }
         ],
-        "note": "The contract is the same byte for byte in every STAS output; only the owner and the token data change."
+        "note": "The contract is the same byte for byte in every output of a STAS version; only the owner and the token data change."
       },
       "spendable": true,
       "vectors": [
-        "chain_stas"
+        "chain_stas",
+        "chain_stas20"
       ],
       "spend": "The owner's signature, in a transaction whose outputs carry the same STAS contract and token data on to the next owners, or back to the issuer to redeem.",
       "related": [

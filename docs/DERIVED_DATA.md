@@ -42,7 +42,7 @@ Removing a step would lower it, so a removal also bumps a remaining step of the 
 | `burned` | chunk | 1 | `tallies` | `burned_satoshis` |
 | `sats_in` | chunk | 1 | `tallies` | `total_input_satoshis` |
 | `fee` | chunk | 1 | `tallies` | `fee_satoshis` |
-| `classify_outputs` | chunk | 5 | `tx_types`, `type_counts` | `tx_types` |
+| `classify_outputs` | chunk | 6 | `tx_types`, `type_counts` | `tx_types` |
 | `record_spends` | tx | 1 | none | `spend_index` rows |
 | `index_tokens` | tx | 3 | `token_recipients` | `protocol_instances`, the token index, with who holds each output and each BSV-21 transfer's validation status |
 | `index_bitcom` | tx | 1 | none | `bitcom_commands` |
@@ -64,6 +64,8 @@ The second rule leaves out the anti-fee-sniping lock that Bitcoin Core put on ev
 It is the only type that reads the tx's block, so `classify_outputs` and the tx types backfill pass it.
 Sampled on WhatsOnChain over blocks 400,000 to 540,000 (6,051 txs read), 1,019 txs carry a binding lock time, and 1 of them is typed; the rest sit 1 to 1,532 blocks below their block.
 So, like v3 and v4, v5 changes few rows; read the dry run's `types_changed` before applying it.
+`classify_outputs` v6 (#78) types STAS-20 outputs `stas` too: a second STAS contract, 1,288 bytes, from the STAS SDK (2023).
+STAS-20 starts at block 787,411, so v6 changes no row below that; the tx types backfill over that range is an operator step, run once sync reaches it.
 `block_totals` v2 stamps a block only once its coinbase is known; v1 stamped blocks whose rows hadn't been through script analysis, leaving `miner_reward` and `fees_verified` nil and the coinbase counted in `sats_out`.
 A block left unstamped stays below the version, so the tally backfill finds it again after script analysis has run, and reports it under `reward_unknown` until then.
 `index_tokens` v3 (#69) reads the lock on either side of the inscription envelope, names a cosign lock's owner, and records holders on classic deploys and mints too.
@@ -79,12 +81,12 @@ Its acceptance check is a dry run with `rows_below_version` 0 and `no_raw` 0; a 
 | `script_analysis` | `script_analysis` | 7 | `transactions.script_analysis_version` | `Release.backfill_script_analysis/3` |
 | `tallies` | `sats_out`, `burned`, `sats_in`, `fee` | 4 | `transactions.tallies_version` | `Release.backfill_tx_tallies/3` |
 | `block_totals` | `block_totals` | 2 | `blocks.tallies_version` | `Release.backfill_tx_tallies/3` |
-| `tx_types` | `classify_outputs` | 5 | `transactions.tx_types_version` | `Release.backfill_tx_types/3` |
-| `type_counts` | `classify_outputs`, `type_counts` | 6 | `blocks.type_counts_version` | `Release.backfill_tx_types/3` |
+| `tx_types` | `classify_outputs` | 6 | `transactions.tx_types_version` | `Release.backfill_tx_types/3` |
+| `type_counts` | `classify_outputs`, `type_counts` | 7 | `blocks.type_counts_version` | `Release.backfill_tx_types/3` |
 | `token_recipients` | `index_tokens` | 3 | `protocol_instances.recipient_version` | `Release.backfill_token_recipients/3` |
 | `timelocks` | `index_timelocks` | 1 | `timelocks.version` | `Release.backfill_timelocks/3` |
 
-Stage versions today: chunk 16, tx 7, block 3.
+Stage versions today: chunk 17, tx 7, block 3.
 `GET /api/v1/status/derivations` answers all of these live.
 
 `type_counts` sums the classifier's version with its own, because a block's counts change when the classifier does: a classifier bump marks every block's counts below the version too, and the one backfill re-types the txs and rewrites the counts.
