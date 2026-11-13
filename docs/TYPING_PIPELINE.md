@@ -65,7 +65,9 @@ Built so far (#51): `Bitblocks.TxTypes.Counts` carries each type's first height,
 A dry run prints the draft; `--apply` writes it.
 Prose left out reads `TODO: …`, and the suite fails until a person writes it.
 Approval is merging the pull request (Ryan, decided on #51); then the classifier's version goes up and the tx_types backfill re-stamps past rows.
-Still to come: the research export.
+The research export is `GET /api/v1/types/export` (JSON) and `GET /api/v1/types/export.csv` (`Bitblocks.TxTypes.Export`): txs per type per 10,000-block bucket, each type's first height, date and txid, over the range verified complete and typed.
+It names that range, the release, the sha256 of `types.json`, the `tx_types` and `type_counts` versions and the latest `tx_types` backfill runs, and `rows_sha256` is the sha256 of the CSV body.
+It is served here rather than through the data-pack exporter, which reads blocks from a node: the counts are derived data only this index holds.
 
 ### A taxonomy, not a list
 
@@ -83,7 +85,7 @@ That structure lets the taxonomy grow without renaming what came before.
 
 *Bitcoin transaction types: a verified taxonomy, with first-seen heights and adoption curves from genesis.*
 
-A reproducible dataset (types by height bucket), exported with the data-pack exporter, every count traceable to merkle-verified blocks.
+A reproducible dataset (types by height bucket) at `/api/v1/types/export`, every count traceable to merkle-verified blocks.
 Every count also names the version that computed it, and the backfill runs that brought the rows to it (`docs/DERIVED_DATA.md`).
 
 ---
@@ -93,5 +95,5 @@ Every count also names the version that computed it, and the backfill runs that 
 1. Release sha and coverage in the status API. **Done.**
 2. Operator MCP, read tools.
 3. #49 phase 2: stable template hashes, classify at ingest, counts on `/types`. **Done.**
-4. First seen, adoption, and the candidate queue with review tools.
-5. The research export.
+4. First seen, adoption, and the candidate queue with review tools. **Done.**
+5. The research export. **Done.**

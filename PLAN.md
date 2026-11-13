@@ -42,7 +42,7 @@ Interop kit, first version: open test vectors at `/interop/vectors/v1.json`, an 
 #15 BCat files at `/content/bcat/:txid`, read against real heads from the chain.
 #24 `Release.discover_bitcom`: built, for an operator to run.
 #69 token holders read from the lock on either side of the envelope, with `Release.backfill_token_recipients`: built, for an operator to run.
-#51 first seen and adoption per type on `/types/:id`, and `Release.type_candidates`: `propose_type` and the research export are still to come.
+#51 first seen and adoption per type on `/types/:id`, `Release.type_candidates`, `mix tx_types.propose` and the research export at `/api/v1/types/export`: done; the counts reach the tip as blocks complete and are typed.
 
 ## Needs decision
 

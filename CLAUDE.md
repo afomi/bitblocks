@@ -349,6 +349,7 @@ GET /api/v1/addresses/:address/tokens — unspent BSV-20/21 outputs held by an a
 GET /api/v1/types               — transaction types, each with its page URL and counts (txs, first_seen_height, first_seen_txid, first_seen_time, per_10000_blocks); top-level counts names the range they cover (CORS *)
 GET|POST|PATCH|DELETE /api/v1/annotations[/:id] — admin only: chain annotations (?from=&to=, ?kind=); writes must be application/json
 GET /api/v1/types/:id           — one type with its latest examples from the index (status ok | coming | unavailable)
+GET /api/v1/types/export        — the research export (#51): txs per type per 10,000-block bucket and each type's first seen, over the range verified complete and typed, with the release, types.json sha256, versions, latest runs and rows_sha256 (the CSV body's); /api/v1/types/export.csv for the rows
 GET /api/v1/bitcom              — Bitcom registry export, every namespace with re-verifiable txids (also at /bitcom.json)
 GET /api/v1/bitcom/:address     — one Bitcom namespace: tier, proof, files, routes
 GET /api/v1/bitcom/snapshots    — versioned registry snapshots, newest first, each with its sha256 (CORS *)

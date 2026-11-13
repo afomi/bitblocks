@@ -4,6 +4,9 @@ defmodule BitblocksWeb.Api.TypeController do
 
       GET /api/v1/types       every type with its tx count, without examples
       GET /api/v1/types/:id   one type, with its latest examples from the index
+      GET /api/v1/types/export      the research export (#51): types by
+                                    10,000-block bucket, with coverage and provenance
+      GET /api/v1/types/export.csv  the same rows as CSV
 
   Each type carries `url`, its page on this site (the configured host, such as
   https://bitblocks.app/types/bsv-21), so other tools can link to it.
@@ -11,7 +14,7 @@ defmodule BitblocksWeb.Api.TypeController do
   use BitblocksWeb, :controller
 
   alias Bitblocks.TxTypes
-  alias Bitblocks.TxTypes.{Counts, Examples}
+  alias Bitblocks.TxTypes.{Counts, Examples, Export}
 
   @doc """
   Every type, in order, each with its tx count, and `counts`, the range of
@@ -22,6 +25,39 @@ defmodule BitblocksWeb.Api.TypeController do
     summary = Counts.get()
     types = Enum.map(TxTypes.all(), &type_json(&1, summary))
     json(conn, %{data: types, count: length(types), counts: counts_json(summary)})
+  end
+
+  @doc """
+  The research export (`Bitblocks.TxTypes.Export`): every type's first
+  appearance and txs per 10,000-block bucket over the range verified complete
+  and typed, with the versions, definitions hash and runs behind them.
+  """
+  def export(conn, _params) do
+    conn
+    |> put_resp_header("cache-control", "public, max-age=300")
+    |> json(Export.dataset())
+  end
+
+  @doc """
+  The export's rows as CSV. The range and provenance ride in headers, since a
+  CSV has nowhere else to put them; the JSON export carries them in full.
+  """
+  def export_csv(conn, _params) do
+    summary = Counts.get()
+    data = Export.dataset(summary)
+
+    conn
+    |> put_resp_content_type("text/csv")
+    |> put_resp_header("cache-control", "public, max-age=300")
+    |> put_resp_header(
+      "content-disposition",
+      ~s(inline; filename="bitblocks-tx-types-by-height.csv")
+    )
+    |> put_resp_header("x-through-height", to_string(data.coverage.through_height))
+    |> put_resp_header("x-type-counts-version", to_string(data.provenance.versions.type_counts))
+    |> put_resp_header("x-definitions-sha256", data.provenance.definitions_sha256)
+    |> put_resp_header("x-rows-sha256", data.rows_sha256)
+    |> send_resp(200, Export.csv(summary))
   end
 
   @doc "One type by id, with examples; 404 for an unknown id."

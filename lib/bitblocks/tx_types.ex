@@ -27,7 +27,9 @@ defmodule Bitblocks.TxTypes do
               |> Path.expand()
   @external_resource @types_path
 
-  @data @types_path |> File.read!() |> Jason.decode!()
+  @types_bytes File.read!(@types_path)
+  @data Jason.decode!(@types_bytes)
+  @definitions_sha256 :crypto.hash(:sha256, @types_bytes) |> Base.encode16(case: :lower)
 
   defmodule Keys do
     @moduledoc false
@@ -71,6 +73,13 @@ defmodule Bitblocks.TxTypes do
   @doc "Every type, in the order of the data file."
   @spec all() :: [t()]
   def all, do: @types
+
+  @doc """
+  The sha256 of `types.json` as compiled in, so a count can name the exact
+  definitions it was typed against (the research export, #51).
+  """
+  @spec definitions_sha256() :: String.t()
+  def definitions_sha256, do: @definitions_sha256
 
   @doc "Every type id (slug)."
   @spec ids() :: [String.t()]

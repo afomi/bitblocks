@@ -205,6 +205,19 @@ defmodule BitblocksWeb.Router do
     get "/support", SupportController, :show
   end
 
+  # The research export as CSV (#51): :public_api only accepts json. Before
+  # the :public_api scope, so "export.csv" isn't taken for a type id.
+  pipeline :public_csv do
+    plug CORSPlug, origin: "*"
+    plug BitblocksWeb.Plugs.RequireCaller
+  end
+
+  scope "/api/v1", BitblocksWeb.Api do
+    pipe_through :public_csv
+
+    get "/types/export.csv", TypeController, :export_csv
+  end
+
   # Open to all origins, for a caller with a key.
   scope "/api/v1", BitblocksWeb.Api do
     pipe_through :public_api
@@ -213,6 +226,8 @@ defmodule BitblocksWeb.Router do
     get "/status/derivations", StatusController, :derivations
 
     # Transaction types (#49): definitions for other tools to link to.
+    # The research export (#51) first, so "export" isn't taken for an id.
+    get "/types/export", TypeController, :export
     get "/types/:id", TypeController, :show
     get "/types", TypeController, :index
   end

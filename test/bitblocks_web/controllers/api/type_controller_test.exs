@@ -105,4 +105,60 @@ defmodule BitblocksWeb.Api.TypeControllerTest do
     assert %{"error" => "Transaction type not found", "id" => "nope"} =
              conn |> get(~p"/api/v1/types/nope") |> json_response(404)
   end
+
+  describe "research export (#51)" do
+    test "types by 10,000-block bucket, with coverage, provenance and a rows hash", %{conn: conn} do
+      typed_block_fixture(0, %{"custom" => 1})
+      typed_block_fixture(1, %{"custom" => 2, "p2pkh" => 3})
+      Counts.refresh()
+
+      body = conn |> get(~p"/api/v1/types/export") |> json_response(200)
+
+      assert body["dataset"] == "bitblocks-tx-types-by-height"
+      assert body["schema_version"] == 1
+
+      assert %{
+               "status" => "ok",
+               "from_height" => 0,
+               "through_height" => 1,
+               "bucket_blocks" => 10_000
+             } =
+               body["coverage"]
+
+      assert body["provenance"]["definitions_sha256"] == TxTypes.definitions_sha256()
+      assert body["provenance"]["versions"]["type_counts"] == TxPipeline.version(:type_counts)
+      assert body["provenance"]["versions"]["tx_types"] == TxPipeline.version(:tx_types)
+      assert is_list(body["provenance"]["runs"])
+
+      assert body["rows"] == [
+               %{"type" => "custom", "from_height" => 0, "to_height" => 1, "txs" => 3},
+               %{"type" => "p2pkh", "from_height" => 0, "to_height" => 1, "txs" => 3}
+             ]
+
+      assert %{"id" => "p2pkh", "txs" => 3, "first_seen_height" => 1, "defined" => true} =
+               Enum.find(body["types"], &(&1["id"] == "p2pkh"))
+
+      csv_conn = get(build_conn(), "/api/v1/types/export.csv")
+      csv = response(csv_conn, 200)
+
+      assert csv == "type,from_height,to_height,txs\ncustom,0,1,3\np2pkh,0,1,3\n"
+      assert [content_type] = get_resp_header(csv_conn, "content-type")
+      assert content_type =~ "text/csv"
+      assert get_resp_header(csv_conn, "x-through-height") == ["1"]
+
+      sha = :crypto.hash(:sha256, csv) |> Base.encode16(case: :lower)
+      assert body["rows_sha256"] == sha
+      assert get_resp_header(csv_conn, "x-rows-sha256") == [sha]
+    end
+
+    test "before the first refresh, the export is pending with no rows", %{conn: conn} do
+      :ets.delete(Counts, :summary)
+
+      body = conn |> get(~p"/api/v1/types/export") |> json_response(200)
+
+      assert body["coverage"]["status"] == "pending"
+      assert body["rows"] == []
+      assert body["types"] == []
+    end
+  end
 end
