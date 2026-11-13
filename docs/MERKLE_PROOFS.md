@@ -110,6 +110,13 @@ If you keep your own header chain, compare `block_hash` and `merkleroot` with it
 Before it answers, bitblocks climbs the siblings itself.
 A txid list (or node merkleblock) that does not rebuild the header's root is never returned as a proof.
 
+### Large blocks (#68)
+
+A block over 10,000 txs keeps no txid list, so its proof comes from the node's `gettxoutproof` for that one tx: a few hundred bytes for any block, read with the block hash given, so the node needs no `-txindex`.
+`test/bitblocks/chain/large_block_proof_test.exs` checks that path on a 616,080-tx tree, the count of block 971,506: the last tx, paired with itself at nine of its twenty levels, the coinbase, and txs between.
+On real trees of uneven sizes it checks that the stored list and the node's merkleblock give the same siblings for every leaf.
+A block of few, huge txs, like 971,525 (367 txs, one of 43,391,410 bytes), keeps its list and climbs from it; a tx's size never enters the proof.
+
 ### When there is no proof
 
 | Status | Why |
@@ -177,6 +184,8 @@ Built by `Bitblocks.Chain.Beef`, on the same proofs as Part 2, so the same statu
 - Proofs from one block share one BUMP.
 - `parents_missing` names any parent left out (not stored, no proof available, or past the 25), and `complete` is false when there are any.
 - The bytes are parsed back before they are sent: each transaction must hash to its txid, and each BUMP must climb to the root in the stored header.
+- That read-back is held to the BEEF's own size, not the 16 MB the reader allows for BEEF from anyone, so a transaction larger than that still gets its BEEF.
+The answer is the whole transaction as hex, so a 43 MB transaction makes a BEEF of about 87 MB in the JSON.
 
 The roots rest on our stored headers, so check them against your own header source.
 The tests pin the encoder to the BRC-62 and BRC-74 example vectors, and to the real 106-transaction block 814435.

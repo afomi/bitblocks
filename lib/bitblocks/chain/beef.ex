@@ -152,10 +152,17 @@ defmodule Bitblocks.Chain.Beef do
   def atomic(beef, txid), do: <<@atomic_prefix, internal(txid)::binary, beef::binary>>
 
   # The whole answer read back: nothing goes out that doesn't check.
+  #
+  # The reader's byte limit guards the verifier against BEEF from anyone. This
+  # BEEF is our own, built from stored bytes already hashed to their txids, so
+  # it is held to its own size: a single tx can be larger than that limit
+  # (block 971,525 holds one of 43,391,410 bytes, #68), and read back under it
+  # the check would fail as if the tree didn't rebuild the root.
   defp check(beef, entries, txid) do
     roots = Map.new(entries, fn {p, _} -> {p.txid, p.merkleroot} end)
 
-    with {:ok, %{bumps: bumps, transactions: txs, subject: ^txid}} <- parse(beef),
+    with {:ok, %{bumps: bumps, transactions: txs, subject: ^txid}} <-
+           Reader.parse(beef, max_bytes: byte_size(beef)),
          true <- length(txs) == length(entries),
          true <- Enum.all?(txs, &tx_checks?(&1, bumps, roots)) do
       :ok

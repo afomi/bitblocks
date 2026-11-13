@@ -63,6 +63,19 @@ defmodule BitblocksWeb.Api.ProofControllerTest do
   end
 
   describe "a proof the caller can check" do
+    test "an uppercase txid gets the same proof, as /beef does (#68)", %{conn: conn} do
+      real_block_170()
+
+      data =
+        conn
+        |> proof(String.upcase(FirstSpendFixtures.first_spend()))
+        |> json_response(200)
+        |> Map.fetch!("data")
+
+      assert data["txid"] == FirstSpendFixtures.first_spend()
+      assert data["merkleroot"] == @root_170
+    end
+
     test "the first spend in block 170 (2 txs) climbs to the header's real root", %{conn: conn} do
       real_block_170()
       # Two blocks above it are stored, so it has 3 confirmations.

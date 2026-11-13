@@ -24,7 +24,7 @@ defmodule BitblocksWeb.Api.ProofController do
 
   @doc "GET /api/v1/txs/:txid/proof"
   def show(conn, %{"txid" => txid}) do
-    case MerkleProof.build(txid) do
+    case MerkleProof.build(String.downcase(txid)) do
       {:ok, proof} -> json(conn, %{data: proof})
       {:error, reason} -> refuse(conn, reason)
     end
