@@ -22,13 +22,14 @@ defmodule BitcoinsvCliMock do
     call(:getblockchaininfo, [], {:getblockchaininfo})
   end
 
-  # Honours the cap as the real client does: a body over it is
-  # {:error, :body_too_large}, not the bytes.
+  # Honours the cap as the real client does, in its exact shape
+  # (test/bitcoinsv_cli_rest_test.exs): {:error, {:connection_error,
+  # :body_too_large}}, not the bytes.
   def rest_block(hash, max_bytes) do
     case call(:rest_block, [hash], {:rest_block, hash}) do
       {:ok, bytes}
       when is_binary(bytes) and is_integer(max_bytes) and byte_size(bytes) > max_bytes ->
-        {:error, :body_too_large}
+        {:error, {:connection_error, :body_too_large}}
 
       other ->
         other

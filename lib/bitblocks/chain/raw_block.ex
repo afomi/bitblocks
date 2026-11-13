@@ -101,6 +101,10 @@ defmodule Bitblocks.Chain.RawBlock do
       # hand over the same block as hex, twice the size and uncapped, so it is
       # never the fallback for size (2026-11-12, block 971,525: a header with
       # no size and 367 txs, 145.9 MB). The caller streams it or goes per tx.
+      # BitcoinsvCli.rest_block/2's shape for a body past max_bytes.
+      {:error, {:connection_error, :body_too_large}} ->
+        {:error, :block_too_large}
+
       {:error, :body_too_large} ->
         {:error, :block_too_large}
 
