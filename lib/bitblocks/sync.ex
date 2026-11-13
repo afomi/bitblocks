@@ -322,6 +322,23 @@ defmodule Bitblocks.Sync do
   end
 
   @doc """
+  The height the sync stops at, by plan (`:sync_stop_at_height`, prod
+  400,000 since 2026-11-13; `SYNC_STOP_AT_HEIGHT` overrides it, `none`
+  clears it), or nil to sync to the tip. No block above it is dispatched;
+  header sync carries on to the tip, so the chain's shape stays current.
+  See docs/STORAGE_PLAN.md.
+  """
+  @spec stop_height() :: non_neg_integer() | nil
+  def stop_height, do: Application.get_env(:bitblocks, :sync_stop_at_height)
+
+  @doc "True once `complete_through` has reached `stop_height/0`."
+  @spec stopped?(integer() | nil) :: boolean()
+  def stopped?(through \\ complete_through()) do
+    stop = stop_height()
+    is_integer(stop) and is_integer(through) and through >= stop
+  end
+
+  @doc """
   True while an operator has paused the loop: the coordinator dispatches no
   new block jobs, and blocks already dispatched finish. Persisted in
   `sync_settings`, so it holds across restarts, deploys and leader changes.
@@ -486,6 +503,8 @@ defmodule Bitblocks.Sync do
   defp candidates_in_window(slots) do
     first = complete_through() + 1
     last = first + slots * run_limits().max_blocks - 1
+    # Nothing above the planned stop (stop_height/0); past it the window is empty.
+    last = if is_integer(stop_height()), do: min(last, stop_height()), else: last
 
     from(b in Block,
       where: b.height >= ^first and b.height <= ^last,

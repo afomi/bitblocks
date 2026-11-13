@@ -152,6 +152,25 @@ defmodule Bitblocks.OpsTest do
       refute "index_stalled" in h.problems
     end
 
+    test "the planned stop height, once reached, is not a stall, and the line says so" do
+      Ops.reset_alerts()
+
+      facts = catching_up(%{last_completed_at: DateTime.add(@now, -7200, :second)})
+      through = facts.overview.complete_through
+      h = Ops.health(Map.put(facts, :stop_height, through))
+
+      assert h.index.stopped == true
+      assert h.index.stop_height == through
+      assert h.index.stalled == nil
+      assert Ops.alert(h) == []
+
+      assert BitblocksWeb.HealthLine.progress_text(h) =~
+               "stopped at block #{BitblocksWeb.HealthLine.number(through)}, as planned"
+
+      below = Ops.health(Map.put(facts, :stop_height, through + 1))
+      assert below.index.stopped == false
+    end
+
     test "a paused sync is not a stall: it says paused, and emails nothing" do
       Ops.reset_alerts()
 

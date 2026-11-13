@@ -24,6 +24,11 @@ config :logger, level: :info
 # of 5 leaves 5, and the node's RPC limit is 4. An admin can lower it on /sync.
 config :bitblocks, :sync_workers, 2
 
+# Blocks stop at 400,000 until the storage plan lands (Ryan, 2026-11-13;
+# docs/STORAGE_PLAN.md); headers keep syncing to the tip. SYNC_STOP_AT_HEIGHT
+# overrides it at runtime, and SYNC_STOP_AT_HEIGHT=none clears it.
+config :bitblocks, :sync_stop_at_height, 400_000
+
 config :bitblocks, Oban,
   queues: [
     default: 10,

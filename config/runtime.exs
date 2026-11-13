@@ -39,6 +39,13 @@ config :bitblocks,
           value -> raise "NODE_ROLE must be writer or reader, got: #{value}"
         end)
 
+case System.get_env("SYNC_STOP_AT_HEIGHT") do
+  nil -> :ok
+  "" -> :ok
+  "none" -> config :bitblocks, :sync_stop_at_height, nil
+  height -> config :bitblocks, :sync_stop_at_height, String.to_integer(height)
+end
+
 if limit = System.get_env("SYNC_RPC_LIMIT") do
   config :bitblocks, :sync_rpc_limit, String.to_integer(limit)
 end

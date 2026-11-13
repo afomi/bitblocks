@@ -188,6 +188,9 @@ config :bitblocks, Oban,
 # (web requests, header sync, other queues) and :sync_rpc_limit (the node's
 # RPC threads; bitcoind's default rpcthreads is 4).
 config :bitblocks, :sync_workers, 1
+
+# The height the sync stops at, or nil for the tip (Bitblocks.Sync.stop_height/0).
+config :bitblocks, :sync_stop_at_height, nil
 config :bitblocks, :sync_pool_reserve, 5
 config :bitblocks, :sync_rpc_limit, 4
 

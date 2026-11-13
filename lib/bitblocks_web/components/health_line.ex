@@ -65,6 +65,10 @@ defmodule BitblocksWeb.HealthLine do
 
   def progress_text(%{index: %{paused: true}}), do: "The sync is paused by an operator."
 
+  def progress_text(%{index: %{stopped: true, stop_height: height}}),
+    do:
+      "The sync has stopped at block #{number(height)}, as planned; headers keep syncing to the tip."
+
   def progress_text(%{index: %{stalled: "headers"}}),
     do: "The sync has stalled: no new header has landed for over an hour."
 

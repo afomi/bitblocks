@@ -472,6 +472,45 @@ defmodule Bitblocks.SyncTest do
     end
   end
 
+  # The storage plan's stop (docs/STORAGE_PLAN.md): blocks above the stop
+  # height are never dispatched; header sync carries on.
+  describe "stop height" do
+    test "no block above it is dispatched, and reaching it reads as stopped" do
+      Application.put_env(:bitblocks, :sync_workers, 1)
+      Application.put_env(:bitblocks, :sync_stop_at_height, 1)
+      on_exit(fn -> Application.put_env(:bitblocks, :sync_stop_at_height, nil) end)
+
+      for h <- 0..3, do: block_at(h, "header_only")
+
+      complete = fn h ->
+        Repo.update_all(Oban.Job, set: [state: "completed"])
+
+        Repo.update_all(from(b in Chain.Block, where: b.height == ^h),
+          set: [sync_state: "completed"]
+        )
+      end
+
+      assert Sync.dispatch() == 1
+      assert dispatched_hashes() == ["block_0"]
+      refute Sync.stopped?()
+
+      complete.(0)
+      assert Sync.dispatch() == 1
+      assert dispatched_hashes() == ["block_1"]
+
+      complete.(1)
+      assert Sync.dispatch() == 0
+      assert dispatched_hashes() == []
+      assert Sync.stopped?()
+      assert Sync.stop_height() == 1
+    end
+
+    test "is unset by default, so the sync runs to the tip" do
+      assert Sync.stop_height() == nil
+      refute Sync.stopped?(10_000_000)
+    end
+  end
+
   describe "concurrency" do
     test "is clamped to the computed limit, and the reason is named" do
       Application.put_env(:bitblocks, :sync_rpc_limit, 2)

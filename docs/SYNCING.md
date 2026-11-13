@@ -104,6 +104,14 @@ An admin can pause the loop on /syncing ("Pause the sync"), and resume it there.
 The flag is the `paused` column of the same `sync_settings` row (`Sync.set_paused/1`, `Sync.paused?/0`), so it holds across restarts, deploys and a change of leader.
 While paused the coordinator dispatches no new block jobs; header sync keeps running, and blocks already dispatched finish, including the rest of a small-block run.
 /syncing says "Paused" and how many block jobs are still finishing; `/api/v1/status` reports `sync_paused` instead of `index_stalled`.
+
+### Stop height
+
+The sync can also stop at a planned height: `config :bitblocks, :sync_stop_at_height` (`Sync.stop_height/0`), nil in dev and test.
+Prod stops at 400,000 since 2026-11-13, until the storage plan lands ([STORAGE_PLAN.md](STORAGE_PLAN.md)); `SYNC_STOP_AT_HEIGHT` overrides it at runtime, and `SYNC_STOP_AT_HEIGHT=none` clears it.
+Dispatch never queues a block above it, and header sync carries on to the tip.
+Once `complete_through` reaches it, `Sync.stopped?/0` is true, `/api/v1/status` gives `index.stopped: true` and `index.stop_height` with no `index_stalled`, and the health line on /syncing and /status says the sync has stopped there as planned.
+A headers stall still counts as a stall.
 The per-minute cron only keeps the coordinator alive, so it never undoes a pause.
 
 Lowering the concurrency drains the same way: dispatch fills only free slots, so live blocks finish and nothing new starts until the count is below the new setting.

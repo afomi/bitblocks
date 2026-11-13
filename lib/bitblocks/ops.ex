@@ -66,6 +66,8 @@ defmodule Bitblocks.Ops do
 
     index_behind = diff(node_blocks, our_tip)
     paused = facts[:paused] == true
+    stop_height = facts[:stop_height]
+    stopped = is_integer(stop_height) and is_integer(through) and through >= stop_height
 
     stalled =
       cond do
@@ -76,7 +78,9 @@ defmodule Bitblocks.Ops do
         is_integer(index_behind) and index_behind > @stall_blocks and idle?(latest_at, now) ->
           "headers"
 
-        is_integer(through) and is_integer(our_tip) and through < our_tip and
+        # Nor is the planned stop height (Sync.stop_height/0) once reached;
+        # headers keep syncing past it, so a headers stall still counts.
+        not stopped and is_integer(through) and is_integer(our_tip) and through < our_tip and
           idle?(completed_at || latest_at, now) and (facts[:blocks_in_progress] || 0) == 0 ->
           "blocks"
 
@@ -107,6 +111,8 @@ defmodule Bitblocks.Ops do
         last_completed_at: iso(completed_at),
         stalled: stalled,
         paused: paused,
+        stop_height: stop_height,
+        stopped: stopped,
         halted_at: facts[:halted],
         failed: failed(overview[:states])
       },
@@ -528,6 +534,7 @@ defmodule Bitblocks.Ops do
       last_completed_at: last_completed_at(snapshot.recent),
       blocks_in_progress: blocks_in_progress(snapshot.sync),
       paused: safe(&Bitblocks.Sync.paused?/0) == true,
+      stop_height: Bitblocks.Sync.stop_height(),
       halted: halted_fork(),
       this_node: safe(&NodeRole.status/0),
       now: DateTime.utc_now() |> DateTime.truncate(:second)
