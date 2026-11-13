@@ -184,8 +184,10 @@ Built by `Bitblocks.Chain.Beef`, on the same proofs as Part 2, so the same statu
 - Proofs from one block share one BUMP.
 - `parents_missing` names any parent left out (not stored, no proof available, or past the 25), and `complete` is false when there are any.
 - The bytes are parsed back before they are sent: each transaction must hash to its txid, and each BUMP must climb to the root in the stored header.
-- That read-back is held to the BEEF's own size, not the 16 MB the reader allows for BEEF from anyone, so a transaction larger than that still gets its BEEF.
-The answer is the whole transaction as hex, so a 43 MB transaction makes a BEEF of about 87 MB in the JSON.
+- That read-back is held to the BEEF's own size, not the 16 MB the reader allows for BEEF from anyone.
+- What we serve is capped at that same 16 MB (`Beef.max_bytes/0`, `:beef_serve_max_bytes`; Ryan, 2026-11-13): we don't hand out a BEEF our own verifier would refuse.
+  A tx over it is a 413 with `reason: too_large`, `max_bytes`, and `raw_url` and `proof_url`, the tx's bytes and its merkle proof, which carry the same evidence without hex in JSON.
+  Parents that would push a BEEF over the cap are left out and listed in `parents_missing`, as an unproven parent is.
 
 The roots rest on our stored headers, so check them against your own header source.
 The tests pin the encoder to the BRC-62 and BRC-74 example vectors, and to the real 106-transaction block 814435.

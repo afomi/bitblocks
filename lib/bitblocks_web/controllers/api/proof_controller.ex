@@ -91,6 +91,19 @@ defmodule BitblocksWeb.Api.ProofController do
 
       :raw_unavailable ->
         error(conn, 503, "This transaction's bytes could not be read; try again later.")
+
+      :too_large ->
+        conn
+        |> put_status(413)
+        |> json(%{
+          error:
+            "This BEEF would be over #{Beef.max_bytes()} bytes, the most we accept or serve. " <>
+              "The transaction's bytes and its merkle proof carry the same evidence.",
+          reason: :too_large,
+          max_bytes: Beef.max_bytes(),
+          raw_url: "/api/v1/txs/#{String.downcase(conn.path_params["txid"])}/raw",
+          proof_url: "/api/v1/txs/#{String.downcase(conn.path_params["txid"])}/proof"
+        })
     end
   end
 

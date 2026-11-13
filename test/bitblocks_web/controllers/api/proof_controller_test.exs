@@ -63,6 +63,24 @@ defmodule BitblocksWeb.Api.ProofControllerTest do
   end
 
   describe "a proof the caller can check" do
+    test "a BEEF over the served cap is a 413 naming /raw and /proof (#68)", %{conn: conn} do
+      real_block_170()
+      Application.put_env(:bitblocks, :beef_serve_max_bytes, 1_000)
+      on_exit(fn -> Application.delete_env(:bitblocks, :beef_serve_max_bytes) end)
+
+      txid = FirstSpendFixtures.first_spend()
+
+      body =
+        conn
+        |> get(~p"/api/v1/txs/#{String.upcase(txid)}/beef")
+        |> json_response(413)
+
+      assert body["reason"] == "too_large"
+      assert body["max_bytes"] == 1_000
+      assert body["raw_url"] == "/api/v1/txs/#{txid}/raw"
+      assert body["proof_url"] == "/api/v1/txs/#{txid}/proof"
+    end
+
     test "an uppercase txid gets the same proof, as /beef does (#68)", %{conn: conn} do
       real_block_170()
 

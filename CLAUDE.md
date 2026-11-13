@@ -94,6 +94,7 @@ mix assets.deploy           # Build and minify for production
   - A failure marks the block `failed` and backs off 1, 2, 4 … minutes, capped at an hour; never gives up. The seventh failure in a row (over an hour) sends one `Notifications.sync_stall_alert/3`.
 - Concurrency: admin-set on /syncing, persisted in `sync_settings`, clamped to `Sync.concurrency_limit/0` (CPU cores, `pool_size` minus `:sync_pool_reserve`, `:sync_rpc_limit` / `SYNC_RPC_LIMIT`). Default `:sync_workers`: 1 in dev and test, 2 in prod.
 - Pause: admin-set on /syncing, the `paused` column of `sync_settings` (`Sync.set_paused/1`); the coordinator dispatches nothing new while it is set, across restarts and deploys, and blocks already dispatched finish.
+- Stop height: `:sync_stop_at_height` (`Sync.stop_height/0`; prod 400,000 until the storage plan lands, `SYNC_STOP_AT_HEIGHT` overrides, `none` clears): no block above it is dispatched, headers carry on, and `/api/v1/status` says `index.stopped` rather than stalled once reached.
 - One writer (#39, `Bitblocks.NodeRole`): `NODE_ROLE=reader` starts a read-only web node with no Oban queues, plugins or leadership and no coordinator. Unset is a writer. Leadership lives in the database and dispatch counts live jobs there, so more instances never mean more RPC streams. `/syncing`, `/status` and `this_node` on `GET /api/v1/status` say whether this node is the sync writer and whether rate limits are shared or per node.
 - `Bitblocks.Workers.SyncHeadersWorker` holds the header logic (`sync_tip/0`, `sync_range/2`, reorg handling) and still runs a manual range job.
 
@@ -295,7 +296,7 @@ GET /api/v1/txs                 — transactions newest confirmation first, keys
 GET /api/v1/txs/:txid           — single transaction by txid; confirmed (true | false) and confirmation: confirmed | unverified | orphaned (`Chain.confirmations/1`), also on the list
 GET /api/v1/txs/:txid/proof     — merkle proof for a transaction
 GET /api/v1/txs/:txid/beef      — BRC-62 BEEF as hex: the tx with its own BUMP, its parents first (up to 25; parents_missing, complete); same errors as /proof
-GET /api/v1/txs/:txid/beef      — BEEF (BRC-62) as hex, the tx last with its own BUMP, its parents ahead of it; ?format=atomic for Atomic BEEF (BRC-95), the tx and its BUMP alone
+GET /api/v1/txs/:txid/beef      — BEEF (BRC-62) as hex, the tx last with its own BUMP, its parents ahead of it; ?format=atomic for Atomic BEEF (BRC-95), the tx and its BUMP alone; at most 16 MB, else a 413 naming /raw and /proof
 POST /api/v1/beef/verify        — checks a BEEF V1, V2 or Atomic BEEF from anyone against our headers (octet-stream, or {"beef": "<hex>"}; 4 MB): each tx proven | anchored | unknown | failed, at what height and root, with reasons. The claim is inclusion in a block; no script runs, and an unknown height is unknown (docs/MERKLE_PROOFS.md); data.statement offers the BRC-237 payment evidence statement it supports (made | refused | unavailable; canonical bytes and sha256), distance only (docs/INTEROP_KIT.md)
 GET /api/v1/headers/:height     — open: one header: raw 80 bytes as hex, hash, height, merkleroot, verified, canonical; rely on it only when both are true
 GET /api/v1/headers             — open: ?from=&limit= up to 2,000 headers by the height index; meta.tip_height says what they cover, meta.missing what we lack below it

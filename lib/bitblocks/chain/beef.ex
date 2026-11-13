@@ -62,13 +62,19 @@ defmodule Bitblocks.Chain.Beef do
   trust}}`, or the errors of `MerkleProof.build/1`, or `:raw_unavailable`
   when the tx's bytes can't be read. `format: :atomic` gives Atomic BEEF in
   `beef`; `format` in the answer says which it is.
+
+  A BEEF over `max_bytes/0` (16 MB, the limit we accept from anyone) is
+  `{:error, :too_large}`: we don't hand out what our own verifier would
+  refuse. The tx's bytes at `/raw` and its proof at `/proof` carry the same
+  evidence. Parents that would push it over are left out, as missing.
   """
   @spec build(String.t(), keyword()) :: {:ok, map()} | {:error, atom()}
   def build(txid, opts \\ []) when is_binary(txid) do
     format = Keyword.get(opts, :format, :beef)
 
     with {:ok, proof} <- MerkleProof.build(txid),
-         {:ok, raw} <- raw(txid) do
+         {:ok, raw} <- raw(txid),
+         :ok <- within_cap(byte_size(raw)) do
       parents = if format == :atomic, do: [], else: parents(raw)
       {tried, skipped} = Enum.split(parents, @max_parents)
       # Chain order then block order, so a parent that spends another comes after it.
@@ -76,6 +82,7 @@ defmodule Bitblocks.Chain.Beef do
         tried
         |> Enum.flat_map(&proven_parent/1)
         |> Enum.sort_by(fn {p, _raw} -> {p.block_height, p.index} end)
+        |> fit(byte_size(raw))
 
       included = Enum.map(proven, fn {parent_proof, _raw} -> parent_proof.txid end)
       missing = (tried -- included) ++ skipped
@@ -90,7 +97,8 @@ defmodule Bitblocks.Chain.Beef do
         )
         |> wrap(format, txid)
 
-      with :ok <- check(beef, entries, txid) do
+      with :ok <- within_cap(byte_size(beef)),
+           :ok <- check(beef, entries, txid) do
         {:ok,
          %{
            txid: txid,
@@ -106,6 +114,28 @@ defmodule Bitblocks.Chain.Beef do
          }}
       end
     end
+  end
+
+  @doc "The largest BEEF `build/2` gives, in bytes (`:beef_serve_max_bytes`)."
+  @spec max_bytes() :: pos_integer()
+  def max_bytes, do: Application.get_env(:bitblocks, :beef_serve_max_bytes, 16_000_000)
+
+  # Room for the BUMPs, varints and header around the txs' own bytes.
+  @overhead 64 * 1024
+
+  defp within_cap(size),
+    do: if(size + @overhead > max_bytes(), do: {:error, :too_large}, else: :ok)
+
+  # Parents in order while the txs' bytes fit under the cap; the rest are
+  # left out and listed as missing, as an unproven parent is.
+  defp fit(proven, own_size) do
+    {kept, _} =
+      Enum.reduce(proven, {[], own_size}, fn {_p, raw} = entry, {kept, total} ->
+        size = total + byte_size(raw)
+        if size + @overhead > max_bytes(), do: {kept, total}, else: {[entry | kept], size}
+      end)
+
+    Enum.reverse(kept)
   end
 
   defp proven_parent(txid) do

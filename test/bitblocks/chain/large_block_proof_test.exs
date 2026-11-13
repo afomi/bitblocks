@@ -161,6 +161,11 @@ defmodule Bitblocks.Chain.LargeBlockProofTest do
     @big_tx_bytes 17_000_000
 
     test "is built and checked, not refused as a root mismatch" do
+      # Served BEEF is capped at the reader's limit (Beef.max_bytes/0); raised
+      # here, so the read-back of our own BEEF is still tested past it.
+      Application.put_env(:bitblocks, :beef_serve_max_bytes, 64_000_000)
+      on_exit(fn -> Application.delete_env(:bitblocks, :beef_serve_max_bytes) end)
+
       raw = big_coinbase(@big_tx_bytes)
       assert byte_size(raw) > Bitblocks.Chain.Beef.Reader.limits().max_bytes
       txid = display(sha256d(raw))
@@ -197,6 +202,31 @@ defmodule Bitblocks.Chain.LargeBlockProofTest do
 
       # Input from anyone is still held to the limit.
       assert {:error, :too_large} = Beef.parse(beef)
+    end
+
+    test "over the served cap it is too_large" do
+      raw = big_coinbase(@big_tx_bytes)
+      txid = display(sha256d(raw))
+      height = unique_block_height()
+
+      block =
+        block_fixture(%{
+          height: height,
+          hash: hex32("block-cap-#{height}"),
+          merkleroot: txid,
+          num_tx: 1,
+          tx: [txid],
+          nextblockhash: nil
+        })
+
+      tx_row(txid, block)
+
+      Repo.update_all(
+        Ecto.Query.from(t in "transactions", where: t.txid == ^txid),
+        set: [raw: Base.encode16(raw, case: :lower)]
+      )
+
+      assert {:error, :too_large} = Beef.build(txid)
     end
   end
 
