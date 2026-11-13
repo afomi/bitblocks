@@ -88,7 +88,12 @@ An explorer that reads the chain as it is has to be ready for both kinds of big,
 
 The second fix deployed at 00:44 UTC on November 13.
 At the next scheduled try, 01:12 UTC, block 971,525 went to the streaming reader and was read, its merkle root verified.
-The scan then caught up on the 374 blocks queued behind it, through 971,899, in about fifteen minutes, and it keeps pace with the tip.
+The scan then read the 374 blocks queued behind it, through 971,899, in about fifteen minutes.
+
+A day later it met the next limit, and this one isn't in the bytes at all: time.
+Block 972,107 is cut off at about 30 seconds on every try, once after 198 MB and once after 144 MB, the same time with different bytes.
+That is the mark of a server-side timeout, most likely the node's default `rpcservertimeout`, and it applies to any block that takes longer than 30 seconds to send.
+A reader can be bounded in memory and still need to be unbounded in time, so this one is a setting on the node, which we've asked about.
 Our sponsor figures now count gifts in those blocks, and say how far they reach.
 
 The streaming reader is the first half of https://github.com/afomi/bitblocks/issues/66; the sync will use it for its own large blocks next.
