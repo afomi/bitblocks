@@ -156,7 +156,45 @@ defmodule Bitblocks.Derivations do
   defp attempt(spec, cursor, report) do
     {:ok, spec.next.(cursor, report)}
   rescue
-    e -> {:error, e |> Exception.message() |> String.slice(0, 2_000)}
+    e -> {:error, e |> describe(__STACKTRACE__) |> String.slice(0, 2_000)}
+  end
+
+  @doc false
+  # The error as the run records it: the message, then where it happened
+  # (the first frame in our code, which names the step: a page read, a
+  # write, a tally) and, for a database error, the statement's head. A
+  # statement timeout alone doesn't say which statement, or whether it was
+  # slow or waiting on a lock (tx_types chain #12, 2026-11-10).
+  def describe(e, stacktrace) do
+    at =
+      Enum.find_value(stacktrace, fn
+        {mod, fun, arity, _} = entry when is_atom(mod) ->
+          if String.starts_with?(Atom.to_string(mod), "Elixir.Bitblocks.") and
+               mod != __MODULE__ do
+            " at " <> Exception.format_mfa(mod, fun, arity) <> location(entry)
+          end
+
+        _ ->
+          nil
+      end)
+
+    sql =
+      case e do
+        %{query: query} when is_binary(query) ->
+          " in: " <> (query |> String.replace(~r/\s+/, " ") |> String.slice(0, 300))
+
+        _ ->
+          ""
+      end
+
+    Exception.message(e) <> (at || "") <> sql
+  end
+
+  defp location({_, _, _, meta}) do
+    case {meta[:file], meta[:line]} do
+      {file, line} when not is_nil(file) and not is_nil(line) -> " (#{file}:#{line})"
+      _ -> ""
+    end
   end
 
   @doc """
@@ -173,6 +211,10 @@ defmodule Bitblocks.Derivations do
       Repo.transaction(
         fn ->
           Repo.query!("SET LOCAL statement_timeout = #{ms}")
+          # Half the statement timeout for lock waits, so a wait on another
+          # writer's row lock fails as 55P03 (lock timeout), not as a slow
+          # statement (57014), and the recorded error says which it was.
+          Repo.query!("SET LOCAL lock_timeout = #{div(ms, 2)}")
           fun.()
         end,
         timeout: ms + 5_000

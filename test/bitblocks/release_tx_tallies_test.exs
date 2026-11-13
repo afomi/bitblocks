@@ -220,7 +220,9 @@ defmodule Bitblocks.ReleaseTxTalliesTest do
       end)
 
     assert_received {:report, report}
-    assert %{outcome: "partial", error: "boom at block 21", rows_changed: 1} = report
+    assert %{outcome: "partial", error: "boom at block 21" <> where, rows_changed: 1} = report
+    # The recorded error also names where it happened (Derivations.describe/2).
+    assert where =~ "RaisesAt21.run_chunk/2"
     assert output =~ "outcome: PARTIAL: boom at block 21"
 
     # Block 20's batch committed before block 21 failed.
@@ -228,7 +230,7 @@ defmodule Bitblocks.ReleaseTxTalliesTest do
     assert Repo.reload!(ctx.a).subsidy == @fifty_btc
     assert Chain.get_transaction!(ctx.child).tallies_version == nil
 
-    assert %Run{outcome: "partial", error: "boom at block 21", applied: true} =
+    assert %Run{outcome: "partial", error: "boom at block 21" <> _, applied: true} =
              Repo.get!(Run, report.run_id)
 
     # Fixed, the rerun resumes: only block 21's rows are left.
