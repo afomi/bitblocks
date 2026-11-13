@@ -19,6 +19,7 @@ Docs marked *(mixed)* are mostly aspirational but contain sections that accurate
 - `PERFORMANCE.md` — RPC- and HTTP-layer optimizations under the sync jobs.
 - `MEMORY_OPTIMIZATION.md` — diagnosing and fixing BEAM memory pressure in the running app.
 - `LARGE_BLOCKS.md` — handling multi-million-tx blocks and hundreds-of-MB RPC responses.
+- `blog/` — dated articles for readers outside the team; `blog/2026-11-12-big-blocks-big-transactions.md` is how block 971,525 (146 MB, 367 txs) stuck the donation scan and what reading BSV at its real size takes (#66).
 - `LARGE_SCALE_DB.md` — running Bitblocks against a 20TB+ PostgreSQL database.
 - `IP_BLOCKING.md` — blocking abusive IPs, including the auto-ban feature.
 - `MERKLE_PROOFS.md` — the `/api/v1/txs/:txid/proof` endpoint and `MerkleVerifier` internals.
