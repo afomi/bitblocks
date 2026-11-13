@@ -218,6 +218,32 @@ defmodule Bitblocks.Chain.BlockStreamTest do
     assert largest >= 1_500_000
   end
 
+  test "fun's {:halt, acc} stops the read there, unverified, over the real client" do
+    meta = serve_block(3_000_000)
+
+    stop_at_ten = fn {txid, _bytes}, acc ->
+      acc = [txid | acc]
+      if length(acc) == 10, do: {:halt, acc}, else: acc
+    end
+
+    assert {:halted, txids, stats} = BlockStream.each_tx(block(meta), [], stop_at_ten)
+    assert Enum.reverse(txids) == Enum.take(meta.txids, 10)
+    assert stats.txs == 10
+    assert stats.bytes < 3_000_000
+  end
+
+  test "a block over the block maximum fails, before a request when its size is known" do
+    meta = serve_block(3_000_000)
+
+    assert {:error, {:block_too_large, bytes}} =
+             collect(block(meta), max_block_bytes: 1_000_000)
+
+    assert bytes > 1_000_000
+
+    assert {:error, {:block_too_large, 5_000_000}} =
+             collect(block(meta, %{size: 5_000_000}), max_block_bytes: 1_000_000)
+  end
+
   test "no REST is a 404, with no fallback" do
     assert {:error, {:http_error, 404}} =
              collect(%Block{hash: String.duplicate("ab", 32), num_tx: 1, height: 1})

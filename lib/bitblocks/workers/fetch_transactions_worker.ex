@@ -13,9 +13,12 @@ defmodule Bitblocks.Workers.FetchTransactionsWorker do
   ## One request per block
   A block up to 32 MB is fetched once as raw bytes (`Chain.RawBlock`: node
   REST, else `getblock(hash, 0)`), its txids derived from the bytes and
-  checked against the header's merkleroot. Larger blocks, and blocks the
-  node can't serve whole, use the verified txid list (`Chain.TxidSource`)
-  and fetch bodies per chunk (`Chain.TxSources`).
+  checked against the header's merkleroot. Larger blocks, including one REST
+  reports over the cap, are read as a stream from REST (`Chain.BlockStream`,
+  #66) and stored chunk by chunk as their txs arrive; see "A block over the
+  raw cap, streamed" below. Blocks the node can't serve whole or stream (no
+  REST, pruned) use the verified txid list (`Chain.TxidSource`) and fetch
+  bodies per chunk (`Chain.TxSources`).
 
   ## The block in the tx store
   Once a raw-path block is completed, its exact bytes are written to the tx
@@ -58,7 +61,7 @@ defmodule Bitblocks.Workers.FetchTransactionsWorker do
   import Ecto.Query
 
   alias Bitblocks.{Chain, Repo, Sync}
-  alias Bitblocks.Chain.{Block, RawBlock, TxIngest, TxidSource, TxSources}
+  alias Bitblocks.Chain.{Block, BlockStream, RawBlock, TxIngest, TxidSource, TxSources}
   alias Bitblocks.SyncProgress.Tracker
   alias Bitblocks.TxStore.BlockObject
 
@@ -132,7 +135,31 @@ defmodule Bitblocks.Workers.FetchTransactionsWorker do
   end
 
   defp run(block, job, offset, deadline) do
-    with {:ok, items, block, raw} <- block_txs(block, job.meta["raw_dir"]),
+    case block_txs(block, job) do
+      {:stream, block} ->
+        with {:ok, block} <- mark_syncing(block) do
+          case stream(block, job, deadline) do
+            {:fallback, reason} ->
+              Logger.info(
+                "FetchTxs block=#{block.height} stream unavailable (#{inspect(reason)}); per-tx path"
+              )
+
+              walk_items(block, per_tx(block), job, offset, deadline)
+
+            result ->
+              result
+          end
+        else
+          {:error, reason} -> fail(block, reason)
+        end
+
+      fetched ->
+        walk_items(block, fetched, job, offset, deadline)
+    end
+  end
+
+  defp walk_items(block, fetched, job, offset, deadline) do
+    with {:ok, items, block, raw} <- fetched,
          {:ok, block} <- mark_syncing(block) do
       case walk(block, items, offset, deadline, locations(raw, items)) do
         :completed ->
@@ -163,36 +190,63 @@ defmodule Bitblocks.Workers.FetchTransactionsWorker do
   # the block comes from there or not at all, never from the node.
   # The fourth element is the raw block's bytes (for its object in the tx
   # store), or nil on the per-tx path.
-  defp block_txs(block, raw_dir) when is_binary(raw_dir) do
+  # `{:stream, block}`: the block is over the raw cap, or turned out to be,
+  # and is read as a stream (Chain.BlockStream; see stream/3).
+  defp block_txs(block, %Oban.Job{meta: %{"raw_dir" => raw_dir}}) when is_binary(raw_dir) do
     case RawBlock.fetch(block, dir: raw_dir) do
       {:ok, txs, stats} -> {:ok, txs, record_fetch(block, stats), stats.raw}
       {:error, reason} -> {:error, reason}
     end
   end
 
-  defp block_txs(block, nil) do
-    if RawBlock.eligible?(block) and TxSources.node_has_block?(block) do
-      case RawBlock.fetch(block) do
-        {:ok, txs, stats} ->
-          {:ok, txs, record_fetch(block, stats), stats.raw}
+  defp block_txs(block, job) do
+    cond do
+      # An earlier run of this job streamed it: it is too large to fetch whole.
+      stream_progress(job, block) != nil and streamable?() ->
+        {:stream, block}
 
-        {:error, reason}
-        when elem(reason, 0) in [:merkleroot_verification_failed, :tx_count_mismatch] ->
-          {:error, reason}
+      RawBlock.eligible?(block) and TxSources.node_has_block?(block) ->
+        raw_or_fallback(block)
 
-        {:error, :block_hash_mismatch} ->
-          {:error, :block_hash_mismatch}
+      streamable?() and TxSources.node_has_block?(block) ->
+        {:stream, block}
 
-        {:error, reason} ->
-          Logger.info(
-            "FetchTxs block=#{block.height} raw fetch failed (#{inspect(reason)}); per-tx path"
-          )
-
-          per_tx(block)
-      end
-    else
-      per_tx(block)
+      true ->
+        per_tx(block)
     end
+  end
+
+  defp raw_or_fallback(block) do
+    case RawBlock.fetch(block) do
+      {:ok, txs, stats} ->
+        {:ok, txs, record_fetch(block, stats), stats.raw}
+
+      # REST answered that the block is over the cap (its size unknown until now).
+      {:error, :block_too_large} ->
+        if streamable?(), do: {:stream, block}, else: per_tx(block)
+
+      {:error, reason}
+      when elem(reason, 0) in [:merkleroot_verification_failed, :tx_count_mismatch] ->
+        {:error, reason}
+
+      {:error, :block_hash_mismatch} ->
+        {:error, :block_hash_mismatch}
+
+      {:error, reason} ->
+        Logger.info(
+          "FetchTxs block=#{block.height} raw fetch failed (#{inspect(reason)}); per-tx path"
+        )
+
+        per_tx(block)
+    end
+  end
+
+  # Streaming needs the node's REST interface: not with raw blocks off or
+  # RPC-only, and `config :bitblocks, :sync_block_stream, false` turns it off
+  # (blocks over the cap then take the per-tx path, as before #66).
+  defp streamable? do
+    Application.get_env(:bitblocks, :sync_block_stream, true) and
+      Application.get_env(:bitblocks, :raw_block_source, :auto) in [:auto, :rest]
   end
 
   # txid => {offset, length} in the raw block, stored with each row so the
@@ -274,6 +328,215 @@ defmodule Bitblocks.Workers.FetchTransactionsWorker do
         Tracker.finish(tracker)
         {:error, reason, index}
     end
+  end
+
+  # -- A block over the raw cap, streamed (#66) ---------------------------------
+  #
+  # Chain.BlockStream reads the block from the node's REST interface tx by
+  # tx in bounded memory; the txs go through store_chunk/3 (diff, then the
+  # tx pipeline via TxIngest) in chunks as they arrive.
+  #
+  # Resuming: a stream can't start mid-block, so every run reads the block
+  # from its first byte. The job's meta keeps `stream: %{hash, offset}`, the
+  # number of txs earlier runs stored. Txs before the offset are checked in
+  # chunks of @verify_batch (one existing_txids query each, which also
+  # refills any that went missing) instead of chunks of @batch_size; from the
+  # offset on they are stored. A run stops after its first stored chunk past
+  # the deadline, saves the offset and snoozes.
+  #
+  # Completion: only a run that reads the block to its end gets
+  # `{:ok, ...}` from BlockStream, meaning the header hashed to the block's
+  # hash, the tx count matched and the txids of the whole block, every one
+  # derived from its bytes, rebuilt the header's merkleroot. That same run
+  # has seen every tx confirmed stored, chunk by chunk, so it marks the block
+  # completed. A halted, failed or mismatched run never does.
+  #
+  # Rows stored by a run are written before the merkleroot is known. The
+  # header has been checked by then, and each row's txid is its own bytes'
+  # hash; a block whose root then fails is marked failed, and no run
+  # completes it.
+
+  @verify_batch 1_000
+  # A chunk is stored at this many bytes, whatever its count, so a chunk of
+  # big txs stays bounded in memory.
+  @stream_chunk_bytes 8 * 1024 * 1024
+
+  defp stream(block, job, deadline) do
+    offset = stream_progress(job, block) || 0
+    # How far txs are known stored, kept outside the stream's accumulator so
+    # a read that fails mid-block still saves what it stored.
+    reached = :counters.new(1, [])
+    :counters.put(reached, 1, offset)
+    total = block.num_tx || 0
+
+    acc = %{
+      block: block,
+      offset: offset,
+      deadline: deadline,
+      reached: reached,
+      index: 0,
+      buf: [],
+      buf_start: 0,
+      buf_n: 0,
+      buf_bytes: 0,
+      tracker: Tracker.new(block, total, min(offset, total)),
+      status: :ok
+    }
+
+    case BlockStream.each_tx(block, acc, &stream_tx/2) do
+      {:ok, acc, stats} ->
+        block = record_stream(block, stats)
+
+        case flush(acc) do
+          {:ok, acc} ->
+            Tracker.finish(acc.tracker)
+
+            Logger.info(
+              "FetchTxs block=#{block.height} streamed #{stats.bytes} bytes, " <>
+                "#{stats.txs} txs, merkleroot verified"
+            )
+
+            mark_completed(block)
+            :ok
+
+          {:error, reason, acc} ->
+            Tracker.finish(acc.tracker)
+            save_stream_progress(job, block, :counters.get(reached, 1))
+            fail(block, reason)
+        end
+
+      {:halted, %{status: {:paused, at}} = acc, _stats} ->
+        Tracker.finish(acc.tracker)
+        save_stream_progress(job, block, at)
+        if (block.tx_sync_attempts || 0) > 0, do: reset_failures(block)
+        {:snooze, 1}
+
+      {:halted, %{status: {:error, reason}} = acc, _stats} ->
+        Tracker.finish(acc.tracker)
+        save_stream_progress(job, block, :counters.get(reached, 1))
+        fail(block, reason)
+
+      {:error, reason} ->
+        if stream_unavailable?(reason) do
+          {:fallback, reason}
+        else
+          save_stream_progress(job, block, :counters.get(reached, 1))
+          fail(block, reason)
+        end
+    end
+  end
+
+  defp stream_tx({txid, bytes}, acc) do
+    acc = %{
+      acc
+      | buf: [{txid, :binary.copy(bytes)} | acc.buf],
+        buf_n: acc.buf_n + 1,
+        buf_bytes: acc.buf_bytes + byte_size(bytes),
+        index: acc.index + 1
+    }
+
+    if flush?(acc), do: flush_and_go_on(acc), else: acc
+  end
+
+  # A chunk ends at its count, at its bytes, or where the stored region ends.
+  defp flush?(acc) do
+    limit = if verifying?(acc), do: @verify_batch, else: @batch_size
+    acc.buf_n >= limit or acc.buf_bytes >= @stream_chunk_bytes or acc.index == acc.offset
+  end
+
+  defp verifying?(acc), do: acc.buf_start < acc.offset
+
+  defp flush_and_go_on(acc) do
+    stored? = not verifying?(acc)
+
+    case flush(acc) do
+      {:ok, acc} ->
+        if stored? and System.monotonic_time(:millisecond) >= acc.deadline,
+          do: {:halt, %{acc | status: {:paused, acc.index}}},
+          else: acc
+
+      {:error, reason, acc} ->
+        {:halt, %{acc | status: {:error, reason}}}
+    end
+  end
+
+  defp flush(%{buf: []} = acc), do: {:ok, acc}
+
+  defp flush(acc) do
+    chunk = Enum.reverse(acc.buf)
+
+    case store_chunk(chunk, acc.block, %{}) do
+      :ok ->
+        tracker =
+          if verifying?(acc),
+            do: acc.tracker,
+            else: Tracker.chunk(acc.tracker, Enum.map(chunk, &txid_of/1))
+
+        if acc.index > :counters.get(acc.reached, 1), do: :counters.put(acc.reached, 1, acc.index)
+
+        {:ok, %{acc | buf: [], buf_n: 0, buf_bytes: 0, buf_start: acc.index, tracker: tracker}}
+
+      {:error, reason} ->
+        {:error, reason, acc}
+    end
+  end
+
+  # The checks BlockStream makes, and a read cut off partway: the block
+  # fails and is tried again, never handed to another path. Anything that
+  # fails before a byte arrives (no REST, a 404, no connection) means the
+  # node won't stream it, and the per-tx path takes it.
+  defp stream_unavailable?({{:connection_error, _}, opts}) when is_list(opts),
+    do: Keyword.get(opts, :after_bytes) == 0
+
+  defp stream_unavailable?(:block_hash_mismatch), do: false
+  defp stream_unavailable?(:trailing_bytes), do: false
+  defp stream_unavailable?({:tx_count_mismatch, _, _}), do: false
+  defp stream_unavailable?({:tx_too_large, _, _}), do: false
+  defp stream_unavailable?({:block_too_large, _}), do: false
+  defp stream_unavailable?({:merkleroot_verification_failed, _}), do: false
+  defp stream_unavailable?({:truncated, _}), do: false
+  defp stream_unavailable?(_reason), do: true
+
+  # Bytes and time for /syncing, the size on the row so the next job goes
+  # straight to the stream, and the tx count when the header didn't give one.
+  defp record_stream(block, stats) do
+    block = record_fetch(block, Map.put(stats, :source, :rest_stream))
+
+    if block.num_tx in [nil, 0] and stats.txs > 0 do
+      case change_block(block, %{num_tx: stats.txs}) do
+        {:ok, block} -> block
+        _ -> block
+      end
+    else
+      block
+    end
+  end
+
+  defp stream_progress(
+         %Oban.Job{meta: %{"stream" => %{"hash" => hash, "offset" => offset}}},
+         %Block{
+           hash: hash
+         }
+       )
+       when is_integer(offset),
+       do: offset
+
+  defp stream_progress(_job, _block), do: nil
+
+  defp save_stream_progress(%Oban.Job{id: nil}, _block, _offset), do: :ok
+
+  defp save_stream_progress(%Oban.Job{id: id}, block, offset) do
+    progress = %{"hash" => block.hash, "offset" => offset}
+
+    Repo.update_all(
+      from(j in Oban.Job,
+        where: j.id == ^id,
+        update: [
+          set: [meta: fragment("jsonb_set(?, '{stream}', ?)", j.meta, type(^progress, :map))]
+        ]
+      ),
+      []
+    )
   end
 
   defp run_ms, do: Application.get_env(:bitblocks, :tx_fetch_run_ms, 30_000)

@@ -45,11 +45,22 @@ A header gap below it is found by an index-only count of heights, and only searc
    The txs are split out locally; each txid is the double SHA-256 of its own bytes, and the ordered txids must rebuild the header's merkleroot.
    No `getrawtransaction` is sent for these blocks.
    SV's `getblockheader` reports no size, so until a raw fetch records `size` the gate is `num_tx` at most 20,000; REST refuses a body over the cap either way.
-   Larger blocks, and blocks the node can't serve whole (pruned, unreachable), use the txid list (`TxidSource`, merkleroot-checked) and fetch bodies per chunk (`TxSources`).
-   A bounded streaming parser for blocks of any size exists (`Chain.BlockStream`, #66) and reads the donation scan's large blocks; the sync doesn't use it yet.
+   **Larger blocks stream (#66).**
+   A block over the cap, by its stored `size`, by `num_tx` over 20,000, or because REST refused it as too large, is read from REST as a stream (`Chain.BlockStream`), tx by tx, in memory near one tx plus one chunk.
+   Its txs go through the same `TxIngest.store_chunk/2` pipeline as they arrive, in chunks of 100 txs or 8 MB, whichever comes first.
+   The header must hash to the block's hash and the tx count must match `num_tx` before any tx is stored; the txids of the whole block must rebuild the merkleroot before it can complete.
+   A block over `:block_stream_max_block_bytes` (1 GiB) or a tx over `:block_stream_max_tx_bytes` (256 MB) fails the block loudly and is never skipped; raise the setting to read it.
+   A stream that fails a check, or is cut off after its first bytes, fails the block and is tried again with the usual backoff.
+   A stream that never starts (no REST, a 404, no connection) hands the block to the txid list (`TxidSource`, merkleroot-checked) and per-chunk bodies (`TxSources`), as do blocks the node can't serve at all (pruned, unreachable).
+   `config :bitblocks, :sync_block_stream, false` turns streaming off, and `:raw_block_source` `:rpc` or `:off` does too, since both mean no REST.
 5. **Bounded runs.**
    A run stops after `:tx_fetch_run_ms` (30 s, inside Oban's 60 s shutdown grace), saves the chunk it reached in the job's meta, and snoozes; the same job resumes there.
    A raw block is downloaded again on each resumed run, which only happens to blocks that take longer than a run to store.
+   A streamed block can't resume mid-stream, so each run reads it again from its first byte.
+   The job's meta keeps `stream: %{hash, offset}`, the txs earlier runs stored; txs before the offset are checked in chunks of 1,000 (one query each, which refills any that went missing), and storing resumes at the offset.
+   The run stops after its first stored chunk past the deadline, saves the offset and snoozes; a resumed run goes straight to the stream.
+   Only a run that reads the whole block, with its merkleroot verified and every tx confirmed stored along the way, marks it `completed`.
+   Rows a run stores are written before the root is known; a block whose root then fails stays `failed` and is never completed.
 6. **Checked before it counts.**
    After the last chunk, a count by txid confirms every transaction is stored; only then is the block `completed`.
    That change is broadcast; a run goes on to its next block, and when the job ends the coordinator hands the slot on.
@@ -132,7 +143,8 @@ It was down from 2026-07 to 2026-11, so public sources can stand in for it, and 
 |---|---|---|---|
 | Headers and chain tip | the RPC endpoint: `BITCOIN_NODE_RPC_URL`, else `BITCOIN_NODE_URL` | none | `HeaderVerifier` (hash, PoW) and prevhash continuity |
 | Whole block (up to 32 MB) | REST `/rest/block/<hash>.bin`, else `getblock(hash, 0)` | the txid-list path below | header bytes hash to the block hash; txids derived from the bytes rebuild the merkleroot; tx count equals `num_tx` |
-| Txid list (larger blocks) | `getblock(hash, 1)` on the RPC endpoint | WhatsOnChain `/block/hash/:hash` plus its 50,000-txid pages | rebuilt merkleroot must equal the stored header's; a fallback list with no merkleroot to check is refused |
+| Streamed block (over 32 MB, up to 1 GiB) | REST `/rest/block/<hash>.bin`, read as a stream | the txid-list path below, only when the stream never starts | the same three checks, the merkleroot over the whole block at its end |
+| Txid list (no REST stream) | `getblock(hash, 1)` on the RPC endpoint | WhatsOnChain `/block/hash/:hash` plus its 50,000-txid pages | rebuilt merkleroot must equal the stored header's; a fallback list with no merkleroot to check is refused |
 | Tx bodies | `getrawtransaction` batches on the RPC endpoint | WhatsOnChain bulk `/txs` and `/txs/hex`, 20 per call | each body must hash to its txid (`TxIngest`) |
 
 - **PublicNode** (`https://bsv-rpc.publicnode.com`) is free, needs no auth, and is pruned to about the last 300 blocks.

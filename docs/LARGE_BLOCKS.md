@@ -3,7 +3,7 @@
 Bitcoin SV blocks can contain millions of transactions, resulting in JSON responses that are hundreds of megabytes. This document explains the challenges and solutions.
 
 > **Current (2026-11-11):** blocks up to 32 MB are read whole (`Chain.RawBlock`); `Chain.BlockStream` reads a block of any size from the node's REST interface as a stream, tx by tx, in memory near one tx plus one chunk (#66).
-> The donation scan uses it for large blocks (`docs/DONATION_ADDRESS.md`); the sync still uses the txid list and per-chunk bodies above 32 MB (`docs/SYNCING.md`).
+> The donation scan and the sync's block job both use it for blocks over 32 MB (`docs/DONATION_ADDRESS.md`, `docs/SYNCING.md`); the txid list and per-chunk bodies remain the fallback when REST won't stream a block.
 > Much of the rest of this page predates both.
 
 ## Streaming a block (`Chain.BlockStream`, #66)
@@ -14,6 +14,9 @@ Bitcoin SV blocks can contain millions of transactions, resulting in JSON respon
 - The header must hash to the block's hash and the tx count must match `num_tx` before any tx is handed over; the txids must rebuild the header's merkleroot and the bytes must end after the last tx before it returns `{:ok, ...}`.
   Until then everything `fun` saw is unverified.
 - Per-tx maximum: `:block_stream_max_tx_bytes`, 256 MB by default (BSV's consensus limit is 1 GB, miners' default policy 10 MB); a larger tx fails the block, never skipped.
+- Per-block maximum: `:block_stream_max_block_bytes`, 1 GiB by default; a larger block fails before any request when its stored `size` says so, else once that many bytes have arrived, never skipped.
+- `fun` may return `{:halt, acc}` to stop early; `each_tx/4` then returns `{:halted, acc, stats}`, verified no further than the header and tx count.
+  The sync's block job stops this way at the end of a bounded run.
 - Each chunk must arrive within `:bitcoin_rpc_recv_timeout_ms`; no REST is `{:error, {:http_error, 404}}`, with no `getblock(hash, 0)` fallback.
 
 ## The Problem

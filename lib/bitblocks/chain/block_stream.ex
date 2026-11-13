@@ -32,6 +32,11 @@ defmodule Bitblocks.Chain.BlockStream do
       tx seen in practice while keeping one tx's worth of memory sane. A
       larger tx fails the block with `{:tx_too_large, index, size}` as soon
       as its size is known, never skipped; raise the setting to read it.
+    * `:block_stream_max_block_bytes` (option `:max_block_bytes`), default
+      1 GiB: the largest block read. A block whose stored `size` is larger
+      fails before any request, and one that turns out larger fails with
+      `{:block_too_large, bytes}` once that many bytes have arrived; never
+      skipped, raise the setting to read it.
     * Each chunk must arrive within the node's RPC receive timeout
       (`:bitcoin_rpc_recv_timeout_ms`, 60 s default); the whole read has no
       bound of its own, since a GB block takes as long as it takes.
@@ -39,13 +44,21 @@ defmodule Bitblocks.Chain.BlockStream do
       is no `getblock(hash, 0)` fallback, since that returns the block as one
       hex string, twice its size, held whole.
 
-  Used by `Bitblocks.Support.Scan` for blocks over the raw-block cap. The
-  sync's `FetchTransactionsWorker` doesn't use it yet (the rest of #66).
+  ## Stopping early
+  `fun` may return `{:halt, acc}` to stop the read after that tx; `each_tx/4`
+  then returns `{:halted, acc, stats}`, with nothing verified past the
+  header and the tx count. The sync's block job does this at the end of a
+  bounded run, and reads the block again on its next run.
+
+  Used by `Bitblocks.Support.Scan` and by the sync's
+  `Bitblocks.Workers.FetchTransactionsWorker`, for blocks over the raw-block
+  cap.
   """
 
   alias Bitblocks.Chain.{Block, MerkleBuilder}
 
   @default_max_tx_bytes 256 * 1024 * 1024
+  @default_max_block_bytes 1024 * 1024 * 1024
 
   @typedoc "A tx as handed to `fun`: display txid and the tx's exact bytes."
   @type tx :: {String.t(), binary()}
@@ -56,16 +69,30 @@ defmodule Bitblocks.Chain.BlockStream do
   a received chunk; `:binary.copy/1` it if you keep it.
 
   Returns `{:ok, acc, stats}` once every check passed, with `stats`
-  `%{source: :rest, bytes: n, txs: n, largest_tx_bytes: n, ms: n}`; or
-  `{:error, reason}`, after which `acc` and everything `fun` saw must be
-  treated as unverified.
+  `%{source: :rest, bytes: n, txs: n, largest_tx_bytes: n, ms: n}`;
+  `{:halted, acc, stats}` when `fun` returned `{:halt, acc}` (see Stopping
+  early); or `{:error, reason}`, after which `acc` and everything `fun` saw
+  must be treated as unverified.
 
-  Options: `:max_tx_bytes` (see Limits).
+  Options: `:max_tx_bytes` and `:max_block_bytes` (see Limits).
   """
-  @spec each_tx(Block.t(), acc, (tx(), acc -> acc), keyword()) ::
-          {:ok, acc, map()} | {:error, term()}
+  @spec each_tx(Block.t(), acc, (tx(), acc -> acc | {:halt, acc}), keyword()) ::
+          {:ok, acc, map()} | {:halted, acc, map()} | {:error, term()}
         when acc: term()
   def each_tx(%Block{} = block, acc, fun, opts \\ []) do
+    opts = Keyword.put_new_lazy(opts, :max_block_bytes, &max_block_bytes/0)
+    max_block = opts[:max_block_bytes]
+
+    case block.size do
+      size when is_integer(size) and size > max_block ->
+        {:error, {:block_too_large, size}}
+
+      _ ->
+        read_retrying(block, acc, fun, opts)
+    end
+  end
+
+  defp read_retrying(block, acc, fun, opts) do
     case read(block, acc, fun, opts) do
       # Closed before a single byte: most often a pooled keep-alive connection
       # the node had already dropped as idle. A GET is safe to repeat, so it
@@ -80,7 +107,7 @@ defmodule Bitblocks.Chain.BlockStream do
 
   defp read(block, acc, fun, opts) do
     started = System.monotonic_time(:millisecond)
-    state = new(block, Keyword.get(opts, :max_tx_bytes, max_tx_bytes()))
+    state = new(block, Keyword.get(opts, :max_tx_bytes, max_tx_bytes()), opts[:max_block_bytes])
 
     # Bytes received, kept outside the stream's accumulator so a transport
     # failure mid-block can still say how far it got (time limit or size?).
@@ -91,6 +118,7 @@ defmodule Bitblocks.Chain.BlockStream do
 
       case push(state, chunk, acc, fun) do
         {:ok, state, acc} -> {:cont, {state, acc}}
+        {:halt, state, acc} -> {:halt, {{:halted, state}, acc}}
         {:error, reason} -> {:halt, {{:error, reason}, acc}}
       end
     end
@@ -99,17 +127,11 @@ defmodule Bitblocks.Chain.BlockStream do
       {:ok, {{:error, reason}, _acc}} ->
         {:error, reason}
 
+      {:ok, {{:halted, state}, acc}} ->
+        {:halted, acc, stats(state, started)}
+
       {:ok, {state, acc}} ->
-        with :ok <- finish(state) do
-          {:ok, acc,
-           %{
-             source: :rest,
-             bytes: state.bytes,
-             txs: state.count,
-             largest_tx_bytes: state.largest,
-             ms: System.monotonic_time(:millisecond) - started
-           }}
-        end
+        with :ok <- finish(state), do: {:ok, acc, stats(state, started)}
 
       # How far it got and how long it took tell a stale connection (0 bytes,
       # at once), a server timeout (0 bytes, at a fixed time) and a size
@@ -125,6 +147,16 @@ defmodule Bitblocks.Chain.BlockStream do
     end
   end
 
+  defp stats(state, started) do
+    %{
+      source: :rest,
+      bytes: state.bytes,
+      txs: state.count,
+      largest_tx_bytes: state.largest,
+      ms: System.monotonic_time(:millisecond) - started
+    }
+  end
+
   # -- The parser ------------------------------------------------------------------
   #
   # `pending` holds bytes received but not yet parsed, newest first, starting
@@ -134,11 +166,12 @@ defmodule Bitblocks.Chain.BlockStream do
   # per chunk. `tx_parts` holds the current tx's parsed bytes, newest first,
   # and `steps` says where in its structure the parse stands.
 
-  defp new(block, max_tx) do
+  defp new(block, max_tx, max_block) do
     %{
       hash: String.downcase(block.hash),
       num_tx: block.num_tx,
       max_tx: max_tx,
+      max_block: max_block,
       phase: :header,
       pending: [],
       pending_size: 0,
@@ -165,16 +198,21 @@ defmodule Bitblocks.Chain.BlockStream do
         bytes: state.bytes + size
     }
 
-    if state.pending_size < state.need do
-      {:ok, state, acc}
-    else
-      buf =
-        case state.pending do
-          [one] -> one
-          many -> join(many)
-        end
+    cond do
+      state.bytes > state.max_block ->
+        {:error, {:block_too_large, state.bytes}}
 
-      advance(%{state | pending: [], pending_size: 0}, buf, acc, fun)
+      state.pending_size < state.need ->
+        {:ok, state, acc}
+
+      true ->
+        buf =
+          case state.pending do
+            [one] -> one
+            many -> join(many)
+          end
+
+        advance(%{state | pending: [], pending_size: 0}, buf, acc, fun)
     end
   end
 
@@ -217,7 +255,12 @@ defmodule Bitblocks.Chain.BlockStream do
         <<last::binary-size(consumed), rest::binary>> = buf
         tx = if state.tx_parts == [], do: last, else: join([last | state.tx_parts])
         hash = sha256d(tx)
-        acc = fun.({display(hash), tx}, acc)
+
+        {acc, halt?} =
+          case fun.({display(hash), tx}, acc) do
+            {:halt, acc} -> {acc, true}
+            acc -> {acc, false}
+          end
 
         state = %{
           state
@@ -231,7 +274,7 @@ defmodule Bitblocks.Chain.BlockStream do
         }
 
         state = if state.remaining == 0, do: %{state | phase: :done}, else: state
-        advance(state, rest, acc, fun)
+        if halt?, do: {:halt, state, acc}, else: advance(state, rest, acc, fun)
 
       {:more, consumed, need, steps} ->
         tx_size = state.tx_size + consumed
@@ -358,6 +401,9 @@ defmodule Bitblocks.Chain.BlockStream do
 
   defp max_tx_bytes,
     do: Application.get_env(:bitblocks, :block_stream_max_tx_bytes, @default_max_tx_bytes)
+
+  defp max_block_bytes,
+    do: Application.get_env(:bitblocks, :block_stream_max_block_bytes, @default_max_block_bytes)
 
   defp rpc, do: Application.get_env(:bitblocks, :bitcoinsv_cli, BitcoinsvCli)
 end

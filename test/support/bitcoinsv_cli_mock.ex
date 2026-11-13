@@ -37,11 +37,20 @@ defmodule BitcoinsvCliMock do
   end
 
   # The rest_block stub's bytes, handed to `fun` in 64 KB chunks the way
-  # Finch would hand them over.
+  # Finch would hand them over. A `{:partial, bytes, reason}` stub hands over
+  # `bytes` and then fails as the real client does when the connection drops
+  # mid-body: {:error, {:connection_error, reason}}, the chunks already fed.
   def rest_block_stream(hash, acc, fun) do
     case call(:rest_block_stream, [hash], {:rest_block, hash}) do
-      {:ok, bytes} when is_binary(bytes) -> {:ok, feed(bytes, acc, fun)}
-      other -> other
+      {:ok, bytes} when is_binary(bytes) ->
+        {:ok, feed(bytes, acc, fun)}
+
+      {:partial, bytes, reason} ->
+        _acc = feed(bytes, acc, fun)
+        {:error, {:connection_error, reason}}
+
+      other ->
+        other
     end
   end
 
