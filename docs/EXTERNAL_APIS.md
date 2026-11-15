@@ -109,7 +109,8 @@ Base: `https://mapi.gorillapool.io`
 
 mAPI uses the **JSONEnvelope** pattern: the real data is a JSON string in `payload`, alongside `signature`, `publicKey`, `encoding`, `mimetype`.
 `feeQuote`'s decoded payload: `apiVersion, timestamp, expiryTime, minerId, currentHighestBlockHash, currentHighestBlockHeight, minerReputation, fees`.
-This is a miner-signed-receipt pattern — relevant only if Bitblocks wants to act as a broadcast endpoint with verifiable provenance.
+This is a miner-signed-receipt pattern, kept here as reference only.
+Bitblocks is the read side and doesn't broadcast, so it carries no mAPI client (Txbox and Manic were removed 2026-11-15); mAPI itself has given way to ARC.
 
 ### 2c. 1Sat Ordinals API
 

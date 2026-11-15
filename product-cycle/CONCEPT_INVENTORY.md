@@ -31,7 +31,6 @@ Each concept maps to its source (personas or stories in PLAN.md) and its data mo
 | **Sync Job** | An Oban worker run tracking headers or transaction fetches for a block range. | Operator | 14 | `sync_jobs` |
 | **Shape Layer** | A GeoJSON-backed NFT with computed bounds and center. | Explorer | 3 | `ShapeLayer` (in-memory, no DB table) |
 | **DID** | A Decentralized Identifier generated from a vCard, usable for on-chain profile claiming. | Explorer | 7 | no DB table — derived |
-| **TXBox Transaction** | A staged outbound transaction managed for broadcast. Carries channel, tags, and MAPI response tracking. | Developer, Operator | — | `txbox_txns` |
 | **Filter** | Declarative predicate over a transaction (prefix, MAP `app=`, script template hash, address set, height range). What you filter for is the application's chain-facing identity. | Application Operator, Developer | USE_CASES | proposed tag table |
 | **Map (transform)** | Function from a matching transaction to the record a consumer stores. Mechanical decode may run in Bitblocks; product folds stay in the app. | Application Operator, Developer | USE_CASES | definition document |
 | **Application** | A named product that uses one or more filters (and an optional map). Distinct from a Protocol (wire format). Keyed by content hash of the definition. | Application Operator, Protocol Author, App User | USE_CASES | proposed `apps` registry |

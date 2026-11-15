@@ -117,36 +117,12 @@ erDiagram
         integer errors_count
     }
 
-    txbox_txns {
-        uuid guid PK
-        string txid UK
-        text rawtx
-        string channel
-        string[] tags
-        jsonb meta
-        jsonb data
-        string state
-        bigint block_height
-        tsvector search_vector
-    }
-
-    txbox_mapi_responses {
-        bigint id PK
-        uuid tx_guid FK
-        string type
-        jsonb payload
-        string public_key
-        string signature
-        boolean verified
-    }
-
     blocks ||--o{ transactions : "contains"
     transactions ||--o{ spend_index : "outputs tracked in"
     transactions ||--o{ protocol_instances : "hosts"
     protocols ||--o{ protocol_instances : "defines format for"
     protocols ||--o{ protocol_stats : "aggregated in"
     protocols ||--o{ protocol_audits : "reviewed in"
-    txbox_txns ||--o{ txbox_mapi_responses : "receives"
 ```
 
 ---
@@ -164,10 +140,6 @@ The composite PK `(txid, vout)` is the canonical Outpoint identifier.
 **protocols / protocol_instances** — see *Terminology notes* in `CONCEPT_INVENTORY.md`.
 `protocol_instances` doubles as the OrderBook listing store: `parsed_data` carries the listing fields,
 `state` tracks `active / filled / cancelled`, and `spent / spent_txid` record settlement.
-
-**txbox_txns** — staged outbound transactions.
-Not a blockchain record; used for broadcast management.
-`search_vector` is auto-updated by a DB trigger for full-text search over `meta` and `data`.
 
 ## Concepts with no DB entity
 

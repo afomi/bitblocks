@@ -49,10 +49,6 @@ config :bitblocks,
     country: "United States"
   }
 
-# Configure Txbox
-config :txbox,
-  repo: Bitblocks.Repo
-
 # Configures the endpoint
 config :bitblocks, BitblocksWeb.Endpoint,
   url: [host: "localhost"],

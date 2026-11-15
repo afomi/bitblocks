@@ -76,8 +76,6 @@ defmodule Bitblocks.MixProject do
       {:jose, "~> 1.11"},
       {:libcluster, "~> 3.6"},
       {:bandit, "~> 1.2"},
-      # Txbox for outbound transaction management
-      {:txbox, "~> 0.3"},
       # Machinery for state machine management
       {:machinery, "~> 1.0"},
       # Oban for background job processing
