@@ -32,9 +32,11 @@ defmodule Bitblocks.Chain.BlockStream do
       tx seen in practice while keeping one tx's worth of memory sane. A
       larger tx fails the block with `{:tx_too_large, index, size}` as soon
       as its size is known, never skipped; raise the setting to read it.
-    * `:block_stream_max_block_bytes` (option `:max_block_bytes`), default
-      1 GiB: the largest block read. A block whose stored `size` is larger
-      fails before any request, and one that turns out larger fails with
+    * `:block_stream_max_block_bytes` (option `:max_block_bytes`, env
+      `BLOCK_STREAM_MAX_BLOCK_BYTES`), default 4 GiB: the largest block read.
+      It was 1 GiB until block 973,563 (1,073,747,520 bytes) came in just
+      over it. A block whose stored `size` is larger fails before any
+      request, and one that turns out larger fails with
       `{:block_too_large, bytes}` once that many bytes have arrived; never
       skipped, raise the setting to read it.
     * Each chunk must arrive within the node's RPC receive timeout
@@ -58,7 +60,7 @@ defmodule Bitblocks.Chain.BlockStream do
   alias Bitblocks.Chain.{Block, MerkleBuilder}
 
   @default_max_tx_bytes 256 * 1024 * 1024
-  @default_max_block_bytes 1024 * 1024 * 1024
+  @default_max_block_bytes 4 * 1024 * 1024 * 1024
 
   @typedoc "A tx as handed to `fun`: display txid and the tx's exact bytes."
   @type tx :: {String.t(), binary()}

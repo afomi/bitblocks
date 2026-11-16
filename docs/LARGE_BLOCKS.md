@@ -14,7 +14,7 @@ Bitcoin SV blocks can contain millions of transactions, resulting in JSON respon
 - The header must hash to the block's hash and the tx count must match `num_tx` before any tx is handed over; the txids must rebuild the header's merkleroot and the bytes must end after the last tx before it returns `{:ok, ...}`.
   Until then everything `fun` saw is unverified.
 - Per-tx maximum: `:block_stream_max_tx_bytes`, 256 MB by default (BSV's consensus limit is 1 GB, miners' default policy 10 MB); a larger tx fails the block, never skipped.
-- Per-block maximum: `:block_stream_max_block_bytes`, 1 GiB by default; a larger block fails before any request when its stored `size` says so, else once that many bytes have arrived, never skipped.
+- Per-block maximum: `:block_stream_max_block_bytes`, 4 GiB by default (`BLOCK_STREAM_MAX_BLOCK_BYTES` overrides); a larger block fails before any request when its stored `size` says so, else once that many bytes have arrived, never skipped.
 - `fun` may return `{:halt, acc}` to stop early; `each_tx/4` then returns `{:halted, acc, stats}`, verified no further than the header and tx count.
   The sync's block job doesn't need it since #86: it reads in a process of its own and stops that process at the end of a bounded run (`docs/SYNCING.md`).
 - The sync's block job puts a bounded buffer between the read and its writes (16 chunks or 64 MB in flight), so a slow write never stops the socket being read, and removes a block's rows when its bytes fail the merkleroot or another whole-block check (#86).

@@ -244,6 +244,17 @@ defmodule Bitblocks.Chain.BlockStreamTest do
              collect(block(meta, %{size: 5_000_000}), max_block_bytes: 1_000_000)
   end
 
+  test "by default a block just over 1 GiB is read, as block 973,563 is" do
+    meta = serve_block(300_000)
+
+    # The stored size, like block 973,563's, is what the cap checks first.
+    assert {:ok, txids, _stats} = collect(block(meta, %{size: 1_073_747_520}))
+    assert length(txids) == meta.tx_count
+
+    assert {:error, {:block_too_large, 4_294_967_297}} =
+             collect(block(meta, %{size: 4 * 1024 * 1024 * 1024 + 1}))
+  end
+
   test "no REST is a 404, with no fallback" do
     assert {:error, {:http_error, 404}} =
              collect(%Block{hash: String.duplicate("ab", 32), num_tx: 1, height: 1})

@@ -80,6 +80,20 @@ config :bitblocks,
   bitcoin_rpc_batch_timeout_ms: rpc_batch_timeout_ms,
   slow_rpc_log_threshold_ms: slow_rpc_threshold_ms
 
+# The largest block Chain.BlockStream reads (bytes). Unset keeps its default,
+# 4 GiB. Memory doesn't grow with it: the stream holds one tx at a time,
+# capped by :block_stream_max_tx_bytes. A value that isn't a positive integer
+# stops the boot rather than quietly keeping the default.
+if value = System.get_env("BLOCK_STREAM_MAX_BLOCK_BYTES") do
+  case Integer.parse(value) do
+    {bytes, ""} when bytes > 0 ->
+      config :bitblocks, :block_stream_max_block_bytes, bytes
+
+    _ ->
+      raise "BLOCK_STREAM_MAX_BLOCK_BYTES must be a positive integer of bytes, got: #{inspect(value)}"
+  end
+end
+
 # Header sync pacing for a rate-limited public endpoint (PublicNode answers
 # bursts with 429 / -32005): headers per batch and a pause before each batch.
 config :bitblocks,
