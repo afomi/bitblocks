@@ -23,7 +23,7 @@ defmodule BitblocksWeb.SitemapControllerTest do
     end
   end
 
-  test "every sitemap path is served publicly", %{conn: conn} do
+  test "every sitemap path is served publicly" do
     Application.put_env(:bitblocks, :admin_auth, enabled: true)
     on_exit(fn -> Application.put_env(:bitblocks, :admin_auth, enabled: false) end)
 
