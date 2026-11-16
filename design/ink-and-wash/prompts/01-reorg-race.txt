@@ -1,0 +1,4 @@
+Use your image generation tool once to generate this image. Reply with only the path of the generated file and the model you used. Landscape 4:3 if you can choose.
+
+Image prompt:
+Loose black ink pen drawing with watercolor washes on pure white paper, two pigments only: a soft let-down orange and a cool grey-blue. A casual still life on a plain wooden tabletop: a single row of small wooden blocks laid end to end, linked by a loose thread, that splits in two at one block. One branch runs on and on, its blocks washed cool grey-blue, the newest one set down slightly apart as if just placed. The other branch is short, only two blocks washed soft orange, the last one tipped over on its side, its thread gone slack. A pair of plain dice rests near the fork. Lots of white paper, no background wash, no shadows. No people, no faces, no text, no letters, no numbers.

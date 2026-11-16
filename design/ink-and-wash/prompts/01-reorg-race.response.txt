@@ -1,0 +1,5 @@
+images/1.jpg
+Imagine
+
+Rejected: orange too saturated (not let-down), line too clean next to labs-bench's loose hatching, dice drawn as blank cubes that read as stray blocks, no shared trunk before the fork, cast shadows.
+Kept as generated/reorg-race-v1.jpg for reference.

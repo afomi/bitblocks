@@ -20,6 +20,19 @@ defmodule BitblocksWeb.ReorgLiveTest do
     refute html =~ "id=\"reorg-notice\""
   end
 
+  test "the page shows the whitepaper's math, a worked example and the drawing", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/reorgs")
+
+    assert has_element?(view, "#reorg-math", "Section 11")
+    assert has_element?(view, "#reorg-math", "0.2045873")
+    assert has_element?(view, "#reorg-math-table", "340 blocks")
+    assert has_element?(view, "#reorg-drawing img[src='/images/ink-wash/reorg-fork.webp']")
+
+    assert File.exists?(
+             Path.join(:code.priv_dir(:bitblocks), "static/images/ink-wash/reorg-fork.webp")
+           )
+  end
+
   test "the page is instructional only: recorded reorgs are not listed", %{conn: conn} do
     {:ok, reorg} =
       Reorgs.record_observed(

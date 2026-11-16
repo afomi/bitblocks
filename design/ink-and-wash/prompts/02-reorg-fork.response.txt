@@ -1,0 +1,4 @@
+images/1.jpg
+Imagine (3:2, the closest landscape ratio offered)
+
+Kept: generated/reorg-fork.jpg

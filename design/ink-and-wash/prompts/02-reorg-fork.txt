@@ -1,0 +1,4 @@
+Use your image generation tool once to generate this image. Reply with only the path of the generated file and the model you used. Landscape 4:3 if you can choose.
+
+Image prompt:
+Loose black ink pen drawing with watercolor washes on pure white paper, two pigments only: a soft let-down orange and a cool grey-blue. Sketchy, hand-drawn line with light cross-hatching, like a page from a sketchbook. A casual still life on a worn wooden workbench: small wooden blocks strung on one thread, starting as a single row of plain unpainted blocks, then splitting in two at one block. One branch carries on across the bench, six blocks with a pale cool grey-blue wash. The other branch is short, two blocks with a pale let-down orange wash, the second one tipped over on its side and its thread gone slack. A small hourglass stands on the bench near the fork. Lots of white paper, no background wash, no shadows. No people, no faces, no text, no letters, no numbers.
