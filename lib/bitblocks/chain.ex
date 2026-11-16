@@ -1212,6 +1212,9 @@ defmodule Bitblocks.Chain do
     end)
   end
 
+  # spend_index rows per insert: 5 parameters each, under Postgres's 65,535.
+  @spend_insert_batch 10_000
+
   @doc """
   Records spends from a transaction's inputs into the spend index.
 
@@ -1248,17 +1251,30 @@ defmodule Bitblocks.Chain do
         end
       end)
 
-    # One statement for every input (it was one per input). A row already
-    # there (the same outpoint) is left alone and counted as existing; the
-    # changeset's rule that vout is not negative is kept by the filter.
+    # One statement per @spend_insert_batch inputs (it was one per input). A
+    # row already there (the same outpoint) is left alone and counted as
+    # existing; the changeset's rule that vout is not negative is kept by the
+    # filter. Batched because Postgres takes at most 65,535 parameters a
+    # statement and each row is 5: block 367,877 holds a tx with 20,000
+    # inputs (100,000 parameters), which wedged the sync on 2026-11-15.
     now = NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second)
     entries = Enum.filter(entries, &(&1.vout >= 0))
 
-    {inserted, _} =
-      Repo.insert_all(Spend, Enum.map(entries, &Map.put(&1, :inserted_at, now)),
-        on_conflict: :nothing,
-        conflict_target: [:txid, :vout]
-      )
+    inserted =
+      entries
+      |> Enum.map(&Map.put(&1, :inserted_at, now))
+      |> Enum.chunk_every(@spend_insert_batch)
+      |> Enum.reduce(0, fn rows, acc ->
+        {n, _} =
+          Repo.insert_all(
+            Spend,
+            rows,
+            on_conflict: :nothing,
+            conflict_target: [:txid, :vout]
+          )
+
+        acc + n
+      end)
 
     if inserted < length(entries), do: replace_orphaned_spends(entries, spending_txid)
 

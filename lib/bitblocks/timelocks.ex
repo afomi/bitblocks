@@ -111,14 +111,22 @@ defmodule Bitblocks.Timelocks do
   @spec write([map()]) :: non_neg_integer()
   def write([]), do: 0
 
+  # Batched: a row is 20 parameters, and Postgres takes at most 65,535 a
+  # statement, so one insert would fail past 3,276 locks in a tx.
   def write(rows) do
-    {count, _} =
-      Repo.insert_all(Lock, rows,
-        on_conflict: {:replace_all_except, [:id, :inserted_at]},
-        conflict_target: [:txid, :vout, :op_index]
-      )
+    rows
+    |> Enum.chunk_every(2_000)
+    |> Enum.reduce(0, fn batch, acc ->
+      {count, _} =
+        Repo.insert_all(
+          Lock,
+          batch,
+          on_conflict: {:replace_all_except, [:id, :inserted_at]},
+          conflict_target: [:txid, :vout, :op_index]
+        )
 
-    count
+      acc + count
+    end)
   end
 
   @doc "The locks stored for a tx, by output and position."

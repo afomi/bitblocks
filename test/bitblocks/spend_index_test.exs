@@ -26,6 +26,26 @@ defmodule Bitblocks.SpendIndexTest do
     tx
   end
 
+  describe "record_spends/1 with many inputs" do
+    # Block 367,877 holds a tx with 20,000 inputs. One insert for all of
+    # them is 100,000 parameters, over Postgres's 65,535, and wedged the sync.
+    test "records a tx with 20,001 inputs, past one statement's parameter limit" do
+      prev = String.duplicate("ab", 32)
+      spends = for vout <- 0..20_000, do: {prev, vout}
+      inputs = Enum.map(spends, fn {t, v} -> Jason.encode!(%{"txid" => t, "vout" => v}) end)
+      tx = transaction_fixture(%{inputs: inputs, input_count: length(inputs)})
+
+      assert Chain.record_spends(tx) == {20_001, 0}
+
+      assert Repo.aggregate(from(s in Spend, where: s.spending_txid == ^tx.txid), :count) ==
+               20_001
+
+      assert Chain.get_spending_tx(prev, 20_000).spending_vin == 20_000
+
+      assert Chain.record_spends(tx) == {0, 20_001}
+    end
+  end
+
   describe "output_spent?/2" do
     test "returns false when no spend recorded" do
       refute Chain.output_spent?("aaa", 0)

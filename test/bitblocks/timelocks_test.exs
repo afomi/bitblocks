@@ -59,6 +59,17 @@ defmodule Bitblocks.TimelocksTest do
     assert Repo.aggregate(Lock, :count) == 1
   end
 
+  test "write/1 takes a tx's locks past one statement's parameter limit" do
+    # 20 parameters a row: one insert of 4,000 rows would be 80,000, over 65,535.
+    [row] = Timelocks.rows(@like, @txs[@like]["raw"], nil)
+    rows = for vout <- 0..3_999, do: %{row | vout: vout}
+
+    assert Timelocks.write(rows) == 4_000
+    assert Repo.aggregate(Lock, :count) == 4_000
+    assert Timelocks.write(rows) == 4_000
+    assert Repo.aggregate(Lock, :count) == 4_000
+  end
+
   test "a tx whose outputs script analysis typed is never read" do
     {tx, block} = store(@like, %{output_types: %{"p2pkh" => 1}})
 
