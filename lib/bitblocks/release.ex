@@ -633,6 +633,8 @@ defmodule Bitblocks.Release do
     - force: true to re-type every row in the range
     - block_batch: blocks per batch (default 100)
     - tx_batch: txs per page within a block (default 1,000)
+    - min_tx_batch: a page cancelled by a statement or lock timeout is retried at half
+      the size for the rest of its block, down to this (default 50; #88)
     - pause_ms, statement_timeout_ms: as `backfill_tx_tallies/3`
 
   ## Usage

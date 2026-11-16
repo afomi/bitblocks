@@ -43,7 +43,7 @@ defmodule Bitblocks.BackfillChains do
 
   # What a job passes on to the backfill. Named here because opts come back
   # from JSON, and arbitrary strings must never become atoms.
-  @backfill_opts ~w(force pause_ms statement_timeout_ms block_batch tx_batch batch_size id_window)a
+  @backfill_opts ~w(force pause_ms statement_timeout_ms block_batch tx_batch min_tx_batch batch_size id_window)a
 
   @height_step 10_000
   @id_step 1_000_000

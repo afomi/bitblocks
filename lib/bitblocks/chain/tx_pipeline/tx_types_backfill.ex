@@ -54,6 +54,11 @@ defmodule Bitblocks.Chain.TxPipeline.TxTypesBackfill do
   alias Bitblocks.{Derivations, Repo}
   alias Bitblocks.TxTypes.Classifier
 
+  require Logger
+
+  # The smallest page a cancelled page shrinks to (#88).
+  @min_tx_batch 50
+
   @doc """
   Runs over completed blocks from `from_height` to `to_height` inclusive and
   returns the `Derivations` report. `rows_changed` is the tx rows written
@@ -64,7 +69,9 @@ defmodule Bitblocks.Chain.TxPipeline.TxTypesBackfill do
   `type_counts_version`.
 
   Options: `apply: true` to write (default false); `force: true` to pick
-  every block and row; `block_batch` (100); `tx_batch` (1,000); and the
+  every block and row; `block_batch` (100); `tx_batch` (1,000), halved
+  for the rest of a block when a page is cancelled, down to `min_tx_batch`
+  (50); and the
   `Bitblocks.Derivations` options (`pause_ms`, `statement_timeout_ms`,
   `command`, `on_batch`).
   """
@@ -79,6 +86,7 @@ defmodule Bitblocks.Chain.TxPipeline.TxTypesBackfill do
       to_height: to_height,
       block_batch: Keyword.get(opts, :block_batch, 100),
       tx_batch: Keyword.get(opts, :tx_batch, 1_000),
+      min_tx_batch: Keyword.get(opts, :min_tx_batch, @min_tx_batch),
       opts: opts
     }
 
@@ -176,14 +184,44 @@ defmodule Bitblocks.Chain.TxPipeline.TxTypesBackfill do
   end
 
   defp pages(block, acc, after_id, ctx) do
-    result =
-      Derivations.bounded(ctx.opts, fn ->
-        case page(block, after_id, ctx) do
-          [] -> :done
-          rows -> {rows, classify_and_write(rows, block, ctx)}
-        end
-      end)
+    case bounded_page(block, after_id, ctx) do
+      {:shrink, ctx} -> pages(block, acc, after_id, ctx)
+      result -> paged(result, block, acc, ctx)
+    end
+  end
 
+  # One page in one bounded transaction. A page cancelled by the statement
+  # timeout (57014) or the lock timeout (55P03) rolls back whole, so it is
+  # tried again at half the size, down to `:min_tx_batch` (50), for the rest of
+  # this block, instead of stopping the run (#88). Dense ranges (160k–180k,
+  # 940k–960k) ran 1,000-row pages past 60 s: each changed row is a non-HOT
+  # update into every index on `transactions`, under the live sync's writes.
+  defp bounded_page(block, after_id, ctx) do
+    Derivations.bounded(ctx.opts, fn ->
+      case page(block, after_id, ctx) do
+        [] -> :done
+        rows -> {rows, classify_and_write(rows, block, ctx)}
+      end
+    end)
+  rescue
+    e in Postgrex.Error ->
+      if e.postgres[:code] in [:query_canceled, :lock_not_available] and
+           ctx.tx_batch > ctx.min_tx_batch do
+        smaller = max(div(ctx.tx_batch, 2), ctx.min_tx_batch)
+
+        Logger.warning(
+          "TxTypesBackfill block=#{block.height} page of #{ctx.tx_batch} cancelled " <>
+            "(#{e.postgres[:code]}); retrying at #{smaller}"
+        )
+
+        Derivations.pause(ctx.opts)
+        {:shrink, %{ctx | tx_batch: smaller}}
+      else
+        reraise e, __STACKTRACE__
+      end
+  end
+
+  defp paged(result, block, acc, ctx) do
     case result do
       :done ->
         acc

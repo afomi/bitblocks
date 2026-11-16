@@ -226,4 +226,76 @@ defmodule Bitblocks.ReleaseTxTypesTest do
     assert Chain.get_transaction!(ctx.memo).tx_types_version == TxPipeline.version(:tx_types)
     assert Repo.reload!(ctx.a).type_counts_version == nil
   end
+
+  # #88: a page cancelled by the statement timeout rolls back whole. It is
+  # retried at half the size for the rest of the block instead of stopping
+  # the run. A temporary trigger sleeps past the timeout for any UPDATE of
+  # two or more rows, so block 41's 2-row page is cancelled and 1-row pages
+  # pass.
+  test "a page cancelled by the statement timeout is retried smaller, not the end of the run",
+       ctx do
+    Repo.query!("""
+    CREATE FUNCTION pg_temp.slow_multi_row() RETURNS trigger AS $$
+    BEGIN
+      IF (SELECT count(*) FROM changed) >= 2 THEN PERFORM pg_sleep(2); END IF;
+      RETURN NULL;
+    END $$ LANGUAGE plpgsql
+    """)
+
+    Repo.query!("""
+    CREATE TRIGGER slow_multi_row AFTER UPDATE ON transactions
+    REFERENCING NEW TABLE AS changed
+    FOR EACH STATEMENT EXECUTE FUNCTION pg_temp.slow_multi_row()
+    """)
+
+    log =
+      ExUnit.CaptureLog.capture_log(fn ->
+        report =
+          Bitblocks.Chain.TxPipeline.TxTypesBackfill.run(0, 100,
+            apply: true,
+            tx_batch: 2,
+            min_tx_batch: 1,
+            statement_timeout_ms: 500,
+            pause_ms: 0
+          )
+
+        send(self(), {:report, report})
+      end)
+
+    assert_received {:report, report}
+    assert %{outcome: "ok", error: nil, rows_changed: 3} = report
+    assert log =~ "TxTypesBackfill block=41 page of 2 cancelled (query_canceled); retrying at 1"
+
+    for txid <- [ctx.pay, ctx.memo, ctx.odd] do
+      assert Chain.get_transaction!(txid).tx_types_version == TxPipeline.version(:tx_types)
+    end
+  end
+
+  test "a page still cancelled at the smallest size stops the run, as before" do
+    Repo.query!("""
+    CREATE FUNCTION pg_temp.slow_any() RETURNS trigger AS $$
+    BEGIN PERFORM pg_sleep(2); RETURN NULL; END $$ LANGUAGE plpgsql
+    """)
+
+    Repo.query!("""
+    CREATE TRIGGER slow_any AFTER UPDATE ON transactions
+    FOR EACH STATEMENT EXECUTE FUNCTION pg_temp.slow_any()
+    """)
+
+    ExUnit.CaptureLog.capture_log(fn ->
+      report =
+        Bitblocks.Chain.TxPipeline.TxTypesBackfill.run(0, 100,
+          apply: true,
+          tx_batch: 2,
+          min_tx_batch: 1,
+          statement_timeout_ms: 500,
+          pause_ms: 0
+        )
+
+      send(self(), {:report, report})
+    end)
+
+    assert_received {:report, %{outcome: "failed", error: error}}
+    assert error =~ "57014"
+  end
 end
