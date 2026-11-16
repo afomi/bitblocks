@@ -42,6 +42,21 @@ defmodule Bitblocks.Chain.TxIngestTest do
     assert byte_size(vin) > 255
   end
 
+  # #87: a 20,000-input tx's insert and steps ran past the repo's 60 s
+  # timeout in one transaction, and DBConnection killed the connection.
+  describe "insert_timeout/1" do
+    test "a typical tx keeps the repo's timeout" do
+      base = Bitblocks.Repo.config()[:timeout] || 15_000
+      assert TxIngest.insert_timeout(%{inputs: ["i"], outputs: ["o", "o"]}) == base
+    end
+
+    test "a 20,000-input tx gets time for each input, up to ten minutes" do
+      inputs = List.duplicate("i", 20_000)
+      assert TxIngest.insert_timeout(%{inputs: inputs, outputs: ["o"]}) == 200_010
+      assert TxIngest.insert_timeout(%{inputs: List.duplicate("i", 100_000)}) == 600_000
+    end
+  end
+
   describe "a row stored without its place" do
     # Older ingest wrote block_hash only, or neither; the fill used to count
     # such a row as stored and skip it, so it never got its height.

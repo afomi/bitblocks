@@ -23,6 +23,10 @@ defmodule Bitblocks.Chain.TxIngest do
   alias Bitblocks.Reorgs.ProtocolRewind
   alias Bitblocks.TransactionParser
 
+  # insert_timeout/1: per input and output, and the most any one tx gets.
+  @insert_ms_per_io 10
+  @insert_timeout_cap 10 * 60_000
+
   @doc """
   Which of `txids` (a chunk of `block`'s verified txid list) are already
   stored, as a MapSet. The workers skip these.
@@ -243,6 +247,23 @@ defmodule Bitblocks.Chain.TxIngest do
     }
   end
 
+  @doc """
+  How long one tx's insert and :tx steps may hold their connection: the
+  repo's timeout (60 s in prod), or #{@insert_ms_per_io} ms per input and
+  output when that is longer, up to #{div(@insert_timeout_cap, 60_000)} minutes.
+
+  Each input is a spend_index row and an entry in the row's array indexes,
+  so a 20,000-input consolidation (block 367,877 has one, and the July 2015
+  stress test many) ran past 60 s on cold storage, and DBConnection killed
+  the connection mid-transaction (#87).
+  """
+  @spec insert_timeout(map()) :: pos_integer()
+  def insert_timeout(attrs) do
+    base = Repo.config()[:timeout] || 15_000
+    io = length(attrs[:inputs] || []) + length(attrs[:outputs] || [])
+    io |> Kernel.*(@insert_ms_per_io) |> max(base) |> min(max(@insert_timeout_cap, base))
+  end
+
   defp insert(attrs, block) do
     changeset = Chain.Transaction.changeset(%Chain.Transaction{}, attrs)
 
@@ -250,18 +271,21 @@ defmodule Bitblocks.Chain.TxIngest do
     # the row back, so the block's retry (which skips stored txids) redoes
     # the whole tx instead of leaving its spends or tokens unrecorded.
     result =
-      Repo.transaction(fn ->
-        case Repo.insert(changeset, on_conflict: :nothing, conflict_target: :txid) do
-          {:ok, tx} ->
-            case Enum.find(TxPipeline.run_tx(tx, block), &match?({_, {:error, _}}, &1)) do
-              nil -> :ok
-              {step, _error} -> Repo.rollback({:tx_step_failed, attrs.txid, step})
-            end
+      Repo.transaction(
+        fn ->
+          case Repo.insert(changeset, on_conflict: :nothing, conflict_target: :txid) do
+            {:ok, tx} ->
+              case Enum.find(TxPipeline.run_tx(tx, block), &match?({_, {:error, _}}, &1)) do
+                nil -> :ok
+                {step, _error} -> Repo.rollback({:tx_step_failed, attrs.txid, step})
+              end
 
-          {:error, changeset} ->
-            Repo.rollback({:changeset, changeset})
-        end
-      end)
+            {:error, changeset} ->
+              Repo.rollback({:changeset, changeset})
+          end
+        end,
+        timeout: insert_timeout(attrs)
+      )
 
     case result do
       {:ok, :ok} ->
