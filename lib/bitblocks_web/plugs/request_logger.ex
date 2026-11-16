@@ -212,8 +212,10 @@ defmodule BitblocksWeb.Plugs.RequestLogger do
       :ets.insert(@table_name, {ip, invalid_count, first_seen})
 
       # Check if threshold exceeded
+      # A warning, not an error: a ban is the plug working, and it names the
+      # client IP, which stays out of the error digest that way.
       if invalid_count >= invalid_request_threshold() do
-        Logger.error(
+        Logger.warning(
           "AUTO-BAN TRIGGERED: IP #{ip} exceeded threshold with #{invalid_count} invalid requests in #{now - first_seen}s",
           Map.merge(metadata, %{
             invalid_count: invalid_count,

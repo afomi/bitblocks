@@ -50,6 +50,19 @@ defmodule BitblocksWeb.Plugs.RequestLoggerBanTest do
     refute IpBlocker.blocked?(ip)
   end
 
+  # A ban is the plug working: a warning, so the client IP it names stays out
+  # of infra's error digest (docs/ERROR_DIGEST.md).
+  test "a ban is logged as a warning, not an error", %{ip: ip} do
+    log =
+      ExUnit.CaptureLog.capture_log([level: :warning], fn ->
+        for n <- 1..10, do: get_from(ip, "/no-such-page-#{n}")
+      end)
+
+    assert IpBlocker.blocked?(ip)
+    assert log =~ ~r/\[warning\].*AUTO-BAN TRIGGERED/
+    refute log =~ ~r/\[error\].*AUTO-BAN/
+  end
+
   test "a caller with a valid API key is never counted", %{ip: ip} do
     {:ok, _key, token} = Bitblocks.ApiKeys.create("ban-test", 1_000)
 
