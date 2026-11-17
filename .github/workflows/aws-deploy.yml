@@ -5,6 +5,12 @@ on:
     branches:
       - main
       - develop
+    paths-ignore:
+      # A push touching only these doesn't deploy (#93); any other file does.
+      # Run the workflow by hand to ship a docs-only change.
+      - "**.md"
+      - "docs/**"
+      - ".claude/**"
   workflow_dispatch:
 
 jobs:

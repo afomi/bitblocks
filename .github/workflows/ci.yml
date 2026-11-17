@@ -3,8 +3,17 @@ name: CI/CD
 on:
   push:
     branches: [develop, main]
+    paths-ignore:
+      # A push or PR touching only these runs nothing (#93); any other file runs it all.
+      - "**.md"
+      - "docs/**"
+      - ".claude/**"
   pull_request:
     branches: [develop, main]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - ".claude/**"
 
 env:
   MIX_ENV: test

@@ -10,6 +10,7 @@ When rendering markdown in .md files, render each sentence on a separate line. (
 In this repo, Claude may commit and push without asking.
 This overrides the global "never run `git commit` or `git push`" rule, for this repo only.
 A push to `develop` deploys to production (`.github/workflows/aws-deploy.yml`), so run the tests first and confirm the deploy finished.
+A push touching only `.md` files, `docs/` or `.claude/` runs neither CI nor the deploy (#93); run the deploy workflow by hand if such a change must reach prod.
 Do not commit `.claude/` or `WORKSPACE_BITBLOCKS_AUDIT.md`.
 
 ## Project Overview
