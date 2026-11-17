@@ -37,13 +37,14 @@ defmodule Bitblocks.BackfillChains do
   alias Bitblocks.Derivations
   alias Bitblocks.Derivations.{BackfillChain, Run}
   alias Bitblocks.Repo
+  alias Bitblocks.TxStore.BlockObjectsBackfill
   alias Bitblocks.Workers.BackfillChainWorker
 
-  @derivations ~w(script_analysis tx_steps tallies tx_types tx_size bap token_recipients timelocks)
+  @derivations ~w(script_analysis tx_steps tallies tx_types tx_size bap token_recipients timelocks block_objects)
 
   # What a job passes on to the backfill. Named here because opts come back
   # from JSON, and arbitrary strings must never become atoms.
-  @backfill_opts ~w(force pause_ms statement_timeout_ms block_batch tx_batch min_tx_batch batch_size id_window)a
+  @backfill_opts ~w(force pause_ms statement_timeout_ms block_batch tx_batch min_tx_batch batch_size id_window max_failures)a
 
   @height_step 10_000
   @id_step 1_000_000
@@ -227,6 +228,7 @@ defmodule Bitblocks.BackfillChains do
   defp backfill("tx_types", from, to, opts), do: TxTypesBackfill.run(from, to, opts)
   defp backfill("bap", from, to, opts), do: BapBackfill.run(from, to, opts)
   defp backfill("timelocks", from, to, opts), do: TimelocksBackfill.run(from, to, opts)
+  defp backfill("block_objects", from, to, opts), do: BlockObjectsBackfill.run(from, to, opts)
 
   defp backfill("token_recipients", from, to, opts),
     do: TokenRecipientsBackfill.run(from, to, opts)

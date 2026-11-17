@@ -273,6 +273,9 @@ bin/bitblocks rpc 'Bitblocks.Release.start_backfill("tx_steps", 0, 180_830, appl
 # Every stored tx, by id
 bin/bitblocks rpc 'Bitblocks.Release.start_tx_sizes_backfill(apply: true)'
 
+# Block objects in the tx store for completed blocks without one (docs/TX_STORAGE.md)
+bin/bitblocks rpc 'Bitblocks.Release.start_backfill("block_objects", 0, 366_000, apply: true)'
+
 bin/bitblocks rpc 'Bitblocks.Release.backfill_status()'
 bin/bitblocks rpc 'Bitblocks.Release.pause_backfill(1)'
 bin/bitblocks rpc 'Bitblocks.Release.resume_backfill(1)'

@@ -246,6 +246,7 @@ bin/bitblocks rpc 'Bitblocks.Release.sweep_earlier_reorgs()'
 
 # Block objects in the tx store (docs/TX_STORAGE.md): dry run first, then add apply: true
 bin/bitblocks rpc 'Bitblocks.Release.store_block_objects(0, 9_999)'
+bin/bitblocks rpc 'Bitblocks.Release.start_backfill("block_objects", 0, 366_000, apply: true)'
 
 # BSV-21 transfer validation (#41): dry run first, then add apply: true
 bin/bitblocks rpc 'Bitblocks.Release.revalidate_token_transfers()'

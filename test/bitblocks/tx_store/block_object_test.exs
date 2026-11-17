@@ -230,6 +230,70 @@ defmodule Bitblocks.TxStore.BlockObjectTest do
     end
   end
 
+  # #94: the backfill as a chain of Oban jobs (Bitblocks.BackfillChains).
+  describe "the block_objects backfill chain" do
+    setup %{bytes: bytes} do
+      Application.put_env(:bitblocks, :store_block_objects, false)
+      sync_170(bytes)
+      Application.delete_env(:bitblocks, :store_block_objects)
+      RpcStub.clear()
+      :ok
+    end
+
+    defp run_chain(opts) do
+      {:ok, chain} = Bitblocks.BackfillChains.start("block_objects", 0, 999, opts)
+
+      assert :ok =
+               Bitblocks.Workers.BackfillChainWorker.perform(%Oban.Job{
+                 args: %{"chain_id" => chain.id, "from" => 0},
+                 attempt: 1,
+                 max_attempts: 20
+               })
+
+      Bitblocks.BackfillChains.status(chain.id)
+    end
+
+    test "dry, then applied: the object reads back and the block is stamped",
+         %{bytes: bytes} do
+      RpcStub.stub_rest_block(@hash, {:ok, bytes})
+
+      dry = run_chain(step: 1_000)
+      assert dry.chain.status == "done"
+      assert {dry.rows_examined, dry.rows_changed} == {1, 1}
+      assert dry.details["eligible"] == 1
+      assert RpcStub.calls(:rest_block) == []
+      assert Repo.get_by!(Block, hash: @hash).raw_object_stored_at == nil
+
+      applied = run_chain(step: 1_000, apply: true)
+      assert applied.chain.status == "done"
+      assert applied.details["stored"] == 1
+      assert applied.rows_below_version == 0
+      assert %DateTime{} = Repo.get_by!(Block, hash: @hash).raw_object_stored_at
+      assert File.read!(Path.join(@root, BlockObject.key(170, @hash))) == bytes
+
+      again = run_chain(step: 1_000, apply: true)
+      assert again.rows_examined == 0
+    end
+
+    test "a block the node won't serve is counted as failed and left unstamped" do
+      RpcStub.stub_rest_block(@hash, {:error, :econnrefused})
+      RpcStub.stub_getblock(@hash, 0, {:error, :econnrefused})
+
+      status = capture_log_result(fn -> run_chain(step: 1_000, apply: true) end)
+      assert status.details["failed"] == 1
+      assert [failure] = status.details["failures"]
+      assert failure =~ "170: "
+      assert status.rows_below_version == 1
+      assert Repo.get_by!(Block, hash: @hash).raw_object_stored_at == nil
+    end
+
+    defp capture_log_result(fun) do
+      capture_log(fn -> send(self(), {:result, fun.()}) end)
+      assert_received {:result, result}
+      result
+    end
+  end
+
   describe "reading a tx back from its block's object" do
     setup %{bytes: bytes} do
       sync_170(bytes)

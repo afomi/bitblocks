@@ -101,6 +101,15 @@ bin/bitblocks rpc 'Bitblocks.Release.store_block_objects(0, 9_999)'
 bin/bitblocks rpc 'Bitblocks.Release.store_block_objects(0, 9_999, apply: true)'
 ```
 
+A whole height range runs as a backfill chain instead (`"block_objects"`, `Bitblocks.TxStore.BlockObjectsBackfill`, https://github.com/afomi/bitblocks/issues/94): one Oban job per range, with dry run, pause, resume and status like the other chains (`docs/DERIVED_DATA.md`).
+Each range walks the completed blocks without an object, `block_batch` (20) at a time, counts `eligible`, `too_large`, `stored` and `failed` in its run's `details`, and keeps the first failures.
+`max_failures` (3) failures in a row fail the range, so the chain retries and then stops rather than walking past every block while the node or the store is down.
+
+```bash
+bin/bitblocks rpc 'Bitblocks.Release.start_backfill("block_objects", 0, 366_000)'
+bin/bitblocks rpc 'Bitblocks.Release.start_backfill("block_objects", 0, 366_000, apply: true)'
+```
+
 **Reading a tx back.**
 `TxStore.raw/1` reads the database's `raw`, then the tx's own object `raw/<txid>`, then a ranged read of its block's object at `raw_offset` and `raw_length`.
 Bytes from the store must hash to the txid, or the answer is an error.

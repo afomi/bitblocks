@@ -860,8 +860,8 @@ defmodule Bitblocks.Release do
   Starts a backfill as a chain of Oban jobs, one range at a time
   (`Bitblocks.BackfillChains`): it needs no open connection and carries on
   across a deploy. `derivation` is `"script_analysis"`, `"tx_steps"`,
-  `"tallies"`, `"tx_types"`, `"bap"`, `"token_recipients"` or `"timelocks"` over heights
-  `from..to`.
+  `"tallies"`, `"tx_types"`, `"bap"`, `"token_recipients"`, `"timelocks"` or
+  `"block_objects"` (`Bitblocks.TxStore.BlockObjectsBackfill`) over heights `from..to`.
 
   **Dry run by default**; `apply: true` writes. `step:` sets the range one job
   takes (10,000); the other options are the backfill's own.

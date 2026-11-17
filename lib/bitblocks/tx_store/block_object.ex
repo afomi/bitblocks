@@ -261,7 +261,13 @@ defmodule Bitblocks.TxStore.BlockObject do
     end
   end
 
-  defp fetch_and_store(block) do
+  @doc """
+  Refetches one completed block from the node (`RawBlock.fetch/2`), then
+  writes, verifies and stamps its object (`store/3`). Never raises: a fetch
+  that fails or crashes is `{:error, {:fetch, reason}}`.
+  """
+  @spec fetch_and_store(%Block{}) :: {:ok, term()} | {:error, term()}
+  def fetch_and_store(block) do
     case RawBlock.fetch(block) do
       {:ok, txs, %{raw: bytes}} -> store(block, bytes, txs)
       {:error, reason} -> {:error, {:fetch, reason}}
