@@ -15,7 +15,7 @@ Docs marked *(mixed)* are mostly aspirational but contain sections that accurate
 - `SYNC_PIPELINE.md` — process map of the running sync pipeline.
 - `DERIVED_DATA.md` — ingested data vs derived metadata: every derived field with its step, version, cost and backfill; the per-row version stamps; the `derivation_runs` record; and how to verify a backfill.
 - `TX_PIPELINE.md` — what happens after a tx comes in: the ordered steps of `Chain.TxPipeline` (analysis, sats in and out, fee, burned, spends, tokens, Bitcom, block totals), the read-time facts, and how to add a step.
-- `NODE_OPERATIONS.md` — operator runbook for our Dockerized SV node: config, clean shutdown, disk, health check, upgrades.
+- `NODE_OPERATIONS.md` — what bitblocks needs from the SV node, and a runbook for one; the production box itself is in `~/workspace/docker-bitcoinsv/CLAUDE.md`, "Production box".
 - `PERFORMANCE.md` — RPC- and HTTP-layer optimizations under the sync jobs.
 - `MEMORY_OPTIMIZATION.md` — diagnosing and fixing BEAM memory pressure in the running app.
 - `LARGE_BLOCKS.md` — handling multi-million-tx blocks and hundreds-of-MB RPC responses.

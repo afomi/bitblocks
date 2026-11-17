@@ -5,6 +5,27 @@ It is written for someone new to running a node, on a shared server, in Docker.
 For what "synced", "pruned" and "archival" mean, see `NODE_MODES.md`.
 For how bitblocks uses the node and falls back to public sources, see `SYNCING.md`.
 
+## The production box
+
+The production node's layout, how to get in, how to change a setting and how to restart it live in `~/workspace/docker-bitcoinsv/CLAUDE.md`, section "Production box".
+That section is the source of truth for the box; this runbook doesn't repeat it.
+In short: the container is `bsvd-node-server`, and the live config is `/sirius/bitcoinsv/bsvd-data/.bitcoin/bitcoin.conf` on the box (`/bitcoinsv/.bitcoin/bitcoin.conf` inside the container).
+The repo's own `bitcoin.conf` is only the image's default, so editing it changes nothing on the box.
+Restart with `sudo -n docker restart -t 3600 bsvd-node-server`, never `bitcoin-cli stop`: the restart policy is `unless-stopped`, so Docker starts the node again the moment it exits.
+Reach the box with `ops/box` in `~/workspace/docker-bitcoinsv` (its address is in the gitignored `ops/box.env`).
+
+What follows is what bitblocks needs from any node, and a general runbook for standing one up.
+Where its examples name a container or a path, they are examples for a new node; on the production box, use the values above.
+
+### Settings bitblocks depends on
+
+- `rest=1`: whole blocks at `GET /rest/block/<hash>.bin` (`docs/SYNCING.md`).
+- `rpcservertimeout=600`, set on the box on 2026-11-16: the default 30 s cut off every read of a large block, so block 973,054 (295 MB) was retried hourly from byte 0 until it was raised, and now reads in about 42 s.
+- `rpcallowip` and `rpcauth`: only bitblocks' NAT address and known callers, with a salted hash for the `bitblocks` user (section 10).
+- `txindex=1` and no pruning (section 1).
+
+On bitblocks' side, `:bitcoin_rpc_recv_timeout_ms` (`BITCOIN_RPC_RECV_TIMEOUT_MS`, default `BITCOIN_RPC_TIMEOUT_MS`, 60 s) is how long one RPC call may take to answer, set in `config/runtime.exs`.
+
 ## The short version
 
 1. Confirm the node keeps every block and has `txindex=1`, before anything else.
@@ -17,11 +38,12 @@ For how bitblocks uses the node and falls back to public sources, see `SYNCING.m
 
 Every script below starts from these three variables.
 Set them in your shell, or put them in `~/.bsvnode.env` and `source` it.
+The values here are the production box's; on another node, `docker ps --format '{{.Names}}'` shows the real container name.
 
 ```bash
 # ~/.bsvnode.env
-export BSV_CONTAINER=bsv          # docker ps --format '{{.Names}}' shows the real name
-export BSV_DATADIR=/srv/bsv/data  # the host path mounted as the node's data dir
+export BSV_CONTAINER=bsvd-node-server                  # the production container
+export BSV_DATADIR=/sirius/bitcoinsv/bsvd-data/.bitcoin  # the host path of the node's data dir and bitcoin.conf
 export BSV_CLI="docker exec $BSV_CONTAINER bitcoin-cli"
 ```
 
@@ -56,6 +78,7 @@ Run it again once the node is at the tip before you decide.
 ## 2. The config file
 
 SV node reads `bitcoin.conf` from the data dir.
+On the production box that is `/sirius/bitcoinsv/bsvd-data/.bitcoin/bitcoin.conf`; change it the way docker-bitcoinsv's "Production box" section says, snapshot and backup first.
 Here is a reasonable starting point for an indexer node.
 Compare it against yours, and change one thing at a time.
 
@@ -66,6 +89,7 @@ Compare it against yours, and change one thing at a time.
 txindex=1
 prune=0
 rest=1                      # raw blocks at /rest/block/<hash>.bin: one request per block (docs/SYNCING.md)
+rpcservertimeout=600        # seconds; the default 30 cuts off REST reads of large blocks
 
 # --- BSV consensus settings; recent node versions refuse to start without them ---
 # Use the values in the release notes for your node version.
@@ -103,6 +127,7 @@ The node keeps a lot in memory and writes it out at shutdown.
 Docker's default is to wait 10 seconds and then kill the process.
 A killed node can come back needing a `-reindex`, which re-reads the whole chain and takes days.
 
+The production box already runs with a 3600 s stop timeout and `unless-stopped`; this section is for a new node.
 If you use Compose, give it a long grace period, a restart policy and a memory limit:
 
 ```yaml
@@ -118,7 +143,7 @@ services:
       - "8333:8333"                 # P2P: fine to publish, helps the network
       - "127.0.0.1:8332:8332"       # RPC: localhost only, never 0.0.0.0
     volumes:
-      - /srv/bsv/data:/data
+      - /path/to/datadir:/data
     logging:
       driver: json-file
       options:
@@ -141,19 +166,19 @@ docker inspect $BSV_CONTAINER --format \
 
 ### Safe stop and restart
 
-Paste this whenever you need to restart the node.
-It asks the node to stop, waits until the container has really exited, and then starts it and waits for RPC.
+On the production box, restart with `sudo -n docker restart -t 3600 bsvd-node-server`, as docker-bitcoinsv's "Production box" section says.
+With `unless-stopped`, `bitcoin-cli stop` makes Docker start the node again at once, so don't use it there.
+`docker restart -t 3600` asks the node to stop, gives it up to an hour to flush, and starts it again; then confirm the shutdown was clean and RPC answers:
 
 ```bash
 source ~/.bsvnode.env
-$BSV_CLI stop
-echo "waiting for a clean shutdown (can take several minutes)..."
-docker wait $BSV_CONTAINER >/dev/null
-docker logs --tail 5 $BSV_CONTAINER   # look for "Shutdown: done"
-docker start $BSV_CONTAINER
+sudo -n docker restart -t 3600 $BSV_CONTAINER
+docker logs --tail 200 $BSV_CONTAINER 2>&1 | grep "Shutdown: done"   # this restart's clean shutdown
 until $BSV_CLI getblockcount >/dev/null 2>&1; do sleep 10; done
 echo "node is answering RPC at height $($BSV_CLI getblockcount)"
 ```
+
+The node writes its log to `bitcoind.log` in the data dir on the box (`ops/box log`), so if `docker logs` is empty, look there for `Shutdown: done`.
 
 If the last log lines don't say `Shutdown: done`, the stop wasn't clean.
 Watch the next startup closely for `Rewinding blocks` or a request to reindex.
@@ -185,7 +210,7 @@ If the node writes `debug.log` instead, rotate it on the host:
 
 ```bash
 sudo tee /etc/logrotate.d/bsv-node >/dev/null <<'EOF'
-/srv/bsv/data/debug.log {
+/path/to/datadir/debug.log {
   daily
   rotate 7
   compress
@@ -387,5 +412,5 @@ Whichever option you choose:
 | Forks seen | `$BSV_CLI getchaintips` |
 | Uptime | `$BSV_CLI uptime` |
 | Recent log | `docker logs --tail 100 $BSV_CONTAINER` |
-| Clean stop | `$BSV_CLI stop`, then `docker wait $BSV_CONTAINER` |
+| Clean restart | `sudo -n docker restart -t 3600 $BSV_CONTAINER` |
 | Health | `~/bin/bsv-health` |
