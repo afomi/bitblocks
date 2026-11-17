@@ -47,7 +47,7 @@ Interop kit, first version: open test vectors at `/interop/vectors/v1.json`, an 
 ## Needs decision
 
 #58 a Bitblocks-owned funded address, which unblocks the registry anchor, the route provider and public accounts ([docs/BITCOM.md](docs/BITCOM.md#waiting-on-a-bitblocks-owned-funded-address)).
-#59 publish `/start`, with trial keys ([docs/DEMOS_CAMPAIGN.md](docs/DEMOS_CAMPAIGN.md)).
+#59 `/start` is live with trial keys; Ryan reads the four pages and confirms or drops each Draft guidance view ([docs/DEMOS_CAMPAIGN.md](docs/DEMOS_CAMPAIGN.md)).
 #60 BEEF acceptance defaults · #61 pricing · #62 the bench link · #63 standards register entries.
 #26 sponsorship: donation address, sponsor URL and cost lines; bitblocks serves live numbers at `GET /api/v1/support` ([docs/DONATION_ADDRESS.md](docs/DONATION_ADDRESS.md#fundraising-next-steps)).
 #57 the size backfill's count · #54 the node runbook, on the box.
