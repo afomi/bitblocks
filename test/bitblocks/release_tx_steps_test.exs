@@ -75,4 +75,74 @@ defmodule Bitblocks.ReleaseTxStepsTest do
     assert %{rows_changed: 0, rows_below_version: 0} = report
     assert Chain.get_transaction!(ctx.skipped).coinbase
   end
+
+  describe "a block larger than the id window (#89)" do
+    setup do
+      block = block_fixture(%{height: 80, sync_state: "completed"})
+
+      txids =
+        for sats <- 1..5 do
+          {txid, _} = t = tx([funding_outpoint()], [p2pkh(address(), 1_000 + sats)])
+          :ok = TxIngest.store(tx_json(t), block)
+          txid
+        end
+
+      [kept, unanalysed | skipped] = txids
+      Repo.delete_all(from(s in Spend, where: s.spending_txid in ^[unanalysed | skipped]))
+
+      Repo.update_all(from(t in Transaction, where: t.txid == ^unanalysed),
+        set: [script_analysis_version: nil]
+      )
+
+      %{block: block, kept: kept, unanalysed: unanalysed, skipped3: skipped}
+    end
+
+    test "every window is walked: the analysed rows run, the rest are counted", ctx do
+      {report, _} =
+        quietly(fn ->
+          Release.backfill_tx_steps(80, 80, apply: true, id_window: 2, tx_batch: 2)
+        end)
+
+      assert %{rows_changed: 3, rows_below_version: 1, details: %{not_analysed: 1}} = report
+      for txid <- ctx.skipped3, do: assert([%Spend{}] = spends(txid))
+      assert spends(ctx.unanalysed) == []
+    end
+
+    test "the spend probe never spans the block: by primary key, an id window at a time" do
+      ref = make_ref()
+      parent = self()
+
+      :telemetry.attach(
+        "tx-steps-#{inspect(ref)}",
+        [:bitblocks, :repo, :query],
+        fn _event, _measure, meta, _ -> send(parent, {ref, meta.query, meta.params}) end,
+        nil
+      )
+
+      try do
+        quietly(fn -> Release.backfill_tx_steps(80, 80, id_window: 2) end)
+      after
+        :telemetry.detach("tx-steps-#{inspect(ref)}")
+      end
+
+      probes = collect_probes(ref, [])
+      assert length(probes) == 3
+
+      for {query, params} <- probes do
+        refute query =~ "block_hash"
+        assert [ids] = Enum.filter(params, &is_list/1)
+        assert length(ids) <= 2
+      end
+    end
+  end
+
+  defp collect_probes(ref, acc) do
+    receive do
+      {^ref, query, params} ->
+        acc = if query =~ ~s("spend_index"), do: [{query, params} | acc], else: acc
+        collect_probes(ref, acc)
+    after
+      0 -> Enum.reverse(acc)
+    end
+  end
 end
