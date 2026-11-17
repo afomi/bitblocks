@@ -42,7 +42,7 @@ https://github.com/afomi/bitblocks/issues/87 · https://github.com/afomi/bitbloc
 ## Needs decision
 
 - A Bitblocks-owned funded address: https://github.com/afomi/bitblocks/issues/58
-- Publish `/start`, with trial keys: https://github.com/afomi/bitblocks/issues/59
+- `/start` is live with trial keys; Ryan reads the four pages and confirms or drops each Draft guidance view: https://github.com/afomi/bitblocks/issues/59
 - Pricing: https://github.com/afomi/bitblocks/issues/61
 - Sponsorship: the visibledao.com/bitblocks page is built; left are its launch, then `sponsor_url`: https://github.com/afomi/bitblocks/issues/26
 - Collections traced from our own index (branch `own-index-tracing`): https://github.com/afomi/bitblocks/issues/95
