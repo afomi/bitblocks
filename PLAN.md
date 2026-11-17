@@ -15,6 +15,7 @@ Rehearse a restore early, while the database is small: an archive that has never
 What to measure: the header totals, which say what the whole chain costs to hold.
 
 **#18 BITCOM**: be a live, maximally useful Bitcom registry (unwriter's Bitcom), then keep reviving the rest of his stack (#25).
+Every step is done but #58, the funded address.
 Current system doc: `docs/BITCOM.md`.
 
 Closed 2026-11-04: #36 · #37 · #40 · #41 · #43 · #44 · #46.
@@ -49,7 +50,7 @@ Interop kit, first version: open test vectors at `/interop/vectors/v1.json`, an 
 #58 a Bitblocks-owned funded address, which unblocks the registry anchor, the route provider and public accounts ([docs/BITCOM.md](docs/BITCOM.md#waiting-on-a-bitblocks-owned-funded-address)).
 #59 publish `/start`, with trial keys ([docs/DEMOS_CAMPAIGN.md](docs/DEMOS_CAMPAIGN.md)).
 #60 BEEF acceptance defaults · #61 pricing · #62 the bench link · #63 standards register entries.
-#26 sponsorship: donation address, sponsor URL and cost lines; bitblocks serves live numbers at `GET /api/v1/support` ([docs/DONATION_ADDRESS.md](docs/DONATION_ADDRESS.md#fundraising-next-steps)).
+#26 sponsorship: the page at visibledao.com/bitblocks reads `GET /api/v1/support`; left are its launch, then `sponsor_url` ([docs/DONATION_ADDRESS.md](docs/DONATION_ADDRESS.md#fundraising-next-steps)).
 #57 the size backfill's count · #54 the node runbook, on the box.
 
 ## Two-week push
@@ -77,7 +78,7 @@ Grand Tardinians is 999 items: the 1,494 in #30 counted transfers ([field note](
 #33 TXSTORE: raw tx bytes in S3 (one immutable CDN URL per txid), collections first; images parsed from raw txs on the fly at `/content/:outpoint`.
 #32 BAP identity index is built ([docs/BAP.md](docs/BAP.md)): `/api/v1/bap/:bap_id`, with the rules for valid, accepted, rotation and newest written down.
 Real mainnet records pass as fixtures; on prod, `Release.import_bap` with a real txid is the one step left.
-#49 TYPES: a public page per transaction type, then every tx typed (unmatched is `custom`), then types as CRUD resources.
+#49 TYPES: a public page per transaction type, then every tx typed (unmatched is `custom`); new types come through `mix tx_types.propose` and a pull request (#51), not CRUD.
 Phase 1 is built: `/types`, `/types/:id` and `/api/v1/types`, with examples read only from existing indexes, and token and collection badges linking to their type.
 Phase 2 is built (2026-11-04): stable template hashes (script analysis v7), `Bitblocks.TxTypes.Classifier` passing every vector in `priv/data/tx_types/output_types_v1.json`, the `classify_outputs` and `type_counts` pipeline steps, and counts per type (with `custom`) on `/types` and `/api/v1/types`.
 P2PK and P2SH are types (classifier v2), so early coinbases no longer read `custom`.
@@ -87,7 +88,8 @@ A post's page also lists who backs it from `timelocks` (the 50 largest locks, ea
 A tx whose nLockTime binds and sits more than 2,016 blocks below its block is `nlocktime` (classifier v5, #76); transactions#show shows every binding lock time, until which block or time, whether our tip has reached it, and labels the anti-fee-sniping ones.
 Script time locks (1Sat Lock, CLTV, CSV) are rows in `timelocks` (#76), with whether each binds and whether only on one branch, and `GET /api/v1/hodlocker/posts/:txid` sums what they back a post with.
 Needs on prod, with Ryan's OK: `Release.backfill_timelocks` (inserts only) and the v5 tx_types backfill, which should change few rows (1 in 6,051 sampled txs from 2016 to 2018).
-Needs on prod, with Ryan's OK: the tx_types backfill (#1); until then `/types` says no block is typed yet.
+The tx_types backfill is applied on prod through 957,679 (#1), and `/types` counts every type over the blocks verified complete and typed.
+Only `inscription-map`, `sigma` and `hodlocker` still say "Examples coming": no typed block holds one below the 400,000 stop height.
 Open: named combinations such as a listing. The canonical opcode names are agreed, and the OrdLock and CLTV hashes are pinned in the suite.
 #48 SCRUBBER: admin three.js scrub from genesis to tip, and the first surface for accounting for misspends and burns.
 Built: tile pyramid, incremental builds, `/chain-scrubber`, and reorg, classified-loss and burn layers ([docs/CHAIN_SCRUBBER.md](docs/CHAIN_SCRUBBER.md)).
