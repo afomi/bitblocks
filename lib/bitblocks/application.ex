@@ -7,6 +7,9 @@ defmodule Bitblocks.Application do
 
   @impl true
   def start(_type, _args) do
+    # Scanners' malformed request lines log at warning, not error (#90)
+    :ok = Bitblocks.LogFilters.install()
+
     # Initialize IP blocker and request tracking ETS tables
     BitblocksWeb.Plugs.IpBlocker.start_link()
     BitblocksWeb.Plugs.RequestLogger.start_link()
