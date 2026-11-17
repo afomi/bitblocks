@@ -29,6 +29,31 @@ defmodule Bitblocks.TxTypes.ExamplesTest do
     end
   end
 
+  describe "a slow query (#91)" do
+    test "Postgres cancels it at the statement timeout, so the page says unavailable" do
+      transaction_fixture(%{txid: txid(1), block_height: 800_001, protocols: ["Metanet"]})
+
+      # A temp view shadows `transactions` for this connection only and
+      # sleeps 200 ms per row read; it goes with the test's rollback.
+      Repo.query!("""
+      CREATE TEMP VIEW transactions AS
+      SELECT * FROM public.transactions WHERE pg_sleep(0.2)::text = ''
+      """)
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          result = Examples.for_type(TxTypes.get("metanet"), statement_timeout_ms: 50)
+          send(self(), {:result, result})
+        end)
+
+      assert_received {:result, %{status: :unavailable, items: []}}
+      assert log =~ "canceling statement due to statement timeout"
+
+      # The connection survived: the cancel was Postgres's, not the pool's.
+      assert %{rows: [[1]]} = Repo.query!("SELECT 1")
+    end
+  end
+
   describe "template source" do
     test "matches the type's template hash in output_template_hashes" do
       [p2pkh] = TxTypes.get("p2pkh").examples.template_hashes

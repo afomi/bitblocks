@@ -42,8 +42,13 @@ defmodule Bitblocks.TxTypes.Examples do
   alias Bitblocks.TxTypes.Counts
 
   @limit 5
-  # A slow plan should fail fast, not hold a page open.
+  # A slow plan should fail fast, not hold a page open. Postgres cancels the
+  # statement at @timeout (57014, rescued below), so the connection goes back
+  # to the pool; the client timeout is only a backstop. With the client
+  # timeout alone, DBConnection killed the connection mid-query and logged a
+  # pool error for a page that answers :unavailable by design (#91).
   @timeout 5_000
+  @client_timeout @timeout + 5_000
   # How many 10,000-block buckets a "typed" source reads, newest first.
   @typed_buckets 3
 
@@ -68,17 +73,33 @@ defmodule Bitblocks.TxTypes.Examples do
   or `:unavailable` (the query failed; it is logged).
 
   A `"typed"` source reads the cached counts, or `opts[:counts]` when given.
+  `opts[:statement_timeout_ms]` (default #{@timeout}) bounds each query.
   """
   @spec for_type(map(), keyword()) :: result()
   def for_type(type, opts \\ []) do
     limit = Keyword.get(opts, :limit, @limit)
     examples = Map.get(type, :examples, %{kind: "none"})
 
+    statement_timeout = Keyword.get(opts, :statement_timeout_ms, @timeout)
+
     try do
-      case examples do
-        %{kind: "typed"} -> fetch_typed(examples, type.id, opts[:counts] || Counts.get(), limit)
-        _ -> fetch(examples, limit)
-      end
+      {:ok, result} =
+        Repo.transaction(
+          fn ->
+            Repo.query!("SET LOCAL statement_timeout = #{statement_timeout}")
+
+            case examples do
+              %{kind: "typed"} ->
+                fetch_typed(examples, type.id, opts[:counts] || Counts.get(), limit)
+
+              _ ->
+                fetch(examples, limit)
+            end
+          end,
+          timeout: @client_timeout
+        )
+
+      result
     rescue
       error in [DBConnection.ConnectionError, Postgrex.Error] ->
         Logger.warning("tx type #{type.id}: examples query failed: #{Exception.message(error)}")
@@ -141,7 +162,7 @@ defmodule Bitblocks.TxTypes.Examples do
               amt: fragment("?->>'amt'", i.parsed_data)
             }
           )
-          |> Repo.all(timeout: @timeout)
+          |> Repo.all(timeout: @client_timeout)
           |> Enum.map(&token_example/1)
 
         {count, label} = token_count(protocol_id, standard)
@@ -161,11 +182,11 @@ defmodule Bitblocks.TxTypes.Examples do
         limit: ^limit,
         select: %{txid: i.mint_txid, block_height: i.mint_height, note: i.name}
       )
-      |> Repo.all(timeout: @timeout)
+      |> Repo.all(timeout: @client_timeout)
 
     count =
       from(i in Item, where: i.collection_id in ^ids, select: count(i.id))
-      |> Repo.one(timeout: @timeout)
+      |> Repo.one(timeout: @client_timeout)
 
     ok(examples, items, count, "inscriptions in the collections we index")
   end
@@ -179,7 +200,7 @@ defmodule Bitblocks.TxTypes.Examples do
         limit: ^limit,
         select: %{txid: t.txid, block_height: t.block_height, note: nil}
       )
-      |> Repo.all(timeout: @timeout)
+      |> Repo.all(timeout: @client_timeout)
 
     ok(examples, items, nil, nil)
   end
@@ -193,7 +214,7 @@ defmodule Bitblocks.TxTypes.Examples do
         limit: ^limit,
         select: %{txid: t.txid, block_height: t.block_height, note: nil}
       )
-      |> Repo.all(timeout: @timeout)
+      |> Repo.all(timeout: @client_timeout)
 
     ok(examples, items, nil, nil)
   end
@@ -244,7 +265,7 @@ defmodule Bitblocks.TxTypes.Examples do
       limit: ^limit,
       select: {b.hash, b.height}
     )
-    |> Repo.all(timeout: @timeout)
+    |> Repo.all(timeout: @client_timeout)
     |> take_until(limit, fn {hash, height}, wanted ->
       from(t in Transaction,
         where: t.block_hash == ^hash,
@@ -252,7 +273,7 @@ defmodule Bitblocks.TxTypes.Examples do
         limit: ^wanted,
         select: t.txid
       )
-      |> Repo.all(timeout: @timeout)
+      |> Repo.all(timeout: @client_timeout)
       |> Enum.map(&%{txid: &1, block_height: height, note: nil})
     end)
   end
@@ -279,7 +300,7 @@ defmodule Bitblocks.TxTypes.Examples do
         where: fragment("?->>'op' = 'deploy+mint'", i.parsed_data),
         select: count(i.id)
       )
-      |> Repo.one(timeout: @timeout)
+      |> Repo.one(timeout: @client_timeout)
 
     {count, "tokens deployed"}
   end
@@ -292,7 +313,7 @@ defmodule Bitblocks.TxTypes.Examples do
         where: fragment("?->>'op' = 'deploy'", i.parsed_data),
         select: count(i.id)
       )
-      |> Repo.one(timeout: @timeout)
+      |> Repo.one(timeout: @client_timeout)
 
     {count, "tickers deployed"}
   end
