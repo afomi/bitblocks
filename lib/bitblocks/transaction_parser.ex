@@ -9,7 +9,7 @@ defmodule Bitblocks.TransactionParser do
   (threat T5).
   """
 
-  alias Bitblocks.Chain.SafeTx
+  alias Bitblocks.Chain.{RawTx, SafeTx}
   alias Bitblocks.Script.OpReturn
 
   # Bump when script classification or protocol detection logic changes.
@@ -48,8 +48,8 @@ defmodule Bitblocks.TransactionParser do
     - aip_signers            (addresses of valid AIP signatures; see Bitblocks.Aip)
   """
   def analyze(raw) when is_binary(raw) do
-    case SafeTx.from_hex(raw) do
-      {:ok, tx} ->
+    case decode_for_analysis(raw) do
+      {:ok, tx, raw_scripts} ->
         op_return_outputs = extract_op_returns(tx.outputs)
         # BSV-20/21 tokens are ordinal inscriptions in output *locking* scripts,
         # not OP_RETURN push-data, so they need a separate scan over all outputs.
@@ -69,10 +69,8 @@ defmodule Bitblocks.TransactionParser do
            output_types: output_types,
            protocols: protocols,
            coinbase: is_coinbase?(tx),
-           output_script_hashes:
-             scripts |> Enum.map(&Bitblocks.Script.script_hash/1) |> Enum.uniq(),
-           output_template_hashes:
-             scripts |> Enum.map(&Bitblocks.Script.template_hash/1) |> Enum.uniq(),
+           output_script_hashes: scripts |> script_hashes(raw_scripts) |> Enum.uniq(),
+           output_template_hashes: scripts |> template_hashes(raw_scripts) |> Enum.uniq(),
            aip_signers: aip_signers(protocols, op_return_outputs, tx.outputs)
          }}
 
@@ -82,6 +80,41 @@ defmodule Bitblocks.TransactionParser do
   end
 
   def analyze(_), do: {:error, :invalid_raw}
+
+  # The strict decoder first, so every tx it reads analyses exactly as before.
+  # It rejects a whole tx when any script doesn't parse as opcodes (a
+  # truncated push, data after a contract), which left about 6.6% of the txs
+  # in blocks 944,540..954,539 unanalysed and so without a coinbase flag or
+  # spends. Those fall back to `RawTx`, which keeps an unparseable tail as one
+  # trailing chunk; their script hashes come from each output's raw bytes,
+  # because re-serialising that chunk would add a push prefix.
+  defp decode_for_analysis(raw) do
+    case SafeTx.from_hex(raw) do
+      {:ok, tx} ->
+        {:ok, tx, nil}
+
+      {:error, reason} when reason in [:empty, :too_large] ->
+        {:error, reason}
+
+      {:error, reason} ->
+        with {:ok, tx} <- RawTx.parse(raw),
+             {:ok, %{outputs: outputs}} <- RawTx.flows(raw) do
+          {:ok, tx, Enum.map(outputs, &elem(&1, 1))}
+        else
+          _ -> {:error, reason}
+        end
+    end
+  end
+
+  defp script_hashes(scripts, nil), do: Enum.map(scripts, &Bitblocks.Script.script_hash/1)
+
+  defp script_hashes(_scripts, raw_scripts),
+    do: Enum.map(raw_scripts, &Bitblocks.Script.script_hash_from_bytes/1)
+
+  defp template_hashes(scripts, nil), do: Enum.map(scripts, &Bitblocks.Script.template_hash/1)
+
+  defp template_hashes(scripts, raw_scripts),
+    do: Enum.zip_with(scripts, raw_scripts, &Bitblocks.Script.template_hash/2)
 
   # Signature checks are the costly part, so only AIP-tagged txs pay for them.
   defp aip_signers(protocols, op_return_outputs, outputs) do

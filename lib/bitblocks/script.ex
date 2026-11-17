@@ -119,6 +119,11 @@ defmodule Bitblocks.Script do
 
   def script_hash_from_hex(_), do: nil
 
+  @doc "Electrum scripthash of a scriptPubKey's raw bytes."
+  def script_hash_from_bytes(bytes) when is_binary(bytes) do
+    :crypto.hash(:sha256, bytes) |> reverse_bytes() |> Base.encode16(case: :lower)
+  end
+
   @doc """
   Hash of the script's opcode skeleton: every push-data chunk collapsed to a
   `PUSH` placeholder (length-insensitive — template args vary in size), every
@@ -139,12 +144,40 @@ defmodule Bitblocks.Script do
   """
   def template_hash(%Script{} = script) do
     script.chunks
-    |> Enum.map_join(" ", fn
-      chunk when is_binary(chunk) -> "PUSH"
-      opcode when is_atom(opcode) -> opcode_name(opcode)
-    end)
+    |> Enum.map_join(" ", &skeleton/1)
     |> then(&:crypto.hash(:sha256, &1))
     |> Base.encode16(case: :lower)
+  end
+
+  @doc """
+  `template_hash/1` for a script read by `Bitblocks.Chain.RawTx` from
+  `bytes`. When its chunks don't re-serialise to those bytes, the last chunk
+  is the tail RawTx couldn't parse (a truncated push, say), not a push, so it
+  is named `UNPARSED`: such a script never shares a hash with one whose last
+  chunk is a real push. Scripts the strict decoder reads never reach this.
+  """
+  def template_hash(%Script{chunks: chunks} = script, bytes) when is_binary(bytes) do
+    if reserialises?(script, bytes) or chunks == [] do
+      template_hash(script)
+    else
+      {init, [_tail]} = Enum.split(chunks, -1)
+
+      init
+      |> Enum.map(&skeleton/1)
+      |> Kernel.++(["UNPARSED"])
+      |> Enum.join(" ")
+      |> then(&:crypto.hash(:sha256, &1))
+      |> Base.encode16(case: :lower)
+    end
+  end
+
+  defp skeleton(chunk) when is_binary(chunk), do: "PUSH"
+  defp skeleton(opcode) when is_atom(opcode), do: opcode_name(opcode)
+
+  defp reserialises?(script, bytes) do
+    Script.to_binary(script) == bytes
+  rescue
+    _ -> false
   end
 
   # Bytes with two names in `BSV.OpCode`. `BSV.OpCode.to_atom/1` picks one by

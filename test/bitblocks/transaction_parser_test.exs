@@ -197,6 +197,48 @@ defmodule Bitblocks.TransactionParserTest do
     end
   end
 
+  describe "analyze/1 with a script the strict decoder rejects" do
+    # One input; a P2PKH output, then OP_RETURN followed by a 5-byte push
+    # that holds only 2 bytes. BSV.Tx.from_binary rejects the whole tx.
+    @p2pkh "76a914" <> String.duplicate("01", 20) <> "88ac"
+    @truncated "6a050102"
+    @tx_hex "0100000001" <>
+              String.duplicate("07", 32) <>
+              "000000000151ffffffff02e803000000000000" <>
+              "19" <>
+              @p2pkh <> "0000000000000000" <> "04" <> @truncated <> "00000000"
+
+    test "falls back to the tolerant parser, so the tx is analysed" do
+      assert {:error, _} = Bitblocks.Chain.SafeTx.from_hex(@tx_hex)
+
+      assert {:ok, meta} = TransactionParser.analyze(@tx_hex)
+      assert meta.output_types == %{"p2pkh" => 1, "op_return" => 1}
+      assert meta.coinbase == false
+      assert meta.script_analysis_version == TransactionParser.script_analysis_version()
+    end
+
+    test "script hashes come from each output's raw bytes" do
+      {:ok, meta} = TransactionParser.analyze(@tx_hex)
+
+      assert meta.output_script_hashes == [
+               Bitblocks.Script.script_hash_from_hex(@p2pkh),
+               Bitblocks.Script.script_hash_from_hex(@truncated)
+             ]
+    end
+
+    test "the unparsed tail never shares a template hash with a real push" do
+      {:ok, meta} = TransactionParser.analyze(@tx_hex)
+      [p2pkh_template, tail_template] = meta.output_template_hashes
+
+      # The same tx with the push whole: the strict decoder reads it.
+      whole = String.replace(@tx_hex, "04" <> @truncated, "05" <> "6a03010203")
+      {:ok, %{outputs: [p2pkh_out, push_out]}} = Bitblocks.Chain.SafeTx.from_hex(whole)
+
+      assert p2pkh_template == Bitblocks.Script.template_hash(p2pkh_out.script)
+      refute tail_template == Bitblocks.Script.template_hash(push_out.script)
+    end
+  end
+
   describe "script_analysis_version/0" do
     test "returns version 7 (template hashes name each opcode byte once)" do
       assert TransactionParser.script_analysis_version() == 7
