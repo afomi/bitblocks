@@ -24,7 +24,7 @@ Without funding, Bitblocks spins down by 2026-12-31.
 3. Drop the six unused indexes, approved 2026-11-15: https://github.com/afomi/bitblocks/issues/92
 4. Block objects for every completed block, before any move that drops `raw`: https://github.com/afomi/bitblocks/issues/94
 
-The product thread stays the live Bitcom registry: https://github.com/afomi/bitblocks/issues/18 ([docs/BITCOM.md](docs/BITCOM.md)).
+The product thread stays the live Bitcom registry: https://github.com/afomi/bitblocks/issues/18 ([docs/BITCOM.md](docs/BITCOM.md)); every step is done but the funded address, https://github.com/afomi/bitblocks/issues/58.
 
 ## Fixes shipped, to verify on prod
 
@@ -44,14 +44,14 @@ https://github.com/afomi/bitblocks/issues/87 · https://github.com/afomi/bitbloc
 - A Bitblocks-owned funded address: https://github.com/afomi/bitblocks/issues/58
 - Publish `/start`, with trial keys: https://github.com/afomi/bitblocks/issues/59
 - Pricing: https://github.com/afomi/bitblocks/issues/61
-- Sponsorship: https://github.com/afomi/bitblocks/issues/26
+- Sponsorship: the visibledao.com/bitblocks page is built; left are its launch, then `sponsor_url`: https://github.com/afomi/bitblocks/issues/26
 - Collections traced from our own index (branch `own-index-tracing`): https://github.com/afomi/bitblocks/issues/95
 
 ## Next
 
 - CI and deploys skip docs-only pushes: https://github.com/afomi/bitblocks/issues/93
 - Large blocks, the stream's remaining edges: https://github.com/afomi/bitblocks/issues/86
-- Transaction types: https://github.com/afomi/bitblocks/issues/49
+- Transaction types, phase 2 done and proposed for closing: https://github.com/afomi/bitblocks/issues/49
 - Interop, a BRC-237 statement and one live payment: https://github.com/afomi/bitblocks/issues/64
 - REVIVE unwriter's stack: https://github.com/afomi/bitblocks/issues/25
 - Managed projections: https://github.com/afomi/bitblocks/issues/29
