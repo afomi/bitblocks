@@ -64,7 +64,8 @@ defmodule Bitblocks.Release do
 
   # Runs `fun` with the repo up. Under `bin/bitblocks rpc` the app is already
   # running; under `bin/bitblocks eval` nothing is, so start the repo (and the
-  # HTTP client, for node and WhatsOnChain lookups) just for this call.
+  # HTTP client, for node and WhatsOnChain lookups, and ExAws, whose
+  # credential cache the tx store's S3 reads need) just for this call.
   @doc false
   def with_running_repo(fun) do
     if Process.whereis(Bitblocks.Repo) do
@@ -72,6 +73,7 @@ defmodule Bitblocks.Release do
     else
       load_app()
       :ok = Bitblocks.HTTP.ensure_started()
+      {:ok, _} = Application.ensure_all_started(:ex_aws)
 
       {:ok, result, _} =
         Ecto.Migrator.with_repo(Bitblocks.Repo, fn _ -> fun.() end, pool_size: 2)
@@ -1275,12 +1277,17 @@ defmodule Bitblocks.Release do
   @doc """
   Counts the tx store against the chain for blocks `from..to` and prints each
   number, then OK or every gap (`Bitblocks.TxStore.reconcile/3`). Read-only.
-  Give large spans in pieces on a busy database.
+  Give large spans in pieces on a busy database. Runs under `bin/bitblocks
+  eval` too, against a restored copy (docs/RESTORE.md).
 
       bin/bitblocks rpc 'Bitblocks.Release.tx_store_reconcile(0, 9_999)'
       bin/bitblocks rpc 'Bitblocks.Release.tx_store_reconcile(150_000, 159_999, sample: 50)'
   """
   def tx_store_reconcile(from, to, opts \\ []) do
+    with_running_repo(fn -> print_tx_store_reconcile(from, to, opts) end)
+  end
+
+  defp print_tx_store_reconcile(from, to, opts) do
     r = Bitblocks.TxStore.reconcile(from, to, opts)
     n = &(&1 |> Integer.to_string() |> String.replace(~r/\B(?=(\d{3})+(?!\d))/, ","))
 
