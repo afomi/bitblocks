@@ -17,15 +17,19 @@ The account is `acct_1UdHHhLYRHWWpBFF`, separate from jurisdictional's.
 
 ## 1. Make the test key
 
-1. Sign in at https://dashboard.stripe.com and pick the bitblocks account (`acct_1UdHHhLYRHWWpBFF`).
-2. Turn on **Test mode** (the toggle at the top right), or open the bitblocks sandbox if you made one.
-   Keys made in test mode start `rk_test_`.
-3. Open **Developers → API keys**, then **Create restricted key**.
+1. Sign in at https://dashboard.stripe.com, and check that the account name at the top left says **Bitblocks**.
+2. Click the account name, choose **Sandboxes**, and open the bitblocks sandbox, or create one named `bitblocks-x402`.
+   A banner across the top shows you're in a sandbox; don't go on without it.
+3. Open **Developers → API keys** (https://dashboard.stripe.com/apikeys), then **Create restricted key**.
+   If Stripe asks how you'll use it, choose the option for your own integration.
 4. Name it `bitblocks-x402-sandbox`.
 5. Under permissions, set **PaymentIntents** to **Write**, and leave everything else at **None**.
-   If the sandbox run is refused for a missing permission, add only the one Stripe names, and note it here.
+   If the sandbox run is refused for a missing permission, add only the one Stripe names (**⋯ → Edit key**), and note it here.
 6. Click **Create key**, then copy the key.
-   Stripe shows it once.
+   It must start `rk_test_`; a key starting `rk_live_` was made in live mode, so delete it and go back to step 2.
+   A sandbox key can be revealed again later; a live key is shown only once.
+
+The key's own request log is under **⋯ → View request logs** next to it, which is where a refused call shows up.
 
 ## 2. Set it
 
