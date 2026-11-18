@@ -146,7 +146,7 @@ GET /api/v1/status/derivations` shows the versions and latest runs.
   - `/blocks` - List blocks
   - `/blocks/:id` - Show block by height or hash (txids load 50 per page)
   - `/transactions` - List transactions (admin only)
-  - `/transactions/:id` - Show transaction by txid
+  - `/transactions/:id` - Show transaction by txid; "Who had to agree" reads a bare multisig lock in plain words ("Locked to 2 of these 3 keys") and, on a spend, which keys signed, each signature checked against the input's sighash in key order (`Bitblocks.Multisig`, previous outputs from the same one-query `SatsIn.stored_outputs/1` as input values)
   - `/sign-in`, `/auth/github`, `/auth/github/callback`, `DELETE /auth/logout` - GitHub sign-in (`BitblocksWeb.UserAuth`, `BitblocksWeb.AuthController`)
   - `/metanet` - Metanet DAG explorer (enter txid, navigate tree)
   - `/order-book` - Open Order Book (browse BSV-20 token listings)

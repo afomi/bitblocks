@@ -117,6 +117,91 @@ defmodule BitblocksWeb.TransactionLive.ShowTest do
     assert html =~ "Multisig"
   end
 
+  # The civil_registry multisig demo: two people open the funding and the
+  # release txids and ask "who had to agree, and who did?" The lock is qart's
+  # p2ms_2_of_3 vector (Bitblocks.MultisigFixtures); its keys are private
+  # keys 1, 2 and 3.
+  describe "who had to agree" do
+    test "a funding tx reads as locked to 2 of these 3 keys, each with a copy button",
+         %{conn: conn} do
+      funding = store!(Bitblocks.MultisigFixtures.funding(), 20)
+      [key1, key2, key3] = Bitblocks.MultisigFixtures.vector()["pubkeys"]
+
+      {:ok, view, _html} = live(conn, ~p"/transactions/#{funding}")
+
+      section = view |> element("#multisig-output-0") |> render()
+      assert section =~ "Output #0 is locked to 2 of these 3 keys."
+      assert section =~ "Any 2 of them, signing together, can spend it."
+      assert section =~ "0279be66…16f81798"
+      assert section =~ "02c6047f…5c709ee5"
+      assert section =~ "02f9308a…bce036f9"
+      refute section =~ "Signed"
+
+      for {key, k} <- Enum.with_index([key1, key2, key3]) do
+        assert view
+               |> element("#multisig-output-0-keys-#{k}-copy")
+               |> render() =~ ~s(&quot;text&quot;:&quot;#{key}&quot;)
+      end
+
+      card = view |> element("#output-0-multisig") |> render()
+      assert card =~ "Locked to 2 of these 3 keys."
+      assert card =~ "Copy"
+    end
+
+    test "a release says key 1 and key 3 signed, and key 2 didn't", %{conn: conn} do
+      {funding, _hex} = funding_tx = Bitblocks.MultisigFixtures.funding()
+      store!(funding_tx, 20)
+      release = store!(Bitblocks.MultisigFixtures.release(funding, [1, 3]), 21)
+
+      {:ok, view, _html} = live(conn, ~p"/transactions/#{release}")
+
+      section = view |> element("#multisig-input-0") |> render()
+      assert section =~ "which was locked to 2 of these 3 keys."
+
+      assert view |> element("#multisig-input-0-signed") |> render() =~
+               "Key 1 and key 3 signed."
+
+      assert view |> element("#multisig-input-0-keys-0") |> render() =~ "Signed"
+      assert view |> element("#multisig-input-0-keys-1") |> render() =~ "Didn&#39;t sign"
+      assert view |> element("#multisig-input-0-keys-2") |> render() =~ "Signed"
+      assert section =~ "We ran no other part of the script."
+      refute section =~ "couldn"
+    end
+
+    test "a signature from a key not in the lock reads as couldn't match", %{conn: conn} do
+      {funding, _hex} = funding_tx = Bitblocks.MultisigFixtures.funding()
+      store!(funding_tx, 20)
+      release = store!(Bitblocks.MultisigFixtures.release(funding, [4, 3]), 21)
+
+      {:ok, view, _html} = live(conn, ~p"/transactions/#{release}")
+
+      assert view |> element("#multisig-input-0-signed") |> render() =~ "Key 3 signed."
+
+      assert view |> element("#multisig-input-0-signature-0") |> render() =~
+               "Signature 1 couldn&#39;t match any of the 3 keys."
+
+      refute has_element?(view, "#multisig-input-0-signature-1")
+    end
+
+    test "a release whose previous output we don't store says so", %{conn: conn} do
+      {funding, _hex} = Bitblocks.MultisigFixtures.funding()
+      release = store!(Bitblocks.MultisigFixtures.release(funding, [1, 3]), 21)
+
+      {:ok, view, _html} = live(conn, ~p"/transactions/#{release}")
+
+      section = view |> element("#multisig-input-0") |> render()
+      assert section =~ "Input #0: previous output not in our index."
+      assert section =~ "we can&#39;t say which keys signed."
+      refute section =~ "Signed"
+    end
+
+    test "a tx with no multisig has no such section", %{conn: conn} do
+      insert_tx(@genesis_raw, @genesis_txid)
+      {:ok, view, _html} = live(conn, ~p"/transactions/#{@genesis_txid}")
+      refute has_element?(view, "#tx-multisig")
+    end
+  end
+
   test "an output type the label doesn't know reads as a plain script" do
     assert BitblocksWeb.TransactionLive.Show.output_type_label(:some_future_type) == "Script"
   end
