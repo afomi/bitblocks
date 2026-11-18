@@ -12,7 +12,8 @@ defmodule BitblocksWeb.Plugs.RateLimiter do
         max_requests: 30,             # logged out, per IP
         signed_in_max_requests: 600,  # logged in, per user
         admin_max_requests: 3_000,    # admin, per user
-        ai_crawler_max_requests: 10   # an AI crawler, per family
+        ai_crawler_max_requests: 10,  # an AI crawler, per family
+        ai_fetcher_max_requests: 30   # an AI user-triggered fetcher, per family
 
   Static assets bypass this plug.
 
@@ -27,6 +28,7 @@ defmodule BitblocksWeb.Plugs.RateLimiter do
   | Logged in | the user | `RATE_LIMIT_SIGNED_IN_PER_MINUTE`, 600 |
   | Logged out | the IP | `RATE_LIMIT_PER_MINUTE`, 30 |
   | AI crawler, no key | its family | `RATE_LIMIT_AI_CRAWLER_PER_MINUTE`, 10 |
+  | AI user-triggered fetcher, no key | its family | `RATE_LIMIT_AI_FETCHER_PER_MINUTE`, 30 |
 
   Counting by user means people behind one address don't share a budget. A
   session whose user is gone, or a forged cookie, which reads as no session,
@@ -49,6 +51,12 @@ defmodule BitblocksWeb.Plugs.RateLimiter do
   `/api/`, plain text elsewhere) naming the paid way in: a key, as
   `/pricing#crawlers` describes, sent as `Authorization: Bearer bbk_…`. A keyed
   request is never counted as a crawler; it has its key's budget.
+
+  A company's user-triggered fetcher (`ChatGPT-User`, `Claude-User`, …; kind
+  `:fetcher` in `AiCrawlers`) is a family of its own, `<company>_user`, with
+  `RATE_LIMIT_AI_FETCHER_PER_MINUTE` (30), so a person asking an assistant to
+  read one page isn't refused because that company's bulk crawler spent its
+  budget. Over it, the same 402.
 
   402 rather than 429, because the way to more requests is to pay, not to
   wait; `Retry-After` still says when the free budget opens again. Each
@@ -85,6 +93,7 @@ defmodule BitblocksWeb.Plugs.RateLimiter do
   @default_admin_max_requests 3_000
   @default_tier_cache_ms 60_000
   @default_ai_crawler_max_requests 10
+  @default_ai_fetcher_max_requests 30
 
   def init(opts), do: opts
 
@@ -168,8 +177,7 @@ defmodule BitblocksWeb.Plugs.RateLimiter do
         {ip, anonymous, :anonymous}
 
       family ->
-        max_requests = config(:ai_crawler_max_requests, @default_ai_crawler_max_requests)
-        {"crawler:#{family}", max_requests, {:ai_crawler, family}}
+        {"crawler:#{family}", crawler_budget(AiCrawlers.kind(family)), {:ai_crawler, family}}
     end
   end
 
@@ -226,6 +234,14 @@ defmodule BitblocksWeb.Plugs.RateLimiter do
         refuse(conn, bucket, tier, max_requests, retry_after_s)
     end
   end
+
+  # A person's one request through an assistant gets more room than a bulk
+  # crawl, in a bucket of its own.
+  defp crawler_budget(:fetcher),
+    do: config(:ai_fetcher_max_requests, @default_ai_fetcher_max_requests)
+
+  defp crawler_budget(_crawler),
+    do: config(:ai_crawler_max_requests, @default_ai_crawler_max_requests)
 
   # A crawler within its budget is still an anonymous caller to the routes
   # (RequireCaller reads :caller_tier).

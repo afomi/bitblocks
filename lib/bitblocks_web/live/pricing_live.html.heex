@@ -150,10 +150,18 @@
             class="font-mono tabular-nums text-neutral-50"
           >{@crawler_budget}</span>
           requests a minute across all their addresses, and past that get a 402 with a <code class="font-mono text-neutral-50">Retry-After</code> header.
+          When a person asks an assistant to read a page, its user-triggered fetcher (ChatGPT-User, Claude-User and the like) has a separate budget of
+          <span
+            id="crawlers-fetcher-budget"
+            class="font-mono tabular-nums text-neutral-50"
+          >{@fetcher_budget}</span>
+          a minute per company.
         </p>
         <p>
           A key gets your crawler a budget of its own, and is never counted as a crawler.
-          It opens the whole API, including <code class="font-mono text-neutral-50">/api/v1/txs/:txid/raw</code>, a transaction's exact bytes, checked against its txid.
+          It opens the chain data API: blocks, transactions, proofs, addresses, tokens and the other indexes.
+          That includes <code class="font-mono text-neutral-50">/api/v1/txs/:txid/raw</code>, a transaction's exact bytes, checked against its txid.
+          Our operator routes (<code class="font-mono text-neutral-50">/api/v1/ops/*</code>) and admin routes aren't part of it.
           Send it on every request as <code
             id="crawlers-header"
             class="font-mono text-neutral-50"

@@ -25,6 +25,7 @@ defmodule BitblocksWeb.PricingLive do
        )
      )
      |> assign(:crawler_budget, crawler_budget())
+     |> assign(:fetcher_budget, fetcher_budget())
      |> assign(:coverage, Index.coverage(SyncProgress.snapshot().overview))
      |> assign(:contact_email, AiCrawlers.contact_email())}
   end
@@ -33,6 +34,12 @@ defmodule BitblocksWeb.PricingLive do
   def crawler_budget do
     Application.get_env(:bitblocks, BitblocksWeb.Plugs.RateLimiter, [])
     |> Keyword.get(:ai_crawler_max_requests, 10)
+  end
+
+  @doc "Requests a minute a company's user-triggered fetcher has without a key."
+  def fetcher_budget do
+    Application.get_env(:bitblocks, BitblocksWeb.Plugs.RateLimiter, [])
+    |> Keyword.get(:ai_fetcher_max_requests, 30)
   end
 
   defdelegate format_number(n), to: Index
