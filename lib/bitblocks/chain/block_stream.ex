@@ -54,7 +54,8 @@ defmodule Bitblocks.Chain.BlockStream do
 
   Used by `Bitblocks.Support.Scan` and by the sync's
   `Bitblocks.Workers.FetchTransactionsWorker`, for blocks over the raw-block
-  cap.
+  cap, and by `Bitblocks.TxStore.BlockObject.store_streamed/2`, which writes
+  such a block's object as its bytes arrive (`:on_chunk`).
   """
 
   alias Bitblocks.Chain.{Block, MerkleBuilder}
@@ -76,7 +77,13 @@ defmodule Bitblocks.Chain.BlockStream do
   early); or `{:error, reason}`, after which `acc` and everything `fun` saw
   must be treated as unverified.
 
-  Options: `:max_tx_bytes` and `:max_block_bytes` (see Limits).
+  Options: `:max_tx_bytes` and `:max_block_bytes` (see Limits), and
+  `:on_chunk`, a `fn chunk, acc -> {:ok, acc} | {:error, reason} end` called
+  with each chunk's raw bytes, in order, before they are parsed, threading
+  the same `acc` as `fun`. The chunks joined are the block's exact bytes, so
+  a caller can write them somewhere as they arrive (the tx store's block
+  object, `Bitblocks.TxStore.BlockObject.store_streamed/2`). An error stops
+  the read as `{:error, {:on_chunk, reason}}`.
   """
   @spec each_tx(Block.t(), acc, (tx(), acc -> acc | {:halt, acc}), keyword()) ::
           {:ok, acc, map()} | {:halted, acc, map()} | {:error, term()}
@@ -115,11 +122,15 @@ defmodule Bitblocks.Chain.BlockStream do
     # failure mid-block can still say how far it got (time limit or size?).
     received = :counters.new(1, [])
 
+    on_chunk = opts[:on_chunk]
+
     feed = fn chunk, {state, acc} ->
       :counters.add(received, 1, byte_size(chunk))
 
-      case push(state, chunk, acc, fun) do
-        {:ok, state, acc} -> {:cont, {state, acc}}
+      with {:ok, acc} <- tap(on_chunk, chunk, acc),
+           {:ok, state, acc} <- push(state, chunk, acc, fun) do
+        {:cont, {state, acc}}
+      else
         {:halt, state, acc} -> {:halt, {{:halted, state}, acc}}
         {:error, reason} -> {:halt, {{:error, reason}, acc}}
       end
@@ -146,6 +157,17 @@ defmodule Bitblocks.Chain.BlockStream do
 
       {:error, reason} ->
         {:error, reason}
+    end
+  end
+
+  # The caller's view of the raw bytes, before they are parsed: so anything
+  # `on_chunk` keeps covers every byte up to the end of each tx `fun` sees.
+  defp tap(nil, _chunk, acc), do: {:ok, acc}
+
+  defp tap(on_chunk, chunk, acc) do
+    case on_chunk.(chunk, acc) do
+      {:ok, acc} -> {:ok, acc}
+      {:error, reason} -> {:error, {:on_chunk, reason}}
     end
   end
 
