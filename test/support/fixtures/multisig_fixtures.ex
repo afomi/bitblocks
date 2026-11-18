@@ -24,29 +24,48 @@ defmodule Bitblocks.MultisigFixtures do
   @doc "The vector's output: its script and value."
   def lock_output, do: %BSV.TxOut{satoshis: @vector["satoshis"], script: lock_script()}
 
-  @doc "A funding tx, `{txid, hex}`, whose output 0 is the vector's lock."
-  def funding, do: tx([funding_outpoint()], [lock_output(), p2pkh(address(), 5_000)])
+  @doc """
+  A funding tx, `{txid, hex}`, whose first `count` outputs are the vector's
+  lock (output 0 alone by default), then one P2PKH change output.
+  """
+  def funding(count \\ 1),
+    do:
+      tx(
+        [funding_outpoint()],
+        List.duplicate(lock_output(), count) ++ [p2pkh(address(), 5_000)]
+      )
 
   @doc """
   A release, `{txid, hex}`, spending output 0 of `funding_txid` with one
   signature per private key in `privkeys` (integers), in that order.
   """
-  def release(funding_txid, privkeys) do
-    input = %BSV.TxIn{
-      outpoint: %BSV.OutPoint{
-        hash: funding_txid |> Base.decode16!(case: :lower) |> reverse(),
-        vout: 0
-      },
-      script: %BSV.Script{chunks: []}
-    }
+  def release(funding_txid, privkeys), do: release_many(funding_txid, [privkeys])
 
-    unsigned = %BSV.Tx{inputs: [input], outputs: [p2pkh(address(), 900)]}
+  @doc """
+  A release spending outputs 0, 1, … of `funding_txid`, one input per list
+  in `signers`, each signed by those private keys in that order.
+  """
+  def release_many(funding_txid, signers) do
+    hash = funding_txid |> Base.decode16!(case: :lower) |> reverse()
 
-    signatures =
-      for k <- privkeys,
-          do: BSV.Sig.sign(unsigned, 0, lock_output(), BSV.PrivKey.from_binary!(<<k::256>>))
+    inputs =
+      for vout <- 0..(length(signers) - 1),
+          do: %BSV.TxIn{outpoint: %BSV.OutPoint{hash: hash, vout: vout}, script: %BSV.Script{}}
 
-    tx = %{unsigned | inputs: [%{input | script: %BSV.Script{chunks: [:OP_0 | signatures]}}]}
+    unsigned = %BSV.Tx{inputs: inputs, outputs: [p2pkh(address(), 900)]}
+
+    # The FORKID sighash leaves every unlocking script out, so each input
+    # signs the unsigned tx.
+    signed =
+      for {{input, privkeys}, vin} <- inputs |> Enum.zip(signers) |> Enum.with_index() do
+        signatures =
+          for k <- privkeys,
+              do: BSV.Sig.sign(unsigned, vin, lock_output(), BSV.PrivKey.from_binary!(<<k::256>>))
+
+        %{input | script: %BSV.Script{chunks: [:OP_0 | signatures]}}
+      end
+
+    tx = %{unsigned | inputs: signed}
     {BSV.Tx.get_txid(tx), BSV.Tx.to_binary(tx, encoding: :hex)}
   end
 

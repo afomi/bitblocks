@@ -139,10 +139,13 @@ defmodule BitblocksWeb.ScriptComponents do
       >
         <%= Bitblocks.Multisig.lock_sentence(@descriptor.fields.m, @descriptor.fields.n) %>.
       </p>
-      <BitblocksWeb.MultisigComponents.key_list
-        id={"output-#{@descriptor.vout}-keys"}
-        pubkeys={@descriptor.fields.pubkeys}
-      />
+      <%!-- The keys in full; the short form with copy buttons is under "Who had to agree" --%>
+      <.script_field
+        :for={{pubkey, k} <- Enum.with_index(@descriptor.fields.pubkeys)}
+        label={"Key #{k + 1}:"}
+      >
+        <%= pubkey %>
+      </.script_field>
     </div>
     """
   end

@@ -143,9 +143,52 @@ defmodule BitblocksWeb.TransactionLive.ShowTest do
                |> render() =~ ~s(&quot;text&quot;:&quot;#{key}&quot;)
       end
 
+      # The output card names the keys in full; one copy button per key on
+      # the page, under "Who had to agree".
       card = view |> element("#output-0-multisig") |> render()
       assert card =~ "Locked to 2 of these 3 keys."
-      assert card =~ "Copy"
+      assert card =~ key1
+      refute card =~ "Copy"
+
+      # The button's name holds its visible text, and a live region beside it
+      # announces "Copied".
+      button = view |> element("#multisig-output-0-keys-0-copy") |> render()
+      assert button =~ "Copy"
+      assert button =~ "key 1"
+      refute button =~ "aria-label"
+      assert has_element?(view, ~s(#multisig-output-0-keys-0-copy-status[aria-live="polite"]))
+    end
+
+    # 5 checks for the first input, 4 for each next one: input 15 runs out
+    # after its first signature (Bitblocks.MultisigTest has the arithmetic).
+    test "signatures past the page's check budget read as not checked", %{conn: conn} do
+      {funding, _hex} = funding_tx = Bitblocks.MultisigFixtures.funding(16)
+      store!(funding_tx, 20)
+
+      release =
+        store!(
+          Bitblocks.MultisigFixtures.release_many(
+            funding,
+            [[3, 1] | List.duplicate([1, 3], 15)]
+          ),
+          21
+        )
+
+      {:ok, view, _html} = live(conn, ~p"/transactions/#{release}")
+
+      assert view |> element("#multisig-input-15-signed") |> render() =~
+               "Key 1 signed. We checked 1 of 2 signatures."
+
+      assert view |> element("#multisig-input-15-keys-0") |> render() =~ "Signed"
+      assert view |> element("#multisig-input-15-keys-1") |> render() =~ "Not checked"
+      assert view |> element("#multisig-input-15-keys-2") |> render() =~ "Not checked"
+      refute view |> element("#multisig-input-15") |> render() =~ "Didn&#39;t sign"
+
+      assert view |> element("#multisig-input-15-signature-1") |> render() =~
+               "Signature 2 wasn&#39;t checked: we stop after 64 checks on one page."
+
+      assert view |> element("#multisig-input-0-signature-1") |> render() =~
+               "Signature 2 is from key 1, but out of order, so it doesn&#39;t count."
     end
 
     test "a release says key 1 and key 3 signed, and key 2 didn't", %{conn: conn} do
@@ -164,7 +207,7 @@ defmodule BitblocksWeb.TransactionLive.ShowTest do
       assert view |> element("#multisig-input-0-keys-0") |> render() =~ "Signed"
       assert view |> element("#multisig-input-0-keys-1") |> render() =~ "Didn&#39;t sign"
       assert view |> element("#multisig-input-0-keys-2") |> render() =~ "Signed"
-      assert section =~ "We ran no other part of the script."
+      assert section =~ "We didn&#39;t run the rest of the script."
       refute section =~ "couldn"
     end
 

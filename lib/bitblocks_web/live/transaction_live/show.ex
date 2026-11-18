@@ -17,6 +17,7 @@ defmodule BitblocksWeb.TransactionLive.Show do
        collection_module: nil,
        input_satoshis: %{},
        multisig_inputs: [],
+       multisig_more_inputs: false,
        multisig_outputs: [],
        output_descriptors: [],
        script_templates: %{},
@@ -151,7 +152,7 @@ defmodule BitblocksWeb.TransactionLive.Show do
      |> assign(:collection_slug, collection_slug)
      |> assign(:collection_module, collection_module)
      |> assign(:input_satoshis, input_satoshis)
-     |> assign(:multisig_inputs, Bitblocks.Multisig.signers(decoded_tx, previous_outputs))
+     |> assign_multisig_inputs(decoded_tx, previous_outputs)
      |> assign(:multisig_outputs, Enum.filter(output_descriptors, &(&1.type == :multisig)))
      |> assign(:output_descriptors, output_descriptors)
      |> assign(:script_templates, script_templates)
@@ -164,6 +165,16 @@ defmodule BitblocksWeb.TransactionLive.Show do
      |> assign(:descriptors_by_vout, Map.new(output_descriptors, &{&1.vout, &1}))
      |> assign(:stas_outputs, stas_outputs(decoded_tx))
      |> assign_locks(decoded_tx, transaction.txid, block)}
+  end
+
+  # Which keys signed each multisig input, and whether inputs past the
+  # page's cap went unread (Bitblocks.Multisig).
+  defp assign_multisig_inputs(socket, decoded_tx, previous_outputs) do
+    {inputs, more?} = Bitblocks.Multisig.signers(decoded_tx, previous_outputs)
+
+    socket
+    |> assign(:multisig_inputs, inputs)
+    |> assign(:multisig_more_inputs, more?)
   end
 
   # HodLocker (#75): what this tx's time locks back; nLockTime (#76): the
