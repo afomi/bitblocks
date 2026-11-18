@@ -60,8 +60,9 @@ https://github.com/afomi/bitblocks/issues/87 · https://github.com/afomi/bitbloc
     Each app keeps its own Stripe keys and webhooks.
   - bitblocks' Stripe account is `acct_1UdHHhLYRHWWpBFF`, separate from jurisdictional's.
     Its deposit address, one per app as x402_ex requires, gets recorded here once Stripe issues it.
-  - x402_ex v0.1 was reviewed by jurisdictional, which approved it at `74e6d07` (local, `~/workspace/x402_ex`).
-    It gets tagged once `afomi/x402_ex` exists.
+  - x402_ex v0.1.0 is released: https://github.com/afomi/x402_ex/releases/tag/v0.1.0 (Apache-2.0, CI on Elixir 1.15 and 1.19).
+    jurisdictional reviewed it and approved it for v0.1 at `74e6d07`; the release adds only open-source hygiene and a doc fix.
+  - Keys and the sandbox run: [docs/STRIPE.md](docs/STRIPE.md).
   - Live mode waits on Ryan: Stripe's crypto approval, CDP keys, a price (proposed 0.01 USDC a request) and his go.
     Then infra lifts the ALB Meta rule.
 - CI and deploys skip docs-only pushes: https://github.com/afomi/bitblocks/issues/93
