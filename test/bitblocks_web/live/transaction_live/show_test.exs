@@ -3,6 +3,7 @@ defmodule BitblocksWeb.TransactionLive.ShowTest do
 
   import Phoenix.LiveViewTest
   import Bitblocks.ChainFixtures
+  import Bitblocks.OrdinalFixtures, only: [tx: 2, p2pkh: 2, address: 0, funding_outpoint: 0]
 
   alias Bitblocks.Script.Templates
 
@@ -10,6 +11,71 @@ defmodule BitblocksWeb.TransactionLive.ShowTest do
   @genesis_txid "4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b"
   @genesis_raw "01000000010000000000000000000000000000000000000000000000000000000000000000ffffffff4d04ffff001d0104455468652054696d65732030332f4a616e2f32303039204368616e63656c6c6f72206f6e206272696e6b206f66207365636f6e64206261696c6f757420666f722062616e6b73ffffffff0100f2052a01000000434104678afdb0fe5548271967f1a67130b7105cd6a828e03909a67962e0ea1f61deb649f6bc3f4cef38c4f35504e51ec112de5c384df7ba0b8d578a4c702b6bf11d5fac00000000"
   @genesis_pubkey "04678afdb0fe5548271967f1a67130b7105cd6a828e03909a67962e0ea1f61deb649f6bc3f4cef38c4f35504e51ec112de5c384df7ba0b8d578a4c702b6bf11d5f"
+
+  describe "the value of each input" do
+    # Input values come from the previous txs' stored outputs in one query,
+    # never by loading and decoding each previous tx (a crawler on
+    # many-input txs ran a node out of memory that way, 2026-11-18).
+    defp store!(hex_tx, height) do
+      {txid, hex} = hex_tx
+      json = Bitblocks.Chain.RawBlock.tx_json(txid, Base.decode16!(hex, case: :mixed))
+      :ok = Bitblocks.Chain.TxIngest.store(json, block_fixture(%{height: height}))
+      txid
+    end
+
+    test "each input reads its previous output's sats, in one lookup", %{conn: conn} do
+      parent_a =
+        store!(tx([funding_outpoint()], [p2pkh(address(), 1_234), p2pkh(address(), 5_678)]), 10)
+
+      parent_b = store!(tx([funding_outpoint()], [p2pkh(address(), 9_000)]), 11)
+      unstored = funding_outpoint()
+
+      child =
+        store!(
+          tx(["#{parent_a}_1", "#{parent_b}_0", "#{parent_a}_0", unstored], [
+            p2pkh(address(), 100)
+          ]),
+          12
+        )
+
+      ref = make_ref()
+      parent = self()
+      handler = "input-sats-#{inspect(ref)}"
+
+      :telemetry.attach(
+        handler,
+        [:bitblocks, :repo, :query],
+        fn _, _, meta, _ ->
+          send(parent, {ref, {meta.query, meta.params}})
+        end,
+        nil
+      )
+
+      {:ok, view, _html} = live(conn, ~p"/transactions/#{child}")
+      :telemetry.detach(handler)
+
+      queries = collect(ref, [])
+      assert Enum.any?(queries, fn {sql, _} -> sql =~ "outputs[i.vout + 1]" end)
+
+      # No query loads a previous tx's row with its raw bytes.
+      refute Enum.any?(queries, fn {sql, params} ->
+               sql =~ ~r/t0\."raw"/ and Enum.any?(params, &(&1 in [parent_a, parent_b]))
+             end)
+
+      assert view |> element("#input-source-0") |> render() =~ "5,678"
+      assert view |> element("#input-source-1") |> render() =~ "9,000"
+      assert view |> element("#input-source-2") |> render() =~ "1,234"
+      assert view |> element("#input-source-3") |> render() =~ "—"
+    end
+
+    defp collect(ref, acc) do
+      receive do
+        {^ref, query} -> collect(ref, [query | acc])
+      after
+        0 -> acc
+      end
+    end
+  end
 
   test "a Rexxie's banner states membership and ownership in sentences", %{conn: conn} do
     # Rexxie #1's mint, from the bundled catalog.
