@@ -329,7 +329,10 @@ defmodule BitblocksWeb.TransactionLive.Show do
   def output_type_label(:p2pk), do: "P2PK"
   def output_type_label(:p2sh), do: "P2SH"
   def output_type_label(:op_return), do: "OP_RETURN"
-  def output_type_label(:unknown), do: "Script"
+  def output_type_label(:multisig), do: "Multisig"
+  # Any type `Bitblocks.Script.classify/1` grows later reads as a plain script
+  # rather than crashing the page (https://github.com/afomi/bitblocks/issues/101).
+  def output_type_label(_type), do: "Script"
 
   def script_type_summary(outputs) do
     outputs

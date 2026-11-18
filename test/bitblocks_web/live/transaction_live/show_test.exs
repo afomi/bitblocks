@@ -30,6 +30,31 @@ defmodule BitblocksWeb.TransactionLive.ShowTest do
     assert claims =~ "Not traced yet."
   end
 
+  # https://github.com/afomi/bitblocks/issues/101: a bare multisig output
+  # (1-of-1, OP_1 <pubkey> OP_1 OP_CHECKMULTISIG) crashed the page, since the
+  # type label had no clause for :multisig.
+  test "a tx with a bare multisig output renders and labels it", %{conn: conn} do
+    multisig = "51" <> "21" <> "02" <> String.duplicate("11", 32) <> "51" <> "ae"
+
+    raw =
+      String.replace(
+        @genesis_raw,
+        "434104" <> String.slice(@genesis_pubkey, 2..-1//1) <> "ac",
+        "25" <> multisig
+      )
+
+    assert raw != @genesis_raw
+    txid = String.duplicate("ab", 32)
+    insert_tx(raw, txid)
+
+    {:ok, _view, html} = live(conn, ~p"/transactions/#{txid}")
+    assert html =~ "Multisig"
+  end
+
+  test "an output type the label doesn't know reads as a plain script" do
+    assert BitblocksWeb.TransactionLive.Show.output_type_label(:some_future_type) == "Script"
+  end
+
   defp insert_tx(raw, txid) do
     block = block_fixture()
 
