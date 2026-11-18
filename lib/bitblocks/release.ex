@@ -1197,26 +1197,30 @@ defmodule Bitblocks.Release do
   @doc """
   Prints the numbers that say a restored database matches its source
   (`Bitblocks.RestoreCheck`, docs/RESTORE.md): `complete_through`, a digest of
-  the chain, rows per table at heights `0..through`, the header check, a
-  sample of txs hashed against their txids, and one fingerprint over them.
-  Ends with OK, or FAIL and each reason. Read-only (one `READ ONLY`
-  transaction).
+  the chain, rows per table at heights `0..through` (with the rows holding
+  `raw` and its bytes), the header check, a sample of rows whose own `raw` is
+  hashed against their txids, and the fingerprints over them. Ends with OK,
+  or FAIL and each reason. Read-only (one `READ ONLY` transaction).
 
   Run it on the restore first, then on the source with the restore's
-  `through`, and compare the fingerprints. Under `bin/bitblocks eval` it
-  starts only the repo: no web server, no Oban, no sync.
+  `through`, and compare the fingerprints; two copies of a quiet database
+  compare on the full fingerprint, which needs `unbounded: :exact`. Under
+  `bin/bitblocks eval` it starts only the repo: no web server, no Oban, no
+  sync.
 
       bin/bitblocks eval 'Bitblocks.Release.restore_check()'
-      bin/bitblocks rpc 'Bitblocks.Release.restore_check(through: 399_999, unbounded: :estimate)'
+      bin/bitblocks rpc 'Bitblocks.Release.restore_check(through: 399_999, unbounded: :estimate, statement_timeout_ms: 1_800_000)'
 
   Options: `through:` (this database's `complete_through`), `sample:` (100),
-  `unbounded:` `:exact` or `:estimate` for tables without a height.
+  `unbounded:` `:exact` or `:estimate` for tables without a height,
+  `statement_timeout_ms:` a cap on each statement.
   """
   def restore_check(opts \\ []) do
     with_running_repo(fn ->
       r = Bitblocks.RestoreCheck.run(opts)
       n = &format_count/1
       db = r.database
+      pad = &String.pad_trailing(&1, 26)
 
       IO.puts("""
       restore check: database #{db.name} on #{db.host || "local socket"} (PostgreSQL #{db.server_version})
@@ -1225,28 +1229,36 @@ defmodule Bitblocks.Release do
         compared through  #{n.(r.through)}
         chain digest      #{r.chain.digest} (#{n.(r.chain.blocks)} blocks)
         fingerprint       #{r.fingerprint}
+        full fingerprint  #{r.full_fingerprint || "none (unbounded: :estimate)"}
       rows at heights 0..#{n.(r.through)} (equal to the source's at the same through)\
       """)
 
-      for {table, %{total: total}} <- Enum.sort(r.bounded),
-          do: IO.puts("  #{String.pad_trailing(table, 26)} #{n.(total)}")
+      for {table, counts} <- Enum.sort(r.bounded) do
+        IO.puts("  #{pad.(table)} #{n.(counts.total)}")
+
+        if counts.raw_rows do
+          IO.puts("  #{pad.(table <> " with raw")} #{n.(counts.raw_rows)}")
+          IO.puts("  #{pad.(table <> " raw bytes")} #{n.(counts.raw_bytes)}")
+        end
+      end
 
       if tx = r.bounded["transactions"] do
-        IO.puts("transactions by #{n.(50_000)} blocks")
+        IO.puts("transactions by #{n.(50_000)} blocks: rows, rows with raw, raw bytes")
 
-        for {from, count} <- tx.buckets,
+        for b <- tx.buckets,
             do:
               IO.puts(
-                "  #{String.pad_trailing("#{n.(from)}..#{n.(from + 49_999)}", 26)} #{n.(count)}"
+                "  #{pad.("#{n.(b.from)}..#{n.(b.from + 49_999)}")} #{n.(b.rows)}" <>
+                  "  #{n.(b.raw_rows)}  #{n.(b.raw_bytes)}"
               )
       end
 
       IO.puts(
-        "rows in tables without a height (#{r.unbounded_mode}; equal only for a quiet source)"
+        "rows in tables without a height (#{r.unbounded_mode}; in the full fingerprint when exact)"
       )
 
       for {table, count} <- Enum.sort(r.unbounded),
-          do: IO.puts("  #{String.pad_trailing(table, 26)} #{n.(count)}")
+          do: IO.puts("  #{pad.(table)} #{n.(count)}")
 
       h = r.headers
 
@@ -1257,8 +1269,17 @@ defmodule Bitblocks.Release do
 
       for height <- h.bad, do: IO.puts("  bad header: #{height}")
 
-      IO.puts("sample: #{r.sample.ok} of #{r.sample.checked} txs hash to their txid")
-      for {txid, reason} <- r.sample.bad, do: IO.puts("  mismatch: #{txid} (#{inspect(reason)})")
+      s = r.sample
+
+      IO.puts(
+        "sample: #{s.ok} of #{s.checked} rows' own raw hash to their txid" <>
+          if(s.from_store > 0,
+            do: "; #{s.from_store} moved to the store (raw_in_db false) hash from the store",
+            else: ""
+          )
+      )
+
+      for {txid, reason} <- s.bad, do: IO.puts("  failed: #{txid} (#{inspect(reason)})")
 
       case r.failures do
         [] -> IO.puts("OK")

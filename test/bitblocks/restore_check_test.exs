@@ -48,10 +48,19 @@ defmodule Bitblocks.RestoreCheckTest do
     assert r.through == 2
     assert r.chain.blocks == 3
     assert r.bounded["blocks"].total == 3
-    assert r.bounded["transactions"] == %{total: 2, buckets: [{0, 2}]}
+    # raw is hex text: 128 characters each.
+    assert r.bounded["transactions"] == %{
+             total: 2,
+             raw_rows: 2,
+             raw_bytes: 256,
+             buckets: [%{from: 0, rows: 2, raw_rows: 2, raw_bytes: 256}]
+           }
+
+    assert r.bounded["blocks"].raw_rows == false
     assert r.unbounded["users"] == 0
+    assert r.unbounded["spend_index"] == 0
     assert r.headers == %{checked: 3, verified: 3, canonical: 3, missing: 0, bad: []}
-    assert r.sample == %{checked: 2, ok: 2, bad: []}
+    assert r.sample == %{checked: 2, ok: 2, from_store: 0, bad: []}
     assert r.database.name =~ "bitblocks_test"
   end
 
@@ -62,8 +71,65 @@ defmodule Bitblocks.RestoreCheckTest do
       for h <- [0, 1, 2], into: "", do: "#{h}:#{RealHeaders.fields(h).hash}\n"
 
     assert r.chain.digest == sha256(chain_text)
-    assert RestoreCheck.fingerprint_text(2, r.chain, r.bounded) =~ "transactions=2\n"
-    assert r.fingerprint == sha256(RestoreCheck.fingerprint_text(2, r.chain, r.bounded))
+    text = RestoreCheck.fingerprint_text(2, r.chain, r.bounded)
+    assert text =~ "transactions=2\ntransactions.raw_rows=2\ntransactions.raw_bytes=256\n"
+    assert r.fingerprint == sha256(text)
+    assert r.full_fingerprint == sha256(text <> RestoreCheck.unbounded_text(r.unbounded))
+    assert RestoreCheck.unbounded_text(r.unbounded) =~ "spend_index=0\n"
+  end
+
+  test "the full fingerprint sees a table without a height; estimates give none" do
+    before = RestoreCheck.run(sample: 0)
+
+    Repo.insert!(%Bitblocks.Chain.Spend{
+      txid: "prev",
+      vout: 0,
+      spending_txid: "x",
+      spending_vin: 0
+    })
+
+    later = RestoreCheck.run(sample: 0)
+
+    assert later.fingerprint == before.fingerprint
+    refute later.full_fingerprint == before.full_fingerprint
+    assert RestoreCheck.run(sample: 0, unbounded: :estimate).full_fingerprint == nil
+  end
+
+  test "a row that lost its raw changes the fingerprint and fails the sample, even with the bytes in the store",
+       %{tx_2: tx_2} do
+    before = RestoreCheck.run(sample: 0)
+    # The store holds the true bytes: the check must not borrow them.
+    :ok = TxStore.put(tx_2.txid, Base.decode16!(@raw_2, case: :lower))
+    set_raw(tx_2.txid, nil)
+
+    r = RestoreCheck.run(sample: 10)
+
+    refute r.ok
+    assert r.bounded["transactions"].raw_rows == 1
+    refute r.fingerprint == before.fingerprint
+    assert r.sample.bad == [{tx_2.txid, :no_raw_in_row}]
+    assert r.sample.ok == 1
+    assert Enum.any?(r.failures, &(&1 =~ "1 sampled tx(s) failed: 1 :no_raw_in_row"))
+  end
+
+  test "a row whose bytes moved to the store (raw_in_db false) is read from the store, counted apart",
+       %{tx_2: tx_2} do
+    :ok = TxStore.put(tx_2.txid, Base.decode16!(@raw_2, case: :lower))
+
+    Repo.update_all(from(t in Bitblocks.Chain.Transaction, where: t.txid == ^tx_2.txid),
+      set: [raw: nil, raw_in_db: false]
+    )
+
+    r = RestoreCheck.run(sample: 10)
+
+    assert r.ok, inspect(r.failures)
+    assert r.sample == %{checked: 2, ok: 1, from_store: 1, bad: []}
+  end
+
+  defp set_raw(txid, raw) do
+    Repo.update_all(from(t in Bitblocks.Chain.Transaction, where: t.txid == ^txid),
+      set: [raw: raw]
+    )
   end
 
   test "through: a lower height counts and samples only up to it, and changes the fingerprint" do
@@ -80,9 +146,7 @@ defmodule Bitblocks.RestoreCheckTest do
   test "a row whose bytes don't hash to its txid, and a tampered header, fail the check", %{
     tx_2: tx_2
   } do
-    Repo.update_all(from(t in Bitblocks.Chain.Transaction, where: t.txid == ^tx_2.txid),
-      set: [raw: @raw_1]
-    )
+    set_raw(tx_2.txid, @raw_1)
 
     Repo.update_all(from(b in Block, where: b.height == 1), set: [nonce: 1])
 
@@ -91,7 +155,7 @@ defmodule Bitblocks.RestoreCheckTest do
     refute r.ok
     assert r.sample.bad == [{tx_2.txid, :bytes_do_not_hash_to_txid}]
     assert r.headers.bad == [1]
-    assert "1 sampled tx(s) don't hash to their txid" in r.failures
+    assert "1 sampled tx(s) failed: 1 :bytes_do_not_hash_to_txid" in r.failures
     assert "1 header(s) fail verification" in r.failures
   end
 
@@ -102,7 +166,29 @@ defmodule Bitblocks.RestoreCheckTest do
     assert Enum.any?(r.failures, &(&1 =~ "above this database's complete_through 2"))
   end
 
-  test "it runs read-only: READ ONLY comes first, and no statement writes" do
+  test "it runs read-only: a write inside its transaction is refused" do
+    error =
+      assert_raise Postgrex.Error, fn ->
+        RestoreCheck.run(sample: 0, probe: fn -> Repo.query!("UPDATE blocks SET nonce = 1") end)
+      end
+
+    assert error.postgres.code == :read_only_sql_transaction
+  end
+
+  test "statement_timeout_ms caps each statement" do
+    error =
+      assert_raise Postgrex.Error, fn ->
+        RestoreCheck.run(
+          statement_timeout_ms: 10,
+          probe: fn -> Repo.query!("SELECT pg_sleep(1)") end
+        )
+      end
+
+    assert error.postgres.code == :query_canceled
+    assert RestoreCheck.run(sample: 0, statement_timeout_ms: 60_000).ok
+  end
+
+  test "READ ONLY comes first, and no statement writes" do
     test_pid = self()
     handler = "restore-check-queries-#{System.unique_integer()}"
 
@@ -143,9 +229,12 @@ defmodule Bitblocks.RestoreCheckTest do
     assert r.ok
     assert io =~ "complete_through  2"
     assert io =~ "fingerprint       #{r.fingerprint}"
+    assert io =~ "full fingerprint  #{r.full_fingerprint}"
     assert io =~ ~r/transactions\s+2\n/
+    assert io =~ ~r/transactions with raw\s+2\n/
+    assert io =~ ~r/transactions raw bytes\s+256\n/
     assert io =~ "headers 0..2: 3 verified, 3 canonical of 3, 0 missing"
-    assert io =~ "sample: 2 of 2 txs hash to their txid"
+    assert io =~ "sample: 2 of 2 rows' own raw hash to their txid"
     assert io =~ ~r/\nOK\n/
   end
 
