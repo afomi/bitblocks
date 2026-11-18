@@ -1193,6 +1193,86 @@ defmodule Bitblocks.Release do
   end
 
   @doc """
+  Prints the numbers that say a restored database matches its source
+  (`Bitblocks.RestoreCheck`, docs/RESTORE.md): `complete_through`, a digest of
+  the chain, rows per table at heights `0..through`, the header check, a
+  sample of txs hashed against their txids, and one fingerprint over them.
+  Ends with OK, or FAIL and each reason. Read-only (one `READ ONLY`
+  transaction).
+
+  Run it on the restore first, then on the source with the restore's
+  `through`, and compare the fingerprints. Under `bin/bitblocks eval` it
+  starts only the repo: no web server, no Oban, no sync.
+
+      bin/bitblocks eval 'Bitblocks.Release.restore_check()'
+      bin/bitblocks rpc 'Bitblocks.Release.restore_check(through: 399_999, unbounded: :estimate)'
+
+  Options: `through:` (this database's `complete_through`), `sample:` (100),
+  `unbounded:` `:exact` or `:estimate` for tables without a height.
+  """
+  def restore_check(opts \\ []) do
+    with_running_repo(fn ->
+      r = Bitblocks.RestoreCheck.run(opts)
+      n = &format_count/1
+      db = r.database
+
+      IO.puts("""
+      restore check: database #{db.name} on #{db.host || "local socket"} (PostgreSQL #{db.server_version})
+        tip               #{n.(r.tip || -1)}
+        complete_through  #{n.(r.complete_through)}
+        compared through  #{n.(r.through)}
+        chain digest      #{r.chain.digest} (#{n.(r.chain.blocks)} blocks)
+        fingerprint       #{r.fingerprint}
+      rows at heights 0..#{n.(r.through)} (equal to the source's at the same through)\
+      """)
+
+      for {table, %{total: total}} <- Enum.sort(r.bounded),
+          do: IO.puts("  #{String.pad_trailing(table, 26)} #{n.(total)}")
+
+      if tx = r.bounded["transactions"] do
+        IO.puts("transactions by #{n.(50_000)} blocks")
+
+        for {from, count} <- tx.buckets,
+            do:
+              IO.puts(
+                "  #{String.pad_trailing("#{n.(from)}..#{n.(from + 49_999)}", 26)} #{n.(count)}"
+              )
+      end
+
+      IO.puts(
+        "rows in tables without a height (#{r.unbounded_mode}; equal only for a quiet source)"
+      )
+
+      for {table, count} <- Enum.sort(r.unbounded),
+          do: IO.puts("  #{String.pad_trailing(table, 26)} #{n.(count)}")
+
+      h = r.headers
+
+      IO.puts(
+        "headers 0..#{n.(r.through)}: #{n.(h.verified)} verified, #{n.(h.canonical)} canonical" <>
+          " of #{n.(h.checked)}, #{n.(h.missing)} missing"
+      )
+
+      for height <- h.bad, do: IO.puts("  bad header: #{height}")
+
+      IO.puts("sample: #{r.sample.ok} of #{r.sample.checked} txs hash to their txid")
+      for {txid, reason} <- r.sample.bad, do: IO.puts("  mismatch: #{txid} (#{inspect(reason)})")
+
+      case r.failures do
+        [] -> IO.puts("OK")
+        reasons -> for reason <- reasons, do: IO.puts("FAIL: #{reason}")
+      end
+
+      r
+    end)
+  end
+
+  defp format_count(n) when is_integer(n) and n < 0, do: Integer.to_string(n)
+
+  defp format_count(n),
+    do: n |> Integer.to_string() |> String.replace(~r/\B(?=(\d{3})+(?!\d))/, ",")
+
+  @doc """
   Counts the tx store against the chain for blocks `from..to` and prints each
   number, then OK or every gap (`Bitblocks.TxStore.reconcile/3`). Read-only.
   Give large spans in pieces on a busy database.

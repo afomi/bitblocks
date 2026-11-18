@@ -19,6 +19,26 @@ defmodule Bitblocks.RealHeaders do
       nonce: 2_083_236_893,
       num_tx: 1
     },
+    1 => %{
+      hash: "00000000839a8e6886ab5951d76f411475428afc90947ee320161bbf18eb6048",
+      prevblockhash: "000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f",
+      merkleroot: "0e3e2357e806b6cdb1f70b54c3a3a17b6714ee1f0e68bebb44a74b1efd512098",
+      version: 1,
+      time: 1_231_469_665,
+      bits: "1d00ffff",
+      nonce: 2_573_394_689,
+      num_tx: 1
+    },
+    2 => %{
+      hash: "000000006a625f06636b8bb6ac7b960a8d03705d1ace08b1a19da3fdcc99ddbd",
+      prevblockhash: "00000000839a8e6886ab5951d76f411475428afc90947ee320161bbf18eb6048",
+      merkleroot: "9b0fc92260312ce44e74ef369f5c66bbb85848f2eddd5a7a1cde251e54ccfdd5",
+      version: 1,
+      time: 1_231_469_744,
+      bits: "1d00ffff",
+      nonce: 1_639_830_024,
+      num_tx: 1
+    },
     9 => %{
       hash: "000000008d9dc510f23c2657fc4f67bea30078cc05a90eb89e84cc475c080805",
       prevblockhash: "00000000408c48f847aa786c2268fc3e6ec2af68e8468a34a28c61b7f1de0dc6",
