@@ -1503,9 +1503,14 @@ defmodule Bitblocks.Release do
   With `webhook_url`, new matches are POSTed there, signed with a generated
   secret that is printed once.
 
+  With `source: "bitcom_commands"` and no filter, it serves the Bitcom
+  registry's command log (Tenant 3): hydrate at
+  `/api/v1/projections/:id/commands`, follow over SSE, no webhook.
+
   ## Usage
 
       bin/bitblocks rpc 'Bitblocks.Release.create_projection(%{tenant: "visible-dao", name: "donations", filter: %{"output_addresses" => ["1..."]}, from_height: 900_000}) |> IO.inspect()'
+      bin/bitblocks rpc 'Bitblocks.Release.create_projection(%{tenant: "bitcom", name: "commands", source: "bitcom_commands"}) |> IO.inspect()'
   """
   def create_projection(attrs) do
     case Bitblocks.Projections.create(attrs) do
@@ -2302,7 +2307,7 @@ defmodule Bitblocks.Release do
     end
   end
 
-  defp print_protocol_rewind(%{tokens: t, listings: l, collection_items: c}) do
+  defp print_protocol_rewind(%{tokens: t, listings: l, collection_items: c} = counts) do
     IO.puts(
       "    tokens: #{t.moved} moved, #{t.removed} removed, #{t.rechecked} spender(s) checked"
     )
@@ -2313,6 +2318,8 @@ defmodule Bitblocks.Release do
       "    collection items: #{c.moved} mint(s) moved, #{c.removed} removed, " <>
         "#{c.retrace} marked for a re-trace"
     )
+
+    IO.puts("    bitcom commands: #{get_in(counts, [:bitcom_commands, :moved]) || 0} moved")
   end
 
   # Private helpers

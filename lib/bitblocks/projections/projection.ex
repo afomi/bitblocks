@@ -1,7 +1,8 @@
 defmodule Bitblocks.Projections.Projection do
   @moduledoc """
-  A tenant's filter over the tag columns on `transactions`. See
-  `Bitblocks.Projections` and docs/MANAGED_SERVICES.md.
+  A tenant's filter over the tag columns on `transactions`, or (source
+  `bitcom_commands`, Tenant 3 of #29) the Bitcom registry's command log, whole.
+  See `Bitblocks.Projections` and docs/MANAGED_SERVICES.md.
   """
 
   use Ecto.Schema
@@ -13,12 +14,17 @@ defmodule Bitblocks.Projections.Projection do
   # of them is an index lookup rather than a scan of `transactions`.
   @tag_columns ~w(output_addresses protocols output_script_hashes output_template_hashes aip_signers)
   @statuses ~w(active paused)
+  # What a projection reads: txs by its tag filter, or the Bitcom command log
+  # whole, whose filter is empty.
+  @sources ~w(transactions bitcom_commands)
 
   @type t :: %__MODULE__{}
 
   schema "projections" do
     field :tenant, :string
     field :name, :string
+    # transactions | bitcom_commands; part of the definition, so never changed.
+    field :source, :string, default: "transactions"
     # Tag column => values; see the migration for the matching rule.
     field :filter, :map
     field :definition_hash, :string
@@ -43,18 +49,54 @@ defmodule Bitblocks.Projections.Projection do
   @spec tag_columns() :: [String.t()]
   def tag_columns, do: @tag_columns
 
+  @doc "Sources a projection may read."
+  @spec sources() :: [String.t()]
+  def sources, do: @sources
+
   @doc false
   def changeset(projection, attrs) do
     projection
-    |> cast(attrs, [:tenant, :name, :filter, :from_height, :status, :webhook_url])
+    |> cast(attrs, [:tenant, :name, :source, :filter, :from_height, :status, :webhook_url])
+    |> validate_inclusion(:source, @sources)
+    |> default_filter()
     |> validate_required([:tenant, :name, :filter])
     |> validate_inclusion(:status, @statuses)
     |> validate_number(:from_height, greater_than_or_equal_to: 0)
-    |> validate_change(:filter, fn :filter, filter -> filter_errors(filter) end)
+    |> validate_filter()
     |> validate_change(:webhook_url, fn :webhook_url, url -> webhook_url_errors(url) end)
+    |> validate_webhook_source()
     |> put_definition_hash()
     |> put_webhook_secret()
     |> unique_constraint([:tenant, :name])
+  end
+
+  # The command log is served whole, so its filter is empty and may be omitted.
+  defp default_filter(changeset) do
+    if get_field(changeset, :source) == "bitcom_commands" and
+         is_nil(get_field(changeset, :filter)),
+       do: put_change(changeset, :filter, %{}),
+       else: changeset
+  end
+
+  defp validate_filter(changeset) do
+    case get_field(changeset, :source) do
+      "bitcom_commands" ->
+        validate_change(changeset, :filter, fn :filter, filter ->
+          if filter == %{},
+            do: [],
+            else: [filter: "must be empty for the bitcom_commands source"]
+        end)
+
+      _ ->
+        validate_change(changeset, :filter, fn :filter, filter -> filter_errors(filter) end)
+    end
+  end
+
+  # Webhooks deliver txs; a command projection follows over SSE.
+  defp validate_webhook_source(changeset) do
+    if get_field(changeset, :source) == "bitcom_commands" and get_field(changeset, :webhook_url),
+      do: add_error(changeset, :webhook_url, "is not offered for the bitcom_commands source"),
+      else: changeset
   end
 
   # Only a public host (SSRF); delivery checks again. See WebhookTarget.
@@ -96,8 +138,12 @@ defmodule Bitblocks.Projections.Projection do
 
   defp put_definition_hash(%{valid?: true} = changeset) do
     case get_change(changeset, :filter) do
-      nil -> changeset
-      filter -> put_change(changeset, :definition_hash, definition_hash(filter))
+      nil ->
+        changeset
+
+      filter ->
+        source = get_field(changeset, :source)
+        put_change(changeset, :definition_hash, definition_hash(filter, source))
     end
   end
 
@@ -106,14 +152,27 @@ defmodule Bitblocks.Projections.Projection do
   @doc """
   sha256 of the canonical filter JSON: columns sorted, values sorted and
   deduplicated (a filter is a set of required tags, so order carries no meaning).
+
+  A source other than `transactions` is hashed with the source named,
+  `{"filter":[…],"source":"…"}`, so it never shares a hash with a tx filter,
+  and the hashes of tx projections stay what they were.
   """
-  @spec definition_hash(map()) :: String.t()
-  def definition_hash(filter) do
+  @spec definition_hash(map(), String.t()) :: String.t()
+  def definition_hash(filter, source \\ "transactions") do
     canonical =
       filter
       |> Enum.sort_by(&elem(&1, 0))
       |> Enum.map(fn {column, values} -> [column, values |> Enum.uniq() |> Enum.sort()] end)
 
-    :crypto.hash(:sha256, Jason.encode!(canonical)) |> Base.encode16(case: :lower)
+    bytes =
+      case source do
+        "transactions" ->
+          Jason.encode!(canonical)
+
+        source ->
+          ~s({"filter":#{Jason.encode!(canonical)},"source":#{Jason.encode!(source)}})
+      end
+
+    :crypto.hash(:sha256, bytes) |> Base.encode16(case: :lower)
   end
 end

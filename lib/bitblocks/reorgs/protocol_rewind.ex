@@ -13,14 +13,19 @@ defmodule Bitblocks.Reorgs.ProtocolRewind do
 
   This module is only the list of those protocols, so the two places a
   transaction can move from share it. There is no shared state: nothing here
-  knows what a token or a listing is. Metanet, Bitcom and BAP rows are their
-  own pieces of work and aren't rewound.
+  knows what a token or a listing is. Metanet and BAP rows are their own
+  pieces of work and aren't rewound.
+
+  Bitcom commands move with their tx (`Bitcom.rewind_moved/2`), so the
+  managed projection over the command log serves each at its tx's height. A
+  removed tx's commands stay in the log, which is append-only; the projection
+  stops serving them because no stored tx stands behind them.
 
   Both calls run inside the database transaction that moves or removes the
   transactions, so a failure leaves them to be redone together.
   """
 
-  alias Bitblocks.{OrderBook, OrdinalCollections, Tokens}
+  alias Bitblocks.{Bitcom, OrderBook, OrdinalCollections, Tokens}
 
   @type counts :: %{
           tokens: %{
@@ -37,7 +42,8 @@ defmodule Bitblocks.Reorgs.ProtocolRewind do
             moved: non_neg_integer(),
             removed: non_neg_integer(),
             retrace: non_neg_integer()
-          }
+          },
+          bitcom_commands: %{moved: non_neg_integer()}
         }
 
   @doc "No rows touched."
@@ -46,7 +52,8 @@ defmodule Bitblocks.Reorgs.ProtocolRewind do
     %{
       tokens: %{moved: 0, removed: 0, rechecked: 0},
       listings: %{moved: 0, removed: 0, reopened: 0},
-      collection_items: %{moved: 0, removed: 0, retrace: 0}
+      collection_items: %{moved: 0, removed: 0, retrace: 0},
+      bitcom_commands: %{moved: 0}
     }
   end
 
@@ -56,7 +63,8 @@ defmodule Bitblocks.Reorgs.ProtocolRewind do
     %{
       tokens: Tokens.rewind_plan(moved, removed),
       listings: OrderBook.rewind_plan(moved, removed),
-      collection_items: OrdinalCollections.rewind_plan(moved, removed)
+      collection_items: OrdinalCollections.rewind_plan(moved, removed),
+      bitcom_commands: %{moved: Bitcom.rewind_plan(moved)}
     }
   end
 
@@ -66,7 +74,8 @@ defmodule Bitblocks.Reorgs.ProtocolRewind do
     add(none(), %{
       tokens: %{moved: Tokens.rewind_moved(txids, hash, height)},
       listings: %{moved: OrderBook.rewind_moved(txids, hash, height)},
-      collection_items: OrdinalCollections.rewind_moved(txids, height)
+      collection_items: OrdinalCollections.rewind_moved(txids, height),
+      bitcom_commands: %{moved: Bitcom.rewind_moved(txids, height)}
     })
   end
 

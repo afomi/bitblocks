@@ -205,6 +205,38 @@ defmodule Bitblocks.Bitcom do
     end)
   end
 
+  ## Reorgs
+
+  @doc """
+  The txs in `txids` now sit in a block at `block_height`: a reorg moved them,
+  or a tx stored without a block was placed. Moves their commands' height with
+  them, so the command log never keeps a stale height (the managed projection
+  over this log, `Bitblocks.Projections`, serves a command only at its tx's
+  height). The rows stay otherwise as logged. Returns how many rows moved.
+  """
+  @spec rewind_moved([String.t()], integer()) :: non_neg_integer()
+  def rewind_moved([], _block_height), do: 0
+
+  def rewind_moved(txids, block_height) do
+    {count, _} =
+      Repo.update_all(
+        from(c in Command,
+          where: c.txid in ^txids,
+          where: is_nil(c.block_height) or c.block_height != ^block_height
+        ),
+        set: [block_height: block_height, updated_at: NaiveDateTime.utc_now(:second)]
+      )
+
+    count
+  end
+
+  @doc "How many commands `rewind_moved/2` could move for `txids`. Read-only."
+  @spec rewind_plan([String.t()]) :: non_neg_integer()
+  def rewind_plan([]), do: 0
+
+  def rewind_plan(txids),
+    do: Repo.aggregate(from(c in Command, where: c.txid in ^txids), :count)
+
   ## Reading
 
   @doc "Every logged command for `namespace`, newest first (valid or not)."

@@ -8,7 +8,8 @@ defmodule Bitblocks.Projections do
 
   import Ecto.Query
 
-  alias Bitblocks.Chain.Transaction
+  alias Bitblocks.Bitcom.Command
+  alias Bitblocks.Chain.{Block, Transaction}
   alias Bitblocks.Projections.Projection
   alias Bitblocks.Repo
   alias Bitblocks.Workers.ProjectionWebhookWorker
@@ -44,13 +45,16 @@ defmodule Bitblocks.Projections do
   end
 
   @doc """
-  The transactions a projection matches, as a query.
+  The rows a projection matches, as a query: transactions, or for the
+  `bitcom_commands` source every logged Bitcom command.
 
   Each filter column becomes `column @> values` (array containment), which the
   column's GIN index serves. Avoid `value = ANY(column)` here: GIN can't serve
   it, so on the full `transactions` table it is a sequential scan.
   """
   @spec query(Projection.t()) :: Ecto.Query.t()
+  def query(%Projection{source: "bitcom_commands"}), do: from(c in Command)
+
   def query(%Projection{filter: filter}) do
     Enum.reduce(filter, from(t in Transaction), fn {column, values}, q ->
       # Validated against Projection.tag_columns/0, so the atom is known.
@@ -169,7 +173,8 @@ defmodule Bitblocks.Projections do
   defp webhook_projections do
     Repo.all(
       from p in Projection,
-        where: p.status == "active" and not is_nil(p.webhook_url),
+        # Webhooks deliver txs; a command projection follows over SSE.
+        where: p.status == "active" and not is_nil(p.webhook_url) and p.source == "transactions",
         order_by: p.id
     )
   end
@@ -186,7 +191,8 @@ defmodule Bitblocks.Projections do
   @follow_max_rows 1_000
 
   @doc """
-  Follow over SSE (#29 step 6): the matching txs in completed blocks above
+  Follow over SSE (#29 step 6): the matching txs (or, for the
+  `bitcom_commands` source, commands) in completed blocks above
   `after_height`, through our tip, oldest first, for a stream's catch-up.
 
   Bounded so a stream never becomes a second hydrate: more than
@@ -194,7 +200,7 @@ defmodule Bitblocks.Projections do
   matches, is `{:error, :too_far_behind}`, and the tenant hydrates first.
   """
   @spec follow_since(Projection.t(), integer()) ::
-          {:ok, [Transaction.t()]} | {:error, :too_far_behind}
+          {:ok, [Transaction.t() | Command.t()]} | {:error, :too_far_behind}
   def follow_since(%Projection{} = projection, after_height) do
     tip = tip_height()
 
@@ -218,10 +224,10 @@ defmodule Bitblocks.Projections do
   end
 
   @doc """
-  Follow over SSE: the matching txs stored under one completed block, by hash.
-  Empty when the block is below the projection's `from_height`.
+  Follow over SSE: the matching txs (or commands) stored under one completed
+  block, by hash. Empty when the block is below the projection's `from_height`.
   """
-  @spec block_matches(Projection.t(), String.t()) :: [Transaction.t()]
+  @spec block_matches(Projection.t(), String.t()) :: [Transaction.t() | Command.t()]
   def block_matches(%Projection{} = projection, block_hash) do
     projection
     |> follow_query()
@@ -242,16 +248,39 @@ defmodule Bitblocks.Projections do
     max(indexed_through(max(from, start + 1), tip_height()), start)
   end
 
-  # Matching txs under a stored, completed block at the row's own height, from
-  # the projection's from_height on, in hydrate's order.
+  # Matching rows under a stored, completed block at the row's own height, from
+  # the projection's from_height on, in hydrate's order. The first two
+  # bindings are the row and its block, for either source.
+  defp follow_query(%Projection{source: "bitcom_commands"} = projection) do
+    projection
+    |> served_commands()
+    |> where([c, b], b.sync_state == "completed")
+    |> order_by([c], asc: c.block_height, asc: c.txid, asc: c.output_index)
+  end
+
   defp follow_query(projection) do
     projection
     |> query()
-    |> join(:inner, [t], b in Bitblocks.Chain.Block,
-      on: b.hash == t.block_hash and b.height == t.block_height
-    )
+    |> join(:inner, [t], b in Block, on: b.hash == t.block_hash and b.height == t.block_height)
     |> where([t, b], b.sync_state == "completed" and t.block_height >= ^projection.from_height)
     |> order_by([t], asc: t.block_height, asc: t.txid)
+  end
+
+  # Tenant 3: the commands that stand on the stored chain, each with its block's
+  # hash. A command stands when its tx is stored under the block stored at the
+  # command's height: a command logged by discovery waits for the sync to store
+  # its tx, and one whose tx a reorg removed drops out, while the log keeps
+  # both. The order is served by bitcom_commands' (block_height, txid,
+  # output_index) index; each row then finds its block by height and its tx by
+  # txid, so nothing reads transactions but by its unique txid index.
+  defp served_commands(projection) do
+    from c in Command,
+      join: b in Block,
+      on: b.height == c.block_height,
+      join: t in Transaction,
+      on: t.txid == c.txid and t.block_hash == b.hash,
+      where: c.block_height >= ^projection.from_height,
+      select_merge: %{block_hash: b.hash}
   end
 
   @default_limit 100
@@ -275,11 +304,17 @@ defmodule Bitblocks.Projections do
   `complete` is true, and when it turns false holds that page's cursor and
   comes back from the same place: rows above the first incomplete block aren't
   final, and a tx stored below a cursor already served is not revisited.
+
+  A `bitcom_commands` projection (Tenant 3) pages its commands the same way,
+  ordered by `(block_height, txid, output_index)`, since one tx can hold
+  several, and returns them under `:commands` instead of `:txs`. Each carries
+  its block's hash in `block_hash`.
   """
   @spec hydrate(Projection.t(), keyword()) ::
           {:ok,
            %{
-             txs: [Transaction.t()],
+             optional(:txs) => [Transaction.t()],
+             optional(:commands) => [Command.t()],
              next_cursor: String.t() | nil,
              snapshot_height: integer() | nil,
              stable_through_height: integer() | nil,
@@ -292,20 +327,21 @@ defmodule Bitblocks.Projections do
     with {:ok, position} <- start_position(projection, opts) do
       {snapshot, after_key} = position
       page = if snapshot, do: fetch_page(projection, snapshot, after_key, limit), else: []
-      {txs, rest} = Enum.split(page, limit)
+      {rows, rest} = Enum.split(page, limit)
 
       next_cursor =
-        case {rest, List.last(txs)} do
+        case {rest, List.last(rows)} do
           {[_ | _], last} -> encode_cursor(projection.id, snapshot, last)
           _ -> nil
         end
 
       stable = stable_through(projection, snapshot)
-      covered = if next_cursor, do: List.last(txs).block_height, else: snapshot
+      covered = if next_cursor, do: List.last(rows).block_height, else: snapshot
+      key = if projection.source == "bitcom_commands", do: :commands, else: :txs
 
       {:ok,
        %{
-         txs: txs,
+         key => rows,
          next_cursor: next_cursor,
          snapshot_height: snapshot,
          stable_through_height: stable,
@@ -317,29 +353,41 @@ defmodule Bitblocks.Projections do
   defp start_position(projection, opts) do
     case Keyword.get(opts, :cursor) do
       nil -> {:ok, {Keyword.get_lazy(opts, :snapshot_height, &tip_height/0), nil}}
-      cursor -> decode_cursor(projection.id, cursor)
+      cursor -> decode_cursor(projection, cursor)
     end
   end
 
   @doc "Our highest stored block height, or nil."
   @spec tip_height() :: integer() | nil
-  def tip_height, do: Repo.one(from b in Bitblocks.Chain.Block, select: max(b.height))
+  def tip_height, do: Repo.one(from b in Block, select: max(b.height))
 
   # Fetches one row past the limit, so a full last page doesn't hand out a
   # cursor to an empty page.
-  defp fetch_page(projection, snapshot, after_key, limit) do
+  defp fetch_page(projection, snapshot, after_key, limit),
+    do: projection |> page_query(snapshot, after_key, limit + 1) |> Repo.all()
+
+  @doc false
+  # One hydrate page's query, `limit` rows after `after_key` (nil, a
+  # `{height, txid}` or a command's `{height, txid, output_index}`).
+  def page_query(%Projection{source: "bitcom_commands"} = projection, snapshot, after_key, limit) do
+    projection
+    |> served_commands()
+    |> where([c], c.block_height <= ^snapshot)
+    |> after_key(after_key)
+    |> order_by([c], asc: c.block_height, asc: c.txid, asc: c.output_index)
+    |> limit(^limit)
+  end
+
+  def page_query(projection, snapshot, after_key, limit) do
     projection
     |> query()
     # A row left under an orphan until `Reorgs.Reconcile` settles it (#34)
     # joins no stored block, so hydrate never returns it.
-    |> join(:inner, [t], b in Bitblocks.Chain.Block,
-      on: b.hash == t.block_hash and b.height == t.block_height
-    )
+    |> join(:inner, [t], b in Block, on: b.hash == t.block_hash and b.height == t.block_height)
     |> where([t], t.block_height >= ^projection.from_height and t.block_height <= ^snapshot)
     |> after_key(after_key)
     |> order_by([t], asc: t.block_height, asc: t.txid)
-    |> limit(^(limit + 1))
-    |> Repo.all()
+    |> limit(^limit)
   end
 
   defp after_key(query, nil), do: query
@@ -347,17 +395,46 @@ defmodule Bitblocks.Projections do
   defp after_key(query, {height, txid}),
     do: where(query, [t, _b], fragment("(?, ?) > (?, ?)", t.block_height, t.txid, ^height, ^txid))
 
+  defp after_key(query, {height, txid, index}),
+    do:
+      where(
+        query,
+        [c],
+        fragment(
+          "(?, ?, ?) > (?, ?, ?)",
+          c.block_height,
+          c.txid,
+          c.output_index,
+          ^height,
+          ^txid,
+          ^index
+        )
+      )
+
   # A cursor is opaque to tenants: base64url JSON of
-  # [projection_id, snapshot_height, last_block_height, last_txid].
+  # [projection_id, snapshot_height, last_block_height, last_txid], with
+  # last_output_index after them for a command projection.
   defp encode_cursor(id, snapshot, %Transaction{block_height: height, txid: txid}),
     do: [id, snapshot, height, txid] |> Jason.encode!() |> Base.url_encode64(padding: false)
 
-  defp decode_cursor(id, cursor) when is_binary(cursor) do
+  defp encode_cursor(id, snapshot, %Command{block_height: h, txid: txid, output_index: i}),
+    do: [id, snapshot, h, txid, i] |> Jason.encode!() |> Base.url_encode64(padding: false)
+
+  defp decode_cursor(%Projection{id: id, source: source}, cursor) when is_binary(cursor) do
     with {:ok, json} <- Base.url_decode64(cursor, padding: false),
-         {:ok, [^id, snapshot, height, txid]}
+         {:ok, [^id, snapshot, height, txid | rest]}
          when is_integer(snapshot) and is_integer(height) and is_binary(txid) <-
            Jason.decode(json) do
-      {:ok, {snapshot, {height, txid}}}
+      case {source, rest} do
+        {"bitcom_commands", [index]} when is_integer(index) ->
+          {:ok, {snapshot, {height, txid, index}}}
+
+        {"transactions", []} ->
+          {:ok, {snapshot, {height, txid}}}
+
+        _ ->
+          {:error, :invalid_cursor}
+      end
     else
       _ -> {:error, :invalid_cursor}
     end
