@@ -214,6 +214,10 @@ defmodule BitblocksWeb.TransactionLive.Show do
   after it may be missing; `:complete` when it reaches our `tip`; else
   `:partial`. Every lock behind a post is mined at or above the post, so
   on a post's page `:below` means none need be counted yet.
+
+  On a like's page `height` is the like's own block, not its post's, on
+  purpose: a like is mined at or above its post, so that is the stricter
+  test and never claims the like's own locks are counted when they aren't.
   """
   @spec lock_coverage(non_neg_integer() | nil, non_neg_integer() | nil, non_neg_integer() | nil) ::
           :unknown | :below | :partial | :complete

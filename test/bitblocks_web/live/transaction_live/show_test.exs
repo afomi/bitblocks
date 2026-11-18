@@ -213,6 +213,8 @@ defmodule BitblocksWeb.TransactionLive.ShowTest do
       assert coverage =~ "400,000"
       assert coverage =~ "This transaction was mined at block"
       assert coverage =~ "833,405"
+      assert coverage =~ "above the index,"
+      assert coverage =~ "so the locks backing this post may not be counted yet."
     end
 
     test "a like above the index shows its own lock, and says the post's total isn't counted (#75)",
@@ -230,7 +232,54 @@ defmodule BitblocksWeb.TransactionLive.ShowTest do
       assert lock =~ "24,999 blocks to go"
 
       assert view |> element("#tx-hodlocker-totals") |> render() =~ "Not indexed yet."
-      assert view |> element("#tx-hodlocker-coverage") |> render() =~ "833,405"
+
+      coverage = view |> element("#tx-hodlocker-coverage") |> render()
+      assert coverage =~ "833,405"
+
+      assert coverage =~
+               "so this like and the other locks backing the post may not be counted yet."
+    end
+
+    test "a post in no block we hold says so, rather than read as mined (#75)", %{conn: conn} do
+      post = "f76b5b61f8c2d643d10aad4dd7256090c986799293447080041a23145d253ed9"
+
+      heightless_transaction_fixture(%{
+        txid: post,
+        raw: Map.fetch!(@hodlocker_txs, post),
+        block_hash: String.duplicate("ab", 32)
+      })
+
+      index_through(400_000)
+
+      {:ok, view, _html} = live(conn, ~p"/transactions/#{post}")
+
+      totals = view |> element("#tx-hodlocker-totals") |> render()
+      assert totals =~ "Not indexed yet."
+      assert totals =~ "while this transaction is in no block we hold"
+      refute totals =~ "mined in"
+
+      coverage = view |> element("#tx-hodlocker-coverage") |> render()
+      assert coverage =~ "This transaction is not in a block we hold,"
+      assert coverage =~ "so the locks backing this post may not be counted yet."
+      refute coverage =~ "was mined at block"
+    end
+
+    test "a post the index covers up to our tip says every lock we hold is counted (#75)", %{
+      conn: conn
+    } do
+      post = "f76b5b61f8c2d643d10aad4dd7256090c986799293447080041a23145d253ed9"
+      insert_tx(Map.fetch!(@hodlocker_txs, post), post, %{height: 833_405})
+      index_through(840_000)
+
+      {:ok, view, _html} = live(conn, ~p"/transactions/#{post}")
+
+      assert view |> element("#tx-hodlocker-totals") |> render() =~
+               "No lock we have indexed backs this post."
+
+      coverage = view |> element("#tx-hodlocker-coverage") |> render()
+      assert coverage =~ "840,000"
+      assert coverage =~ "is indexed for time locks, up to our tip."
+      assert coverage =~ "These counts hold every lock in the blocks we have."
     end
 
     test "lock_coverage/3 places the index against the tx's block and our tip" do

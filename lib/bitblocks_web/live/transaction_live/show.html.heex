@@ -575,7 +575,11 @@
             No lock backing this post is indexed yet.
           <% :below -> %>
             <span class="font-medium text-gray-900 dark:text-white">Not indexed yet.</span>
-            The sats locked to this post are not counted until the time lock index reaches the block this transaction was mined in.
+            <%= if @block do %>
+              The sats locked to this post are not counted until the time lock index reaches the block this transaction was mined in.
+            <% else %>
+              The sats locked to this post are not counted while this transaction is in no block we hold.
+            <% end %>
           <% :unknown -> %>
             <span class="font-medium text-gray-900 dark:text-white">Not indexed yet.</span>
             The sats locked to this post are not counted until the time lock index covers the chain from its first block.
@@ -614,9 +618,14 @@
           is indexed for time locks.
           <%= if @block do %>
             This transaction was mined at block
-            <span class="font-mono tabular-nums"><%= BitblocksWeb.Sats.delimit(@block.height) %></span>, above that, so its locks and any mined after it may not be counted yet.
+            <span class="font-mono tabular-nums"><%= BitblocksWeb.Sats.delimit(@block.height) %></span>, above the index,
           <% else %>
-            This transaction is not in a block we hold, so its locks may not be counted yet.
+            This transaction is not in a block we hold,
+          <% end %>
+          <%= if @hodlocker.kind == :like do %>
+            so this like and the other locks backing the post may not be counted yet.
+          <% else %>
+            so the locks backing this post may not be counted yet.
           <% end %>
         <% :unknown -> %>
           The time lock index does not yet cover the chain from its first block.
