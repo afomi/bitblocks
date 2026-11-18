@@ -21,6 +21,7 @@ Without funding, Bitblocks spins down by 2026-12-31.
 
 1. Storage plan, final on measured numbers, for Ryan's approval: https://github.com/afomi/bitblocks/issues/96
 2. Archive to S3 and rehearse a restore: https://github.com/afomi/bitblocks/issues/55
+   The runbook is [docs/RESTORE.md](docs/RESTORE.md), with `Release.restore_check/1` to compare a restore with its source; the rehearsal itself is infra's.
 3. Drop the six unused indexes, approved 2026-11-15: https://github.com/afomi/bitblocks/issues/92
 4. Block objects for every completed block, before any move that drops `raw`: https://github.com/afomi/bitblocks/issues/94
 
