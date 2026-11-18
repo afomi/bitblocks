@@ -11,6 +11,9 @@ defmodule Bitblocks.Derivations.Run do
     * `partial`: an error stopped it after at least one batch; those
       batches stay applied, and `error` says what stopped it;
     * `failed`: an error stopped it before any batch finished;
+    * `halted`: it stopped cleanly at a batch boundary, its node shutting
+      down; the batches before it stay applied, and its backfill chain
+      carries on from the checkpoint after them (`Bitblocks.BackfillChains`);
     * `abandoned`: it was `running` when its process died, and an operator or
       the chain's next job closed it (`Bitblocks.Derivations.close_abandoned/2`).
 
@@ -20,7 +23,7 @@ defmodule Bitblocks.Derivations.Run do
   """
   use Ecto.Schema
 
-  @outcomes ~w(running ok partial failed abandoned)
+  @outcomes ~w(running ok partial failed halted abandoned)
 
   @type t :: %__MODULE__{}
 

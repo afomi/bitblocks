@@ -247,7 +247,7 @@ Every backfill run writes one row, dry runs included (`Bitblocks.Derivations.Run
 | `rows_below_version` | rows in the range still below the version when it finished: 0 for a complete applied run |
 | `blocks_examined` | blocks it walked (tallies) |
 | `details` | per-derivation counts: `values_changed`, `sats_in_unknown`, `blocks_changed`, `revisited`, `filled`, `still_unknown` (with `revisit_unknown: true`), `blocks_below_version`, `unverified`; `undecodable` for script analysis; `types_changed`, `undecodable`, `blocks_typed`, `blocks_changed`, `blocks_below_version` for tx types; `recipients_filled`, `cosign`, `unknown_lock`, `no_raw` for token recipients; `locks_found`, `one_sat_lock`, `cltv`, `csv`, `enforced`, `conditional`, `no_raw` for time locks |
-| `outcome` | `running`, `ok`, `partial`, `failed` or `abandoned` |
+| `outcome` | `running`, `ok`, `partial`, `failed`, `halted` or `abandoned` |
 | `error` | what stopped a partial or failed run |
 | `command` | the command as typed |
 | `chain_id` | the backfill chain that ran this range; nil for a run started by hand |
@@ -256,6 +256,7 @@ Every backfill run writes one row, dry runs included (`Bitblocks.Derivations.Run
 `running` means in flight, or the process died before finishing.
 `partial` means an error stopped it after at least one batch: those batches stay applied, and a rerun picks up the rest.
 `failed` means it stopped before finishing any batch.
+`halted` means its node was shutting down and it stopped cleanly at a batch boundary: those batches stay applied, and its backfill chain carries on after the checkpoint (see Backfill chains).
 `abandoned` means it was `running` when its process died (a deploy restart, say) and an operator closed it: its applied batches stay applied, and a rerun of the range picks up the rest.
 A block that completes over rows stored by an earlier sync gets a catch-up job (`Chain.TxPipeline.CatchUp`, queue `:derived`): the sync skips a stored txid, so those rows never meet the chunk steps, and the job runs the backfills over that one block, with no run record.
 `Release.backfill_tx_steps/3` does the same for the `:tx` steps over a range, on rows that never recorded a spend (derivation `tx_steps`, stamped by no column; run script analysis over the range first).
@@ -290,19 +291,38 @@ One job takes `step:` of the range: 10,000 heights or 1,000,000 ids.
 A pause or cancel lands when the range in flight finishes.
 Each derivation has one active chain at a time, so a second start is refused.
 
-**Across a restart.**
-A deploy kills the job mid-range and Lifeline rescues it within 30 minutes.
-The rerun closes the run the dead job left `running` as `abandoned`, then picks up the rows still below the version.
-So the wait after a deploy is up to 30 minutes, with no operator action.
+**The checkpoint.**
+After each batch the job saves `checkpoint_height` on the chain row, in the same update as the heartbeat: the highest height (tx id for `tx_size`) whose batch is committed.
+The run's counts so far go into its `derivation_runs` row in the same transaction.
+A job that takes a range with a checkpoint inside it starts at the checkpoint plus one, after a hand-off, a crash or a Lifeline rescue alike.
+Moving `next_from` on to the next range clears it.
+`token_recipients` pages by instance id rather than height, so it has no checkpoint: it starts its range over, and rows already at the version drop out.
+
+**Across a deploy** (https://github.com/afomi/bitblocks/issues/115).
+On SIGTERM, `Bitblocks.Application.prep_stop/1` sets `Bitblocks.Shutdown` before the supervision tree stops, so the flag is up for all of Oban's 60 s `shutdown_grace_period`.
+At the next batch boundary the job stops: its run reads `halted`, with `to_height` cut to the checkpoint, the heartbeat is cleared, `handed_off_at` is stamped, and the job snoozes for 5 seconds.
+It is never left `executing` for Lifeline, so the other node, or the new one, takes the range within seconds, from the checkpoint.
+A job that starts on a node already stopping snoozes the same way.
+A `token_recipients` dry run doesn't hand off, since a rerun would count its rows again; it takes the crash path below.
+
+**Across a crash.**
+A batch that can't finish inside the grace period dies with the node, as does a job on a node that crashes.
+Only that batch is lost: the checkpoint never moves past work that wasn't committed.
+The heartbeat goes stale after 15 minutes, one copy claims the range (one conditional update), closes the dead run as `abandoned`, and carries on from the checkpoint.
+
+**The counts.**
+Each run's counts stop at its checkpoint, and the next run of the range starts after it, so the status sums every finished run (`ok`, `halted`, `partial`, `abandoned`) and counts the range once.
+A run abandoned before checkpoints existed holds zeros, and its range reran in full.
+`backfill_status(id)` shows the checkpoint of the range in flight and when the chain last handed off.
 
 **A range longer than 30 minutes.**
-Lifeline also rescues a job that is still alive, so each batch beats `heartbeat_at` on the chain.
+Lifeline also rescues a job that is still alive, so a process linked to the job beats `heartbeat_at` on the chain every minute, and each batch beats it too.
 A rescued copy that finds a beat under 15 minutes old snoozes, and stops once `next_from` has moved on.
 
 **When a range keeps failing.**
 A range that errors is retried with a growing wait, up to 20 attempts, which restarts also spend.
-Then the chain reads `failed`, with the error, and `resume_backfill/1` carries on from the same range.
-`rows_changed` in the status sums finished ranges only; `rows_below_version` is the check.
+Then the chain reads `failed`, with the error, and `resume_backfill/1` carries on from the same range, after its checkpoint.
+`rows_below_version` is the check.
 
 ## Verifying a backfill
 

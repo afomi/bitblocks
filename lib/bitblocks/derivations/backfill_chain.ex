@@ -30,6 +30,13 @@ defmodule Bitblocks.Derivations.BackfillChain do
     field :error, :string
     # Fresh while a job is alive; nil between jobs.
     field :heartbeat_at, :utc_datetime_usec
+    # The highest height (tx id for tx_size) in the range in flight whose
+    # batch is committed: a job taking the range starts after it. Saved with
+    # the heartbeat after each batch, cleared when the range is done.
+    field :checkpoint_height, :integer
+    # When a job last stopped at a batch boundary, its node shutting down,
+    # and handed the range on.
+    field :handed_off_at, :utc_datetime_usec
     field :finished_at, :utc_datetime_usec
 
     timestamps()
