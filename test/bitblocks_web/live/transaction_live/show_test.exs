@@ -55,8 +55,8 @@ defmodule BitblocksWeb.TransactionLive.ShowTest do
     assert BitblocksWeb.TransactionLive.Show.output_type_label(:some_future_type) == "Script"
   end
 
-  defp insert_tx(raw, txid) do
-    block = block_fixture()
+  defp insert_tx(raw, txid, block_attrs \\ %{}) do
+    block = block_fixture(block_attrs)
 
     transaction_fixture(
       txid: txid,
@@ -188,14 +188,138 @@ defmodule BitblocksWeb.TransactionLive.ShowTest do
       assert coverage =~ "840,000"
     end
 
-    test "a post with no indexed lock says so", %{conn: conn} do
+    test "each vector is real: its bytes hash to its txid" do
+      for {txid, raw} <- @hodlocker_txs do
+        hash = :crypto.hash(:sha256, :crypto.hash(:sha256, Base.decode16!(raw, case: :lower)))
+        assert hash |> reverse_bytes() |> Base.encode16(case: :lower) == txid
+      end
+    end
+
+    # Prod's index stops far below HodLocker's era (blocks 810,000 to 838,000),
+    # so a post there must read as not indexed yet, never as zero sats.
+    test "a post above the time lock index says it is not indexed yet (#75)", %{conn: conn} do
+      post = "f76b5b61f8c2d643d10aad4dd7256090c986799293447080041a23145d253ed9"
+      insert_tx(Map.fetch!(@hodlocker_txs, post), post, %{height: 833_405})
+      index_through(400_000)
+
+      {:ok, view, _html} = live(conn, ~p"/transactions/#{post}")
+
+      totals = view |> element("#tx-hodlocker-totals") |> render()
+      assert totals =~ "Not indexed yet."
+      refute totals =~ "sats, in"
+
+      coverage = view |> element("#tx-hodlocker-coverage") |> render()
+      assert coverage =~ "Every block through"
+      assert coverage =~ "400,000"
+      assert coverage =~ "This transaction was mined at block"
+      assert coverage =~ "833,405"
+      assert coverage =~ "above the index,"
+      assert coverage =~ "so the locks backing this post may not be counted yet."
+    end
+
+    test "a like above the index shows its own lock, and says the post's total isn't counted (#75)",
+         %{conn: conn} do
+      like = "7f496c643364501f7b1c3f1593fd827b6e2af7207b3ead3ec04bb5666c16a88b"
+      insert_tx(Map.fetch!(@hodlocker_txs, like), like, %{height: 833_405})
+      index_through(400_000)
+
+      {:ok, view, _html} = live(conn, ~p"/transactions/#{like}")
+
+      lock = view |> element("#hodlocker-lock-0") |> render()
+      assert lock =~ "2,100,000,000"
+      assert lock =~ "13PnV1oUFYAeMUzzvoKFWX9FpjnMxyUpM9"
+      assert lock =~ "858,404"
+      assert lock =~ "24,999 blocks to go"
+
+      assert view |> element("#tx-hodlocker-totals") |> render() =~ "Not indexed yet."
+
+      coverage = view |> element("#tx-hodlocker-coverage") |> render()
+      assert coverage =~ "833,405"
+
+      assert coverage =~
+               "so this like and the other locks backing the post may not be counted yet."
+    end
+
+    test "a post in no block we hold says so, rather than read as mined (#75)", %{conn: conn} do
+      post = "f76b5b61f8c2d643d10aad4dd7256090c986799293447080041a23145d253ed9"
+
+      heightless_transaction_fixture(%{
+        txid: post,
+        raw: Map.fetch!(@hodlocker_txs, post),
+        block_hash: String.duplicate("ab", 32)
+      })
+
+      index_through(400_000)
+
+      {:ok, view, _html} = live(conn, ~p"/transactions/#{post}")
+
+      totals = view |> element("#tx-hodlocker-totals") |> render()
+      assert totals =~ "Not indexed yet."
+      assert totals =~ "while this transaction is in no block we hold"
+      refute totals =~ "mined in"
+
+      coverage = view |> element("#tx-hodlocker-coverage") |> render()
+      assert coverage =~ "This transaction is not in a block we hold,"
+      assert coverage =~ "so the locks backing this post may not be counted yet."
+      refute coverage =~ "was mined at block"
+    end
+
+    test "a post the index covers up to our tip says every lock we hold is counted (#75)", %{
+      conn: conn
+    } do
+      post = "f76b5b61f8c2d643d10aad4dd7256090c986799293447080041a23145d253ed9"
+      insert_tx(Map.fetch!(@hodlocker_txs, post), post, %{height: 833_405})
+      index_through(840_000)
+
+      {:ok, view, _html} = live(conn, ~p"/transactions/#{post}")
+
+      assert view |> element("#tx-hodlocker-totals") |> render() =~
+               "No lock we have indexed backs this post."
+
+      coverage = view |> element("#tx-hodlocker-coverage") |> render()
+      assert coverage =~ "840,000"
+      assert coverage =~ "is indexed for time locks, up to our tip."
+      assert coverage =~ "These counts hold every lock in the blocks we have."
+    end
+
+    test "lock_coverage/3 places the index against the tx's block and our tip" do
+      alias BitblocksWeb.TransactionLive.Show
+      assert Show.lock_coverage(nil, 833_405, 900_000) == :unknown
+      assert Show.lock_coverage(400_000, 833_405, 900_000) == :below
+      assert Show.lock_coverage(400_000, nil, 900_000) == :below
+      assert Show.lock_coverage(850_000, 833_405, 900_000) == :partial
+      assert Show.lock_coverage(900_000, 833_405, 900_000) == :complete
+      assert Show.lock_coverage(850_000, 833_405, nil) == :partial
+    end
+
+    test "a post reads as not indexed yet until the index covers the chain from block 0", %{
+      conn: conn
+    } do
       post = "f76b5b61f8c2d643d10aad4dd7256090c986799293447080041a23145d253ed9"
       insert_tx(Map.fetch!(@hodlocker_txs, post), post)
 
       {:ok, view, _html} = live(conn, ~p"/transactions/#{post}")
 
+      totals = view |> element("#tx-hodlocker-totals") |> render()
+      assert totals =~ "Not indexed yet."
+      assert totals =~ "covers the chain from its first block"
+    end
+
+    test "a post the index covers, short of our tip, with no lock says none is indexed yet", %{
+      conn: conn
+    } do
+      post = "f76b5b61f8c2d643d10aad4dd7256090c986799293447080041a23145d253ed9"
+      insert_tx(Map.fetch!(@hodlocker_txs, post), post, %{height: 833_405})
+      block_fixture(%{height: 900_000})
+      index_through(850_000)
+
+      {:ok, view, _html} = live(conn, ~p"/transactions/#{post}")
+
       assert view |> element("#tx-hodlocker-totals") |> render() =~
                "No lock backing this post is indexed yet"
+
+      assert view |> element("#tx-hodlocker-coverage") |> render() =~
+               "A lock mined above it may not be counted yet"
     end
 
     test "lock_state/2 counts down to the unlock height" do
@@ -204,6 +328,29 @@ defmodule BitblocksWeb.TransactionLive.ShowTest do
       assert Show.lock_state(100, 100) == :unlocked
       assert Show.lock_state(100, nil) == :unknown
     end
+  end
+
+  defp reverse_bytes(bin),
+    do: bin |> :binary.bin_to_list() |> Enum.reverse() |> :binary.list_to_bin()
+
+  # The time lock index reaches `through`: an applied backfill run from block
+  # 0, with the sync complete through the same height.
+  defp index_through(through) do
+    alias Bitblocks.SyncProgress
+
+    Bitblocks.Repo.insert!(%Bitblocks.Derivations.Run{
+      derivation: "timelocks",
+      version: Bitblocks.Timelocks.version(),
+      from_height: 0,
+      to_height: through,
+      applied: true,
+      outcome: "ok",
+      started_at: DateTime.utc_now()
+    })
+
+    snapshot = SyncProgress.empty_snapshot()
+    :ets.insert(SyncProgress, {:snapshot, put_in(snapshot.overview.complete_through, through)})
+    on_exit(fn -> :ets.insert(SyncProgress, {:snapshot, SyncProgress.empty_snapshot()}) end)
   end
 
   describe "nLockTime (#76)" do

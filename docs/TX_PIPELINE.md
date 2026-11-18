@@ -128,6 +128,8 @@ A tx's own lock time is the `nlocktime` type, read from the tx when shown; scrip
 
 - A 1Sat Lock (the `timelock` type, which HodLocker used) reads the spending tx's lock time with OP_PUSH_TX, so it binds today.
   A HodLocker lock's row names the post it backs (`backs_txid`).
+  A HodLocker tx's page reads its post's totals and backers from those rows, and places `Timelocks.indexed_through/1` against the tx's block and our tip (`TransactionLive.Show.lock_coverage/3`, #75).
+  Below the tx's block, or with no backfill run from block 0, the totals read "Not indexed yet." rather than zero.
 - `OP_CHECKLOCKTIMEVERIFY` and `OP_CHECKSEQUENCEVERIFY` bind only for an output mined between their activation (blocks 388,381 and 419,328) and Genesis (620,538); after Genesis they are NOPs again, so such a row has `enforced` false.
 - A lock inside an `OP_IF` or `OP_NOTIF` branch, where another branch can spend, is `conditional`, with its `branch` path: locked on one path, not a fact about the output.
 - A P2SH output hides its script until spent, so a CLTV inside one isn't seen.
