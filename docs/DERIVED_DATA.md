@@ -186,6 +186,10 @@ A rerun after a full apply finds nothing, and a run stopped partway resumes from
 bin/bitblocks rpc 'Bitblocks.Release.backfill_tx_tallies(0, 10_000)'
 bin/bitblocks rpc 'Bitblocks.Release.backfill_tx_tallies(0, 10_000, apply: true)'
 
+# Tallies stamped with sats in unknown, once the txs they spend are stored (#100), dry run, then apply
+bin/bitblocks rpc 'Bitblocks.Release.backfill_tx_tallies(944_540, 957_679, revisit_unknown: true)'
+bin/bitblocks rpc 'Bitblocks.Release.backfill_tx_tallies(944_540, 957_679, apply: true, revisit_unknown: true)'
+
 # Script analysis of stored txs by block_height, dry run, then apply
 bin/bitblocks rpc 'Bitblocks.Release.backfill_script_analysis(0, 10_000)'
 bin/bitblocks rpc 'Bitblocks.Release.backfill_script_analysis(0, 10_000, apply: true)'
@@ -242,7 +246,7 @@ Every backfill run writes one row, dry runs included (`Bitblocks.Derivations.Run
 | `rows_changed` | rows it stamped, or in a dry run would stamp; for tx types, the tx rows it wrote (only those whose types change, see above) |
 | `rows_below_version` | rows in the range still below the version when it finished: 0 for a complete applied run |
 | `blocks_examined` | blocks it walked (tallies) |
-| `details` | per-derivation counts: `values_changed`, `sats_in_unknown`, `blocks_changed`, `blocks_below_version`, `unverified`; `undecodable` for script analysis; `types_changed`, `undecodable`, `blocks_typed`, `blocks_changed`, `blocks_below_version` for tx types; `recipients_filled`, `cosign`, `unknown_lock`, `no_raw` for token recipients; `locks_found`, `one_sat_lock`, `cltv`, `csv`, `enforced`, `conditional`, `no_raw` for time locks |
+| `details` | per-derivation counts: `values_changed`, `sats_in_unknown`, `blocks_changed`, `revisited`, `filled`, `still_unknown` (with `revisit_unknown: true`), `blocks_below_version`, `unverified`; `undecodable` for script analysis; `types_changed`, `undecodable`, `blocks_typed`, `blocks_changed`, `blocks_below_version` for tx types; `recipients_filled`, `cosign`, `unknown_lock`, `no_raw` for token recipients; `locks_found`, `one_sat_lock`, `cltv`, `csv`, `enforced`, `conditional`, `no_raw` for time locks |
 | `outcome` | `running`, `ok`, `partial`, `failed` or `abandoned` |
 | `error` | what stopped a partial or failed run |
 | `command` | the command as typed |
@@ -317,9 +321,23 @@ Then `Release.derivation_runs()` shows that dry run as the latest, with `below v
 Two kinds of row are stamped without a full answer, by design:
 
 - A tx whose sats in is unknown (a previous output isn't stored) is stamped: the version computed it as unknown from what was stored.
-  The run counts these under `sats_in_unknown`; `force: true` over the range recomputes them once the previous txs are stored.
+  The run counts these under `sats_in_unknown`, and its fee and its block's `fees` and `fees_verified` stay nil.
+  A plain run never picks it again, since it is at the version; a revisit run does (below).
 - A tx that doesn't decode keeps its old script analysis stamp, so it stays below the version; the run counts these under `undecodable`.
   So the script analysis acceptance check is rows below the version equal to `undecodable`, every one of them a decode failure.
   These are real txs whose scripts `BSV.Tx.from_binary` can't parse as opcodes (on dev, 6 of 4,527, all `:decode_raised`); an analyzer that reads outputs by bytes would stamp them, with a version bump.
 - A token output under a lock that names no address is stamped with `lock: "other"`: the version computed it as unknown, and the run counts these under `unknown_lock`.
   A token output whose tx can't be read keeps its old stamp and counts under `no_raw`, so the acceptance check for token recipients is rows below the version equal to `no_raw`.
+
+### Revisiting sats in unknown
+
+A range above `complete_through` spends from blocks the sync hasn't stored yet, so a tallies run there stamps many rows with sats in unknown (the dry run over 944,540..957,679 counted 1,082,474).
+Run it again with `revisit_unknown: true` after the sync passes the range those rows spend from, that is once `complete_through` has moved up a good way since the first run.
+It also picks the rows at the version whose `total_input_satoshis` is nil and that aren't coinbases, recomputes them from what is stored now, and writes the ones it now knows (`filled`).
+A row whose previous tx still isn't stored is left exactly as it was, values and stamp (`still_unknown`); `revisited` is the two together.
+A block is rewritten when any of its rows filled, or when its `fees` is nil though every one of its rows now has a fee.
+It walks the same rows as a plain run, block by block on the `block_hash` index, under the same statement timeout, and needs no new index.
+What it adds is a raw read and a previous-output lookup for every row with sats in unknown in the range, on every such run, so it is an option rather than the default.
+Dry run first, as always: `filled` says whether the sync has caught up enough to be worth an apply.
+`start_backfill("tallies", from, to, revisit_unknown: true, apply: true)` runs it as a chain.
+`force: true` recomputes them too, along with every other row in the range.

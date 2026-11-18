@@ -220,6 +220,8 @@ bin/bitblocks rpc 'Bitblocks.Release.status()'
 # Dry run first; apply in ascending ranges; a dry run then reports 0 below version.
 bin/bitblocks rpc 'Bitblocks.Release.backfill_tx_tallies(0, 10_000)'
 bin/bitblocks rpc 'Bitblocks.Release.backfill_tx_tallies(0, 10_000, apply: true)'
+# Rows stamped with sats in unknown, once the sync stores what they spend (#100): dry run first, then add apply: true
+bin/bitblocks rpc 'Bitblocks.Release.backfill_tx_tallies(944_540, 957_679, revisit_unknown: true)'
 bin/bitblocks rpc 'Bitblocks.Release.backfill_script_analysis(0, 10_000)'
 bin/bitblocks rpc 'Bitblocks.Release.backfill_tx_types(0, 10_000)'
 bin/bitblocks rpc 'Bitblocks.Release.derivation_runs()'
