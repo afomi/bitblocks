@@ -64,6 +64,27 @@ defmodule BitblocksWeb.Plugs.RateLimiter do
   (`%{count: 1}`, `%{family: f}`), and adds to `throttled_crawlers/0`, this
   node's count since boot.
 
+  Over budget, `/pricing`, `/contact` and `/terms` are still served
+  (`AiCrawlers.always_open?/1`): they are where the 402 sends it.
+
+  ## Paying with x402
+
+  With `Bitblocks.Payments.X402` enabled, the same 402 also carries a
+  `PAYMENT-REQUIRED` offer (the configured price in USDC, on the configured
+  network, to our deposit address) for a route the crawler could read for
+  free (`AiCrawlers.payable?/1`). A retry with a `PAYMENT-SIGNATURE` header:
+
+    * first meets its own budgets, per IP and per family
+      (`X402_PAID_PER_IP_PER_MINUTE`, `X402_PAID_PER_FAMILY_PER_MINUTE`),
+      since each costs a facilitator call; over either, a 429;
+    * paid: the request is served, with `PAYMENT-RESPONSE`, as the anonymous
+      caller it is (telemetry `[:bitblocks, :ai_crawler, :paid]`);
+    * refused (wrong amount, wrong payTo, a replay, a failed verify): the 402
+      with a fresh offer;
+    * facilitator or replay guard unavailable: a 503 with no content.
+
+  A request with a bad key is never offered one; it gets its 401.
+
   ## API keys
 
   A request carrying `Authorization: Bearer bbk_…` or `x-api-key: bbk_…` is
@@ -82,6 +103,7 @@ defmodule BitblocksWeb.Plugs.RateLimiter do
   import Plug.Conn
   require Logger
 
+  alias Bitblocks.Payments.X402, as: X402Pay
   alias BitblocksWeb.Plugs.RateLimiter.{AiCrawlers, Replicator}
 
   @table :rate_limiter
@@ -126,6 +148,8 @@ defmodule BitblocksWeb.Plugs.RateLimiter do
           # keys can't hammer the DB.
           nil ->
             {bucket, max_requests, tier} = anonymous_budget(conn, ip, anonymous)
+            # Answered 401 below, so never offered a payment it couldn't use.
+            conn = put_private(conn, :rate_limiter_bad_key, true)
 
             case limit(conn, bucket, now, window_ms, max_requests, tier) do
               %Plug.Conn{halted: true} = halted ->
@@ -253,7 +277,101 @@ defmodule BitblocksWeb.Plugs.RateLimiter do
 
   defp assign_tier(conn, tier), do: assign(conn, :caller_tier, tier)
 
-  defp refuse(conn, bucket, {:ai_crawler, family}, max_requests, retry_after_s) do
+  # A crawler over its budget: the pages that tell it how to pay stay open;
+  # with x402 on, a route it could read for free is offered for sale, and a
+  # payment for it is taken; otherwise the plain 402.
+  defp refuse(conn, bucket, {:ai_crawler, family} = tier, max_requests, retry_after_s) do
+    cond do
+      AiCrawlers.always_open?(conn) ->
+        conn
+        |> assign_tier(tier)
+        |> put_resp_header("x-ratelimit-limit", Integer.to_string(max_requests))
+        |> put_resp_header("x-ratelimit-remaining", "0")
+
+      X402Pay.enabled?() and not Map.has_key?(conn.private, :rate_limiter_bad_key) and
+          AiCrawlers.payable?(conn) ->
+        case get_req_header(conn, X402.payment_header()) do
+          [] ->
+            conn
+            |> X402.put_challenge(X402Pay.challenge(conn))
+            |> crawler_402(bucket, family, max_requests, retry_after_s)
+
+          _header ->
+            pay(conn, bucket, tier, max_requests, retry_after_s)
+        end
+
+      true ->
+        crawler_402(conn, bucket, family, max_requests, retry_after_s)
+    end
+  end
+
+  defp refuse(conn, bucket, tier, max_requests, retry_after_s) do
+    Logger.warning("Rate limited #{bucket} tier=#{tier} limit=#{max_requests}")
+
+    conn
+    |> put_resp_header("retry-after", Integer.to_string(retry_after_s))
+    |> put_resp_header("x-ratelimit-limit", Integer.to_string(max_requests))
+    |> put_resp_header("x-ratelimit-remaining", "0")
+    |> send_resp(429, "Too Many Requests. Retry after #{retry_after_s} seconds.")
+    |> halt()
+  end
+
+  # A crawler's paid retry. Each well-formed payment header costs a
+  # facilitator /verify call, so paid attempts have budgets of their own, per
+  # IP and per family, checked before x402_ex sees the header.
+  defp pay(conn, bucket, {:ai_crawler, family} = tier, max_requests, retry_after_s) do
+    ip = BitblocksWeb.Utils.IpHelper.get_ip_address(conn)
+    now = System.system_time(:millisecond)
+    window_ms = config(:window_ms, @default_window_ms)
+
+    with {:ok, _} <- check_rate("x402:ip:#{ip}", now, window_ms, X402Pay.paid_per_ip_per_minute()),
+         {:ok, _} <-
+           check_rate("x402:#{bucket}", now, window_ms, X402Pay.paid_per_family_per_minute()) do
+      case X402Pay.handle(conn) do
+        {:ok, conn, _settlement} ->
+          record_paid(family)
+          Logger.info("AI crawler paid #{bucket} path=#{conn.request_path} ip=#{ip}")
+
+          conn
+          |> assign_tier(tier)
+          |> assign(:x402_paid, true)
+
+        {:payment_required, challenge} ->
+          conn
+          |> X402.put_challenge(challenge)
+          |> crawler_402(bucket, family, max_requests, retry_after_s)
+
+        {:payment_required, challenge, reason} ->
+          Logger.info("AI crawler payment refused #{bucket} reason=#{reason} ip=#{ip}")
+
+          conn
+          |> X402.put_challenge(challenge)
+          |> crawler_402(bucket, family, max_requests, retry_after_s)
+
+        # The facilitator or our guard is unavailable: nothing is served. A
+        # 503 after x402_ex's settle wait may still have been paid; it records
+        # the settlement when it lands (the reconciler books it), and the
+        # same header retried is refused as replayed, so no one pays twice.
+        {:error, reason} ->
+          Logger.warning("AI crawler payment unavailable #{bucket} reason=#{reason}")
+
+          conn
+          |> send_resp(503, "")
+          |> halt()
+      end
+    else
+      {:error, retry_after_ms} ->
+        retry_s = max(1, div(retry_after_ms, 1000))
+        Logger.info("AI crawler paid attempts limited #{bucket} ip=#{ip}")
+
+        conn
+        |> put_resp_header("retry-after", Integer.to_string(retry_s))
+        |> send_resp(429, "Too many payment attempts. Retry after #{retry_s} seconds.")
+        |> halt()
+    end
+  end
+
+  defp crawler_402(conn, bucket, family, max_requests, retry_after_s) do
     record_throttle(family)
 
     Logger.info(
@@ -269,17 +387,6 @@ defmodule BitblocksWeb.Plugs.RateLimiter do
     |> put_resp_header("x-ratelimit-remaining", "0")
     |> put_resp_content_type(content_type)
     |> send_resp(402, body)
-    |> halt()
-  end
-
-  defp refuse(conn, bucket, tier, max_requests, retry_after_s) do
-    Logger.warning("Rate limited #{bucket} tier=#{tier} limit=#{max_requests}")
-
-    conn
-    |> put_resp_header("retry-after", Integer.to_string(retry_after_s))
-    |> put_resp_header("x-ratelimit-limit", Integer.to_string(max_requests))
-    |> put_resp_header("x-ratelimit-remaining", "0")
-    |> send_resp(429, "Too Many Requests. Retry after #{retry_after_s} seconds.")
     |> halt()
   end
 
@@ -325,6 +432,10 @@ defmodule BitblocksWeb.Plugs.RateLimiter do
     key = {:crawler_throttled, family}
     :ets.update_counter(@table, key, 1, {key, 0})
     :telemetry.execute([:bitblocks, :ai_crawler, :throttled], %{count: 1}, %{family: family})
+  end
+
+  defp record_paid(family) do
+    :telemetry.execute([:bitblocks, :ai_crawler, :paid], %{count: 1}, %{family: family})
   end
 
   @doc """

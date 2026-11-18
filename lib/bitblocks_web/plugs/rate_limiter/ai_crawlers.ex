@@ -96,6 +96,51 @@ defmodule BitblocksWeb.Plugs.RateLimiter.AiCrawlers do
 
   def family(_), do: nil
 
+  # Pages a crawler over its budget can always read: where the 402 sends it
+  # (/pricing#crawlers), and the contact and terms pages when they exist.
+  @always_open ~w(pricing contact terms)
+
+  @doc """
+  True for a page never refused to a crawler over its budget: `/pricing`,
+  where the 402 points, and `/contact` and `/terms`. Still counted.
+  """
+  @spec always_open?(Plug.Conn.t()) :: boolean()
+  def always_open?(%Plug.Conn{path_info: [first | _]}), do: first in @always_open
+  def always_open?(_conn), do: false
+
+  # Pipelines that refuse a caller with no key and no session while the
+  # sign-in gate is on (BitblocksWeb.AdminAuth), and the one that always does
+  # (ops_api wants a key with a scope).
+  @gated_pipelines [
+    :api,
+    :public_api,
+    :public_csv,
+    :raw_api,
+    :admin,
+    :signed_in,
+    :admin_data,
+    :admin_json
+  ]
+  @key_only_pipelines [:ops_api]
+
+  @doc """
+  True when an x402 payment would actually be served: the route exists and is
+  open to a caller with no key and no session. A payment never buys more
+  access than the free budget had, so a route that would answer 401 or 404
+  after the money moved is never offered for sale.
+  """
+  @spec payable?(Plug.Conn.t()) :: boolean()
+  def payable?(%Plug.Conn{} = conn) do
+    case Phoenix.Router.route_info(BitblocksWeb.Router, conn.method, conn.path_info, conn.host) do
+      %{pipe_through: pipes} ->
+        gated = if BitblocksWeb.AdminAuth.enabled?(), do: @gated_pipelines, else: []
+        not Enum.any?(pipes, &(&1 in gated or &1 in @key_only_pipelines))
+
+      :error ->
+        false
+    end
+  end
+
   @doc "The page that tells a crawler's operator how to get a key."
   @spec page_url() :: String.t()
   def page_url, do: "https://bitblocks.app/pricing#crawlers"

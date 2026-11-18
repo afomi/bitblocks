@@ -70,6 +70,13 @@ config :bitblocks, :bitcoinsv_cli, BitcoinsvCliMock
 # itself is covered in test/bitblocks/http_test.exs.
 config :bitblocks, :bitcoin_rpc_max_body_bytes, nil
 
+# x402_ex: lets tests point facilitators and Stripe at Req.Test stubs
+# (req_options: [plug: ...]). Test only; anywhere else x402_ex refuses them.
+config :x402_ex, allow_req_options: true
+
+# x402 off by default; test/bitblocks_web/plugs/rate_limiter/x402_test.exs turns it on.
+config :bitblocks, Bitblocks.Payments.X402, enabled: false
+
 # Disable Oban queues in test (but keep the supervisor running)
 config :bitblocks, Oban, testing: :manual, queues: false
 

@@ -290,6 +290,13 @@ bin/bitblocks rpc 'Bitblocks.Release.flow_tiles_status()'
 
 # The tx store (CDN) counted against the chain: declared, stored, in the store, sampled (read-only)
 bin/bitblocks rpc 'Bitblocks.Release.tx_store_reconcile(0, 9_999)'
+
+# x402 crawler payments (docs/STRIPE.md): status (names keys, never values), and settled payments not yet in Stripe (a 10-minute cron does the same)
+bin/bitblocks rpc 'Bitblocks.Release.x402_status()'
+bin/bitblocks rpc 'Bitblocks.Release.x402_reconcile()'
+# The deposit address, once, by hand: dry run first; apply prints only the address, which goes in X402_PAY_TO, not the repo
+bin/bitblocks rpc 'Bitblocks.Release.x402_create_deposit_address(network: "base")'
+bin/bitblocks rpc 'Bitblocks.Release.x402_create_deposit_address(network: "base", apply: true)'
 ```
 
 `/syncing` shows the loop live; admins also get the worker-slot control and the load on our node there.
@@ -302,6 +309,7 @@ These limits count per node until the Erlang cluster is connected (`this_node.ra
 Logged-in users get `RATE_LIMIT_SIGNED_IN_PER_MINUTE` (600) per user, and admins `RATE_LIMIT_ADMIN_PER_MINUTE` (3,000) per user.
 This covers HTTP requests, not events over an open LiveView socket.
 An AI crawler without a key gets `RATE_LIMIT_AI_CRAWLER_PER_MINUTE` (10) per family, shared by all its IPs, and a company's user-triggered fetcher (`ChatGPT-User`, `Claude-User`, `Perplexity-User`, `meta-externalfetcher`) its own `RATE_LIMIT_AI_FETCHER_PER_MINUTE` (30) apart from its bulk crawler; over either, a 402 with `Retry-After` and a body (JSON under `/api/`, text elsewhere) naming the key header and `/pricing#crawlers`; refusals are logged at info, counted by telemetry `[:bitblocks, :ai_crawler, :throttled]`, and shown per family in `Release.status()`.
+Over budget, `/pricing`, `/contact` and `/terms` still answer; with x402 on (`X402_ENABLED` and `X402_PAY_TO`, `Bitblocks.Payments.X402`, docs/STRIPE.md), the 402 also carries a `PAYMENT-REQUIRED` offer for a route the crawler could read for free, a retry with `PAYMENT-SIGNATURE` is settled, claimed once in `x402_payments`, recorded in Stripe and served with `PAYMENT-RESPONSE`, a refused payment gets the 402 again and an unavailable facilitator a 503; paid attempts have their own per-IP and per-family budgets.
 Keyed callers send `Authorization: Bearer bbk_…` (or `x-api-key`) and get their key's own budget; create one with `bin/bitblocks rpc 'Bitblocks.Release.create_api_key("qart", 1200)'` (printed once), or register one made elsewhere from its sha256 with `Release.create_api_key_from_hash/3`, so the key never appears in command output. An unknown or revoked key is a 401.
 A signed-in user can take one trial key from `/start`, 60 requests a minute and no scopes (`ApiKeys.issue_trial/1`, `replace_trial/1`, #59).
 A key can hold scopes, none by default: `ops_read` opens `/api/v1/ops/*`, given with `scopes: ["ops_read"]` on either create function or `Release.grant_api_key_scope/2`. A key without it gets a 403.
