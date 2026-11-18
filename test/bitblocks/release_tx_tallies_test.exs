@@ -268,6 +268,32 @@ defmodule Bitblocks.ReleaseTxTalliesTest do
     assert %{rows_changed: 0, details: %{revisited: 0, blocks_changed: 0}} = rerun
   end
 
+  # A revisit writes the current version, so it must leave a row a newer
+  # version stamped (mixed code during a deploy or a rollback) alone.
+  test "revisit_unknown never lowers a newer stamp" do
+    {grand_txid, _} = grand = tx([funding_outpoint()], [p2pkh(address(), 50_000)])
+    {spender_txid, _} = spender = tx(["#{grand_txid}_0"], [p2pkh(address(), 49_000)])
+
+    earlier = block_fixture(%{height: 30, sync_state: "completed"})
+    tip = block_fixture(%{height: 31, sync_state: "completed"})
+    :ok = TxIngest.store(tx_json(spender), tip)
+    :ok = TxIngest.store(tx_json(grand), earlier)
+
+    newer = TxPipeline.version(:tallies) + 1
+
+    Repo.update_all(from(t in Transaction, where: t.txid == ^spender_txid),
+      set: [tallies_version: newer, total_input_satoshis: nil, fee_satoshis: nil]
+    )
+
+    report =
+      quietly(fn -> Release.backfill_tx_tallies(31, 31, apply: true, revisit_unknown: true) end)
+
+    assert %{rows_changed: 0, details: %{revisited: 0, filled: 0}} = report
+
+    assert %{tallies_version: ^newer, total_input_satoshis: nil, fee_satoshis: nil} =
+             Chain.get_transaction!(spender_txid)
+  end
+
   test "only the height range is scanned", ctx do
     quietly(fn -> Release.backfill_tx_tallies(21, 21, apply: true) end)
 

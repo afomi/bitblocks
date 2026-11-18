@@ -332,12 +332,13 @@ Two kinds of row are stamped without a full answer, by design:
 ### Revisiting sats in unknown
 
 A range above `complete_through` spends from blocks the sync hasn't stored yet, so a tallies run there stamps many rows with sats in unknown (the dry run over 944,540..957,679 counted 1,082,474).
-Run it again with `revisit_unknown: true` after the sync passes the range those rows spend from, that is once `complete_through` has moved up a good way since the first run.
-It also picks the rows at the version whose `total_input_satoshis` is nil and that aren't coinbases, recomputes them from what is stored now, and writes the ones it now knows (`filled`).
+Run it again with `revisit_unknown: true` after the sync passes the range those rows spend from; a dry run's `filled` count says whether it has.
+It also picks the rows stamped at exactly the current version whose `total_input_satoshis` is nil and that aren't coinbases, recomputes them from what is stored now, and writes the ones it now knows (`filled`).
 A row whose previous tx still isn't stored is left exactly as it was, values and stamp (`still_unknown`); `revisited` is the two together.
 A block is rewritten when any of its rows filled, or when its `fees` is nil though every one of its rows now has a fee.
 It walks the same rows as a plain run, block by block on the `block_hash` index, under the same statement timeout, and needs no new index.
 What it adds is a raw read and a previous-output lookup for every row with sats in unknown in the range, on every such run, so it is an option rather than the default.
-Dry run first, as always: `filled` says whether the sync has caught up enough to be worth an apply.
+A row stamped by a newer version (old code running during a rolling deploy, or after a rollback) is left alone, so a revisit never lowers a stamp.
+Dry run first, as always, and apply when `filled` is worth it.
 `start_backfill("tallies", from, to, revisit_unknown: true, apply: true)` runs it as a chain.
 `force: true` recomputes them too, along with every other row in the range.

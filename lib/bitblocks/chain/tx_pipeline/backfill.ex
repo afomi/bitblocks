@@ -13,7 +13,7 @@ defmodule Bitblocks.Chain.TxPipeline.Backfill do
   picked. So a rerun after a full apply picks nothing, and a stopped run
   resumes where it stopped. `force: true` picks every row in the range.
 
-  `revisit_unknown: true` also picks the rows already at the version whose
+  `revisit_unknown: true` also picks the rows stamped at exactly the version whose
   sats in is unknown (`total_input_satoshis` nil, not a coinbase): a
   previous output wasn't stored when they were computed. It recomputes them
   from what is stored now, writes the ones whose sats in it now knows
@@ -242,12 +242,14 @@ defmodule Bitblocks.Chain.TxPipeline.Backfill do
           burned_satoshis: t.burned_satoshis,
           raw:
             fragment(
-              "CASE WHEN ?::boolean OR ? IS NULL OR ? < ? OR (?::boolean AND ? IS NOT TRUE AND ? IS NULL) THEN ? END",
+              "CASE WHEN ?::boolean OR ? IS NULL OR ? < ? OR (?::boolean AND ? = ? AND ? IS NOT TRUE AND ? IS NULL) THEN ? END",
               ^ctx.force,
               t.tallies_version,
               t.tallies_version,
               ^ctx.version,
               ^ctx.revisit,
+              t.tallies_version,
+              ^ctx.version,
               t.coinbase,
               t.total_input_satoshis,
               t.raw
@@ -261,7 +263,7 @@ defmodule Bitblocks.Chain.TxPipeline.Backfill do
     {picked, rest} =
       Enum.split_with(rows, &(ctx.force or below?(&1.tallies_version, ctx.version)))
 
-    {revisit, kept} = Enum.split_with(rest, &(ctx.revisit and unknown_sats_in?(&1)))
+    {revisit, kept} = Enum.split_with(rest, &(ctx.revisit and unknown_sats_in?(&1, ctx.version)))
 
     computed = compute(picked ++ revisit, block, ctx)
     {picked_pairs, revisit_pairs} = Enum.split(computed, length(picked))
@@ -300,7 +302,13 @@ defmodule Bitblocks.Chain.TxPipeline.Backfill do
     Enum.zip(rows, Enum.map(computed, &values/1))
   end
 
-  defp unknown_sats_in?(row), do: row.coinbase != true and is_nil(row.total_input_satoshis)
+  # Only rows at exactly this version: one a newer version stamped (old code
+  # running during a rolling deploy, or after a rollback) is left alone, so
+  # a revisit never lowers a stamp.
+  defp unknown_sats_in?(row, version),
+    do:
+      row.tallies_version == version and row.coinbase != true and
+        is_nil(row.total_input_satoshis)
 
   # Rows and blocks of this batch still below the version, read back after
   # the writes: the explicit success check, summed over the range.
