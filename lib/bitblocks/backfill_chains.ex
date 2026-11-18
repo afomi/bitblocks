@@ -13,15 +13,19 @@ defmodule Bitblocks.BackfillChains do
   still below the version.
 
   Lifeline can also rescue a job that is still alive, when a range outlasts
-  `rescue_after`. Each batch beats the chain's heartbeat, so the rescued copy
-  sees a live job and snoozes; when it wakes, `next_from` has moved on and it
-  stops.
+  `rescue_after`. A process linked to the job beats the chain's heartbeat every
+  minute while the range runs, however long one batch takes, so the rescued
+  copy sees a live job and snoozes; when it wakes, `next_from` has moved on and
+  it stops. (Beating only once per batch let a batch of dense blocks outlast
+  the stale limit, and a rescued copy ran the same range beside the live one.)
 
   A dry run's counts live in its `derivation_runs` rows, and `status/1` sums
   them, so they survive a restart too.
   """
 
   import Ecto.Query
+
+  require Logger
 
   alias Bitblocks.Chain.TxPipeline.{
     Backfill,
@@ -52,6 +56,14 @@ defmodule Bitblocks.BackfillChains do
   # A beat older than this means the job died. Well above a batch's length,
   # and below Lifeline's 30 minutes, so a rescued job finds a dead one stale.
   @heartbeat_stale_ms :timer.minutes(15)
+
+  # How often the beater beats while a range runs: far below the stale limit.
+  # `config :bitblocks, :backfill_beat_every_ms` overrides it (tests).
+  @beat_every_ms :timer.minutes(1)
+
+  # A beat that can't write within this gives up until the next one; below the
+  # 5 s the job waits for its beater to stop, so no beat lands after the clear.
+  @beat_timeout_ms 4_000
 
   def derivations, do: @derivations
 
@@ -170,9 +182,27 @@ defmodule Bitblocks.BackfillChains do
       is_nil(chain) -> {:cancel, :no_chain}
       chain.status != "running" -> {:cancel, {:chain, chain.status}}
       chain.next_from != from -> {:cancel, :superseded}
-      alive?(chain) -> {:snooze, 120}
-      true -> work(chain, from, last_attempt?)
+      claim(chain.id) -> work(chain, from, last_attempt?)
+      true -> {:snooze, 120}
     end
+  end
+
+  # Takes the range only when no live job holds it: one conditional UPDATE, so
+  # two copies that both find the heartbeat stale can't both run (a read, then
+  # a beat, left that window open).
+  defp claim(id) do
+    now = DateTime.utc_now()
+    stale_before = DateTime.add(now, -@heartbeat_stale_ms, :millisecond)
+
+    {n, _} =
+      Repo.update_all(
+        from(c in BackfillChain,
+          where: c.id == ^id and (is_nil(c.heartbeat_at) or c.heartbeat_at < ^stale_before)
+        ),
+        set: [heartbeat_at: now]
+      )
+
+    n == 1
   end
 
   defp alive?(%{heartbeat_at: nil}), do: false
@@ -182,10 +212,10 @@ defmodule Bitblocks.BackfillChains do
 
   defp work(chain, from, last_attempt?) do
     close_dead_runs(chain)
-    beat(chain.id)
 
     to = min(from + chain.range_step - 1, chain.range_to)
-    report = run_backfill(chain, from, to)
+    every = Application.get_env(:bitblocks, :backfill_beat_every_ms, @beat_every_ms)
+    report = with_heartbeat(chain.id, every, fn -> run_backfill(chain, from, to) end)
     clear_heartbeat(chain.id)
 
     case report.outcome do
@@ -279,10 +309,57 @@ defmodule Bitblocks.BackfillChains do
 
   defp retry_or_fail(_chain, error, false), do: {:error, error}
 
+  @doc false
+  # Runs `fun` while a linked process beats the chain's heartbeat every
+  # `every_ms`, from before `fun` starts until it returns or raises. Linked, so
+  # a job that dies takes its beater with it and the heartbeat goes stale. A
+  # beat that fails is logged and the next one retries, so a database blip
+  # never takes the live range down through the link.
+  def with_heartbeat(id, every_ms, fun, beat \\ &beat/1) do
+    beat.(id)
+    {:ok, beater} = Task.start_link(fn -> beat_loop(id, every_ms, beat) end)
+
+    try do
+      fun.()
+    after
+      ref = Process.monitor(beater)
+      send(beater, :stop)
+
+      receive do
+        {:DOWN, ^ref, :process, _, _} -> :ok
+      after
+        5_000 ->
+          Process.unlink(beater)
+          Process.exit(beater, :kill)
+      end
+    end
+  end
+
+  defp beat_loop(id, every_ms, beat) do
+    receive do
+      :stop -> :ok
+    after
+      every_ms ->
+        safe_beat(beat, id)
+        beat_loop(id, every_ms, beat)
+    end
+  end
+
+  defp safe_beat(beat, id) do
+    beat.(id)
+  rescue
+    error ->
+      Logger.warning(
+        "Backfill chain ##{id}: heartbeat not written, retrying next beat: " <>
+          Exception.message(error)
+      )
+  end
+
   defp beat(id) do
     Repo.update_all(
       from(c in BackfillChain, where: c.id == ^id),
-      set: [heartbeat_at: DateTime.utc_now()]
+      [set: [heartbeat_at: DateTime.utc_now()]],
+      timeout: @beat_timeout_ms
     )
   end
 
