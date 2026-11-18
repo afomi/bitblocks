@@ -104,7 +104,9 @@ defmodule BitblocksWeb.Api.StreamController do
   catches up on matches in completed blocks above it, then sends each block as
   it completes:
 
-    * `tx`: the tx, in hydrate's shape.
+    * `tx`: the tx, in hydrate's shape. A `bitcom_commands` projection
+      (Tenant 3) sends `command` instead, in `/commands`' shape; dedupe those
+      on `{txid, output_index, block_hash}`.
     * `checkpoint` (id: `resume_height`): after the catch-up and after each
       completed block above the position, with or without matches.
       `resume_height` is the last height with every block above the position
@@ -153,7 +155,7 @@ defmodule BitblocksWeb.Api.StreamController do
         |> put_status(409)
         |> json(%{
           error: "Too far behind to follow; hydrate first",
-          hydrate: "/api/v1/projections/#{projection.id}/txs"
+          hydrate: BitblocksWeb.Api.ProjectionController.hydrate_path(projection)
         })
     end
   end
@@ -221,11 +223,19 @@ defmodule BitblocksWeb.Api.StreamController do
     sse(conn, "checkpoint", data, resume)
   end
 
-  defp send_txs(conn, txs) do
-    Enum.reduce_while(txs, {:ok, conn}, fn tx, {:ok, conn} ->
-      data = BitblocksWeb.Api.ProjectionController.tx_to_json(tx)
+  # A tx projection's rows go out as `tx`, a command projection's as `command`.
+  defp send_txs(conn, rows) do
+    Enum.reduce_while(rows, {:ok, conn}, fn row, {:ok, conn} ->
+      {event, data} =
+        case row do
+          %Bitblocks.Bitcom.Command{} ->
+            {"command", BitblocksWeb.Api.ProjectionController.command_to_json(row)}
 
-      case sse(conn, "tx", data, nil) do
+          tx ->
+            {"tx", BitblocksWeb.Api.ProjectionController.tx_to_json(tx)}
+        end
+
+      case sse(conn, event, data, nil) do
         {:ok, conn} -> {:cont, {:ok, conn}}
         error -> {:halt, error}
       end

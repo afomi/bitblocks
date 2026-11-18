@@ -32,6 +32,9 @@ Non-UTF-8 pushes are stored as `0x<hex>`.
 
 Indexing runs at ingest (`Chain.index_bitcom/1` from `TxIngest`) and in the analyze backfill (`Release.analyze_transactions/1`).
 A valid `useradd` also sets `protocols.ownership_proof_txid` (`ProtocolRegistry.prove_ownership/2`).
+When a reorg moves a tx to another block, or a tx stored without a block is placed, its commands' `block_height` moves with it (`Bitcom.rewind_moved/2`, from `Reorgs.ProtocolRewind.moved/3`).
+A removed tx's commands stay in the log.
+When a later block mines such a tx again, the fresh ingest logs its commands again, and a command already logged takes the new height; an ingest with no height never clears one.
 
 ## Historical discovery (#24)
 
@@ -70,6 +73,8 @@ Usage is the count of indexed txs carrying the namespace's protocol tag, capped 
 - `GET /api/v1/bitcom/:address`: one namespace.
 - `GET /api/v1/bitcom/snapshots`: every versioned snapshot, newest first, with its sha256.
 - `GET /api/v1/bitcom/snapshots/:version` (or `latest`): one snapshot's exact bytes.
+- `GET /api/v1/projections/:id/commands` and `/follow`: the command log as a managed projection (source `bitcom_commands`, #29 Tenant 3), hydrated with a cursor and followed over SSE, so anyone can rebuild or fork the registry from the log.
+  Register one with `bin/bitblocks rpc 'Bitblocks.Release.create_projection(%{tenant: "bitcom", name: "commands", source: "bitcom_commands"}) |> IO.inspect()'`; see `docs/MANAGED_SERVICES.md`.
 - `GET /api/v1/bit/:address/*path`: resolves `bit://<address>/<path>` to the endpoints providers added for it.
   Endpoints are returned and never fetched, so there is no server-side request to forge.
 - `GET /b/:txid`: a B:// file, parsed from its tx on the fly, with the same untrusted-content headers as `/content`.

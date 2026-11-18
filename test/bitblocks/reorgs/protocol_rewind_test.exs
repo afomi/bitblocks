@@ -692,4 +692,90 @@ defmodule Bitblocks.Reorgs.ProtocolRewindTest do
       assert_settled(crossing, "hop_unknown_0", ["hop_unknown"])
     end
   end
+
+  # #29 Tenant 3: the command log's heights follow their tx through a reorg,
+  # so the managed projection over it serves each command where its tx is.
+  describe "Bitcom commands (#29 Tenant 3)" do
+    defp bitcom_tx(salt) do
+      privkey = BSV.PrivKey.new()
+      addr = Bitblocks.BitcomFixtures.address(privkey)
+      hex = Bitblocks.BitcomFixtures.bitcom_raw_tx(privkey, [["$", "useradd", addr]], salt)
+      {:ok, decoded} = Bitblocks.Chain.SafeTx.from_hex(hex)
+      {BSV.Tx.get_txid(decoded), hex}
+    end
+
+    defp command_heights(txid),
+      do:
+        Repo.all(
+          from c in Bitblocks.Bitcom.Command, where: c.txid == ^txid, select: c.block_height
+        )
+
+    defp served(projection, snapshot) do
+      {:ok, %{commands: commands}} =
+        Bitblocks.Projections.hydrate(projection, snapshot_height: snapshot)
+
+      Enum.map(commands, &{&1.txid, &1.block_height, &1.block_hash})
+    end
+
+    test "a tx the reorg removed and a later block mined again is served at its new height" do
+      {:ok, p} =
+        Bitblocks.Projections.create(%{tenant: "bitcom", name: "log", source: "bitcom_commands"})
+
+      orphan = Repo.get_by!(Block, hash: @orphan)
+      {txid, _hex} = mined = bitcom_tx(41)
+      ingest(mined, orphan)
+      assert command_heights(txid) == [@height]
+
+      # The replacement doesn't hold it, so the reconcile removes its tx row;
+      # the log keeps the command, at the orphan's height.
+      resolve_fork()
+      reconcile!()
+      refute Repo.get_by(Bitblocks.Chain.Transaction, txid: txid)
+      assert command_heights(txid) == [@height]
+      assert served(p, @height) == []
+
+      # Mined again a block later: a fresh tx row, not a move.
+      later =
+        block_fixture(%{
+          height: @height + 1,
+          hash: "later_900502",
+          merkleroot: nil,
+          sync_state: "completed"
+        })
+
+      ingest(mined, later)
+
+      assert command_heights(txid) == [@height + 1]
+      assert served(p, @height + 1) == [{txid, @height + 1, "later_900502"}]
+    end
+
+    test "a tx stored without a block takes its commands along when its block stores it" do
+      {:ok, p} =
+        Bitblocks.Projections.create(%{tenant: "bitcom", name: "log", source: "bitcom_commands"})
+
+      {txid, hex} = bitcom_tx(42)
+      # Stored under its block's hash before the block's height was known, as
+      # TxIngest finds such a row (the changeset needs a height; clear it after).
+      tx = Bitblocks.BitcomFixtures.store_analyzed_tx(hex, %{block_hash: "later_900502"})
+      Repo.query!("UPDATE transactions SET block_height = NULL WHERE id = $1", [tx.id])
+      {:ok, %{commands: 1}} = Bitblocks.Bitcom.index(%{tx | block_height: nil})
+      assert command_heights(txid) == [nil]
+
+      # The block's fetch asks which txids are stored, as
+      # FetchTransactionsWorker does, which places the row and skips it as
+      # present (place_unplaced, then ProtocolRewind.moved/3); no re-index.
+      block =
+        block_fixture(%{
+          height: @height + 1,
+          hash: "later_900502",
+          merkleroot: nil,
+          sync_state: "completed"
+        })
+
+      assert TxIngest.existing_txids([txid], block) == MapSet.new([txid])
+
+      assert command_heights(txid) == [@height + 1]
+      assert served(p, @height + 1) == [{txid, @height + 1, "later_900502"}]
+    end
+  end
 end

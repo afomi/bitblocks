@@ -109,8 +109,41 @@ The Bitcom registry is already a projection: the filter is Bitcom prefixes and `
 Re-plumbing it as an ordinary managed projection proves the service is general, not a special case.
 It also makes the registry **forkable**: anyone can hydrate the same command log and derive a different registry. That's the "portable application" story of protocol upgrades and governance by fork.
 
-- **Filter:** tx contains a `$` Bitcom command (first-class tag, or `bitcom_commands` as the materialized tag set).
-- **Today:** fully built, except that it isn't served through the shared hydrate/follow API.
+- **Filter:** tx contains a `$` Bitcom command, with `bitcom_commands` as the materialized set.
+- **Today:** served through the shared API as a projection whose `source` is `bitcom_commands`.
+
+#### Design: a projection source
+
+A projection has a `source`: `transactions` (the default, every projection before this one) or `bitcom_commands`.
+A `bitcom_commands` projection serves the whole command log, valid and invalid rows alike, so a fork can reinterpret the rejections too.
+Its filter is empty (`{}`); narrowing to a namespace is a later step, and the log is small enough for a tenant to filter it.
+Its `definition_hash` is the sha256 of `{"filter":[],"source":"bitcom_commands"}`, so it never collides with a filter over `transactions`, and the hashes of existing projections are unchanged.
+
+The same three surfaces, with the same guarantees:
+
+- **Hydrate:** `GET /api/v1/projections/:id/commands` (`Projections.hydrate/2`).
+  One row per command, ordered by `(block_height, txid, output_index)`, frozen at `snapshot_height`, with `stable_through_height` and `complete` exactly as for txs.
+  The cursor carries `output_index` too, because one tx can hold several commands.
+  `/txs` on a command projection, and `/commands` on a tx projection, is a 400 naming the right path.
+- **Status:** `GET /api/v1/projections/:id/status`, unchanged: completeness is a property of blocks, and most commands are logged while their block is ingested (`index_bitcom`, a tx step).
+  Not all of them, though, so a command can still appear below a position a tenant has passed, as a tag can on a tx projection.
+  A tx stored before its block was fetched meets `index_bitcom` only in `Chain.TxPipeline.CatchUp`, after the block completes.
+  Blocks completed before `bitcom_commands` existed get their commands from `Release.analyze_transactions/1`.
+  And `Release.discover_bitcom/2` can log commands for txs already in completed blocks.
+  After one of those runs over heights a tenant has hydrated, the tenant hydrates again from the start, or from below the lowest height it touched.
+- **Discovery:** `GET /api/v1/projections/:id` gives `hydrate_url`, `/txs` or `/commands`, so a client reads where to go rather than branching on `source`.
+- **Follow:** `GET /api/v1/projections/:id/follow`, the same stream, sending `command` events in hydrate's shape where a tx projection sends `tx`; `checkpoint` and `reorg` are unchanged.
+  Dedupe on `{txid, output_index, block_hash}`.
+- **Webhooks:** not for this source; a command projection follows over SSE.
+
+A command is served only when its tx is stored under the block at the command's height, and that block is the one stored at that height (`bitcom_commands` → `transactions` by txid → `blocks` by hash and height).
+So a command logged by historical discovery (WhatsOnChain's height, no tx row yet) appears once the sync stores its tx, and a command whose tx a reorg removed stops appearing, while the log itself keeps both rows.
+When a reorg moves a tx to another block, or a tx stored without a block is placed, `Reorgs.ProtocolRewind.moved/3` moves its commands' `block_height` with it (`Bitcom.rewind_moved/2`).
+When a reorg removes a tx and a later block mines it again, it is stored as a fresh row, not moved, so `Bitcom.index/1` corrects the height instead: a command already logged takes the height of the ingest that logs it again, unless that ingest has none.
+Between them, a command is never stranded at a stale height.
+
+Queries read `bitcom_commands` by an index on `(block_height, txid, output_index)` (migration `20261121000029`), then look up each row's tx by `txid` and its block by `hash`.
+That index is on `bitcom_commands`, a small table; nothing new is indexed on `transactions`.
 
 ### Tenant 4: a county attestation ledger (stretch)
 
@@ -165,7 +198,9 @@ Build in dependency order, each step with a test, and do it CLI-first: a context
    Bounded: more than 1,000 blocks or 1,000 matches behind is a 409 that points at hydrate, and the stream takes an SSE slot with the usual lifetime cap.
    It adds no table and no index: it reads the existing tag GIN indexes per completed block, and only for blocks above the position.
    Test: `test/bitblocks_web/controllers/api/projection_follow_test.exs` (qart's AND filter, catch-up, a live block, an out-of-order block, a reorg, the bounds).
-   Left: qart moving onto hydrate plus follow (a qart change), and Tenant 3.
+   Built for Tenant 3: a projection over `bitcom_commands` (see "Design: a projection source" under Tenant 3), `GET /api/v1/projections/:id/commands`, and `command` events on follow.
+   Test: `test/bitblocks/projections_bitcom_test.exs` and `test/bitblocks_web/controllers/api/projection_commands_test.exs`.
+   Left: qart moving onto hydrate plus follow (a qart change).
 
 Done for the prototype means:
 - Visible DAO's sponsor page rebuilds from `hydrate` alone, and gets a webhook within one block of a donation;

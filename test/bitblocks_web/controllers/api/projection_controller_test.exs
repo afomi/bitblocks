@@ -35,6 +35,8 @@ defmodule BitblocksWeb.Api.ProjectionControllerTest do
     assert data["tenant"] == "visible-dao"
     assert data["filter"] == %{"output_addresses" => [@donation]}
     assert data["definition_hash"] == p.definition_hash
+    assert data["source"] == "transactions"
+    assert data["hydrate_url"] == "/api/v1/projections/#{p.id}/txs"
   end
 
   # Public endpoint: a webhook URL can carry a token (build hooks do), and the

@@ -6,6 +6,8 @@ defmodule Bitblocks.Bitcom.Command do
   use Ecto.Schema
   import Ecto.Changeset
 
+  @type t :: %__MODULE__{}
+
   schema "bitcom_commands" do
     field :txid, :string
     field :output_index, :integer
@@ -23,6 +25,9 @@ defmodule Bitblocks.Bitcom.Command do
     field :endpoint, :string
     field :valid, :boolean, default: false
     field :reason, :string
+    # The stored block's hash, filled by the projection queries that join it
+    # (`Bitblocks.Projections`); the log itself keys commands by height.
+    field :block_hash, :string, virtual: true
 
     timestamps()
   end

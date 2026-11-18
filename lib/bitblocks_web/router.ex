@@ -185,6 +185,8 @@ defmodule BitblocksWeb.Router do
 
     # Managed projections (#29): hydrate a tenant's filter with a cursor
     get "/projections/:id/txs", ProjectionController, :txs
+    # Tenant 3: a projection over the Bitcom command log
+    get "/projections/:id/commands", ProjectionController, :commands
     get "/projections/:id/status", ProjectionController, :status
     get "/projections/:id/follow", StreamController, :projection
     get "/projections/:id", ProjectionController, :show
