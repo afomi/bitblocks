@@ -243,7 +243,7 @@ defmodule Bitblocks.BackfillChainsTest do
         BackfillChains.with_heartbeat(chain.id, 20, fn ->
           Process.sleep(30)
           first = reload(chain).heartbeat_at
-          Process.sleep(60)
+          Process.sleep(200)
           {first, reload(chain).heartbeat_at}
         end)
 
@@ -254,6 +254,72 @@ defmodule Bitblocks.BackfillChainsTest do
       settled = reload(chain).heartbeat_at
       Process.sleep(60)
       assert reload(chain).heartbeat_at == settled
+    end
+
+    test "a job's range is beaten while it runs, not only between batches", %{tx: tx} do
+      # One batch here, slowed by pause_ms: only a beater writes during it.
+      Application.put_env(:bitblocks, :backfill_beat_every_ms, 10)
+      on_exit(fn -> Application.delete_env(:bitblocks, :backfill_beat_every_ms) end)
+      chain = size_chain(tx, apply: true, pause_ms: 300)
+
+      watcher =
+        Task.async(fn ->
+          for _ <- 1..40, reduce: MapSet.new() do
+            seen ->
+              Process.sleep(10)
+              MapSet.put(seen, reload(chain).heartbeat_at)
+          end
+        end)
+
+      assert :ok = perform(chain, tx.id)
+      beats = watcher |> Task.await() |> MapSet.delete(nil)
+      assert MapSet.size(beats) >= 5
+    end
+
+    test "of two copies finding a stale heartbeat, only one takes the range", %{tx: tx} do
+      chain = size_chain(tx, apply: true)
+      set_heartbeat(chain, minutes_ago(60))
+
+      BackfillChains.with_heartbeat(chain.id, 60_000, fn ->
+        # This job has claimed the range; a second copy now finds it held.
+        assert {:snooze, _} = perform(chain, tx.id)
+      end)
+    end
+
+    test "a heartbeat that fails to write doesn't stop the range", %{tx: tx} do
+      chain = size_chain(tx, apply: true)
+      {:ok, calls} = Agent.start_link(fn -> 0 end)
+
+      # The first beat (before the range) writes; every later one raises, as a
+      # pool timeout or a failover would.
+      flaky = fn id ->
+        case Agent.get_and_update(calls, &{&1, &1 + 1}) do
+          0 ->
+            Repo.update_all(from(c in BackfillChain, where: c.id == ^id),
+              set: [heartbeat_at: DateTime.utc_now()]
+            )
+
+          _ ->
+            raise DBConnection.ConnectionError, "connection not available"
+        end
+      end
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          assert :done =
+                   BackfillChains.with_heartbeat(
+                     chain.id,
+                     10,
+                     fn ->
+                       Process.sleep(60)
+                       :done
+                     end,
+                     flaky
+                   )
+        end)
+
+      assert Agent.get(calls, & &1) >= 3
+      assert log =~ "heartbeat not written"
     end
 
     test "a range that raises stops its beater too", %{tx: tx} do
