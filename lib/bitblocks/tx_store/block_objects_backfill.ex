@@ -7,11 +7,15 @@ defmodule Bitblocks.TxStore.BlockObjectsBackfill do
   calls.
 
   Walks completed blocks with no `raw_object_stored_at` in height order,
-  `:block_batch` at a time. Each block small enough to fetch whole
-  (`Chain.RawBlock.eligible?/1`, 32 MB) is refetched from the node, written
-  and verified by `BlockObject.fetch_and_store/1`, which stamps it; a block
-  over the cap is counted under `details.too_large` and left (the multipart
-  item on https://github.com/afomi/bitblocks/issues/86).
+  `:block_batch` at a time. Each is refetched from the node, written and
+  verified by `BlockObject.fetch_and_store/2`, which stamps it: a block small
+  enough to fetch whole (`Chain.RawBlock.eligible?/1`, 32 MB) in one put, a
+  larger one streamed from node REST into a multipart upload
+  (`BlockObject.store_streamed/2`,
+  https://github.com/afomi/bitblocks/issues/86). Blocks over the cap are
+  counted under `details.too_large` either way. A batch ends after its first
+  large block, so the chain's heartbeat beats between large blocks.
+  `large_blocks: false` leaves them unstored, as before.
 
   A failed block is counted, its first failures kept in `details`, and the
   walk goes on; `:max_failures` (3) failures in a row raise, so the range is
@@ -34,13 +38,16 @@ defmodule Bitblocks.TxStore.BlockObjectsBackfill do
   Runs over completed blocks from `from_height` to `to_height` inclusive and
   returns the `Derivations` report: `blocks_examined` and `rows_examined`
   are the blocks without an object read, `rows_changed` the objects stored
-  (or, dry, small enough to store), and `rows_below_version` the blocks
-  still to store (dry: the eligible ones; applied: the failures). `details`
-  counts `eligible`, `too_large`, `stored` and `failed`, and keeps the first
-  failures as `"height: reason"` strings.
+  (or, dry, that would be stored), and `rows_below_version` the blocks
+  still to store (dry: the storable ones; applied: the failures). `details`
+  counts `eligible` (blocks to store), `too_large` (those over the
+  raw-block cap, streamed unless `large_blocks: false`), `stored` and
+  `failed`, and keeps the first failures as `"height: reason"` strings.
 
   Options: `apply: true` to write (default false); `block_batch` (20);
-  `max_failures` (3); and the `Bitblocks.Derivations` options.
+  `max_failures` (3); `large_blocks` (true: stream blocks over the cap into
+  a multipart upload; false: count and skip them); and the
+  `Bitblocks.Derivations` options.
   """
   @spec run(non_neg_integer(), non_neg_integer(), keyword()) :: Derivations.report()
   def run(from_height, to_height, opts \\ []) do
@@ -50,6 +57,7 @@ defmodule Bitblocks.TxStore.BlockObjectsBackfill do
       to_height: to_height,
       block_batch: Keyword.get(opts, :block_batch, 20),
       max_failures: Keyword.get(opts, :max_failures, 3),
+      large_blocks: Keyword.get(opts, :large_blocks, true) != false,
       opts: opts
     }
 
@@ -75,12 +83,24 @@ defmodule Bitblocks.TxStore.BlockObjectsBackfill do
         :done
 
       blocks ->
+        blocks = through_first_large(blocks, ctx)
         {report, _in_a_row} = Enum.reduce(blocks, {report, 0}, &block(&1, &2, ctx))
         if ctx.applied, do: Derivations.pause(ctx.opts)
         last = List.last(blocks)
         {:cont, {last.height, last.id}, report}
     end
   end
+
+  # A large block can take minutes to stream, so a batch that writes one
+  # ends with it and the next batch (and heartbeat) follows.
+  defp through_first_large(blocks, %{applied: true, large_blocks: true}) do
+    case Enum.split_while(blocks, &RawBlock.eligible?/1) do
+      {small, [large | _]} -> small ++ [large]
+      {small, []} -> small
+    end
+  end
+
+  defp through_first_large(blocks, _ctx), do: blocks
 
   defp ensure_store_ready! do
     case TxStore.ready?() do
@@ -103,10 +123,12 @@ defmodule Bitblocks.TxStore.BlockObjectsBackfill do
 
   defp block(block, {report, in_a_row}, ctx) do
     report = report |> bump(:blocks_examined, 1) |> bump(:rows_examined, 1)
+    large? = not RawBlock.eligible?(block)
+    report = if large?, do: detail(report, :too_large), else: report
 
     cond do
-      not RawBlock.eligible?(block) ->
-        {detail(report, :too_large), in_a_row}
+      large? and not ctx.large_blocks ->
+        {report, in_a_row}
 
       not ctx.applied ->
         report = report |> detail(:eligible) |> bump(:rows_changed, 1)
@@ -115,7 +137,7 @@ defmodule Bitblocks.TxStore.BlockObjectsBackfill do
       true ->
         report = detail(report, :eligible)
 
-        case BlockObject.fetch_and_store(block) do
+        case BlockObject.fetch_and_store(block, large: ctx.large_blocks) do
           {:ok, _} ->
             {report |> detail(:stored) |> bump(:rows_changed, 1), 0}
 

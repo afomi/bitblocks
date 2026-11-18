@@ -19,7 +19,7 @@ defmodule Bitblocks.TxStore.BlockObjectStreamTest do
 
   alias Bitblocks.Chain.{Block, Transaction}
   alias Bitblocks.{SyntheticBlock, TxStore}
-  alias Bitblocks.TxStore.{BlockObject, Local}
+  alias Bitblocks.TxStore.{BlockObject, BlockObjectsBackfill, Local}
   alias BitblocksWeb.RpcStub
 
   @cap 100_000
@@ -236,5 +236,32 @@ defmodule Bitblocks.TxStore.BlockObjectStreamTest do
     assert located == length(picked)
     refute_received {:start, _}
     assert stamped?(big.hash)
+  end
+
+  describe "the block_objects backfill" do
+    test "streams a block over the cap and stamps it", %{big: big, key: key} do
+      RpcStub.stub_rest_block(big.hash, {:ok, big.bytes})
+
+      dry = BlockObjectsBackfill.run(@height, @height)
+      assert dry.details.too_large == 1
+      assert dry.details.eligible == 1
+      assert dry.rows_changed == 1
+      assert RpcStub.calls(:rest_block_stream) == []
+
+      applied = BlockObjectsBackfill.run(@height, @height, apply: true)
+      assert applied.details.too_large == 1
+      assert applied.details.stored == 1
+      assert applied.rows_below_version == 0
+      assert stamped?(big.hash)
+      assert File.read!(object_path(key)) == big.bytes
+    end
+
+    test "large_blocks: false counts it and leaves it", %{big: big} do
+      r = BlockObjectsBackfill.run(@height, @height, apply: true, large_blocks: false)
+      assert r.details.too_large == 1
+      assert {r.details.eligible, r.details.stored} == {0, 0}
+      assert RpcStub.calls(:rest_block_stream) == []
+      refute stamped?(big.hash)
+    end
   end
 end

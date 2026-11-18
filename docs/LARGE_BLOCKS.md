@@ -19,6 +19,7 @@ Bitcoin SV blocks can contain millions of transactions, resulting in JSON respon
   The sync's block job doesn't need it since #86: it reads in a process of its own and stops that process at the end of a bounded run (`docs/SYNCING.md`).
 - The sync's block job puts a bounded buffer between the read and its writes (16 chunks or 64 MB in flight), so a slow write never stops the socket being read, and removes a block's rows when its bytes fail the merkleroot or another whole-block check (#86).
 - Each chunk must arrive within `:bitcoin_rpc_recv_timeout_ms`; no REST is `{:error, {:http_error, 404}}`, with no `getblock(hash, 0)` fallback.
+- `each_tx/4` takes `on_chunk:`, called with each chunk's raw bytes before they are parsed; the tx store uses it to send a block over 32 MB on to a multipart upload as it arrives (`BlockObject.store_streamed/2`, `docs/TX_STORAGE.md`, https://github.com/afomi/bitblocks/issues/86).
 
 ## The Problem
 
