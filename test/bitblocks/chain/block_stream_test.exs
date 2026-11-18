@@ -127,6 +127,39 @@ defmodule Bitblocks.Chain.BlockStreamTest do
     )
   end
 
+  # https://github.com/afomi/bitblocks/issues/86: the raw chunks, for the
+  # tx store's block object.
+  test "on_chunk sees the block's exact bytes, each chunk before its txs" do
+    meta = serve_block(300_000)
+    bytes = Agent.get(@blocks, &get_in(&1, [meta.hash, :bytes]))
+
+    on_chunk = fn chunk, {chunks, size, seen} ->
+      {:ok, {[chunk | chunks], size + byte_size(chunk), seen}}
+    end
+
+    fun = fn {_txid, tx}, {chunks, size, seen} ->
+      # Every byte of this tx has been through on_chunk already.
+      seen = seen + byte_size(tx)
+      true = size >= 81 + seen
+      {chunks, size, seen}
+    end
+
+    assert {:ok, {chunks, size, _seen}, stats} =
+             BlockStream.each_tx(block(meta), {[], 0, 0}, fun, on_chunk: on_chunk)
+
+    assert size == stats.bytes
+    assert chunks |> Enum.reverse() |> IO.iodata_to_binary() == bytes
+  end
+
+  test "an on_chunk error stops the read" do
+    meta = serve_block(300_000)
+
+    assert {:error, {:on_chunk, :full}} =
+             BlockStream.each_tx(block(meta), 0, fn _tx, n -> n + 1 end,
+               on_chunk: fn _chunk, _acc -> {:error, :full} end
+             )
+  end
+
   test "hands over every tx in order, its txids rebuilding the header's merkleroot" do
     meta = serve_block(3_000_000)
 

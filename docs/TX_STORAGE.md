@@ -89,7 +89,21 @@ The sync writes each row's `raw_offset` and `raw_length` with the insert, from t
 Before 2026-11-08 the offsets were set after the write, which rewrote every row once: about as many updates as inserts, nearly none of them HOT, each adding entries to every index.
 A row stored without offsets (the per-tx path, or before that change) gets them when its block's object is stored (`Release.store_block_objects/3`).
 A failed or unverified write is logged and leaves the stamp nil; the block stays `completed` and the sync moves on.
-Blocks over 32 MB take the per-tx path and get no object; their txs keep `raw` in the row.
+The sync writes no object for a block over 32 MB, which it reads as a stream; the backfill below gives it one by multipart upload.
+
+**Blocks over 32 MB** (https://github.com/afomi/bitblocks/issues/86).
+`BlockObject.store_streamed/2` streams the block from node REST again (`Chain.BlockStream`) and passes its raw bytes on to an S3 multipart upload as they arrive.
+Parts are `:block_object_part_bytes` (16 MiB, never below S3's 5 MiB minimum), and a 4 GiB block is 256 parts.
+The writes never run in the read: each part goes up in a task of its own while the next part fills, at most one in flight, so a slow part stalls the read only once it has taken longer than a whole part takes to arrive.
+Each write must finish within `:block_object_write_timeout_ms` (2 minutes), and S3 retries a multipart request at most 3 times.
+Memory is about two parts plus the largest tx the stream holds (`:block_stream_max_tx_bytes`, 256 MB at most), whatever the block's size; nothing grows with the tx count.
+Each tx's `raw_offset` and `raw_length` go on its row as the stream passes it, 5,000 rows per update in a task of their own the same way, rewriting only offsets that differ.
+That is safe ahead of the checks: an offset is read only once the block is stamped, and every byte served from the store must hash to the txid.
+The block is stamped only once the stream has verified the header, the tx count, the whole-block merkleroot and the byte count, the upload has completed, and the object reads back with the block's size and header.
+Any failure (the stream, a part, an offset write, the completion) stops the writes in flight, aborts the upload, so no parts are left behind, and leaves the block unstamped for the next run.
+An abort that fails too is returned with the error (`{reason, abort: abort_reason}`), so it shows in a backfill run's `details.failures`.
+An object already in the store with the block's size is kept and verified rather than uploaded again.
+`BlockObject.fetch_and_store/2` takes this path for a block over the cap, and for one the node refuses whole as over it.
 
 **Finding what's missing.**
 `Release.store_block_objects(from, to)` counts completed blocks without an object; with `apply: true` it refetches each from the node (REST, else `getblock(hash, 0)`), writes and verifies it.
@@ -103,6 +117,16 @@ bin/bitblocks rpc 'Bitblocks.Release.store_block_objects(0, 9_999, apply: true)'
 
 A whole height range runs as a backfill chain instead (`"block_objects"`, `Bitblocks.TxStore.BlockObjectsBackfill`, https://github.com/afomi/bitblocks/issues/94): one Oban job per range, with dry run, pause, resume and status like the other chains (`docs/DERIVED_DATA.md`).
 Each range walks the completed blocks without an object, `block_batch` (20) at a time, counts `eligible`, `too_large`, `stored` and `failed` in its run's `details`, and keeps the first failures.
+Blocks over 32 MB are counted under `too_large` and skipped unless the chain is started with `large_blocks: true`, which streams each into a multipart upload, counts it under `eligible` as well, and ends the batch after it so the chain's heartbeat keeps beating.
+`large_blocks` stays off by default until infra confirms the abort permission and the lifecycle rule below.
+A block that looked small but the node refuses whole as over the cap is streamed the same way when `large_blocks` is on, and counted under `too_large`.
+Failures in a row are counted across batches, so `max_failures` stops a chain over a run of large blocks too.
+With `raw_block_source: :off`, every block counts as over the cap, so `large_blocks: true` streams them all.
+`Release.store_block_objects/3` takes only blocks up to 32 MB, and never streams.
+
+```bash
+bin/bitblocks rpc 'Bitblocks.Release.start_backfill("block_objects", 556_000, 600_000, apply: true, large_blocks: true)'
+```
 `max_failures` (3) failures in a row fail the range, so the chain retries and then stops rather than walking past every block while the node or the store is down.
 
 ```bash
@@ -132,12 +156,15 @@ This is the origin CloudFront sits in front of: `https://cdn.bitblocks.app/tx/<t
 |---|---|---|
 | `:store_block_objects` (env `STORE_BLOCK_OBJECTS`) | `:auto` | `:auto` writes only while `TxStore.ready?/0` is `:ok`, so a missing bucket never breaks sync; `false` off; `true` on |
 | `Bitblocks.TxStore, adapter:` | S3 (prod), Local (dev, test) | where objects go |
-| `:raw_block_max_bytes` | 32 MB | the largest block fetched whole, and so given an object |
+| `:raw_block_max_bytes` | 32 MB | the largest block fetched whole and given an object in one put; larger blocks are streamed |
+| `:block_object_part_bytes` | 16 MiB | the part size of a streamed block's multipart upload; never below 5 MiB |
 
 **Before this writes to S3 in prod (infra).**
 
 - A bucket, named in `AWS_S3_BUCKET_TXS` (in the `bitblocks/prod` secret); private, no expiry, versioning optional.
 - The instance role allowed `s3:PutObject`, `s3:GetObject` and `s3:ListBucket` on it (`ListBucket` makes a missing object a 404 rather than a 403, which the store reads as "not found"); `HeadObject` and ranged GETs are covered by `GetObject`.
+  Streamed blocks' multipart uploads also need `s3:AbortMultipartUpload`; starting, uploading parts and completing are covered by `PutObject`.
+- A lifecycle rule on the bucket that aborts incomplete multipart uploads after a day, as a backstop for an upload the app could not abort (a crash mid-block).
 - CloudFront for `cdn.bitblocks.app`: the app as origin for `/tx/*`, with a path rewrite (a CloudFront Function) from `/tx/<txid>` to `/api/v1/txs/<txid>/raw`, honouring the origin's `cache-control`, not forwarding cookies or query strings.
 - The rate limiter keys on the last `X-Forwarded-For` entry (the one the ALB adds, `BitblocksWeb.Utils.IpHelper`); behind CloudFront that is a CloudFront edge address, so every miss would count against a few edge IPs.
   Give CloudFront an API key with its own budget instead (`Authorization: Bearer bbk_…` as an origin custom header; `Release.create_api_key/2`).
