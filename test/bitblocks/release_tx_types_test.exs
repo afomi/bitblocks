@@ -298,4 +298,49 @@ defmodule Bitblocks.ReleaseTxTypesTest do
     assert_received {:report, %{outcome: "failed", error: error}}
     assert error =~ "57014"
   end
+
+  # https://github.com/afomi/bitblocks/issues/102: the read-back count after
+  # each batch must run under the statement timeout, not the repo's 60 s
+  # client timeout.
+  test "the read-back count runs under the statement timeout" do
+    ref = make_ref()
+    parent = self()
+    id = "tx-types-bounded-#{inspect(ref)}"
+
+    :telemetry.attach(
+      id,
+      [:bitblocks, :repo, :query],
+      fn _event, _measure, meta, _ -> send(parent, {ref, meta.query}) end,
+      nil
+    )
+
+    try do
+      quietly(fn -> Release.backfill_tx_types(0, 100, apply: true) end)
+    after
+      :telemetry.detach(id)
+    end
+
+    {counts, _bounded?} =
+      ref
+      |> collect_queries([])
+      |> Enum.reduce({[], false}, fn query, {counts, bounded?} ->
+        cond do
+          query =~ "SET LOCAL statement_timeout" -> {counts, true}
+          query in ["commit", "rollback"] -> {counts, false}
+          query =~ ~r/count\(\*\).*FROM "transactions"/s -> {[bounded? | counts], bounded?}
+          true -> {counts, bounded?}
+        end
+      end)
+
+    assert counts != []
+    assert Enum.all?(counts), "a transactions count ran outside bounded/2"
+  end
+
+  defp collect_queries(ref, acc) do
+    receive do
+      {^ref, query} -> collect_queries(ref, [query | acc])
+    after
+      0 -> Enum.reverse(acc)
+    end
+  end
 end

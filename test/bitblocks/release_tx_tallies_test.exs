@@ -259,4 +259,50 @@ defmodule Bitblocks.ReleaseTxTalliesTest do
     assert output =~ "tallies v#{TxPipeline.version(:tallies)} 0..100 applied ok"
     assert output =~ "dry run ok"
   end
+
+  # https://github.com/afomi/bitblocks/issues/102: the read-back count after
+  # each batch ran outside Derivations.bounded/2, so the repo's 60 s client
+  # timeout cut it on dense blocks. Every statement that counts transactions
+  # must run between a SET LOCAL statement_timeout and its commit.
+  test "the read-back count runs under the statement timeout" do
+    ref = make_ref()
+    parent = self()
+    id = "tallies-bounded-#{inspect(ref)}"
+
+    :telemetry.attach(
+      id,
+      [:bitblocks, :repo, :query],
+      fn _event, _measure, meta, _ -> send(parent, {ref, meta.query}) end,
+      nil
+    )
+
+    try do
+      quietly(fn -> Release.backfill_tx_tallies(0, 100, apply: true) end)
+    after
+      :telemetry.detach(id)
+    end
+
+    queries = collect(ref, [])
+
+    {counts, _bounded?} =
+      Enum.reduce(queries, {[], false}, fn query, {counts, bounded?} ->
+        cond do
+          query =~ "SET LOCAL statement_timeout" -> {counts, true}
+          query in ["commit", "rollback"] -> {counts, false}
+          query =~ ~r/count\(\*\).*FROM "transactions"/s -> {[bounded? | counts], bounded?}
+          true -> {counts, bounded?}
+        end
+      end)
+
+    assert counts != []
+    assert Enum.all?(counts), "a transactions count ran outside bounded/2"
+  end
+
+  defp collect(ref, acc) do
+    receive do
+      {^ref, query} -> collect(ref, [query | acc])
+    after
+      0 -> Enum.reverse(acc)
+    end
+  end
 end

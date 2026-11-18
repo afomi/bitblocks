@@ -139,7 +139,11 @@ defmodule Bitblocks.Chain.TxPipeline.TxTypesBackfill do
       blocks ->
         report = Enum.reduce(blocks, report, &block(&1, &2, ctx))
         last = List.last(blocks)
-        {:cont, {last.height, last.id}, remaining(blocks, report, ctx)}
+        # Bounded like the pages: over a batch of dense blocks this count can
+        # pass the repo's 60 s client timeout, which cancels it "due to user
+        # request" (https://github.com/afomi/bitblocks/issues/102).
+        report = Derivations.bounded(ctx.opts, fn -> remaining(blocks, report, ctx) end)
+        {:cont, {last.height, last.id}, report}
     end
   end
 
