@@ -980,6 +980,16 @@ defmodule Bitblocks.Release do
 
     IO.puts("  #{s.ranges_done} of #{s.ranges_total} range(s) finished" <> chain_progress(s))
 
+    if s.checkpoint_height,
+      do: IO.puts("  checkpoint #{s.checkpoint_height}: the range in flight resumes after it")
+
+    if s.handed_off_at,
+      do:
+        IO.puts(
+          "  last handed off #{DateTime.to_iso8601(s.handed_off_at)}" <>
+            " (#{s.hand_offs} hand-off(s) at a node's shutdown)"
+        )
+
     IO.puts("  #{s.blocks_examined} block(s), #{s.rows_examined} row(s) examined")
     IO.puts("  #{s.rows_changed} row(s) #{if s.chain.applied, do: "changed", else: "to change"}")
     IO.puts("  #{s.rows_below_version} row(s) below the version in those ranges")
