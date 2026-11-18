@@ -232,6 +232,55 @@ defmodule Bitblocks.BackfillChainsTest do
     assert {:ok, %{status: "running", error: nil}} = BackfillChains.resume(chain.id)
   end
 
+  describe "the heartbeat while a range runs" do
+    # A batch of dense blocks can outlast the stale limit; beating only per
+    # batch let a rescued copy run the same range beside the live job.
+    test "beats while the range is still in one long batch, and stops after", %{tx: tx} do
+      chain = size_chain(tx, apply: true)
+      set_heartbeat(chain, minutes_ago(60))
+
+      result =
+        BackfillChains.with_heartbeat(chain.id, 20, fn ->
+          Process.sleep(30)
+          first = reload(chain).heartbeat_at
+          Process.sleep(60)
+          {first, reload(chain).heartbeat_at}
+        end)
+
+      {first, later} = result
+      assert DateTime.diff(DateTime.utc_now(), first, :second) < 5
+      assert DateTime.compare(later, first) == :gt
+
+      settled = reload(chain).heartbeat_at
+      Process.sleep(60)
+      assert reload(chain).heartbeat_at == settled
+    end
+
+    test "a range that raises stops its beater too", %{tx: tx} do
+      chain = size_chain(tx, apply: true)
+
+      assert_raise RuntimeError, fn ->
+        BackfillChains.with_heartbeat(chain.id, 20, fn ->
+          raise "range failed"
+        end)
+      end
+
+      settled = reload(chain).heartbeat_at
+      Process.sleep(60)
+      assert reload(chain).heartbeat_at == settled
+    end
+
+    test "a rescued copy finds the long-running job alive and snoozes", %{tx: tx} do
+      chain = size_chain(tx, apply: true)
+      set_heartbeat(chain, minutes_ago(60))
+
+      BackfillChains.with_heartbeat(chain.id, 20, fn ->
+        Process.sleep(40)
+        assert {:snooze, _} = perform(chain, tx.id)
+      end)
+    end
+  end
+
   test "Release starts a chain and reads it back", %{tx: tx} do
     output =
       capture_io(fn ->
