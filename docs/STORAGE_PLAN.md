@@ -2,11 +2,12 @@
 
 Status: final draft for Ryan's approval, 2026-11-17, tracked in https://github.com/afomi/bitblocks/issues/96.
 Ryan's decisions: pending (recorded here once made, one line per item in [Decisions for Ryan](#decisions-for-ryan)).
-It answers infra's request of 2026-11-11 (`from-infra-2026-11-11-db-growth-storage-plan.md`) on prod's measurements of 2026-11-13 and 2026-11-15.
+It answers infra's request of 2026-11-11 on prod's measurements of 2026-11-13 and 2026-11-15.
 
 Every figure names its source.
 **Measured** means read from prod, the code or public chain data; **derived** means computed from measured figures, with the arithmetic shown; **est.** means an estimate no query has checked yet.
-The inbox notes cited are infra's, in the main checkout's `.claude/inbox/`: `2026-11-13-measurements` is `from-infra-2026-11-13-storage-plan-measurements.md`, and `2026-11-15-q3` is `from-infra-2026-11-15-backfills-and-q3.md`.
+Infra's measurements are restated in a comment on https://github.com/afomi/bitblocks/issues/96 (https://github.com/afomi/bitblocks/issues/96#issuecomment-6965455801), and the index drop in https://github.com/afomi/bitblocks/issues/92.
+The short names below are infra's notes, kept in the main checkout's `.claude/inbox/` and not committed: `2026-11-13-measurements` is `from-infra-2026-11-13-storage-plan-measurements.md`, and `2026-11-15-q3` is `from-infra-2026-11-15-backfills-and-q3.md`.
 Related: [TX_STORAGE.md](TX_STORAGE.md) (the tx store and its order of work), [DERIVED_DATA.md](DERIVED_DATA.md), [SYNCING.md](SYNCING.md).
 
 ## Summary
@@ -16,10 +17,12 @@ Related: [TX_STORAGE.md](TX_STORAGE.md) (the tx store and its order of work), [D
   The other 2.8 KB a tx is metadata, indexes and `spend_index`, and it stays even when the raw bytes leave.
 - At full tip, a row for every tx in today's shape is about **30 to 73 TB** (derived, section 2), $3,400 to $8,400 a month in gp3, and the top of that range is past RDS's 64 TiB limit.
   Even with the raw bytes, the JSON and the duplicate indexes gone, a row for every tx is about 17 TB.
-- The database was **about 563 GB used on 2026-11-17** (infra, 2026-11-17), at `complete_through` 378,842 ([/api/v1/status](https://bitblocks.app/api/v1/status), 2026-11-18 00:35 UTC).
+- bitblocks-db was **about 563 GB used on 2026-11-17** (infra, about 22:59 UTC, restated in [this comment](https://github.com/afomi/bitblocks/issues/96#issuecomment-6965455801)); `complete_through` was 378,842 at 2026-11-18 00:35 UTC ([/api/v1/status](https://bitblocks.app/api/v1/status)).
 - The sync stops at **400,000** until this plan lands (`config/prod.exs`, `:sync_stop_at_height`); headers keep reaching the tip.
-  At the growth since 2026-11-13, 400,000 lands at about 680 to 700 GB (derived, section 4), so infra's 650 GB alarm comes first, near 392,000 to 395,000.
-- **Recommendation:** stop at 400,000 or 650 GB used, whichever comes first, as the draft said; then raw bytes to S3 (A), no decoded JSON (B) and the duplicate indexes dropped (D), applied through a dump and restore into a new instance, which is also the spin-down's last copy.
+  At the growth since 2026-11-12, 400,000 lands at about 660 to 685 GB (derived, section 4), so infra's 650 GB alarm comes first, near 394,000 to 397,000.
+- **Recommendation:** stop at 400,000 or 650 GB used, whichever comes first, as the draft said: infra sets `SYNC_STOP_AT_HEIGHT` near 394,000 at runtime, with the pause on /syncing as the backstop when the alarm fires.
+  Then a dump that leaves `raw`, `inputs` and `outputs` out, once every completed block has its S3 object, serves as the last copy and as the restore into a smaller instance.
+  Raw bytes to S3 (A), no decoded JSON (B) and the duplicate indexes dropped (D) are built only if Bitblocks is funded past 2026-12-31.
 - Five unused `transactions` indexes were dropped on prod on 2026-11-17, freeing about **6.7 GB** (https://github.com/afomi/bitblocks/issues/92); `transactions_script_analysis_version_index` is kept.
 
 ## Measured on prod
@@ -33,6 +36,7 @@ Infra ran them read-only at about 19:40 UTC, at `complete_through` 348,921.
 - `spend_index` is 60 GB (29 GB heap, 31 GB indexes), 158,824,192 rows, 405 bytes per row with its indexes (Q5).
 - `blocks` is 1,665 MB; everything else is under 25 MB.
 - RDS storage autoscaling is on: 433 GB allocated of a 1,000 GB max, gp3, db.m7g.large with 8 GB of RAM.
+  RDS read about 393 GB used at 2026-11-12 19:27 UTC, against Postgres's 370 GB, a gap of about 23 GB between the two measures.
   Each step up is permanent until a dump and restore.
 - Only **167,242 of 353,645 completed blocks (47%)** had their S3 block object (`raw_object_stored_at`), so 186,403 need one before any move that drops `raw`.
   The backfill chain for them shipped in 6503f6d (https://github.com/afomi/bitblocks/issues/94); blocks over 32 MB are counted and left for multipart upload.
@@ -57,7 +61,8 @@ What it shows (derived from the table):
   In 200,000 to 399,999 that share is 68%.
 - `raw` costs 1.7 to 1.8 times the tx's bytes (848 over 475, 1,022 over 599): hex doubles it, and pglz wins back only 10 to 15%, though 93% of those values are compressed.
   With `inputs` and `outputs`, a tx costs about 4.0 to 4.2 times its own bytes before its metadata.
-- Above 400,000 the rows are presumably tip blocks synced before the stop height (2026-11-15-q3); their `raw` averages 1,673 bytes against 6,719-byte txs, so those large txs compress far better than the early chain or are stored without `raw`; Q3 does not settle which.
+- Above 400,000 the rows are presumably tip blocks synced before the stop height (2026-11-15-q3); their `raw` averages 1,673 bytes against 6,719-byte txs, and only 10.7% of those values are compressed.
+  `raw` is stored whatever the tx's size (`Chain.TxIngest`, `base_attrs/2`), so the gap is unexplained, and the low end of section 2 that rests on it is an estimate until the 650,000 to 950,000 sample.
 - `size_bytes` is null below 200,000 and `input_count` and `output_count` are null above 99,999, so tx bytes come from `raw` there (`Release.backfill_tx_sizes/1` fills them).
 
 Q4, corrected to fall back to `octet_length(raw) / 2` where `size_bytes` is null:
@@ -67,13 +72,14 @@ Q4, corrected to fall back to `octet_length(raw) / 2` where `size_bytes` is null
 | 42,914 | 8,362 | 0 | 1.4 | 3.7 | 20.79 | 19.71 | 671 |
 
 - OP_RETURN txs are 3.7% of rows and 1.4% of bytes below the stop height, so move C saves little there.
-- About a fifth of the stored bytes sit in txs over 1 MB, the size `Transaction.raw_in_db_max_bytes/0` names; a system sample reads whole pages, so a few large txs swing this figure.
+- About a fifth of the stored bytes sit in txs over 1 MB, the size `Transaction.raw_in_db_max_bytes/0` names (reported on, not enforced); a system sample reads whole pages, so a few large txs swing this figure.
 
 ### 2026-11-16 and 2026-11-17
 
-- 451 GB used on 2026-11-16 at about 05:40 UTC (2026-11-15-q3, update of that time).
-- About 563 GB used on 2026-11-17 (infra, 2026-11-17).
-  The day between includes the tx_types apply (chain 18), which changed about 6.2M rows with non-HOT updates and left about 30 GB of dead versions until autovacuum reuses them (infra's estimate, 2026-11-15-q3), and the script_analysis backfill.
+- 451 GB used on 2026-11-16 at about 05:40 UTC, RDS `UsedStorageGB`, the figure infra's 650 GB alarm reads (2026-11-15-q3, update of that time).
+- About 563 GB used on 2026-11-17: infra reported "bitblocks-db: about 563 GB used" in its message on backfill chain 22's completion, about 22:59 UTC, relayed to the lead session; it isn't in an inbox note ([restated here](https://github.com/afomi/bitblocks/issues/96#issuecomment-6965455801)).
+  Whether it is RDS used storage (like the 393 and 451 GB) or `pg_database_size` (like the 370 GB) is unconfirmed.
+  The day between includes the tx_types apply (chain 18), which changed about 6.2M rows with non-HOT updates and left about 30 GB of dead versions until autovacuum reuses them (infra's estimate, 2026-11-15-q3), and the script_analysis backfill, whose non-HOT updates left dead versions too (not measured).
 - Five indexes dropped by hand on prod on 2026-11-17 with Ryan's go, `DROP INDEX CONCURRENTLY`, about **6.7 GB freed**, `transactions` from 21 indexes to 16 (https://github.com/afomi/bitblocks/issues/92):
 
   | Index | Size | Scans |
@@ -113,8 +119,8 @@ Public chain totals: **7,524,524,627 txs** (`sum(num_tx)` over 973,549 headers, 
 | Part | Formula (derived) | Size | gp3 a month at $115/TB |
 |---|---|---|---|
 | fixed cost per row | 7.52B × 2.8 KB (section 1) | about 21 TB | about $2,400 |
-| `raw`, `inputs`, `outputs` | 12.95 TB × 0.69 (Q3, era 400,000 and up) to × 4.0 (Q3, era 300,000 to 399,999) | about 9 to 52 TB | about $1,000 to $6,000 |
-| **total** | | **about 30 to 73 TB** | **about $3,400 to $8,400** |
+| `raw`, `inputs`, `outputs` | 12.95 TB × 0.69 (Q3, era 400,000 and up; est., see the Q3 notes) to × 4.0 (Q3, era 300,000 to 399,999) | about 9 (est.) to 52 TB | about $1,000 to $6,000 |
+| **total** | | **about 30 (est.) to 73 TB** | **about $3,400 to $8,400** |
 
 The range is wide because Q3 holds only 2,090 rows above 400,000, all from recent tip blocks; a sample across 650,000 to 950,000 would narrow it.
 Either end is beyond a small budget, and 73 TB is past RDS's 64 TiB limit.
@@ -125,10 +131,10 @@ Each move, sized at a 400,000 stop (about 106M txs, est., the draft's 20% sample
 
 | Move | Saves at 400,000 (derived) | Saves at full tip (derived) | Costs instead |
 |---|---|---|---|
-| A. `raw` to S3: blocks up to 32 MB are written as verified block objects (`blocks/<height>-<hash>.bin`), and `TxStore.raw/1` reads a tx back by range | 106M × 1,040 bytes, about **110 GB, $13 a month** | 12.95 TB × 1.75 (Q3 `raw` over tx bytes), about 23 TB, $2,600 a month; less if tip txs compress as Q3's era 5 does | S3 at $0.023/GB: about 66 GB through 400,000 is $1.50 a month (TX_STORAGE.md); 12.95 TB at tip is about $300 a month |
+| A. `raw` to S3: blocks up to 32 MB are written as verified block objects (`blocks/<height>-<hash>.bin`), and `TxStore.raw/1` reads a tx back by range | 106M × 1,040 bytes, about **110 GB, $13 a month** | 12.95 TB × 1.75 (Q3 `raw` over tx bytes), about 23 TB, $2,600 a month; less if era 5's unexplained ratio holds (est.) | S3 at $0.023/GB: 106M txs × about 600 bytes (Q3 tx bytes, 475 to 599), about 64 GB through 400,000, is $1.50 a month (derived); 12.95 TB at tip is about $300 a month |
 | B. Drop the decoded `inputs` and `outputs` JSON; parse from raw when a page needs it (`Chain.RawTx`), and keep a compact per-output summary only where an index needs it | 106M × 1,470 bytes, about **156 GB, $18 a month** | 12.95 TB × 2.3 (Q3), about 30 TB, $3,400 a month, with the same caveat | parse cost on read |
 | C. No row for bulk data-carrier txs: a tx whose only outputs are OP_RETURN data and change, matching no indexed protocol, keeps its bytes in the block object and is found through a txid locator | at most 3.7% of rows (Q4) × 106M × 5.3 KB, about **21 GB, $2 a month** | about 18 TB if 60% of the remaining txs qualify (est., unmeasured), $2,100 a month | a txid locator: 7.52B × about 40 bytes, about 300 GB as sorted files in S3 ($7 a month) or about 600 GB with its index in Postgres ($70 a month) |
-| D. Drop the duplicate indexes and column: `txid_prefix_idx` (117 bytes a row), the `input_txids` GIN (130 bytes a row) and the `input_txids` column (about 180 bytes), since `spend_index` answers it | 106M × 427 bytes, about **45 GB, $5 a month** | 7.52B × 427 bytes, about 3.2 TB, $370 a month | the `?txid=` prefix query needs the unique index to serve it (check its collation first); slower ad hoc queries on `input_txids` |
+| D. Drop the duplicate indexes and column: `txid_prefix_idx` (117 bytes a row), the `input_txids` GIN (130 bytes a row) and the `input_txids` column (about 180 bytes), which `spend_index` can answer once it is complete | 106M × 427 bytes, about **45 GB, $5 a month** | 7.52B × 427 bytes, about 3.2 TB, $370 a month | the `?txid=` prefix query moves to the unique index (check its collation first); `/graph`'s forward walk (`Chain.TxGraph`, `children/1`), the flow tiles (`Bitblocks.FlowTiles`) and `Chain`'s spend depth (`do_spend_depth/3`) move onto `spend_index`, after confirming `spend_index` is complete over the stored range (tx_steps v7, which fills it for older rows, was applied over 0..180,830, 2026-11-15-q3) |
 | Done: five unused indexes (https://github.com/afomi/bitblocks/issues/92) | 6.7 GB freed on 2026-11-17, about 93 bytes a row | about 0.7 TB | none: 0 scans each |
 
 What it leaves at full tip, with A, B and D: about 2.3 KB a row (5.3 KB less 2.5, 0.43 and 0.09), so about **17 TB** for a row per tx ($2,000 a month), or about **6.9 TB** ($790 a month) if C's 60% holds, plus about $300 a month in S3 (derived).
@@ -142,27 +148,32 @@ Before any move:
 - RDS allocated storage never shrinks: trimming rows frees space for new rows, not money.
   The saving becomes money only through a dump and restore into a new, smaller instance, which the spin-down's dump already does (section 5).
 - Trimming in place by `UPDATE` writes a new version of every row first, needing free space while it runs, and on 2026-11-15 a non-HOT update cost an insert into each of 21 indexes (16 since the drop) on a table that RAM can't hold (2026-11-15-q3); a restore that leaves the columns out avoids both.
-- C and its 60% need measuring on blocks above 620,000, which prod does not hold yet: a sample read from our node of a few thousand blocks across 650,000 to 950,000.
+- C and its 60% need measuring above 620,000; prod holds only recent tip blocks there (completed up to 957,679, 2026-11-15-q3), so a sample across 650,000 to 950,000 still has to come from our node, a few thousand blocks.
 
 ## 4. Heights until the plan lands
 
 The sync stops at 400,000 (`config/prod.exs`, since 2026-11-13); `SYNC_STOP_AT_HEIGHT` moves it at runtime and the pause on /syncing (`Sync.set_paused/1`) stops dispatch at once.
+Nothing in the code stops the sync on storage used, so a stop at 650 GB is one of those two, done by infra.
 Headers keep reaching the tip either way, and every page says how far it is complete.
 Live: `complete_through` 378,842, `stop_height` 400,000 ([/api/v1/status](https://bitblocks.app/api/v1/status), 2026-11-18 00:35 UTC).
 
-Growth since 2026-11-13 (derived): 370 GB at 348,921 to about 563 GB at 378,842 is about 193 GB over 29,921 blocks, **about 6.5 GB per 1,000 blocks**, or about 5.5 GB without the tx_types apply's 30 GB of dead versions.
-So the 21,158 blocks left to 400,000 add about 115 to 137 GB, landing at **about 680 to 700 GB**, and 650 GB used arrives near 392,000 to 395,000.
+Growth on RDS used storage, the measure the alarm reads (derived): about 393 GB at 2026-11-12 19:27 UTC to about 563 GB at 2026-11-17 22:59 UTC is about 170 GB.
+Over the 29,921 blocks from 348,921 to 378,842 that is **about 5.7 GB per 1,000 blocks**, or about 4.7 GB without the tx_types apply's 30 GB of dead versions; the script_analysis backfill's dead versions are also in both figures.
+Both heights are approximate: `complete_through` was at most 348,921 on 2026-11-12 and at most 378,842 at the 563 GB reading, and the two errors pull in opposite directions.
+So the 21,158 blocks left to 400,000 add about 100 to 120 GB, landing at **about 660 to 685 GB**, and 650 GB used arrives near 394,000 to 397,000.
+If the 563 GB is `pg_database_size` instead (against 370 GB), the rate is 5.5 to 6.5 GB, and 650 GB arrives near 392,000 to 395,000.
 
 | Stop at | Used at the stop (derived) | Extra gp3 a month over today's 563 GB | Fits infra's 650 GB alarm? |
 |---|---|---|---|
 | now (about 379,000) | about 563 GB | $0 | yes |
-| 650 GB used (about 392,000 to 395,000) | 650 GB | about $10 | yes, at the line |
-| 400,000 | about 680 to 700 GB | about $14 to $16 | no: the alarm moves, or the sync stops first |
-| continue to the 1,000 GB ceiling | 1,000 GB near 440,000 to 460,000 | about $50 | no, and writes fail at the ceiling |
+| 650 GB used (about 394,000 to 397,000) | 650 GB | about $10 | yes, at the line |
+| 400,000 | about 660 to 685 GB | about $11 to $14 | no: the alarm moves, or the sync stops first |
+| continue to the 1,000 GB ceiling | 1,000 GB near 455,000 to 470,000 | about $50 | no, and writes fail at the ceiling |
 
 **Recommended: stop at 400,000 or 650 GB used, whichever comes first**, which on today's growth is 650 GB.
+How: infra sets `SYNC_STOP_AT_HEIGHT` near the computed height, 394,000 now, at runtime, and moves it as the rate firms up; the pause on /syncing is the backstop when the 650 GB alarm fires.
 Every row written before the moves is in the shape this plan replaces and makes the last dump larger, and the dollars between the options are small; the alarm, the permanent allocation and the dump size are what differ.
-Sync resumes in the new shape once A, B and D are built and tested; C decides how far past 400,000 it then goes.
+If Bitblocks is funded, sync resumes in the new shape once A, B and D are built and tested, and C decides how far past 400,000 it then goes.
 
 ## 5. Fit with the 2026-12-31 spin-down
 
@@ -173,7 +184,7 @@ Without funding, Bitblocks spins down by 2026-12-31, and its last copy is a dump
 |---|---|---|---|---|
 | 400,000, as is | 106M × 4.0 KB, about 420 GB | about 170 to 210 GB | about 1.5 to 3 hours | about $0.20 |
 | 400,000, `raw`, `inputs`, `outputs` left out | 420 GB less 106M × 2.5 KB, about 155 GB | about 50 to 80 GB (est., 2 to 3:1 without the hex) | about 30 minutes to 1 hour | about $0.07 |
-| full tip, as is | about 30 to 70 TB | about 15 to 35 TB | about 5 to 20 days | about $15 to $35 |
+| full tip, as is | about 75% of 30 to 73 TB (no index contents), about 23 to 55 TB | about 12 to 28 TB | about 3 to 16 days | about $12 to $28 |
 
 `transactions` is one table, so a parallel dump (`-j`) does not speed it up.
 To leave the raw columns out: `pg_dump --exclude-table-data=transactions` for everything else, plus `\copy (SELECT <every column but raw, inputs, outputs> FROM transactions) TO PROGRAM 'zstd …'`.
@@ -185,17 +196,25 @@ So the stop height and the spin-down agree: the database stays near 650 GB, and 
 Each item, with its measured or derived cost; the status line records each answer.
 
 1. **Stop height.** Recommended: 400,000 or 650 GB used, whichever comes first.
-   Options: stop now (about 563 GB, $0 more a month); at 650 GB used (near 392,000 to 395,000, about $10 a month more); at 400,000 (about 680 to 700 GB, about $15 a month more, past infra's alarm).
-2. **`transactions_script_analysis_version_index`** (1,025 MB, 392 scans on 2026-11-17). Recommended: keep it, and take it out of the held migration for https://github.com/afomi/bitblocks/issues/92.
+   How: infra sets `SYNC_STOP_AT_HEIGHT` near the computed height (394,000 now) at runtime, with the pause on /syncing as the backstop when the alarm fires.
+   Options: stop now (about 563 GB, $0 more a month); at 650 GB used (near 394,000 to 397,000, about $10 a month more); at 400,000 (about 660 to 685 GB, about $11 to $14 a month more, past infra's alarm).
+2. **`transactions_script_analysis_version_index`** (1,025 MB, 392 scans on 2026-11-17).
+   Recommended: keep it, and take it out of the held migration for https://github.com/afomi/bitblocks/issues/92.
    Dropping it saves about 1 GB, and script_analysis backfills would scan by block range instead.
 3. **A. `raw` to S3.** Saves about 110 GB at 400,000 ($13 a month) and about 23 TB at tip ($2,600 a month), for $1.50 a month of S3 at 400,000.
-   It first needs every completed block's object (https://github.com/afomi/bitblocks/issues/94) and, past 400,000, multipart objects for blocks over 32 MB.
+   It first needs every completed block's object (https://github.com/afomi/bitblocks/issues/94) and, past 400,000, multipart objects for blocks over 32 MB (not built).
+   Code: the sync stops writing `raw` for blocks with an object; single-tx readers already fall back to the store (5e3c32e).
 4. **B. No decoded `inputs` and `outputs` JSON.** Saves about 156 GB at 400,000 ($18 a month) and about 30 TB at tip ($3,400 a month), for parse cost on read.
+   Code: every reader of `inputs` and `outputs` parses from the raw bytes instead (up to 30 files under `lib/` by a loose grep for `inputs` and `outputs`).
 5. **C. No row for bulk data-carrier txs.** Saves at most about 21 GB at 400,000 ($2 a month); at tip about 18 TB if 60% qualify, which is unmeasured.
    Recommended: decide after the 650,000 to 950,000 sample, before the sync resumes past 400,000.
 6. **D. Drop `txid_prefix_idx`, the `input_txids` GIN and column.** Saves about 45 GB at 400,000 ($5 a month) and about 3.2 TB at tip ($370 a month).
-7. **How the savings land.** Recommended: a dump that leaves `raw`, `inputs` and `outputs` out (about 50 to 80 GB compressed), restored into a new, smaller instance, and the same dump as the Glacier copy (https://github.com/afomi/bitblocks/issues/55).
+   Code: `/graph`'s forward walk, the flow tiles and `Chain`'s spend depth move onto `spend_index`, after confirming it is complete over the stored range; the `?txid=` prefix query moves to the unique index.
+7. **How the savings land.** Recommended: a dump that leaves `raw`, `inputs` and `outputs` out (about 50 to 80 GB compressed), restored into a new, smaller instance, and the same dump as the Glacier copy (https://github.com/afomi/bitblocks/issues/55), once `Release.tx_store_reconcile/3` shows every completed block has its object.
+   Without that, a dump that leaves `raw` out loses the bytes of the 186,403 blocks (53%) that lacked one on 2026-11-13.
    Trimming in place frees space but not money, since RDS allocation never shrinks.
+8. **Build A, B and D now, or only if funded.** Through 400,000 they save about $36 a month together (A $13, B $18, D $5), against a spin-down on 2026-12-31 unless funded; their case is the tip.
+   Recommended: only if funded; the leaner dump (decision 7) needs none of them, only https://github.com/afomi/bitblocks/issues/94.
 
 ## SQL behind the numbers
 
