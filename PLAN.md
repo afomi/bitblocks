@@ -52,12 +52,12 @@ https://github.com/afomi/bitblocks/issues/87 · https://github.com/afomi/bitbloc
 
 - Paid crawler access (x402), agreed with jurisdictional on 2026-11-18:
   - One shared library, `x402_ex` (`afomi/x402_ex`), protocol and verification only.
-    jurisdictional builds v0.1, and bitblocks gives Payment and ReplayGuard a security review before it is tagged.
-  - bitblocks then adopts it behind the crawler 402 from https://github.com/afomi/bitblocks/pull/109.
+    bitblocks builds v0.1, including `X402.Stripe`, and jurisdictional gives it a security review before it is tagged.
+    jurisdictional then builds MPP, as phase 2.
+  - bitblocks adopts it behind the crawler 402 from https://github.com/afomi/bitblocks/pull/109.
     It adds `{:req, "~> 0.5"}`, and a ReplayGuard table with a unique index on the tx hash.
   - Stripe recording goes in a shared `X402.Stripe.record/2` helper.
     Each app keeps its own Stripe keys and webhooks.
-  - MPP is phase 2 in the same library.
   - Live mode waits on Ryan: Stripe's crypto approval, CDP keys, a price (proposed 0.01 USDC a request) and his go.
     Then infra lifts the ALB Meta rule.
 - CI and deploys skip docs-only pushes: https://github.com/afomi/bitblocks/issues/93
