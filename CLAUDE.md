@@ -167,6 +167,7 @@ GET /api/v1/status/derivations` shows the versions and latest runs.
 **Access (`BitblocksWeb.UserAuth`):**
 - Public: home, `/blocks`, block and transaction detail, the beta features, `/reorgs`, `/facts`, `/about`, `/content`, `/start`.
 - API key or signed in: all of `/api/v1` and `/bitcom.json` (`BitblocksWeb.Plugs.RequireCaller`, #12). Open with neither: `/api/v1/status`, `/api/v1/price/bsv` and `/api/v1/support`, which other sites' browsers and the deploy check read, `/api/v1/headers`, which a light client checks merkle roots against, and the Bitcom registry exports (`/bitcom.json`, `/api/v1/bitcom/snapshots`), meant to be checked without trusting us.
+- AI crawlers with no key or session (`RateLimiter.AiCrawlers`, by user agent; not Googlebot or Bingbot): one budget per crawler family across all its IPs, and past it a 402 pointing at `/pricing#crawlers` (#107).
 - Signed in with GitHub: `/status`, `/syncing`, and the raw tx download.
 - Admin: everything in the router's `:admin` scope, including the `/transactions` list, plus the chain-scrubber tiles.
   An admin is a GitHub user whose row is marked admin (`users.admin`, keyed by their GitHub numeric id; set with `bin/bitblocks rpc 'Bitblocks.Release.set_admin("afomi", true)'`).
@@ -300,6 +301,7 @@ Logged-out callers get `RATE_LIMIT_PER_MINUTE` (default 30) requests per minute 
 These limits count per node until the Erlang cluster is connected (`this_node.rate_limit_scope` on `/api/v1/status`).
 Logged-in users get `RATE_LIMIT_SIGNED_IN_PER_MINUTE` (600) per user, and admins `RATE_LIMIT_ADMIN_PER_MINUTE` (3,000) per user.
 This covers HTTP requests, not events over an open LiveView socket.
+An AI crawler without a key gets `RATE_LIMIT_AI_CRAWLER_PER_MINUTE` (10) per family, shared by all its IPs, then a 402 with `Retry-After` and a body (JSON under `/api/`, text elsewhere) naming the key header and `/pricing#crawlers`; refusals are logged at info, counted by telemetry `[:bitblocks, :ai_crawler, :throttled]`, and shown per family in `Release.status()`.
 Keyed callers send `Authorization: Bearer bbk_…` (or `x-api-key`) and get their key's own budget; create one with `bin/bitblocks rpc 'Bitblocks.Release.create_api_key("qart", 1200)'` (printed once), or register one made elsewhere from its sha256 with `Release.create_api_key_from_hash/3`, so the key never appears in command output. An unknown or revoked key is a 401.
 A signed-in user can take one trial key from `/start`, 60 requests a minute and no scopes (`ApiKeys.issue_trial/1`, `replace_trial/1`, #59).
 A key can hold scopes, none by default: `ops_read` opens `/api/v1/ops/*`, given with `scopes: ["ops_read"]` on either create function or `Release.grant_api_key_scope/2`. A key without it gets a 403.

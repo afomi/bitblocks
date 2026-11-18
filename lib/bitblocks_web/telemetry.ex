@@ -82,6 +82,12 @@ defmodule BitblocksWeb.Telemetry do
           "The time the connection spent waiting before being checked out for the query"
       ),
 
+      # AI crawlers refused past their family's budget (BitblocksWeb.Plugs.RateLimiter)
+      counter("bitblocks.ai_crawler.throttled.count",
+        description: "AI crawler requests refused with a 402, by family",
+        tags: [:family]
+      ),
+
       # Bitcoin RPC Metrics
       summary("bitblocks.bitcoin_rpc.call.duration",
         unit: {:native, :millisecond},

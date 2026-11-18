@@ -126,6 +126,64 @@
       </div>
     </section>
 
+    <%!-- AI crawlers and data licensing: the crawler 402 links here (#107) --%>
+    <section
+      id="crawlers"
+      aria-labelledby="crawlers-heading"
+      class="border-t border-neutral-800 py-8 scroll-mt-6"
+    >
+      <p class="font-mono text-xs text-neutral-500 uppercase tracking-wider mb-2">
+        AI crawlers
+      </p>
+      <h2
+        id="crawlers-heading"
+        class="text-lg font-semibold text-neutral-50 mb-3"
+      >
+        For AI crawlers and data licensing
+      </h2>
+      <div class="max-w-2xl space-y-3 text-sm text-neutral-400 leading-relaxed">
+        <p>
+          If you run a crawler for an AI or LLM product, you're welcome to the chain we hold, through the API.
+          Without a key, each company's crawlers share
+          <span
+            id="crawlers-budget"
+            class="font-mono tabular-nums text-neutral-50"
+          >{@crawler_budget}</span>
+          requests a minute across all their addresses, and past that get a 402 with a <code class="font-mono text-neutral-50">Retry-After</code> header.
+        </p>
+        <p>
+          A key gets your crawler a budget of its own, and is never counted as a crawler.
+          It opens the whole API, including <code class="font-mono text-neutral-50">/api/v1/txs/:txid/raw</code>, a transaction's exact bytes, checked against its txid.
+          Send it on every request as <code
+            id="crawlers-header"
+            class="font-mono text-neutral-50"
+          >Authorization: Bearer bbk_...</code>.
+        </p>
+        <p :if={@coverage}>
+          Every block from 0 through
+          <span
+            id="crawlers-coverage"
+            class="font-mono tabular-nums text-neutral-50"
+          >{format_number(@coverage.through)}</span>
+          is complete, with every transaction stored, of
+          <span class="font-mono tabular-nums text-neutral-50">{format_number(@coverage.tip)}</span>
+          blocks known.
+          <code class="font-mono text-neutral-50">/api/v1/status</code>
+          always says where the index stands.
+        </p>
+        <p>
+          There's no checkout for crawlers yet.
+          Write to
+          <a
+            id="crawlers-contact"
+            href={"mailto:#{@contact_email}?subject=AI%20crawler%20access"}
+            class="underline text-neutral-50 hover:opacity-80"
+          >{@contact_email}</a>
+          for a key or a data license, with your crawler's name and user agent, what you'd like to read, and the requests a minute you need.
+        </p>
+      </div>
+    </section>
+
     <%!-- API endpoints included --%>
     <section class="border-t border-neutral-800 py-8">
       <p class="font-mono text-xs text-neutral-500 uppercase tracking-wider mb-2">
