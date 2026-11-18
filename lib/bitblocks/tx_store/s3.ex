@@ -10,6 +10,13 @@ defmodule Bitblocks.TxStore.S3 do
 
   @cache_control "public, immutable, max-age=31536000"
 
+  # Multipart requests retry at most 3 times with short backoff (ExAws's
+  # default is 10 attempts), so a slow or throttled part fails well within
+  # the block object's write timeout rather than stalling for minutes.
+  @multipart_retries [
+    retries: [max_attempts: 3, base_backoff_in_ms: 200, max_backoff_in_ms: 5_000]
+  ]
+
   @impl true
   def put(key, bytes) do
     with {:ok, bucket} <- bucket() do
@@ -83,7 +90,7 @@ defmodule Bitblocks.TxStore.S3 do
         content_type: "application/octet-stream",
         cache_control: @cache_control
       )
-      |> ExAws.request()
+      |> ExAws.request(@multipart_retries)
       |> case do
         {:ok, %{body: %{upload_id: id}}} when is_binary(id) and id != "" ->
           {:ok, %{bucket: bucket, key: key, upload_id: id}}
@@ -100,7 +107,9 @@ defmodule Bitblocks.TxStore.S3 do
   # The part's ETag is what `complete` names it by.
   @impl true
   def multipart_put_part(%{bucket: bucket, key: key, upload_id: id}, number, bytes) do
-    case bucket |> ExAws.S3.upload_part(key, id, number, bytes) |> ExAws.request() do
+    case bucket
+         |> ExAws.S3.upload_part(key, id, number, bytes)
+         |> ExAws.request(@multipart_retries) do
       {:ok, %{headers: headers}} ->
         case Enum.find_value(headers, fn {k, v} -> if String.downcase(k) == "etag", do: v end) do
           nil -> {:error, {:s3_upload_part, number, :no_etag}}
@@ -114,7 +123,9 @@ defmodule Bitblocks.TxStore.S3 do
 
   @impl true
   def multipart_complete(%{bucket: bucket, key: key, upload_id: id}, parts) do
-    case bucket |> ExAws.S3.complete_multipart_upload(key, id, parts) |> ExAws.request() do
+    case bucket
+         |> ExAws.S3.complete_multipart_upload(key, id, parts)
+         |> ExAws.request(@multipart_retries) do
       {:ok, _} -> :ok
       {:error, reason} -> {:error, {:s3_multipart_complete, reason}}
     end
@@ -122,7 +133,9 @@ defmodule Bitblocks.TxStore.S3 do
 
   @impl true
   def multipart_abort(%{bucket: bucket, key: key, upload_id: id}) do
-    case bucket |> ExAws.S3.abort_multipart_upload(key, id) |> ExAws.request() do
+    case bucket
+         |> ExAws.S3.abort_multipart_upload(key, id)
+         |> ExAws.request(@multipart_retries) do
       {:ok, _} -> :ok
       {:error, {:http_error, 404, _}} -> :ok
       {:error, reason} -> {:error, {:s3_multipart_abort, reason}}
