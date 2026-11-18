@@ -203,6 +203,97 @@ defmodule Bitblocks.ReleaseTxTalliesTest do
     assert Chain.get_transaction!(ctx.child).total_output_satoshis == 9_000
   end
 
+  # https://github.com/afomi/bitblocks/issues/100: a tx stamped with sats in
+  # unknown, because the tx it spends wasn't stored yet, is picked again by a
+  # revisit run once that tx is stored.
+  test "revisit_unknown fills sats in, fee and block fees once the spent tx is stored" do
+    {grand_txid, _} = grand = tx([funding_outpoint()], [p2pkh(address(), 50_000)])
+    {spender_txid, _} = spender = tx(["#{grand_txid}_0"], [p2pkh(address(), 49_000)])
+    {other_txid, _} = other = tx([funding_outpoint()], [p2pkh(address(), 5_000)])
+
+    earlier = block_fixture(%{height: 30, sync_state: "completed"})
+    tip = block_fixture(%{height: 31, sync_state: "completed"})
+    [_, _] = TxIngest.store_chunk([tx_json(spender), tx_json(other)], tip)
+
+    version = TxPipeline.version(:tallies)
+    quietly(fn -> Release.backfill_tx_tallies(31, 31, apply: true) end)
+
+    assert %{total_input_satoshis: nil, fee_satoshis: nil, tallies_version: ^version} =
+             Chain.get_transaction!(spender_txid)
+
+    assert %{fees: nil, fees_verified: nil} = Repo.reload!(tip)
+
+    # A plain run doesn't pick it: it is at the version.
+    assert %{rows_changed: 0} = quietly(fn -> Release.backfill_tx_tallies(31, 31) end)
+
+    # The sync then stores the block it spends from.
+    :ok = TxIngest.store(tx_json(grand), earlier)
+
+    output =
+      capture_io(fn ->
+        send(self(), {:report, Release.backfill_tx_tallies(31, 31, revisit_unknown: true)})
+      end)
+
+    assert_received {:report, dry}
+    assert %{rows_changed: 1, details: %{revisited: 2, filled: 1, still_unknown: 1}} = dry
+    assert output =~ "2 transaction(s) revisited with sats in unknown: 1 to fill, 1 still unknown"
+    assert Chain.get_transaction!(spender_txid).total_input_satoshis == nil
+
+    report =
+      quietly(fn -> Release.backfill_tx_tallies(31, 31, apply: true, revisit_unknown: true) end)
+
+    assert %{outcome: "ok", rows_changed: 1, rows_below_version: 0} = report
+    assert %{revisited: 2, filled: 1, still_unknown: 1, blocks_changed: 1} = report.details
+
+    assert %{total_input_satoshis: 50_000, fee_satoshis: 1_000, tallies_version: ^version} =
+             Chain.get_transaction!(spender_txid)
+
+    # Its input is still not stored: left as it was.
+    assert %{total_input_satoshis: nil, fee_satoshis: nil, total_output_satoshis: 5_000} =
+             Chain.get_transaction!(other_txid)
+
+    # One fee still unknown, so the block's fees stay unknown until it fills.
+    assert Repo.reload!(tip).fees == nil
+
+    # Named the coinbase, the other needs no sats in, and the block's fees fill.
+    Repo.update_all(from(t in Transaction, where: t.txid == ^other_txid),
+      set: [coinbase: true]
+    )
+
+    quietly(fn -> Release.backfill_tx_tallies(31, 31, apply: true, revisit_unknown: true) end)
+    assert %{fees: 1_000} = Repo.reload!(tip)
+
+    # Nothing left to revisit: a rerun writes nothing.
+    rerun = quietly(fn -> Release.backfill_tx_tallies(31, 31, revisit_unknown: true) end)
+    assert %{rows_changed: 0, details: %{revisited: 0, blocks_changed: 0}} = rerun
+  end
+
+  # A revisit writes the current version, so it must leave a row a newer
+  # version stamped (mixed code during a deploy or a rollback) alone.
+  test "revisit_unknown never lowers a newer stamp" do
+    {grand_txid, _} = grand = tx([funding_outpoint()], [p2pkh(address(), 50_000)])
+    {spender_txid, _} = spender = tx(["#{grand_txid}_0"], [p2pkh(address(), 49_000)])
+
+    earlier = block_fixture(%{height: 30, sync_state: "completed"})
+    tip = block_fixture(%{height: 31, sync_state: "completed"})
+    :ok = TxIngest.store(tx_json(spender), tip)
+    :ok = TxIngest.store(tx_json(grand), earlier)
+
+    newer = TxPipeline.version(:tallies) + 1
+
+    Repo.update_all(from(t in Transaction, where: t.txid == ^spender_txid),
+      set: [tallies_version: newer, total_input_satoshis: nil, fee_satoshis: nil]
+    )
+
+    report =
+      quietly(fn -> Release.backfill_tx_tallies(31, 31, apply: true, revisit_unknown: true) end)
+
+    assert %{rows_changed: 0, details: %{revisited: 0, filled: 0}} = report
+
+    assert %{tallies_version: ^newer, total_input_satoshis: nil, fee_satoshis: nil} =
+             Chain.get_transaction!(spender_txid)
+  end
+
   test "only the height range is scanned", ctx do
     quietly(fn -> Release.backfill_tx_tallies(21, 21, apply: true) end)
 

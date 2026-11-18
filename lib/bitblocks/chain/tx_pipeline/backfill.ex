@@ -13,6 +13,18 @@ defmodule Bitblocks.Chain.TxPipeline.Backfill do
   picked. So a rerun after a full apply picks nothing, and a stopped run
   resumes where it stopped. `force: true` picks every row in the range.
 
+  `revisit_unknown: true` also picks the rows stamped at exactly the version whose
+  sats in is unknown (`total_input_satoshis` nil, not a coinbase): a
+  previous output wasn't stored when they were computed. It recomputes them
+  from what is stored now, writes the ones whose sats in it now knows
+  (`filled`), and leaves the rest exactly as they were (`still_unknown`).
+  A block is rewritten when any of its rows filled, or when its `fees` is
+  nil though every one of its rows now has a fee. It reads no more rows
+  than a plain run (each block's rows are read anyway, for the sums); it
+  reads raw bytes, and looks up previous outputs, for every unknown row in
+  the range on every such run, which is why it is an option: run it after
+  the sync passes a range the unknown rows spend from.
+
   Dry run by default: reads, computes and counts, and writes only its
   `derivation_runs` row. With `apply: true` it stamps every picked row,
   writing its values too, one `UPDATE … FROM unnest(…)` per page.
@@ -44,10 +56,14 @@ defmodule Bitblocks.Chain.TxPipeline.Backfill do
   `sats_in_unknown`, `blocks_changed`, `block_values_changed`,
   `blocks_below_version`, `reward_unknown` (blocks with no coinbase known,
   so no reward to check, and no stamp) and `unverified` (heights failing
-  `miner_reward <= subsidy + fees`).
+  `miner_reward <= subsidy + fees`), and, with `revisit_unknown: true`,
+  `revisited` (rows at the version with sats in unknown), `filled` (of
+  those, the ones now known, written) and `still_unknown` (left as they
+  were).
 
   Options: `apply: true` to write (default false); `force: true` to pick
-  every row; `block_batch` (100); `tx_batch` (1,000); and the
+  every row; `revisit_unknown: true` to also pick the rows with sats in
+  unknown; `block_batch` (100); `tx_batch` (1,000); and the
   `Bitblocks.Derivations` options (`pause_ms`, `statement_timeout_ms`,
   `command`, `on_batch`).
   """
@@ -56,6 +72,7 @@ defmodule Bitblocks.Chain.TxPipeline.Backfill do
     ctx = %{
       applied: Keyword.get(opts, :apply, false),
       force: Keyword.get(opts, :force, false),
+      revisit: Keyword.get(opts, :revisit_unknown, false),
       version: TxPipeline.version(:tallies),
       block_version: TxPipeline.version(:block_totals),
       from_height: from_height,
@@ -83,7 +100,11 @@ defmodule Bitblocks.Chain.TxPipeline.Backfill do
           block_values_changed: 0,
           blocks_below_version: 0,
           reward_unknown: 0,
-          unverified: []
+          unverified: [],
+          revisit_unknown: ctx.revisit,
+          revisited: 0,
+          filled: 0,
+          still_unknown: 0
         },
         next: &next(&1, &2, ctx)
       },
@@ -122,7 +143,8 @@ defmodule Bitblocks.Chain.TxPipeline.Backfill do
   defp block(block, report, ctx) do
     {report, sums, picked} = pages(block, report, 0, empty_sums(), 0, ctx)
 
-    if picked > 0 or ctx.force or below?(block.tallies_version, ctx.block_version) do
+    if picked > 0 or ctx.force or below?(block.tallies_version, ctx.block_version) or
+         stale_fees?(block, sums, ctx) do
       totals =
         if ctx.applied do
           Derivations.bounded(ctx.opts, fn -> run_block!(block) end)
@@ -143,6 +165,11 @@ defmodule Bitblocks.Chain.TxPipeline.Backfill do
       bump(report, :blocks_examined, 1)
     end
   end
+
+  # Revisiting: the block's fees are nil, yet every row now has a fee (its
+  # rows filled in an earlier run whose block write didn't happen).
+  defp stale_fees?(block, sums, ctx),
+    do: ctx.revisit and is_nil(block.fees) and sums.fees_unknown == 0
 
   # A block step that fails stops the run, so it is recorded, not skipped.
   defp run_block!(block) do
@@ -167,7 +194,7 @@ defmodule Bitblocks.Chain.TxPipeline.Backfill do
       :done ->
         {report, sums, picked}
 
-      {rows, {pairs, n_picked, n_values_changed, n_unknown}} ->
+      {rows, {pairs, n_picked, n_values_changed, n_unknown, revisits}} ->
         if ctx.applied and n_picked > 0, do: Derivations.pause(ctx.opts)
 
         report =
@@ -176,6 +203,9 @@ defmodule Bitblocks.Chain.TxPipeline.Backfill do
           |> bump(:rows_changed, n_picked)
           |> detail(:values_changed, n_values_changed)
           |> detail(:sats_in_unknown, n_unknown)
+          |> detail(:revisited, revisits.revisited)
+          |> detail(:filled, revisits.filled)
+          |> detail(:still_unknown, revisits.still_unknown)
 
         sums =
           Enum.reduce(pairs, sums, fn {row, values}, acc -> add(acc, row.coinbase, values) end)
@@ -185,7 +215,8 @@ defmodule Bitblocks.Chain.TxPipeline.Backfill do
   end
 
   # Every row of the block (the block sums need them all), with raw only for
-  # the picked ones, so a rerun reads no raw bytes.
+  # the picked ones (and, revisiting, the rows with sats in unknown), so a
+  # rerun reads no raw bytes.
   defp page(block, after_id, ctx) do
     Repo.all(
       from(t in Transaction,
@@ -211,11 +242,16 @@ defmodule Bitblocks.Chain.TxPipeline.Backfill do
           burned_satoshis: t.burned_satoshis,
           raw:
             fragment(
-              "CASE WHEN ?::boolean OR ? IS NULL OR ? < ? THEN ? END",
+              "CASE WHEN ?::boolean OR ? IS NULL OR ? < ? OR (?::boolean AND ? = ? AND ? IS NOT TRUE AND ? IS NULL) THEN ? END",
               ^ctx.force,
               t.tallies_version,
               t.tallies_version,
               ^ctx.version,
+              ^ctx.revisit,
+              t.tallies_version,
+              ^ctx.version,
+              t.coinbase,
+              t.total_input_satoshis,
               t.raw
             )
         }
@@ -224,24 +260,55 @@ defmodule Bitblocks.Chain.TxPipeline.Backfill do
   end
 
   defp compute_and_write(rows, block, ctx) do
-    {picked, kept} =
+    {picked, rest} =
       Enum.split_with(rows, &(ctx.force or below?(&1.tallies_version, ctx.version)))
 
+    {revisit, kept} = Enum.split_with(rest, &(ctx.revisit and unknown_sats_in?(&1, ctx.version)))
+
+    computed = compute(picked ++ revisit, block, ctx)
+    {picked_pairs, revisit_pairs} = Enum.split(computed, length(picked))
+
+    # A revisited row is written only when its sats in is now known; one
+    # still unknown stays as it was, values and stamp.
+    {filled_pairs, unknown_pairs} =
+      Enum.split_with(revisit_pairs, fn {_row, new} -> new.total_input_satoshis != nil end)
+
+    written = picked_pairs ++ filled_pairs
+    values_changed = Enum.count(written, fn {row, new} -> Map.take(row, @columns) != new end)
+
+    if ctx.applied and written != [], do: write(written, ctx.version)
+
+    kept_pairs =
+      Enum.map(kept ++ Enum.map(unknown_pairs, &elem(&1, 0)), &{&1, Map.take(&1, @columns)})
+
+    revisits = %{
+      revisited: length(revisit),
+      filled: length(filled_pairs),
+      still_unknown: length(unknown_pairs)
+    }
+
+    {written ++ kept_pairs, length(written), values_changed,
+     Enum.count(picked_pairs, fn {_row, new} -> is_nil(new.total_input_satoshis) end), revisits}
+  end
+
+  defp compute([], _block, _ctx), do: []
+
+  defp compute(rows, block, ctx) do
     computed =
-      Enum.reduce(ctx.steps, Enum.map(picked, &%{txid: &1.txid, raw: &1.raw}), fn step, acc ->
+      Enum.reduce(ctx.steps, Enum.map(rows, &%{txid: &1.txid, raw: &1.raw}), fn step, acc ->
         step.run_chunk(acc, block)
       end)
 
-    picked_pairs = Enum.zip(picked, Enum.map(computed, &values/1))
-    values_changed = Enum.count(picked_pairs, fn {row, new} -> Map.take(row, @columns) != new end)
-
-    if ctx.applied and picked_pairs != [], do: write(picked_pairs, ctx.version)
-
-    kept_pairs = Enum.map(kept, &{&1, Map.take(&1, @columns)})
-
-    {picked_pairs ++ kept_pairs, length(picked), values_changed,
-     Enum.count(computed, &is_nil(&1[:total_input_satoshis]))}
+    Enum.zip(rows, Enum.map(computed, &values/1))
   end
+
+  # Only rows at exactly this version: one a newer version stamped (old code
+  # running during a rolling deploy, or after a rollback) is left alone, so
+  # a revisit never lowers a stamp.
+  defp unknown_sats_in?(row, version),
+    do:
+      row.tallies_version == version and row.coinbase != true and
+        is_nil(row.total_input_satoshis)
 
   # Rows and blocks of this batch still below the version, read back after
   # the writes: the explicit success check, summed over the range.

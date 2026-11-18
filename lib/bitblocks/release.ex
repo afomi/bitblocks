@@ -501,6 +501,9 @@ defmodule Bitblocks.Release do
   ## Options
     - apply: true to write (default false)
     - force: true to recompute every row in the range, whatever its stamp
+    - revisit_unknown: true to also recompute the rows at the version whose
+      sats in is unknown (a previous tx wasn't stored), once the sync has
+      stored what they spend; writes those now known, leaves the rest
     - block_batch: blocks per batch (default 100)
     - tx_batch: txs per page within a block (default 1,000)
     - pause_ms: sleep after each page written (default 50)
@@ -510,6 +513,7 @@ defmodule Bitblocks.Release do
 
       bin/bitblocks rpc 'Bitblocks.Release.backfill_tx_tallies(0, 10_000)'
       bin/bitblocks rpc 'Bitblocks.Release.backfill_tx_tallies(0, 10_000, apply: true)'
+      bin/bitblocks rpc 'Bitblocks.Release.backfill_tx_tallies(944_540, 957_679, revisit_unknown: true)'
   """
   def backfill_tx_tallies(from_height, to_height, opts \\ [])
       when is_integer(from_height) and is_integer(to_height) do
@@ -544,6 +548,14 @@ defmodule Bitblocks.Release do
     IO.puts(
       "  #{d.sats_in_unknown} transaction(s) with sats in unknown (a previous tx not stored)"
     )
+
+    if d.revisit_unknown do
+      IO.puts(
+        "  #{d.revisited} transaction(s) revisited with sats in unknown: " <>
+          "#{d.filled} #{if r.applied, do: "filled", else: "to fill"}, " <>
+          "#{d.still_unknown} still unknown (left as they were)"
+      )
+    end
 
     IO.puts(
       "  #{d.blocks_changed} block total(s) #{if r.applied, do: "written", else: "to write"}" <>
