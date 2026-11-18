@@ -163,9 +163,12 @@ defmodule Bitblocks.Bitcom do
 
   @doc """
   Logs every Bitcom command in a stored transaction and records `useradd`
-  ownership proofs. Idempotent (one row per txid + output).
+  ownership proofs. Idempotent (one row per txid + output). A command already
+  logged takes the tx's height when it has one and it differs (a tx mined
+  again after a reorg removed it), and is otherwise left as it was.
 
-  Returns `{:ok, %{commands: logged, proofs: proven}}`, or `{:ok, %{commands: 0, proofs: 0}}`
+  Returns `{:ok, %{commands: logged, proofs: proven}}` (`logged` counts the
+  rows inserted or given a new height), or `{:ok, %{commands: 0, proofs: 0}}`
   when the tx isn't tagged Bitcom or can't be decoded.
   """
   def index(%{txid: txid, raw: raw, protocols: protocols} = tx)
@@ -182,10 +185,33 @@ defmodule Bitblocks.Bitcom do
 
   def index(_), do: {:ok, %{commands: 0, proofs: 0}}
 
+  # A row already logged keeps everything as logged but its height, which
+  # follows the latest ingest that knows one: a tx a reorg removed and a later
+  # block mined again is a fresh tx row, not a move, so only this corrects the
+  # orphan's height (and discovery's WhatsOnChain height becomes ours). A
+  # heightless ingest never clears a height, and an unchanged height writes
+  # nothing, so a repeat index still logs 0.
   defp log(attrs) do
     %Command{}
     |> Command.changeset(attrs)
-    |> Repo.insert(on_conflict: :nothing, conflict_target: [:txid, :output_index])
+    |> Repo.insert(
+      on_conflict:
+        from(c in Command,
+          where:
+            not is_nil(fragment("EXCLUDED.block_height")) and
+              fragment("? IS DISTINCT FROM EXCLUDED.block_height", c.block_height),
+          update: [
+            set: [
+              block_height: fragment("EXCLUDED.block_height"),
+              updated_at: fragment("EXCLUDED.updated_at")
+            ]
+          ]
+        ),
+      conflict_target: [:txid, :output_index],
+      # The update's WHERE matching nothing returns no row: not an error,
+      # just nothing logged (id stays nil).
+      allow_stale: true
+    )
     |> case do
       {:ok, %Command{id: id}} when not is_nil(id) -> true
       _ -> false

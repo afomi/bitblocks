@@ -173,6 +173,22 @@ defmodule Bitblocks.BitcomTest do
       assert length(logged(tx.txid)) == 1
     end
 
+    # #29 Tenant 3: a tx mined again after a reorg removed it is logged again
+    # at its new height; a heightless ingest never clears a height.
+    test "logging again takes the new height, and never clears one", ctx do
+      tx = store(raw_tx(ctx.admin, [["$", "echo", "a", "to", "one"]]), %{block_height: 10})
+      assert {:ok, %{commands: 1}} = Bitcom.index(tx)
+
+      assert {:ok, %{commands: 1}} = Bitcom.index(%{tx | block_height: 12})
+      assert [%Command{block_height: 12, content: "a", valid: true}] = logged(tx.txid)
+
+      assert {:ok, %{commands: 0}} = Bitcom.index(%{tx | block_height: nil})
+      assert [%Command{block_height: 12}] = logged(tx.txid)
+
+      assert {:ok, %{commands: 0}} = Bitcom.index(%{tx | block_height: 12})
+      assert [%Command{block_height: 12}] = logged(tx.txid)
+    end
+
     test "is a no-op for a tx not tagged Bitcom", ctx do
       tx = store(raw_tx(ctx.admin, [["hello"]]))
       assert Bitcom.index(tx) == {:ok, %{commands: 0, proofs: 0}}

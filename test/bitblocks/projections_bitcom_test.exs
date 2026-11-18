@@ -103,6 +103,15 @@ defmodule Bitblocks.ProjectionsBitcomTest do
     end
   end
 
+  test "set_webhook is refused on a command projection, and nothing is stored" do
+    p = bitcom_projection()
+
+    assert {:error, cs} = Projections.set_webhook(p, "https://93.184.216.34/hook")
+    assert %{webhook_url: ["is not offered for the bitcom_commands source"]} = errors_on(cs)
+
+    assert %{webhook_url: nil, webhook_secret: nil} = Projections.get!(p.id)
+  end
+
   describe "hydrate/2" do
     setup do
       blocks([10, 20, 30])

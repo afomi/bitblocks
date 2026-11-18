@@ -34,6 +34,7 @@ Indexing runs at ingest (`Chain.index_bitcom/1` from `TxIngest`) and in the anal
 A valid `useradd` also sets `protocols.ownership_proof_txid` (`ProtocolRegistry.prove_ownership/2`).
 When a reorg moves a tx to another block, or a tx stored without a block is placed, its commands' `block_height` moves with it (`Bitcom.rewind_moved/2`, from `Reorgs.ProtocolRewind.moved/3`).
 A removed tx's commands stay in the log.
+When a later block mines such a tx again, the fresh ingest logs its commands again, and a command already logged takes the new height; an ingest with no height never clears one.
 
 ## Historical discovery (#24)
 

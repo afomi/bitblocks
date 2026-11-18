@@ -361,7 +361,7 @@ GET /api/v1/bitcom/snapshots    — versioned registry snapshots, newest first, 
 GET /api/v1/bitcom/snapshots/:version — one snapshot's exact bytes (or latest); sha256sum of the body matches the listed hash
 GET /api/v1/bit/:address/*path  — resolves bit://<address>/<path> to providers' endpoints; returned, never fetched
 GET /b/:txid                    — a B:// file parsed from its tx on the fly (immutable, nosniff, sandbox CSP)
-GET /api/v1/projections/:id     — managed projection (#29): tenant, source (transactions | bitcom_commands), filter, definition hash
+GET /api/v1/projections/:id     — managed projection (#29): tenant, source (transactions | bitcom_commands), filter, definition hash, hydrate_url (/txs or /commands)
 GET /api/v1/projections/:id/txs — hydrate: matching confirmed txs on the stored chain, oldest first, frozen at a snapshot (?cursor=, ?limit=); meta.complete is true while a page lies within meta.stable_through_height; when it turns false, hold the cursor and come back
 GET /api/v1/projections/:id/commands — hydrate for a bitcom_commands projection (#29 Tenant 3): the Bitcom command log, valid and invalid, each command with txid, output_index, block_height, block_hash, actor, namespace, command, args, valid and reason, ordered by (block_height, txid, output_index), with the same cursor, snapshot and meta; served only while its tx stands under the stored block at that height; /txs and /commands answer a 400 naming each other for the wrong source
 GET /api/v1/projections/:id/status — index_state ready | backfilling (ready: the stable prefix reaches our tip and the node's), stable_through_height, tip_height, node_tip_height, lag_blocks

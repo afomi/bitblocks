@@ -119,7 +119,8 @@ defmodule BitblocksWeb.Api.ProjectionCommandsTest do
 
   test "GET /:id and /status describe a command projection", %{conn: conn, projection: p} do
     data = conn |> get(~p"/api/v1/projections/#{p.id}") |> json_response(200) |> Map.get("data")
-    assert %{"source" => "bitcom_commands", "filter" => %{}} = data
+    assert %{"source" => "bitcom_commands", "filter" => %{}, "hydrate_url" => url} = data
+    assert url == "/api/v1/projections/#{p.id}/commands"
 
     status = conn |> get(~p"/api/v1/projections/#{p.id}/status") |> json_response(200)
     assert %{"data" => %{"stable_through_height" => -1, "index_state" => "backfilling"}} = status

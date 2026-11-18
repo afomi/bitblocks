@@ -110,7 +110,9 @@ defmodule BitblocksWeb.Api.ProjectionController do
       filter: p.filter,
       definition_hash: p.definition_hash,
       from_height: p.from_height,
-      status: p.status
+      status: p.status,
+      # Where to hydrate, so a client needn't branch on `source`.
+      hydrate_url: hydrate_path(p)
     }
   end
 

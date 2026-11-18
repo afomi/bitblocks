@@ -125,14 +125,22 @@ The same three surfaces, with the same guarantees:
   One row per command, ordered by `(block_height, txid, output_index)`, frozen at `snapshot_height`, with `stable_through_height` and `complete` exactly as for txs.
   The cursor carries `output_index` too, because one tx can hold several commands.
   `/txs` on a command projection, and `/commands` on a tx projection, is a 400 naming the right path.
-- **Status:** `GET /api/v1/projections/:id/status`, unchanged: completeness is a property of blocks, and every command is logged while its block is ingested (`index_bitcom`, a tx step), so a completed block has all its commands.
+- **Status:** `GET /api/v1/projections/:id/status`, unchanged: completeness is a property of blocks, and most commands are logged while their block is ingested (`index_bitcom`, a tx step).
+  Not all of them, though, so a command can still appear below a position a tenant has passed, as a tag can on a tx projection.
+  A tx stored before its block was fetched meets `index_bitcom` only in `Chain.TxPipeline.CatchUp`, after the block completes.
+  Blocks completed before `bitcom_commands` existed get their commands from `Release.analyze_transactions/1`.
+  And `Release.discover_bitcom/2` can log commands for txs already in completed blocks.
+  After one of those runs over heights a tenant has hydrated, the tenant hydrates again from the start, or from below the lowest height it touched.
+- **Discovery:** `GET /api/v1/projections/:id` gives `hydrate_url`, `/txs` or `/commands`, so a client reads where to go rather than branching on `source`.
 - **Follow:** `GET /api/v1/projections/:id/follow`, the same stream, sending `command` events in hydrate's shape where a tx projection sends `tx`; `checkpoint` and `reorg` are unchanged.
   Dedupe on `{txid, output_index, block_hash}`.
 - **Webhooks:** not for this source; a command projection follows over SSE.
 
 A command is served only when its tx is stored under the block at the command's height, and that block is the one stored at that height (`bitcom_commands` → `transactions` by txid → `blocks` by hash and height).
 So a command logged by historical discovery (WhatsOnChain's height, no tx row yet) appears once the sync stores its tx, and a command whose tx a reorg removed stops appearing, while the log itself keeps both rows.
-When a reorg moves a tx to another block, or a tx stored without a block is placed, `Reorgs.ProtocolRewind.moved/3` moves its commands' `block_height` with it (`Bitcom.rewind_moved/2`), so a command is never stranded at a stale height.
+When a reorg moves a tx to another block, or a tx stored without a block is placed, `Reorgs.ProtocolRewind.moved/3` moves its commands' `block_height` with it (`Bitcom.rewind_moved/2`).
+When a reorg removes a tx and a later block mines it again, it is stored as a fresh row, not moved, so `Bitcom.index/1` corrects the height instead: a command already logged takes the height of the ingest that logs it again, unless that ingest has none.
+Between them, a command is never stranded at a stale height.
 
 Queries read `bitcom_commands` by an index on `(block_height, txid, output_index)` (migration `20261121000029`), then look up each row's tx by `txid` and its block by `hash`.
 That index is on `bitcom_commands`, a small table; nothing new is indexed on `transactions`.
