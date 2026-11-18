@@ -4,6 +4,7 @@ defmodule BitblocksWeb.TransactionLive.Show do
   alias Bitblocks.{Chain, TransactionParser, Collections, TxStore}
   alias Bitblocks.Bitcom.BFile
   alias Bitblocks.Script.{Descriptor, Templates}
+  alias Bitblocks.Chain.TxPipeline.Steps.SatsIn
   alias BitblocksWeb.TxSummary
 
   @impl true
@@ -422,42 +423,23 @@ defmodule BitblocksWeb.TransactionLive.Show do
   defp blank_to_nil(" "), do: nil
   defp blank_to_nil(v), do: v
 
-  # Build a map of {txid, vout} => satoshis by fetching source transactions for each input.
-  # Returns an empty map if decoded_tx is nil or all inputs are coinbase.
+  # {txid, vout} => satoshis for each input whose previous tx we store, read
+  # as `outputs[vout + 1]` alone in one query (`Steps.SatsIn.lookup/1`, the
+  # pipeline's own sats-in lookup). It used to load each previous tx's whole
+  # row and raw bytes (from the blob store when not in the database) and
+  # decode it, per input, so a crawler on many-input txs stacked minutes-long
+  # renders until a node ran out of memory (2026-11-18, 11:07 UTC).
+  # An input whose previous tx isn't stored is simply missing from the map.
   defp build_input_satoshis(nil), do: %{}
 
   defp build_input_satoshis(%BSV.Tx{inputs: inputs}) do
     coinbase_txid = String.duplicate("0", 64)
 
-    outpoints =
-      inputs
-      |> Enum.map(fn input ->
-        txid = BSV.OutPoint.get_txid(input.outpoint)
-        {txid, input.outpoint.vout}
-      end)
-      |> Enum.reject(fn {txid, _vout} -> txid == coinbase_txid end)
-
-    txids = outpoints |> Enum.map(&elem(&1, 0)) |> Enum.uniq()
-
-    source_txs =
-      txids
-      |> Enum.flat_map(fn txid ->
-        case Chain.get_transaction(txid) do
-          nil -> []
-          tx -> [{txid, TxStore.with_raw(tx)}]
-        end
-      end)
-      |> Map.new()
-
-    Enum.reduce(outpoints, %{}, fn {txid, vout}, acc ->
-      with %{raw: raw} when is_binary(raw) <- Map.get(source_txs, txid),
-           {:ok, decoded} <- Bitblocks.Chain.SafeTx.from_hex(raw),
-           output when not is_nil(output) <- Enum.at(decoded.outputs, vout) do
-        Map.put(acc, {txid, vout}, output.satoshis)
-      else
-        _ -> acc
-      end
-    end)
+    inputs
+    |> Enum.map(fn input -> {BSV.OutPoint.get_txid(input.outpoint), input.outpoint.vout} end)
+    |> Enum.reject(fn {txid, _vout} -> txid == coinbase_txid end)
+    |> Enum.uniq()
+    |> SatsIn.lookup()
   end
 
   defp page_title(:show), do: "Show Transaction"

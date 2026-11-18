@@ -50,6 +50,31 @@ https://github.com/afomi/bitblocks/issues/87 · https://github.com/afomi/bitbloc
 
 ## Next
 
+- Payments: five lines, one Stripe account (`acct_1UdHHhLYRHWWpBFF`, [docs/STRIPE.md](docs/STRIPE.md)) and one Stripe groundwork.
+  The groundwork is built once, before the first line that needs it: a Stripe client over Req, a customer per user, Checkout, the customer portal, and signature-checked webhooks idempotent on the event id.
+  jurisdictional's `Jurisdictional.Billing` is the reference; agree with jurisdictional whether it becomes a shared library, as x402_ex did.
+  1. AI crawlers pay per request, through x402 (below).
+  2. Bulk downloads: one quoted, paid, resumable download of a block range: https://github.com/afomi/bitblocks/issues/111
+  3. Monthly plans: three tiers and a custom high-volume plan, moving a user's keys to the tier: https://github.com/afomi/bitblocks/issues/112
+     Ryan sets the tier prices; the issue proposes $25, $99 and $299.
+  4. Cloud services: managed projections, filtered databases and dedicated instances, quoted and billed monthly: https://github.com/afomi/bitblocks/issues/113
+  5. Consulting: rare, and outside the app's billing code; its channel is Ryan's call: https://github.com/afomi/bitblocks/issues/114
+  Lines 3 and 4 need per-key use counting first (https://github.com/afomi/bitblocks/issues/61).
+- Paid crawler access (x402), agreed with jurisdictional on 2026-11-18:
+  - One shared library, `x402_ex` (`afomi/x402_ex`), protocol and verification only.
+    bitblocks builds v0.1, including `X402.Stripe`, and jurisdictional gives it a security review before it is tagged.
+    jurisdictional then builds MPP, as phase 2.
+  - bitblocks adopts it behind the crawler 402 from https://github.com/afomi/bitblocks/pull/109.
+    It adds `{:req, "~> 0.5"}`, and a ReplayGuard table with a unique index on the tx hash.
+  - Stripe recording goes in a shared `X402.Stripe.record/2` helper.
+    Each app keeps its own Stripe keys and webhooks.
+  - bitblocks' Stripe account is `acct_1UdHHhLYRHWWpBFF`, separate from jurisdictional's.
+    Its deposit address, one per app as x402_ex requires, gets recorded here once Stripe issues it.
+  - x402_ex v0.1.0 is released: https://github.com/afomi/x402_ex/releases/tag/v0.1.0 (Apache-2.0, CI on Elixir 1.15 and 1.19).
+    jurisdictional reviewed it and approved it for v0.1 at `74e6d07`; the release adds only open-source hygiene and a doc fix.
+  - Keys and the sandbox run: [docs/STRIPE.md](docs/STRIPE.md).
+  - Live mode waits on Ryan: Stripe's crypto approval, CDP keys, a price (proposed 0.01 USDC a request) and his go.
+    Then infra lifts the ALB Meta rule.
 - CI and deploys skip docs-only pushes: https://github.com/afomi/bitblocks/issues/93
 - Large blocks, the stream's remaining edges: https://github.com/afomi/bitblocks/issues/86
 - Transaction types, phase 2 done and proposed for closing: https://github.com/afomi/bitblocks/issues/49

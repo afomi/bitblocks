@@ -39,6 +39,8 @@ defmodule Bitblocks.MixProject do
   defp deps do
     [
       {:bsv, "~> 2.1.0"},
+      # Patched secp256k1 (signature verification hardening); bsv and others pull it in transitively.
+      {:curvy, path: "vendor/curvy", override: true},
       {:phoenix, "~> 1.8.1"},
       {:phoenix_ecto, "~> 4.4"},
       {:ecto_sql, "~> 3.10"},

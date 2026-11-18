@@ -37,6 +37,8 @@ ENV MIX_ENV="prod"
 
 # install mix dependencies
 COPY mix.exs mix.lock ./
+# Path deps (vendored libraries) must be present before deps.get.
+COPY vendor vendor
 RUN mix deps.get --only $MIX_ENV
 RUN mkdir config
 
