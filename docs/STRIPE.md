@@ -4,7 +4,8 @@ Bitblocks uses Stripe for one thing so far: recording AI crawlers' x402 payments
 A crawler over its budget gets a 402 with a price; it pays in USDC, and each settled payment is recorded in Stripe as a machine payment.
 The plan is under "Paid crawler access (x402)" in [PLAN.md](../PLAN.md).
 
-The account is `acct_1UdHHhLYRHWWpBFF`, separate from jurisdictional's.
+Bitblocks has its own Stripe account, separate from jurisdictional's.
+This repo is public: never put the account id, keys, draft prices or customer details in it.
 
 ## Rules for keys
 
