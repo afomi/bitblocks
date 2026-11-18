@@ -568,7 +568,18 @@
       class="text-sm text-gray-700 dark:text-gray-300 mb-4"
     >
       <%= if @hodlocker_totals.locks == 0 do %>
-        No lock backing this post is indexed yet.
+        <%= case @hodlocker_coverage do %>
+          <% :complete -> %>
+            No lock we have indexed backs this post.
+          <% :partial -> %>
+            No lock backing this post is indexed yet.
+          <% :below -> %>
+            <span class="font-medium text-gray-900 dark:text-white">Not indexed yet.</span>
+            The sats locked to this post are not counted until the time lock index reaches the block this transaction was mined in.
+          <% :unknown -> %>
+            <span class="font-medium text-gray-900 dark:text-white">Not indexed yet.</span>
+            The sats locked to this post are not counted until the time lock index covers the chain from its first block.
+        <% end %>
       <% else %>
         Every lock we have indexed backs the post with
         <span class="font-mono tabular-nums"><%= BitblocksWeb.Sats.delimit(@hodlocker_totals.satoshis) %></span>
@@ -586,14 +597,30 @@
       id="tx-hodlocker-coverage"
       class="text-sm text-gray-600 dark:text-gray-400 mb-4"
     >
-      <%= if @hodlocker_indexed_through do %>
-        Every block through
-        <span class="font-mono tabular-nums"><%= BitblocksWeb.Sats.delimit(@hodlocker_indexed_through) %></span>
-        is indexed for time locks.
-        A lock mined above it may not be counted yet.
-      <% else %>
-        The time lock index does not yet cover the chain from its first block.
-        These counts hold only the locks indexed so far, and a lock not yet indexed is missing from them.
+      <%= case @hodlocker_coverage do %>
+        <% :complete -> %>
+          Every block through
+          <span class="font-mono tabular-nums"><%= BitblocksWeb.Sats.delimit(@hodlocker_indexed_through) %></span>
+          is indexed for time locks, up to our tip.
+          These counts hold every lock in the blocks we have.
+        <% :partial -> %>
+          Every block through
+          <span class="font-mono tabular-nums"><%= BitblocksWeb.Sats.delimit(@hodlocker_indexed_through) %></span>
+          is indexed for time locks.
+          A lock mined above it may not be counted yet.
+        <% :below -> %>
+          Every block through
+          <span class="font-mono tabular-nums"><%= BitblocksWeb.Sats.delimit(@hodlocker_indexed_through) %></span>
+          is indexed for time locks.
+          <%= if @block do %>
+            This transaction was mined at block
+            <span class="font-mono tabular-nums"><%= BitblocksWeb.Sats.delimit(@block.height) %></span>, above that, so its locks and any mined after it may not be counted yet.
+          <% else %>
+            This transaction is not in a block we hold, so its locks may not be counted yet.
+          <% end %>
+        <% :unknown -> %>
+          The time lock index does not yet cover the chain from its first block.
+          These counts hold only the locks indexed so far, and a lock not yet indexed is missing from them.
       <% end %>
     </p>
     <p

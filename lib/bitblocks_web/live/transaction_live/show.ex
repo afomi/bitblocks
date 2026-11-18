@@ -175,7 +175,7 @@ defmodule BitblocksWeb.TransactionLive.Show do
       hodlocker && Bitblocks.Timelocks.post_totals(hodlocker.post_txid, tip)
     )
     |> assign(:hodlocker_backers, hodlocker_backers(hodlocker))
-    |> assign(:hodlocker_indexed_through, hodlocker_indexed_through(hodlocker))
+    |> assign_hodlocker_coverage(hodlocker, block && block.height, tip)
     |> assign(:nlocktime, nlocktime || nil)
     |> assign(:tip_height, tip)
     |> assign(:tip_time, tip_time(nlocktime, tip))
@@ -188,13 +188,42 @@ defmodule BitblocksWeb.TransactionLive.Show do
 
   defp hodlocker_backers(_hodlocker), do: []
 
-  # How far the timelocks index reaches, so the page says what it may miss.
-  defp hodlocker_indexed_through(nil), do: nil
-
-  defp hodlocker_indexed_through(_hodlocker) do
-    Bitblocks.SyncProgress.snapshot().overview.complete_through
-    |> Bitblocks.Timelocks.indexed_through()
+  # How far the timelocks index reaches, and whether that covers this tx's
+  # block, so the page says what it may miss rather than show a zero as known.
+  defp assign_hodlocker_coverage(socket, nil, _height, _tip) do
+    socket
+    |> assign(:hodlocker_indexed_through, nil)
+    |> assign(:hodlocker_coverage, nil)
   end
+
+  defp assign_hodlocker_coverage(socket, _hodlocker, height, tip) do
+    through =
+      Bitblocks.SyncProgress.snapshot().overview.complete_through
+      |> Bitblocks.Timelocks.indexed_through()
+
+    socket
+    |> assign(:hodlocker_indexed_through, through)
+    |> assign(:hodlocker_coverage, lock_coverage(through, height, tip))
+  end
+
+  @doc """
+  Whether the time lock index (`Timelocks.indexed_through/1`) covers the
+  locks behind a HodLocker tx mined at `height` (#75): `:unknown` when no
+  backfill covers the chain from block 0; `:below` when the index stops
+  under the tx's block (or the tx has none we hold), so its locks and any
+  after it may be missing; `:complete` when it reaches our `tip`; else
+  `:partial`. Every lock behind a post is mined at or above the post, so
+  on a post's page `:below` means none need be counted yet.
+  """
+  @spec lock_coverage(non_neg_integer() | nil, non_neg_integer() | nil, non_neg_integer() | nil) ::
+          :unknown | :below | :partial | :complete
+  def lock_coverage(nil, _height, _tip), do: :unknown
+
+  def lock_coverage(through, height, _tip) when not is_integer(height) or through < height,
+    do: :below
+
+  def lock_coverage(through, _height, tip) when is_integer(tip) and through >= tip, do: :complete
+  def lock_coverage(_through, _height, _tip), do: :partial
 
   # A time lock is compared with the tip block's time.
   defp tip_time(%{kind: :time}, tip) when is_integer(tip) do
