@@ -27,10 +27,14 @@ defmodule Bitblocks.TxStore.BlockObjectStreamTest do
   @height 600_123
 
   # The Local store, reporting every multipart call to the test process.
+  # `:recording_faults` in app env injects failures: `{:part, n}` (an error
+  # on part n), `{:raise_part, n}` (an exception there), `:complete` and
+  # `:abort` (errors on those calls).
   defmodule Recording do
     @behaviour Bitblocks.TxStore
 
     defp report(msg), do: send(Application.fetch_env!(:bitblocks, :recording_pid), msg)
+    defp fault?(f), do: f in Application.get_env(:bitblocks, :recording_faults, [])
 
     defdelegate put(key, bytes), to: Local
     defdelegate get(key), to: Local
@@ -46,17 +50,22 @@ defmodule Bitblocks.TxStore.BlockObjectStreamTest do
 
     def multipart_put_part(upload, number, bytes) do
       report({:part, number, byte_size(bytes)})
-      Local.multipart_put_part(upload, number, bytes)
+
+      cond do
+        fault?({:raise_part, number}) -> raise "injected part failure"
+        fault?({:part, number}) -> {:error, :injected}
+        true -> Local.multipart_put_part(upload, number, bytes)
+      end
     end
 
     def multipart_complete(upload, parts) do
       report({:complete, length(parts)})
-      Local.multipart_complete(upload, parts)
+      if fault?(:complete), do: {:error, :injected}, else: Local.multipart_complete(upload, parts)
     end
 
     def multipart_abort(upload) do
       report({:abort, upload.dir})
-      Local.multipart_abort(upload)
+      if fault?(:abort), do: {:error, :injected}, else: Local.multipart_abort(upload)
     end
   end
 
@@ -89,6 +98,7 @@ defmodule Bitblocks.TxStore.BlockObjectStreamTest do
       Application.put_env(:bitblocks, TxStore, saved_store)
       Application.delete_env(:bitblocks, :block_object_part_bytes)
       Application.delete_env(:bitblocks, :recording_pid)
+      Application.delete_env(:bitblocks, :recording_faults)
       File.rm_rf!(Path.join(@root, "blocks"))
     end)
 
@@ -238,17 +248,78 @@ defmodule Bitblocks.TxStore.BlockObjectStreamTest do
     assert stamped?(big.hash)
   end
 
-  describe "the block_objects backfill" do
-    test "streams a block over the cap and stamps it", %{big: big, key: key} do
+  describe "a failing write" do
+    defp fail_with(faults), do: Application.put_env(:bitblocks, :recording_faults, faults)
+
+    defp store_failing(block) do
+      capture_log(fn -> send(self(), {:result, BlockObject.store_streamed(block)}) end)
+      assert_received {:result, result}
+      result
+    end
+
+    defp left_clean!(big, key) do
+      refute stamped?(big.hash)
+      refute File.exists?(object_path(key))
+      assert leftover_parts() == []
+    end
+
+    test "a part the store refuses aborts the upload", %{big: big, block: block, key: key} do
+      fail_with([{:part, 2}])
       RpcStub.stub_rest_block(big.hash, {:ok, big.bytes})
 
-      dry = BlockObjectsBackfill.run(@height, @height)
+      assert {:error, {:upload_part, 2, :injected}} = store_failing(block)
+      assert_received {:abort, _dir}
+      refute_received {:complete, _}
+      left_clean!(big, key)
+    end
+
+    test "an exception in a part upload aborts the upload", %{big: big, block: block, key: key} do
+      fail_with([{:raise_part, 1}])
+      RpcStub.stub_rest_block(big.hash, {:ok, big.bytes})
+
+      assert {:error, {:upload_part, 1, {:exception, "injected part failure"}}} =
+               store_failing(block)
+
+      assert_received {:abort, _dir}
+      refute_received {:complete, _}
+      left_clean!(big, key)
+    end
+
+    test "a completion the store refuses aborts and leaves nothing at the key",
+         %{big: big, block: block, key: key} do
+      fail_with([:complete])
+      RpcStub.stub_rest_block(big.hash, {:ok, big.bytes})
+
+      assert {:error, {:multipart_complete, :injected}} = store_failing(block)
+      assert length(parts_received()) == 3
+      assert_received {:complete, 3}
+      assert_received {:abort, _dir}
+      left_clean!(big, key)
+    end
+
+    test "a failed abort is returned with the error", %{big: big, block: block, key: key} do
+      fail_with([{:part, 1}, :abort])
+      RpcStub.stub_rest_block(big.hash, {:ok, big.bytes})
+
+      assert {:error, {{:upload_part, 1, :injected}, abort: :injected}} = store_failing(block)
+      assert_received {:abort, _dir}
+      refute stamped?(big.hash)
+      refute File.exists?(object_path(key))
+    end
+  end
+
+  describe "the block_objects backfill" do
+    test "with large_blocks: true, streams a block over the cap and stamps it",
+         %{big: big, key: key} do
+      RpcStub.stub_rest_block(big.hash, {:ok, big.bytes})
+
+      dry = BlockObjectsBackfill.run(@height, @height, large_blocks: true)
       assert dry.details.too_large == 1
       assert dry.details.eligible == 1
       assert dry.rows_changed == 1
       assert RpcStub.calls(:rest_block_stream) == []
 
-      applied = BlockObjectsBackfill.run(@height, @height, apply: true)
+      applied = BlockObjectsBackfill.run(@height, @height, apply: true, large_blocks: true)
       assert applied.details.too_large == 1
       assert applied.details.stored == 1
       assert applied.rows_below_version == 0
@@ -256,12 +327,74 @@ defmodule Bitblocks.TxStore.BlockObjectStreamTest do
       assert File.read!(object_path(key)) == big.bytes
     end
 
-    test "large_blocks: false counts it and leaves it", %{big: big} do
-      r = BlockObjectsBackfill.run(@height, @height, apply: true, large_blocks: false)
+    test "by default, counts it and leaves it", %{big: big} do
+      r = BlockObjectsBackfill.run(@height, @height, apply: true)
       assert r.details.too_large == 1
       assert {r.details.eligible, r.details.stored} == {0, 0}
       assert RpcStub.calls(:rest_block_stream) == []
       refute stamped?(big.hash)
+    end
+
+    test "a small-looking block the node refuses whole is streamed and counted too_large",
+         %{big: big, key: key} do
+      # No stored size and a few thousand txs: eligible for a whole fetch,
+      # which the node refuses as over the cap.
+      Repo.update_all(from(b in Block, where: b.hash == ^big.hash), set: [size: nil])
+      RpcStub.stub_rest_block(big.hash, {:ok, big.bytes})
+
+      r = BlockObjectsBackfill.run(@height, @height, apply: true, large_blocks: true)
+      assert {r.details.too_large, r.details.stored} == {1, 1}
+      assert RpcStub.calls(:rest_block) == [[big.hash]]
+      assert RpcStub.calls(:rest_block_stream) == [[big.hash]]
+      assert File.read!(object_path(key)) == big.bytes
+
+      # Release.store_block_objects/3 never streams.
+      Repo.update_all(from(b in Block, where: b.hash == ^big.hash),
+        set: [raw_object_stored_at: nil]
+      )
+
+      RpcStub.clear()
+      RpcStub.stub_rest_block(big.hash, {:ok, big.bytes})
+
+      capture_log(fn ->
+        send(self(), {:r, BlockObject.backfill(@height, @height, apply: true)})
+      end)
+
+      assert_received {:r, %{failed: 1, failures: [{@height, {:fetch, :block_too_large}}]}}
+      assert RpcStub.calls(:rest_block_stream) == []
+    end
+
+    test "large blocks failing one after another stop the range at max_failures" do
+      # Three more large blocks, each refused by REST: one per batch, since a
+      # batch ends after each streamed block, so the count must carry over.
+      for i <- 1..3 do
+        block_fixture(%{
+          height: @height + i,
+          num_tx: 10,
+          size: 50_000_000,
+          tx: [],
+          sync_state: "completed"
+        })
+      end
+
+      log =
+        capture_log(fn ->
+          send(
+            self(),
+            {:r,
+             BlockObjectsBackfill.run(@height + 1, @height + 10,
+               apply: true,
+               large_blocks: true
+             )}
+          )
+        end)
+
+      assert_received {:r, r}
+      assert r.outcome == "partial"
+      assert r.error =~ "3 block object failures in a row"
+      # The third failure raises, so the run keeps the report up to the second.
+      assert r.details.failed == 2
+      assert log =~ "not stored"
     end
   end
 end

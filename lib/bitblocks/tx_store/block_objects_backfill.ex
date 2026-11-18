@@ -12,13 +12,17 @@ defmodule Bitblocks.TxStore.BlockObjectsBackfill do
   enough to fetch whole (`Chain.RawBlock.eligible?/1`, 32 MB) in one put, a
   larger one streamed from node REST into a multipart upload
   (`BlockObject.store_streamed/2`,
-  https://github.com/afomi/bitblocks/issues/86). Blocks over the cap are
-  counted under `details.too_large` either way. A batch ends after its first
-  large block, so the chain's heartbeat beats between large blocks.
-  `large_blocks: false` leaves them unstored, as before.
+  https://github.com/afomi/bitblocks/issues/86) when the chain runs with
+  `large_blocks: true`. Blocks over the cap are counted under
+  `details.too_large` either way. Off by default, so they are left unstored,
+  until infra confirms the bucket's `s3:AbortMultipartUpload` permission and
+  its lifecycle rule for incomplete uploads (docs/TX_STORAGE.md). A batch
+  ends after each block it streams (one over the cap, or one the node
+  refused whole as over it), so the chain's heartbeat beats between them.
 
   A failed block is counted, its first failures kept in `details`, and the
-  walk goes on; `:max_failures` (3) failures in a row raise, so the range is
+  walk goes on; `:max_failures` (3) failures in a row, counted across
+  batches, raise, so the range is
   recorded `partial` and the chain retries, then fails, rather than walking
   past every block while the node or the store is down. An unready store
   fails the range before any fetch. A stamped block is never picked again,
@@ -41,12 +45,12 @@ defmodule Bitblocks.TxStore.BlockObjectsBackfill do
   (or, dry, that would be stored), and `rows_below_version` the blocks
   still to store (dry: the storable ones; applied: the failures). `details`
   counts `eligible` (blocks to store), `too_large` (those over the
-  raw-block cap, streamed unless `large_blocks: false`), `stored` and
+  raw-block cap, streamed only with `large_blocks: true`), `stored` and
   `failed`, and keeps the first failures as `"height: reason"` strings.
 
   Options: `apply: true` to write (default false); `block_batch` (20);
-  `max_failures` (3); `large_blocks` (true: stream blocks over the cap into
-  a multipart upload; false: count and skip them); and the
+  `max_failures` (3); `large_blocks` (false: count and skip blocks over the
+  cap; true: stream them into a multipart upload); and the
   `Bitblocks.Derivations` options.
   """
   @spec run(non_neg_integer(), non_neg_integer(), keyword()) :: Derivations.report()
@@ -57,7 +61,7 @@ defmodule Bitblocks.TxStore.BlockObjectsBackfill do
       to_height: to_height,
       block_batch: Keyword.get(opts, :block_batch, 20),
       max_failures: Keyword.get(opts, :max_failures, 3),
-      large_blocks: Keyword.get(opts, :large_blocks, true) != false,
+      large_blocks: Keyword.get(opts, :large_blocks, false) == true,
       opts: opts
     }
 
@@ -67,7 +71,8 @@ defmodule Bitblocks.TxStore.BlockObjectsBackfill do
         version: 1,
         from_height: from_height,
         to_height: to_height,
-        cursor: {from_height - 1, 0},
+        # The last block read, and the failures in a row so far.
+        cursor: {from_height - 1, 0, 0},
         details: %{eligible: 0, too_large: 0, stored: 0, failed: 0, failures: []},
         next: &next(&1, &2, ctx)
       },
@@ -75,32 +80,27 @@ defmodule Bitblocks.TxStore.BlockObjectsBackfill do
     )
   end
 
-  defp next(cursor, report, ctx) do
+  defp next({after_height, after_id, in_a_row}, report, ctx) do
     if ctx.applied and report.blocks_examined == 0, do: ensure_store_ready!()
 
-    case batch(cursor, ctx) do
+    case batch({after_height, after_id}, ctx) do
       [] ->
         :done
 
       blocks ->
-        blocks = through_first_large(blocks, ctx)
-        {report, _in_a_row} = Enum.reduce(blocks, {report, 0}, &block(&1, &2, ctx))
+        # A streamed block can take minutes, so the batch ends after one and
+        # the next batch (and heartbeat) follows.
+        {report, in_a_row, last} =
+          Enum.reduce_while(blocks, {report, in_a_row, nil}, fn b, {report, in_a_row, _} ->
+            {report, in_a_row, streamed?} = block(b, {report, in_a_row}, ctx)
+            step = if streamed?, do: :halt, else: :cont
+            {step, {report, in_a_row, b}}
+          end)
+
         if ctx.applied, do: Derivations.pause(ctx.opts)
-        last = List.last(blocks)
-        {:cont, {last.height, last.id}, report}
+        {:cont, {last.height, last.id, in_a_row}, report}
     end
   end
-
-  # A large block can take minutes to stream, so a batch that writes one
-  # ends with it and the next batch (and heartbeat) follows.
-  defp through_first_large(blocks, %{applied: true, large_blocks: true}) do
-    case Enum.split_while(blocks, &RawBlock.eligible?/1) do
-      {small, [large | _]} -> small ++ [large]
-      {small, []} -> small
-    end
-  end
-
-  defp through_first_large(blocks, _ctx), do: blocks
 
   defp ensure_store_ready! do
     case TxStore.ready?() do
@@ -128,24 +128,35 @@ defmodule Bitblocks.TxStore.BlockObjectsBackfill do
 
     cond do
       large? and not ctx.large_blocks ->
-        {report, in_a_row}
+        {report, in_a_row, false}
 
       not ctx.applied ->
         report = report |> detail(:eligible) |> bump(:rows_changed, 1)
-        {bump(report, :rows_below_version, 1), 0}
+        {bump(report, :rows_below_version, 1), in_a_row, false}
 
       true ->
         report = detail(report, :eligible)
+        result = BlockObject.fetch_and_store(block, large: ctx.large_blocks)
 
-        case BlockObject.fetch_and_store(block, large: ctx.large_blocks) do
+        # A small-looking block the node refused whole was streamed too.
+        fell_back? = not large? and streamed?(result)
+        report = if fell_back?, do: detail(report, :too_large), else: report
+        streamed? = large? or fell_back?
+
+        case result do
           {:ok, _} ->
-            {report |> detail(:stored) |> bump(:rows_changed, 1), 0}
+            {report |> detail(:stored) |> bump(:rows_changed, 1), 0, streamed?}
 
           {:error, reason} ->
-            failed(report, block, reason, in_a_row + 1, ctx)
+            {report, in_a_row} = failed(report, block, reason, in_a_row + 1, ctx)
+            {report, in_a_row, streamed?}
         end
     end
   end
+
+  defp streamed?({:ok, %{streamed: true}}), do: true
+  defp streamed?({:error, {:streamed, _}}), do: true
+  defp streamed?(_), do: false
 
   defp failed(report, block, reason, in_a_row, ctx) do
     line = "#{block.height}: #{inspect(reason)}" |> String.slice(0, 300)

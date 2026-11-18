@@ -31,7 +31,8 @@ defmodule Bitblocks.TxStore.BlockObject do
   (https://github.com/afomi/bitblocks/issues/86): it streams the block from
   node REST again and sends the bytes on to a multipart upload as they
   arrive, in parts of `:block_object_part_bytes` (16 MiB, never below S3's
-  5 MiB), so memory stays near one part whatever the block's size. The same
+  5 MiB). Each part goes up in a task while the next fills, so memory is
+  about two parts plus the largest tx, whatever the block's size. The same
   guarantees hold: nothing is stamped until the stream has verified the
   header, the tx count, the merkleroot and the byte count, the upload has
   completed, and the object reads back with the block's size and header.
@@ -256,7 +257,7 @@ defmodule Bitblocks.TxStore.BlockObject do
         |> Enum.reduce_while({base, 0}, fn block, {acc, in_a_row} ->
           acc = %{acc | attempted: acc.attempted + 1}
 
-          case fetch_and_store(block) do
+          case fetch_and_store(block, large: false) do
             {:ok, _} ->
               {:cont, {%{acc | stored: acc.stored + 1}, 0}}
 
@@ -280,11 +281,14 @@ defmodule Bitblocks.TxStore.BlockObject do
   Refetches one completed block from the node and writes, verifies and stamps
   its object. A block small enough to fetch whole (`RawBlock.eligible?/1`)
   goes through `RawBlock.fetch/2` and `store/3`; a larger one, or one the
-  node refuses whole as over the cap, through `store_streamed/2`.
+  node refuses whole as over the cap, through `store_streamed/2`, whose
+  result says `streamed: true`. A failed stream after a refused whole fetch
+  is `{:error, {:streamed, reason}}`, so a caller can tell it streamed.
 
   Options: `large: false` refuses a block over the cap with
-  `{:error, :too_large}` instead of streaming it; the rest go to
-  `store_streamed/2`. Never raises: a fetch that fails or crashes is
+  `{:error, :too_large}` (and a refused whole fetch with
+  `{:error, {:fetch, :block_too_large}}`) instead of streaming it; the rest
+  go to `store_streamed/2`. Never raises: a fetch that fails or crashes is
   `{:error, {:fetch, reason}}`.
   """
   @spec fetch_and_store(%Block{}, keyword()) :: {:ok, term()} | {:error, term()}
@@ -300,9 +304,14 @@ defmodule Bitblocks.TxStore.BlockObject do
 
   defp fetch_whole(block, large?, opts) do
     case RawBlock.fetch(block) do
-      {:ok, txs, %{raw: bytes}} -> store(block, bytes, txs)
-      {:error, :block_too_large} when large? -> store_streamed(block, opts)
-      {:error, reason} -> {:error, {:fetch, reason}}
+      {:ok, txs, %{raw: bytes}} ->
+        store(block, bytes, txs)
+
+      {:error, :block_too_large} when large? ->
+        with {:error, reason} <- store_streamed(block, opts), do: {:error, {:streamed, reason}}
+
+      {:error, reason} ->
+        {:error, {:fetch, reason}}
     end
   rescue
     e -> {:error, {:fetch, Exception.message(e)}}
@@ -315,49 +324,73 @@ defmodule Bitblocks.TxStore.BlockObject do
   @doc """
   Streams `block` from node REST (`Chain.BlockStream`) into its object by
   multipart upload, verifies the object, then stamps the block (see Blocks
-  over the raw-block cap). For a block of any size, in memory near one part.
+  over the raw-block cap). For a block of any size.
+
+  The writes never run in the read. Each part goes up in a task of its own
+  while the next part fills, at most one part in flight, so a slow part
+  stalls the read only once it has taken longer than a whole part takes to
+  arrive; each write must finish within `:block_object_write_timeout_ms`
+  (2 minutes). Memory is about two parts plus the largest tx the stream
+  holds (`BlockStream`'s `max_tx_bytes`), whatever the block's size.
 
   Each tx's `raw_offset` and `raw_length` are written to its row as the
-  stream passes it, #{@locate_chunk} rows per update, since holding a
-  multi-million-tx block's locations to the end would cost hundreds of MB.
-  That is safe ahead of the checks: `TxStore.raw/1` reads an offset only
-  once the block is stamped, and every byte it serves must hash to the
-  txid. A row is matched by its txid, the hash of the very bytes at that
-  offset, and a later run rewrites any offset that differs.
+  stream passes it, #{@locate_chunk} rows per update, the same way, one
+  update in flight, since holding a multi-million-tx block's locations to
+  the end would cost hundreds of MB. That is safe ahead of the checks:
+  `TxStore.raw/1` reads an offset only once the block is stamped, and every
+  byte it serves must hash to the txid. A row is matched by its txid, the
+  hash of the very bytes at that offset, and a later run rewrites any
+  offset that differs.
 
   An object already in the store with the block's size is kept and still
   verified (the stream then only locates rows). Any failure, in the stream,
-  an upload or the completion, aborts the upload and leaves the block
-  unstamped.
+  a part, an offset write or the completion, stops the writes in flight,
+  aborts the upload and leaves the block unstamped; an abort that fails too
+  is returned with the error, as `{:error, {reason, abort: abort_reason}}`.
+  Never raises.
 
   Options: `part_bytes:` (default `:block_object_part_bytes`, 16 MiB; never
   below 5 MiB), and `BlockStream.each_tx/4`'s `max_tx_bytes:` and
   `max_block_bytes:`.
 
-  Returns `{:ok, %{bytes: n, located: rows, parts: n}}` or `{:error, reason}`.
+  Returns `{:ok, %{bytes: n, located: rows, parts: n, streamed: true}}` or
+  `{:error, reason}`.
   """
   @spec store_streamed(Block.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def store_streamed(%Block{} = block, opts \\ []) do
     key = key(block)
-    part_bytes = max(Keyword.get(opts, :part_bytes, part_bytes()), TxStore.min_part_bytes())
-    kept? = is_integer(block.size) and adapter().size(key) == {:ok, block.size}
 
-    with {:ok, upload} <- if(kept?, do: {:ok, nil}, else: adapter().multipart_start(key)),
-         {:ok, acc, stats} <- upload_stream(block, upload, part_bytes, opts),
-         :ok <- verify(key, stats.bytes, block.hash),
-         {:ok, _} <- stamp(block, []) do
-      {:ok, %{bytes: stats.bytes, located: acc.rows, parts: length(acc.parts)}}
-    else
-      {:error, reason} = error ->
-        Logger.warning(
-          "TxStore: block #{block.height} streamed object #{key} not stored: #{inspect(reason)}"
-        )
+    result =
+      try do
+        part_bytes =
+          max(Keyword.get(opts, :part_bytes, part_bytes()), TxStore.min_part_bytes())
 
-        error
+        kept? = is_integer(block.size) and adapter().size(key) == {:ok, block.size}
+
+        with {:ok, upload} <- if(kept?, do: {:ok, nil}, else: adapter().multipart_start(key)),
+             {:ok, acc, stats} <- upload_stream(block, upload, part_bytes, opts),
+             :ok <- verify(key, stats.bytes, block.hash),
+             {:ok, _} <- stamp(block, []) do
+          {:ok,
+           %{bytes: stats.bytes, located: acc.rows, parts: length(acc.parts), streamed: true}}
+        end
+      rescue
+        e -> {:error, {:exception, Exception.message(e)}}
+      catch
+        :exit, reason -> {:error, {:exit, reason}}
+      end
+
+    with {:error, reason} <- result do
+      Logger.warning(
+        "TxStore: block #{block.height} streamed object #{key} not stored: #{inspect(reason)}"
+      )
     end
+
+    result
   end
 
-  # The stream, the parts and the completion; anything but success aborts.
+  # The stream, the parts and the completion; anything but success stops the
+  # writes in flight and aborts.
   defp upload_stream(block, upload, part_bytes, opts) do
     acc = %{
       block: block,
@@ -366,11 +399,14 @@ defmodule Bitblocks.TxStore.BlockObject do
       buf: [],
       buf_size: 0,
       parts: [],
+      part_no: 0,
       prefix: <<>>,
       pos: nil,
       located: [],
       located_n: 0,
-      rows: 0
+      rows: 0,
+      part_task: nil,
+      offsets_task: nil
     }
 
     stream_opts =
@@ -379,25 +415,43 @@ defmodule Bitblocks.TxStore.BlockObject do
       |> Keyword.put(:on_chunk, &take_chunk/2)
 
     result =
-      try do
+      guarded(fn ->
         with {:ok, acc, stats} <- BlockStream.each_tx(block, acc, &locate_tx/2, stream_opts),
              :ok <- check_size(block, stats.bytes),
-             {:ok, acc} <- flush_part(acc),
-             acc = write_offsets(acc),
+             {:ok, acc} <- send_part(acc),
+             {:ok, acc} <- send_offsets(acc),
+             {:ok, acc} <- await(acc, :part_task),
+             {:ok, acc} <- await(acc, :offsets_task),
              :ok <- complete(acc) do
           {:ok, acc, stats}
         else
           {:halted, _acc, _stats} -> {:error, :halted}
+          # A write that failed inside the read, as the stream reports it.
+          {:error, {:on_chunk, reason}} -> {:error, reason}
           {:error, reason} -> {:error, reason}
         end
-      rescue
-        e -> {:error, {:exception, Exception.message(e)}}
-      catch
-        :exit, reason -> {:error, {:exit, reason}}
-      end
+      end)
 
-    with {:error, _} <- result, do: abort(upload)
-    result
+    stop_writers()
+
+    case result do
+      {:ok, _acc, _stats} ->
+        result
+
+      {:error, reason} ->
+        case abort(upload) do
+          :ok -> {:error, reason}
+          {:error, abort_reason} -> {:error, {reason, abort: abort_reason}}
+        end
+    end
+  end
+
+  defp guarded(fun) do
+    fun.()
+  rescue
+    e -> {:error, {:exception, Exception.message(e)}}
+  catch
+    :exit, reason -> {:error, {:exit, reason}}
   end
 
   # The stream has checked that the bytes end exactly after the last tx; the
@@ -407,9 +461,9 @@ defmodule Bitblocks.TxStore.BlockObject do
 
   defp check_size(_block, _bytes), do: :ok
 
-  # Raw bytes in: kept until a part's worth, then uploaded. The first 89
-  # bytes (the header and the widest tx-count varint) are kept to find where
-  # the first tx starts.
+  # Raw bytes in: kept until a part's worth, then handed to the part writer.
+  # The first 89 bytes (the header and the widest tx-count varint) are kept
+  # to find where the first tx starts.
   defp take_chunk(chunk, acc) do
     acc =
       if byte_size(acc.prefix) < 89,
@@ -418,23 +472,102 @@ defmodule Bitblocks.TxStore.BlockObject do
 
     if acc.upload do
       acc = %{acc | buf: [chunk | acc.buf], buf_size: acc.buf_size + byte_size(chunk)}
-      if acc.buf_size >= acc.part_bytes, do: flush_part(acc), else: {:ok, acc}
+      if acc.buf_size >= acc.part_bytes, do: send_part(acc), else: {:ok, acc}
     else
       {:ok, acc}
     end
   end
 
-  defp flush_part(%{upload: nil} = acc), do: {:ok, acc}
-  defp flush_part(%{buf_size: 0} = acc), do: {:ok, acc}
+  # -- Writers: one task per write, at most one in flight per kind -----------------
+  #
+  # Starting a write first collects the one before it, so parts complete in
+  # order and memory holds at most the part going up and the part filling.
+  # The tasks in flight are also kept in the process dictionary, since a
+  # failed stream returns no acc: `stop_writers/0` kills them before the
+  # abort, so no part lands after it.
 
-  defp flush_part(acc) do
-    number = length(acc.parts) + 1
+  defp send_part(%{upload: nil} = acc), do: {:ok, acc}
+  defp send_part(%{buf_size: 0} = acc), do: {:ok, acc}
+
+  defp send_part(acc) do
+    number = acc.part_no + 1
     bytes = acc.buf |> Enum.reverse() |> IO.iodata_to_binary()
+    upload = acc.upload
+    acc = %{acc | buf: [], buf_size: 0, part_no: number}
 
-    case adapter().multipart_put_part(acc.upload, number, bytes) do
-      {:ok, part} -> {:ok, %{acc | buf: [], buf_size: 0, parts: acc.parts ++ [part]}}
-      {:error, reason} -> {:error, {:upload_part, number, reason}}
+    start(acc, :part_task, fn ->
+      case guarded(fn -> adapter().multipart_put_part(upload, number, bytes) end) do
+        {:ok, part} -> {:part, part}
+        {:error, reason} -> {:error, {:upload_part, number, reason}}
+      end
+    end)
+  end
+
+  defp send_offsets(%{located: []} = acc), do: {:ok, acc}
+
+  defp send_offsets(acc) do
+    located = Enum.reverse(acc.located)
+    hash = acc.block.hash
+    acc = %{acc | located: [], located_n: 0}
+
+    start(acc, :offsets_task, fn ->
+      case guarded(fn -> {:ok, write_offsets(hash, located)} end) do
+        {:ok, n} -> {:rows, n}
+        {:error, reason} -> {:error, {:write_offsets, reason}}
+      end
+    end)
+  end
+
+  defp start(acc, lane, fun) do
+    with {:ok, acc} <- await(acc, lane) do
+      task = Task.async(fun)
+      writers = Process.get({__MODULE__, :writers}, [])
+      Process.put({__MODULE__, :writers}, [{lane, task} | writers])
+      {:ok, Map.put(acc, lane, task)}
     end
+  end
+
+  defp await(acc, lane) do
+    case Map.fetch!(acc, lane) do
+      nil ->
+        {:ok, acc}
+
+      task ->
+        result =
+          case Task.yield(task, write_timeout()) || Task.shutdown(task, :brutal_kill) do
+            {:ok, result} -> result
+            {:exit, reason} -> {:error, {lane, {:exit, reason}}}
+            nil -> {:error, {lane, :timeout}}
+          end
+
+        Process.put(
+          {__MODULE__, :writers},
+          List.delete(Process.get({__MODULE__, :writers}, []), {lane, task})
+        )
+
+        acc = Map.put(acc, lane, nil)
+
+        case result do
+          {:part, part} -> {:ok, %{acc | parts: acc.parts ++ [part]}}
+          {:rows, n} -> {:ok, %{acc | rows: acc.rows + n}}
+          {:error, reason} -> {:error, reason}
+        end
+    end
+  end
+
+  # A part still going up is killed, so it can't land after the abort. An
+  # offset write is let finish (it is bounded by the write timeout): killing
+  # a process mid-query costs its database connection, and an offset is
+  # harmless until the block is stamped.
+  defp stop_writers do
+    for {lane, task} <- Process.delete({__MODULE__, :writers}) || [] do
+      case lane do
+        :part_task -> Task.shutdown(task, :brutal_kill)
+        :offsets_task -> Task.yield(task, write_timeout()) || Task.shutdown(task, :brutal_kill)
+      end
+    end
+
+    :ok
   end
 
   defp complete(%{upload: nil}), do: :ok
@@ -449,14 +582,16 @@ defmodule Bitblocks.TxStore.BlockObject do
   defp abort(nil), do: :ok
 
   defp abort(upload) do
-    case adapter().multipart_abort(upload) do
+    case guarded(fn -> adapter().multipart_abort(upload) end) do
       :ok ->
         :ok
 
-      {:error, reason} ->
+      {:error, reason} = error ->
         Logger.error(
           "TxStore: multipart upload #{inspect(upload)} not aborted: #{inspect(reason)}"
         )
+
+        error
     end
   end
 
@@ -472,7 +607,15 @@ defmodule Bitblocks.TxStore.BlockObject do
         located_n: acc.located_n + 1
     }
 
-    if acc.located_n >= @locate_chunk, do: write_offsets(acc), else: acc
+    # A failed earlier write raises here, inside the stream, which stops it.
+    if acc.located_n >= @locate_chunk do
+      case send_offsets(acc) do
+        {:ok, acc} -> acc
+        {:error, reason} -> raise "offset write failed: #{inspect(reason)}"
+      end
+    else
+      acc
+    end
   end
 
   # After the 80-byte header and the tx-count varint.
@@ -481,10 +624,8 @@ defmodule Bitblocks.TxStore.BlockObject do
   defp first_tx_offset(<<_header::binary-80, 0xFF, _::binary>>), do: 89
   defp first_tx_offset(<<_header::binary-80, _, _::binary>>), do: 81
 
-  defp write_offsets(%{located: []} = acc), do: acc
-
-  defp write_offsets(acc) do
-    {txids, offsets, lengths} = acc.located |> Enum.reverse() |> unzip3()
+  defp write_offsets(hash, located) do
+    {txids, offsets, lengths} = unzip3(located)
 
     {n, _} =
       Repo.update_all(
@@ -498,7 +639,7 @@ defmodule Bitblocks.TxStore.BlockObject do
             ),
           on: t.txid == l.txid,
           where:
-            t.block_hash == ^acc.block.hash and
+            t.block_hash == ^hash and
               (fragment("? IS DISTINCT FROM ?", t.raw_offset, l.raw_offset) or
                  fragment("? IS DISTINCT FROM ?", t.raw_length, l.raw_length)),
           update: [set: [raw_offset: l.raw_offset, raw_length: l.raw_length]]
@@ -506,11 +647,14 @@ defmodule Bitblocks.TxStore.BlockObject do
         []
       )
 
-    %{acc | located: [], located_n: 0, rows: acc.rows + n}
+    n
   end
 
   defp part_bytes,
     do: Application.get_env(:bitblocks, :block_object_part_bytes, @default_part_bytes)
+
+  defp write_timeout,
+    do: Application.get_env(:bitblocks, :block_object_write_timeout_ms, :timer.minutes(2))
 
   defp adapter,
     do:
