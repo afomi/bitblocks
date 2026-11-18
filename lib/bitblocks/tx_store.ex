@@ -41,6 +41,24 @@ defmodule Bitblocks.TxStore do
   @callback public_url(key :: String.t()) :: String.t() | nil
   @callback ready?() :: :ok | {:error, term()}
 
+  # A multipart upload, for an object too large to hold whole (a streamed
+  # block's object, `Bitblocks.TxStore.BlockObject.store_streamed/2`). S3's
+  # rules apply to every adapter: parts are numbered from 1, each but the
+  # last at least 5 MiB, and nothing is visible at `key` until `complete`.
+  # `abort` drops every part uploaded, so a failed upload leaves no orphans.
+  @callback multipart_start(key :: String.t()) :: {:ok, upload :: term()} | {:error, term()}
+  @callback multipart_put_part(upload :: term(), part_number :: pos_integer(), bytes :: binary()) ::
+              {:ok, part :: term()} | {:error, term()}
+  @callback multipart_complete(upload :: term(), parts :: [term()]) :: :ok | {:error, term()}
+  @callback multipart_abort(upload :: term()) :: :ok | {:error, term()}
+  @optional_callbacks multipart_start: 1,
+                      multipart_put_part: 3,
+                      multipart_complete: 2,
+                      multipart_abort: 1
+
+  @doc "S3's smallest part, for every part of a multipart upload but the last."
+  def min_part_bytes, do: 5 * 1024 * 1024
+
   @doc "The object key for a txid."
   def key(txid), do: "raw/#{txid}"
 

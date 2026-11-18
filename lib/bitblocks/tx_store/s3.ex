@@ -76,6 +76,60 @@ defmodule Bitblocks.TxStore.S3 do
   end
 
   @impl true
+  def multipart_start(key) do
+    with {:ok, bucket} <- bucket() do
+      bucket
+      |> ExAws.S3.initiate_multipart_upload(key,
+        content_type: "application/octet-stream",
+        cache_control: @cache_control
+      )
+      |> ExAws.request()
+      |> case do
+        {:ok, %{body: %{upload_id: id}}} when is_binary(id) and id != "" ->
+          {:ok, %{bucket: bucket, key: key, upload_id: id}}
+
+        {:ok, other} ->
+          {:error, {:s3_multipart_start, {:no_upload_id, other}}}
+
+        {:error, reason} ->
+          {:error, {:s3_multipart_start, reason}}
+      end
+    end
+  end
+
+  # The part's ETag is what `complete` names it by.
+  @impl true
+  def multipart_put_part(%{bucket: bucket, key: key, upload_id: id}, number, bytes) do
+    case bucket |> ExAws.S3.upload_part(key, id, number, bytes) |> ExAws.request() do
+      {:ok, %{headers: headers}} ->
+        case Enum.find_value(headers, fn {k, v} -> if String.downcase(k) == "etag", do: v end) do
+          nil -> {:error, {:s3_upload_part, number, :no_etag}}
+          etag -> {:ok, {number, etag}}
+        end
+
+      {:error, reason} ->
+        {:error, {:s3_upload_part, number, reason}}
+    end
+  end
+
+  @impl true
+  def multipart_complete(%{bucket: bucket, key: key, upload_id: id}, parts) do
+    case bucket |> ExAws.S3.complete_multipart_upload(key, id, parts) |> ExAws.request() do
+      {:ok, _} -> :ok
+      {:error, reason} -> {:error, {:s3_multipart_complete, reason}}
+    end
+  end
+
+  @impl true
+  def multipart_abort(%{bucket: bucket, key: key, upload_id: id}) do
+    case bucket |> ExAws.S3.abort_multipart_upload(key, id) |> ExAws.request() do
+      {:ok, _} -> :ok
+      {:error, {:http_error, 404, _}} -> :ok
+      {:error, reason} -> {:error, {:s3_multipart_abort, reason}}
+    end
+  end
+
+  @impl true
   def ready?, do: with({:ok, _} <- bucket(), do: :ok)
 
   @impl true

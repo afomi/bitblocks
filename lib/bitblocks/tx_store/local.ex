@@ -59,6 +59,80 @@ defmodule Bitblocks.TxStore.Local do
     end
   end
 
+  # Parts go to a directory beside the object, one file each, joined in
+  # part order by `complete` and renamed into place; `abort` removes the
+  # directory. S3's 5 MiB minimum for every part but the last is enforced
+  # here too (as S3 does, at `complete`), so a caller that would fail on S3
+  # fails in dev and test.
+  @impl true
+  def multipart_start(key) do
+    dir = path(key) <> ".multipart-" <> Base.encode16(:crypto.strong_rand_bytes(6), case: :lower)
+
+    case File.mkdir_p(dir) do
+      :ok -> {:ok, %{key: key, dir: dir}}
+      error -> error
+    end
+  end
+
+  @impl true
+  def multipart_put_part(%{dir: dir}, number, bytes) when is_integer(number) and number >= 1 do
+    case File.write(Path.join(dir, part_name(number)), bytes) do
+      :ok -> {:ok, {number, byte_size(bytes)}}
+      error -> error
+    end
+  end
+
+  @impl true
+  def multipart_complete(%{key: key, dir: dir}, parts) do
+    numbers = Enum.map(parts, &elem(&1, 0))
+    sizes = Enum.map(parts, &elem(&1, 1))
+    target = path(key)
+
+    cond do
+      parts == [] or numbers != Enum.to_list(1..length(parts)) ->
+        {:error, :invalid_part_order}
+
+      Enum.any?(Enum.drop(sizes, -1), &(&1 < Bitblocks.TxStore.min_part_bytes())) ->
+        {:error, :entity_too_small}
+
+      true ->
+        with :ok <- File.mkdir_p(Path.dirname(target)),
+             :ok <- join_parts(dir, numbers, target <> ".part"),
+             :ok <- File.rename(target <> ".part", target) do
+          File.rm_rf(dir)
+          :ok
+        end
+    end
+  end
+
+  @impl true
+  def multipart_abort(%{dir: dir}) do
+    case File.rm_rf(dir) do
+      {:ok, _} -> :ok
+      {:error, reason, _} -> {:error, reason}
+    end
+  end
+
+  defp join_parts(dir, numbers, out) do
+    File.open(out, [:write, :binary, :raw], fn file ->
+      Enum.reduce_while(numbers, :ok, fn n, :ok ->
+        with {:ok, bytes} <- File.read(Path.join(dir, part_name(n))),
+             :ok <- :file.write(file, bytes) do
+          {:cont, :ok}
+        else
+          error -> {:halt, error}
+        end
+      end)
+    end)
+    |> case do
+      {:ok, :ok} -> :ok
+      {:ok, error} -> error
+      error -> error
+    end
+  end
+
+  defp part_name(number), do: String.pad_leading(Integer.to_string(number), 5, "0")
+
   @impl true
   def public_url(_key), do: nil
 
