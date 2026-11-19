@@ -50,6 +50,7 @@ For admins: a GitHub user marked admin; the gate runs in every env and is off on
 | `/shape-layers` | Geographic shape layer viewer |
 | `/chain-scrubber` | Scrub the chain from genesis to tip in three.js; tiles at `/chain-scrubber/tiles/manifest` and `/chain-scrubber/tiles/:level/:idx` |
 | `/rpc_admin` | Direct RPC command interface |
+| `/usage` | Measured usage by endpoint class and caller ([USAGE_METERING.md](USAGE_METERING.md)) |
 | `/address_repo` | Address event playground (event sourcing) |
 | `/dev/dashboard` | Phoenix LiveDashboard |
 | `/metrics` | Prometheus metrics endpoint |
@@ -77,6 +78,12 @@ All `GET` unless noted.
 | `/api/v1/txs` | Paginated transactions. `?page=&per_page=&block_hash=&txid=` |
 | `/api/v1/txs/:txid` | Transaction by txid |
 | `/api/v1/txs/:txid/proof` | Merkle proof for a transaction |
+
+### Usage
+
+| Endpoint | Description |
+|----------|-------------|
+| `/api/v1/usage` | Your own key's (or session's) measured usage by endpoint class. `?hours=24` ([USAGE_METERING.md](USAGE_METERING.md)) |
 
 ### Addresses
 

@@ -27,6 +27,7 @@ Docs marked *(mixed)* are mostly aspirational but contain sections that accurate
 - `MERKLE_PROOFS.md` — the `/api/v1/txs/:txid/proof` endpoint and `MerkleVerifier` internals.
 - `INTEROP_KIT.md` — the interoperability kit: open test vectors at `/interop/vectors/v1.json`, the check page, what a sender and receiver do, and the known gaps.
 - `THREAT-MODEL.md` — Microsoft-SDL threat model for the public-facing explorer/indexer; most controls are implemented (see BACKLOG Completed → Security).
+- `USAGE_METERING.md` — usage metering (#61): requests, response bytes, database time and upstream calls by caller and endpoint class, rolled up hourly, read with `Release.usage_report/1`, `/usage` and `GET /api/v1/usage`; measured, nobody charged.
 - `SITEMAP.md` — all routes, grouped by access level and function.
 - `field-notes/` — dated, single-claim research notes from reading the chain with Bitblocks (see its README).
 - `BSV20_TOKENS.md` — the implemented BSV-20/BSV-21 token indexer (read side of the DEX).

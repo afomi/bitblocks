@@ -60,6 +60,8 @@ defmodule BitblocksWeb.Endpoint do
   plug Plug.MethodOverride
   plug Plug.Head
   plug Plug.Session, @session_options
+  # Requests, bytes, DB time and upstream calls by caller and class (#61).
+  plug BitblocksWeb.Plugs.Meter
   plug BitblocksWeb.Plugs.IpBlocker
   plug BitblocksWeb.Plugs.RateLimiter
   plug BitblocksWeb.Plugs.RequestLogger

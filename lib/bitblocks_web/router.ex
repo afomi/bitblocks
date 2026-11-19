@@ -203,6 +203,9 @@ defmodule BitblocksWeb.Router do
     get "/collections/:id/items/:outpoint", CollectionController, :item
     get "/collections/:id/items", CollectionController, :items
     get "/collections/:id", CollectionController, :show
+
+    # Your own key's (or session's) measured usage, by endpoint class (#61)
+    get "/usage", UsageController, :show
   end
 
   # Cached and lightweight: price for other sites, support for the sponsorship
@@ -414,6 +417,7 @@ defmodule BitblocksWeb.Router do
       live "/chain-scrubber", ChainScrubberLive
       live "/annotations", AnnotationLive
       live "/burns", BurnsLive
+      live "/usage", UsageLive
 
       # A browse list over the whole table; detail pages cover a shared link.
       live "/transactions", TransactionLive.Index, :index
