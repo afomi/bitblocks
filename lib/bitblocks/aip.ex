@@ -127,8 +127,14 @@ defmodule Bitblocks.Aip do
     end
   end
 
-  # The key a Bitcoin Signed Message signature was made with, as hex.
-  defp recover_pubkey(message, signature) do
+  @doc """
+  The public key (hex) a Bitcoin Signed Message signature over `message` was
+  made with. `signature` is base64 text or the raw 65 bytes. The pubkey is
+  compressed or not as the signature's header byte says, so its hash160 is
+  the address that signed.
+  """
+  @spec recover_pubkey(binary(), binary()) :: {:ok, String.t()} | :error
+  def recover_pubkey(message, signature) when is_binary(message) and is_binary(signature) do
     with {:ok, encoding} <- signature_encoding(signature),
          {:ok, raw} <- if(encoding == :raw, do: {:ok, signature}, else: Base.decode64(signature)),
          %Curvy.Key{} = key <- Curvy.recover_key(raw, bsm_digest(message), hash: false) do
@@ -136,6 +142,8 @@ defmodule Bitblocks.Aip do
     else
       _ -> :error
     end
+  rescue
+    _ -> :error
   end
 
   defp bsm_digest(message) do
