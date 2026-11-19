@@ -212,7 +212,7 @@ defmodule Bitblocks.Chain.TxPipeline.TxTypesBackfill do
   # update into every index on `transactions`, under the live sync's writes.
   defp bounded_page(block, after_id, ctx) do
     Derivations.bounded(ctx.opts, fn ->
-      case page(block, after_id, ctx) do
+      case block |> page(after_id, ctx) |> Derivations.fill_raw(ctx.opts) do
         [] -> :done
         rows -> {rows, classify_and_write(rows, block, ctx)}
       end
@@ -272,9 +272,10 @@ defmodule Bitblocks.Chain.TxPipeline.TxTypesBackfill do
           id: t.id,
           tx_types: t.tx_types,
           tx_types_version: t.tx_types_version,
-          raw:
+          # Only the size; `Derivations.fill_raw/2` loads the bytes (#123).
+          raw_bytes:
             fragment(
-              "CASE WHEN ?::boolean OR ? IS NULL OR ? < ? THEN ? END",
+              "CASE WHEN ?::boolean OR ? IS NULL OR ? < ? THEN octet_length(?) END",
               ^ctx.force,
               t.tx_types_version,
               t.tx_types_version,

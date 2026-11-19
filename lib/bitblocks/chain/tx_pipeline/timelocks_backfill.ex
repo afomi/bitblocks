@@ -108,7 +108,7 @@ defmodule Bitblocks.Chain.TxPipeline.TimelocksBackfill do
 
     result =
       Derivations.bounded(ctx.opts, fn ->
-        case page(block, after_id, ctx) do
+        case block |> page(after_id, ctx) |> Derivations.fill_raw(ctx.opts) do
           [] -> :done
           txs -> {txs, Enum.map(txs, &tx(&1, block, ctx))}
         end
@@ -141,7 +141,8 @@ defmodule Bitblocks.Chain.TxPipeline.TimelocksBackfill do
       # `id + 0`, not `id`: see Bitblocks.Chain.TxPipeline.Backfill.page/3.
       order_by: fragment("? + 0", t.id),
       limit: ^Derivations.page_limit(ctx.tx_batch),
-      select: %{id: t.id, txid: t.txid, raw: t.raw}
+      # Only the size; `Derivations.fill_raw/2` loads the bytes (#123).
+      select: %{id: t.id, txid: t.txid, raw_bytes: fragment("octet_length(?)", t.raw)}
     )
     |> Repo.all()
   end

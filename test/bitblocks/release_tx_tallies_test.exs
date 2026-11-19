@@ -179,6 +179,21 @@ defmodule Bitblocks.ReleaseTxTalliesTest do
     refute output =~ "Run again with apply: true"
   end
 
+  # #123: a page holds at most :page_raw_bytes of raw, or one tx larger than
+  # it, whatever tx_batch says; the rest come on later pages.
+  test "a byte budget smaller than any tx still stamps every row, a page per tx", ctx do
+    report =
+      quietly(fn -> Release.backfill_tx_tallies(0, 100, apply: true, page_raw_bytes: 1) end)
+
+    assert %{outcome: "ok", rows_changed: 3, rows_below_version: 0} = report
+
+    assert %{total_input_satoshis: 10_000, fee_satoshis: 1_000} =
+             Chain.get_transaction!(ctx.child)
+
+    assert %{fee_satoshis: 900, burned_satoshis: 100} = Chain.get_transaction!(ctx.burner)
+    assert %{sats_out: 17_100, fees: 1_900} = Repo.reload!(ctx.b)
+  end
+
   test "picks only rows below the current version", ctx do
     # The child is already at the current version, with values a recompute
     # would replace: the backfill must leave it alone.
