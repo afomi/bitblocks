@@ -35,6 +35,13 @@ defmodule BitblocksWeb.StripeWebhookController do
         end
 
       {:error, :not_configured} ->
+        # A delivery while no webhook secret is set: Stripe has an endpoint
+        # registered and sending, so the app and Stripe disagree (#143).
+        Logger.warning(
+          "Stripe webhook delivery refused: no webhook secret is set (503 not_configured); " <>
+            "set the secret or disable the endpoint in Stripe"
+        )
+
         conn |> put_status(503) |> json(%{error: "not_configured"})
 
       {:error, reason} ->
