@@ -27,6 +27,11 @@ Without funding, Bitblocks spins down by 2026-12-31.
 
 The product thread stays the live Bitcom registry: https://github.com/afomi/bitblocks/issues/18 ([docs/BITCOM.md](docs/BITCOM.md)); every step is done but the funded address, https://github.com/afomi/bitblocks/issues/58.
 
+## Dogfood: an election anyone can recount
+
+The Public Blockchain Association elects its board on Bitblocks, then Modular City runs the same flow; design in [docs/ELECTION_DOGFOOD.md](docs/ELECTION_DOGFOOD.md).
+Epic: https://github.com/afomi/bitblocks/issues/140.
+
 ## Fixes shipped, to verify on prod
 
 https://github.com/afomi/bitblocks/issues/87 · https://github.com/afomi/bitblocks/issues/88 · https://github.com/afomi/bitblocks/issues/89 · https://github.com/afomi/bitblocks/issues/90 · https://github.com/afomi/bitblocks/issues/91
