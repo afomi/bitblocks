@@ -54,6 +54,7 @@ Docs marked *(mixed)* are mostly aspirational but contain sections that accurate
 - `CHAIN_LENS.md` — the lens pattern: full chain + filter = subset chain, with time↔height translation.
 - `COMPOSABLE_PRIMITIVES.md` — maps Bitcoin's primitives (keypair, outpoint, scripts, covenants) toward a composition-first interface paradigm.
 - `COMPOSABLE_STREAMS.md` — schema-named domain-object streams: define, write (qart), index (bitblocks), subscribe.
+- `ELECTION_DOGFOOD.md` — an election anyone can recount: the Public Blockchain Association's board vote, then Modular City's; records, counting rule, static archive (https://github.com/afomi/bitblocks/issues/140).
 - `CUSTOM_INDEXING.md` — *(mixed)* accurate on the current parsing pipeline (`TransactionParser`, `ProtocolRegistry`, `ProtocolParser`); aspirational on schema-driven views as a paid product.
 - `DATA_DICTIONARY_SPEC.md` — proposed versioned catalog of transaction/script/envelope formats backed by on-chain examples; derivative of transaction-pack definitions (content-hash keyed).
 - `USE_CASES.md` — draft use cases for Bitblocks as full-chain support for other applications: application registry, cross-app identity UX, and hydration (initial + ongoing).
