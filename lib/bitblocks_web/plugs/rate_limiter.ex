@@ -11,7 +11,9 @@ defmodule BitblocksWeb.Plugs.RateLimiter do
         window_ms: 60_000,            # 1 minute window
         max_requests: 30,             # logged out, per IP
         signed_in_max_requests: 600,  # logged in, per user
-        admin_max_requests: 3_000     # admin, per user
+        admin_max_requests: 3_000,    # admin, per user
+        ai_crawler_max_requests: 10,  # an AI crawler, per family
+        ai_fetcher_max_requests: 30   # an AI user-triggered fetcher, per family
 
   Static assets bypass this plug.
 
@@ -25,6 +27,8 @@ defmodule BitblocksWeb.Plugs.RateLimiter do
   | Admin | the user | `RATE_LIMIT_ADMIN_PER_MINUTE`, 3,000 |
   | Logged in | the user | `RATE_LIMIT_SIGNED_IN_PER_MINUTE`, 600 |
   | Logged out | the IP | `RATE_LIMIT_PER_MINUTE`, 30 |
+  | AI crawler, no key | its family | `RATE_LIMIT_AI_CRAWLER_PER_MINUTE`, 10 |
+  | AI user-triggered fetcher, no key | its family | `RATE_LIMIT_AI_FETCHER_PER_MINUTE`, 30 |
 
   Counting by user means people behind one address don't share a budget. A
   session whose user is gone, or a forged cookie, which reads as no session,
@@ -36,6 +40,29 @@ defmodule BitblocksWeb.Plugs.RateLimiter do
   This covers HTTP requests, including a LiveView's first render. Events over
   an open LiveView socket don't pass through the endpoint's plugs, so they
   aren't counted; a LiveView that needs a budget calls `allow?/2`.
+
+  ## AI crawlers
+
+  A caller with no key and no session whose user agent names an AI crawler
+  (`RateLimiter.AiCrawlers`) is counted by its family, `crawler:<family>`, not
+  its IP: one company's crawler shares one budget across all its addresses,
+  replicated across the cluster like every other bucket. Over budget it gets a
+  402 Payment Required with `Retry-After` and a short body (JSON under
+  `/api/`, plain text elsewhere) naming the paid way in: a key, as
+  `/pricing#crawlers` describes, sent as `Authorization: Bearer bbk_…`. A keyed
+  request is never counted as a crawler; it has its key's budget.
+
+  A company's user-triggered fetcher (`ChatGPT-User`, `Claude-User`, …; kind
+  `:fetcher` in `AiCrawlers`) is a family of its own, `<company>_user`, with
+  `RATE_LIMIT_AI_FETCHER_PER_MINUTE` (30), so a person asking an assistant to
+  read one page isn't refused because that company's bulk crawler spent its
+  budget. Over it, the same 402.
+
+  402 rather than 429, because the way to more requests is to pay, not to
+  wait; `Retry-After` still says when the free budget opens again. Each
+  refusal is logged at info, emits `[:bitblocks, :ai_crawler, :throttled]`
+  (`%{count: 1}`, `%{family: f}`), and adds to `throttled_crawlers/0`, this
+  node's count since boot.
 
   ## API keys
 
@@ -55,7 +82,7 @@ defmodule BitblocksWeb.Plugs.RateLimiter do
   import Plug.Conn
   require Logger
 
-  alias BitblocksWeb.Plugs.RateLimiter.Replicator
+  alias BitblocksWeb.Plugs.RateLimiter.{AiCrawlers, Replicator}
 
   @table :rate_limiter
   @default_window_ms 60_000
@@ -65,6 +92,8 @@ defmodule BitblocksWeb.Plugs.RateLimiter do
   @default_signed_in_max_requests 600
   @default_admin_max_requests 3_000
   @default_tier_cache_ms 60_000
+  @default_ai_crawler_max_requests 10
+  @default_ai_fetcher_max_requests 30
 
   def init(opts), do: opts
 
@@ -80,7 +109,7 @@ defmodule BitblocksWeb.Plugs.RateLimiter do
       nil ->
         {conn, user_id} = session_user_id(conn)
 
-        {bucket, max_requests, tier} = budget(user_id, ip, now, anonymous)
+        {bucket, max_requests, tier} = budget(conn, user_id, ip, now, anonymous)
         limit(conn, bucket, now, window_ms, max_requests, tier)
 
       token ->
@@ -93,9 +122,12 @@ defmodule BitblocksWeb.Plugs.RateLimiter do
             |> limit("key:#{id}", now, window_ms, rpm, :api_key)
 
           # A bad key is refused loudly rather than treated as anonymous, but
-          # only within the IP's budget, so random keys can't hammer the DB.
+          # only within the IP's budget (a crawler's, its family's), so random
+          # keys can't hammer the DB.
           nil ->
-            case limit(conn, ip, now, window_ms, anonymous, :anonymous) do
+            {bucket, max_requests, tier} = anonymous_budget(conn, ip, anonymous)
+
+            case limit(conn, bucket, now, window_ms, max_requests, tier) do
               %Plug.Conn{halted: true} = halted ->
                 halted
 
@@ -123,7 +155,7 @@ defmodule BitblocksWeb.Plugs.RateLimiter do
     end
   end
 
-  defp budget(user_id, ip, now, anonymous) do
+  defp budget(conn, user_id, ip, now, anonymous) do
     case tier(user_id, now) do
       :admin ->
         {"user:#{user_id}", config(:admin_max_requests, @default_admin_max_requests), :admin}
@@ -133,7 +165,19 @@ defmodule BitblocksWeb.Plugs.RateLimiter do
         {"user:#{user_id}", max_requests, :signed_in}
 
       :anonymous ->
+        anonymous_budget(conn, ip, anonymous)
+    end
+  end
+
+  # No key and no session: an AI crawler's family shares one budget across
+  # its addresses; anyone else has the IP's.
+  defp anonymous_budget(conn, ip, anonymous) do
+    case conn |> get_req_header("user-agent") |> List.first() |> AiCrawlers.family() do
+      nil ->
         {ip, anonymous, :anonymous}
+
+      family ->
+        {"crawler:#{family}", crawler_budget(AiCrawlers.kind(family)), {:ai_crawler, family}}
     end
   end
 
@@ -178,7 +222,7 @@ defmodule BitblocksWeb.Plugs.RateLimiter do
     case check_rate(bucket, now, window_ms, max_requests) do
       {:ok, count} ->
         conn
-        |> assign(:caller_tier, tier)
+        |> assign_tier(tier)
         |> put_resp_header("x-ratelimit-limit", Integer.to_string(max_requests))
         |> put_resp_header(
           "x-ratelimit-remaining",
@@ -187,16 +231,113 @@ defmodule BitblocksWeb.Plugs.RateLimiter do
 
       {:error, retry_after_ms} ->
         retry_after_s = max(1, div(retry_after_ms, 1000))
-
-        Logger.warning("Rate limited #{bucket} tier=#{tier} limit=#{max_requests}")
-
-        conn
-        |> put_resp_header("retry-after", Integer.to_string(retry_after_s))
-        |> put_resp_header("x-ratelimit-limit", Integer.to_string(max_requests))
-        |> put_resp_header("x-ratelimit-remaining", "0")
-        |> send_resp(429, "Too Many Requests. Retry after #{retry_after_s} seconds.")
-        |> halt()
+        refuse(conn, bucket, tier, max_requests, retry_after_s)
     end
+  end
+
+  # A person's one request through an assistant gets more room than a bulk
+  # crawl, in a bucket of its own.
+  defp crawler_budget(:fetcher),
+    do: config(:ai_fetcher_max_requests, @default_ai_fetcher_max_requests)
+
+  defp crawler_budget(_crawler),
+    do: config(:ai_crawler_max_requests, @default_ai_crawler_max_requests)
+
+  # A crawler within its budget is still an anonymous caller to the routes
+  # (RequireCaller reads :caller_tier).
+  defp assign_tier(conn, {:ai_crawler, family}) do
+    conn
+    |> assign(:caller_tier, :anonymous)
+    |> assign(:ai_crawler, family)
+  end
+
+  defp assign_tier(conn, tier), do: assign(conn, :caller_tier, tier)
+
+  defp refuse(conn, bucket, {:ai_crawler, family}, max_requests, retry_after_s) do
+    record_throttle(family)
+
+    Logger.info(
+      "AI crawler throttled #{bucket} limit=#{max_requests} path=#{conn.request_path} " <>
+        "ip=#{BitblocksWeb.Utils.IpHelper.get_ip_address(conn)}"
+    )
+
+    {content_type, body} = crawler_body(conn, family, max_requests, retry_after_s)
+
+    conn
+    |> put_resp_header("retry-after", Integer.to_string(retry_after_s))
+    |> put_resp_header("x-ratelimit-limit", Integer.to_string(max_requests))
+    |> put_resp_header("x-ratelimit-remaining", "0")
+    |> put_resp_content_type(content_type)
+    |> send_resp(402, body)
+    |> halt()
+  end
+
+  defp refuse(conn, bucket, tier, max_requests, retry_after_s) do
+    Logger.warning("Rate limited #{bucket} tier=#{tier} limit=#{max_requests}")
+
+    conn
+    |> put_resp_header("retry-after", Integer.to_string(retry_after_s))
+    |> put_resp_header("x-ratelimit-limit", Integer.to_string(max_requests))
+    |> put_resp_header("x-ratelimit-remaining", "0")
+    |> send_resp(429, "Too Many Requests. Retry after #{retry_after_s} seconds.")
+    |> halt()
+  end
+
+  # JSON for the API, a few lines of plain text for everything else.
+  defp crawler_body(%Plug.Conn{path_info: ["api" | _]}, family, max_requests, retry_after_s) do
+    {"application/json",
+     Jason.encode!(%{
+       error: "ai_crawler_rate_limited",
+       message:
+         "You are rate-limited as an AI crawler (#{family}): #{max_requests} requests a minute, " <>
+           "shared by every address your crawler uses.",
+       crawler_family: family,
+       limit_per_minute: max_requests,
+       retry_after_seconds: retry_after_s,
+       paid_access: %{
+         message:
+           "Paid access with an API key gets its own budget, and is never throttled as a crawler.",
+         get_a_key: AiCrawlers.page_url(),
+         contact: "mailto:" <> AiCrawlers.contact_email(),
+         header: "Authorization: Bearer bbk_…"
+       }
+     })}
+  end
+
+  defp crawler_body(_conn, family, max_requests, retry_after_s) do
+    {"text/plain",
+     """
+     402 Payment Required
+
+     You are rate-limited as an AI crawler (#{family}): #{max_requests} requests a minute, shared by every address your crawler uses.
+     The free budget opens again in #{retry_after_s} seconds.
+
+     Paid access with an API key gets its own budget, and is never throttled as a crawler.
+     How to get a key: #{AiCrawlers.page_url()}
+     Contact: #{AiCrawlers.contact_email()}
+     Send it as: Authorization: Bearer bbk_…
+
+     robots.txt disallows /transactions, /blocks and /api/ for every crawler; the API is the way to the chain.
+     """}
+  end
+
+  defp record_throttle(family) do
+    key = {:crawler_throttled, family}
+    :ets.update_counter(@table, key, 1, {key, 0})
+    :telemetry.execute([:bitblocks, :ai_crawler, :throttled], %{count: 1}, %{family: family})
+  end
+
+  @doc """
+  AI crawler requests refused on this node since it started, by family, as
+  `%{"meta" => 28_412}`. Empty until one is refused.
+  """
+  @spec throttled_crawlers() :: %{String.t() => non_neg_integer()}
+  def throttled_crawlers do
+    ensure_table()
+
+    @table
+    |> :ets.match({{:crawler_throttled, :"$1"}, :"$2"})
+    |> Map.new(fn [family, count] -> {family, count} end)
   end
 
   defp check_rate(ip, now, window_ms, max_requests) do

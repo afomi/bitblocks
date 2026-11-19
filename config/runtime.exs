@@ -197,7 +197,14 @@ if config_env() == :prod do
     max_requests: String.to_integer(System.get_env("RATE_LIMIT_PER_MINUTE", "30")),
     signed_in_max_requests:
       String.to_integer(System.get_env("RATE_LIMIT_SIGNED_IN_PER_MINUTE", "600")),
-    admin_max_requests: String.to_integer(System.get_env("RATE_LIMIT_ADMIN_PER_MINUTE", "3000"))
+    admin_max_requests: String.to_integer(System.get_env("RATE_LIMIT_ADMIN_PER_MINUTE", "3000")),
+    # One budget per AI crawler family, across all its IPs (#107).
+    ai_crawler_max_requests:
+      String.to_integer(System.get_env("RATE_LIMIT_AI_CRAWLER_PER_MINUTE", "10")),
+    # A user-triggered fetcher (ChatGPT-User, Claude-User, …), per company, apart
+    # from its bulk crawler.
+    ai_fetcher_max_requests:
+      String.to_integer(System.get_env("RATE_LIMIT_AI_FETCHER_PER_MINUTE", "30"))
 
   database_url =
     System.get_env("DATABASE_URL") ||

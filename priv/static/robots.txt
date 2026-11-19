@@ -1,3 +1,7 @@
+# AI and LLM crawlers: the chain we hold is yours through the API, with a key and a budget of your own.
+# Without a key, each crawler family shares a small budget across all its addresses, and past it gets a 402.
+# How to get a key: https://bitblocks.app/pricing#crawlers
+
 # Indexers are welcome on the guides and public pages.
 # The chain itself is here for people and for the API: crawling it would add nothing to an index.
 User-agent: *

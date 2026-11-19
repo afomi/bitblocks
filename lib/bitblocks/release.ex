@@ -458,6 +458,9 @@ defmodule Bitblocks.Release do
     IO.puts("  Complete through:   block #{complete_through} (of #{tip} known)")
     IO.puts("  Transactions in DB: ~#{total_txs} (estimate)")
 
+    throttled = BitblocksWeb.Plugs.RateLimiter.throttled_crawlers()
+    IO.puts("  AI crawlers 402'd:  #{format_throttled(throttled)} (this node, since boot)")
+
     audit =
       if Keyword.get(opts, :audit, false) do
         %{count: deficit_count} = result = audit_completeness()
@@ -476,8 +479,17 @@ defmodule Bitblocks.Release do
       remaining: total_blocks - completed,
       complete_through: complete_through,
       transactions: total_txs,
+      ai_crawlers_throttled: throttled,
       audit: audit
     }
+  end
+
+  defp format_throttled(throttled) when map_size(throttled) == 0, do: "none"
+
+  defp format_throttled(throttled) do
+    throttled
+    |> Enum.sort_by(fn {_family, count} -> -count end)
+    |> Enum.map_join(", ", fn {family, count} -> "#{family} #{count}" end)
   end
 
   # ---------------------------------------------------------------------------
