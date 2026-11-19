@@ -38,13 +38,19 @@ defmodule Bitblocks.TelemetryHandlers do
   statement and its caller instead of only the victim. Thresholds:
   `:slow_query_queue_ms` (default 5,000) and `:slow_query_run_ms` (10,000).
   Params are never logged.
+
+  A query run with `telemetry_options: [expected_slow: true]` is skipped for
+  its run time (its caller logs its own timing, as `Bitblocks.DB.GinPending`
+  does); a long wait for a connection is still logged.
   """
   def handle_slow_query(_event, measurements, metadata, _config) do
     queue_ms = ms(measurements[:queue_time])
     query_ms = ms(measurements[:query_time])
+    expected_slow = get_in(metadata, [:options, :expected_slow]) == true
 
     if queue_ms >= Application.get_env(:bitblocks, :slow_query_queue_ms, 5_000) or
-         query_ms >= Application.get_env(:bitblocks, :slow_query_run_ms, 10_000) do
+         (not expected_slow and
+            query_ms >= Application.get_env(:bitblocks, :slow_query_run_ms, 10_000)) do
       Logger.warning(
         "Slow DB query: queue=#{queue_ms}ms query=#{query_ms}ms source=#{metadata[:source] || "-"} " <>
           "caller=#{caller()} sql=#{metadata[:query] |> to_string() |> String.slice(0, 200)}"
