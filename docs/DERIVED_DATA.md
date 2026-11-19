@@ -219,6 +219,9 @@ bin/bitblocks rpc 'Bitblocks.Release.derivation_runs()'
 - The script analysis backfill walks the stored blocks in the range, `block_batch` (100) at a time, and each block's txs on the `block_hash` index, paged by id, `batch_size` (500) at a time.
   It selects through the block because older rows have a NULL `block_height`, and it fills that column on each row it writes.
 - Each page is one short transaction under `SET LOCAL statement_timeout` (`statement_timeout_ms`, default 60,000).
+- A page also stops at `:derivation_page_raw_bytes` of raw (64 MB; `page_raw_bytes:`), or one tx larger than that, whatever `tx_batch` says (https://github.com/afomi/bitblocks/issues/123).
+  The page reads each row's size first and then only the raw it needs (`Derivations.fill_raw/2`), and collects the job's garbage before each page, so the last page's bytes don't linger.
+  The tallies, tx types, script analysis and time locks backfills page this way.
 - After each page it writes, it sleeps `pause_ms` (default 50, `config :bitblocks, :derivation_pause_ms`).
   Most updates on `transactions` are not HOT (the table carries many indexes, and pages are full), so each one leaves a dead tuple per index; the pause lets autovacuum keep up.
   Raise it if tip sync slows, or lower `tx_batch`.

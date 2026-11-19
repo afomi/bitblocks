@@ -192,7 +192,7 @@ defmodule Bitblocks.Chain.TxPipeline.Backfill do
   defp pages(block, report, after_id, sums, picked, ctx) do
     result =
       Derivations.bounded(ctx.opts, fn ->
-        rows = page(block, after_id, ctx)
+        rows = block |> page(after_id, ctx) |> Derivations.fill_raw(ctx.opts)
 
         case rows do
           [] -> :done
@@ -250,9 +250,11 @@ defmodule Bitblocks.Chain.TxPipeline.Backfill do
           total_output_satoshis: t.total_output_satoshis,
           fee_satoshis: t.fee_satoshis,
           burned_satoshis: t.burned_satoshis,
-          raw:
+          # Only the size here; `Derivations.fill_raw/2` loads the bytes
+          # under a budget (#123).
+          raw_bytes:
             fragment(
-              "CASE WHEN ?::boolean OR ? IS NULL OR ? < ? OR (?::boolean AND ? = ? AND ? IS NOT TRUE AND ? IS NULL) THEN ? END",
+              "CASE WHEN ?::boolean OR ? IS NULL OR ? < ? OR (?::boolean AND ? = ? AND ? IS NOT TRUE AND ? IS NULL) THEN octet_length(?) END",
               ^ctx.force,
               t.tallies_version,
               t.tallies_version,

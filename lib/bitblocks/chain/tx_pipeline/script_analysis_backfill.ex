@@ -128,7 +128,14 @@ defmodule Bitblocks.Chain.TxPipeline.ScriptAnalysisBackfill do
       from(t in Transaction,
         where: t.id > ^after_id and not is_nil(t.raw),
         limit: ^Derivations.page_limit(ctx.batch_size),
-        select: [:id, :txid, :raw, :block_height, :block_hash]
+        # Only the size; `Derivations.fill_raw/2` loads the bytes (#123).
+        select: %{
+          id: t.id,
+          txid: t.txid,
+          block_height: t.block_height,
+          block_hash: t.block_hash,
+          raw_bytes: fragment("octet_length(?)", t.raw)
+        }
       )
 
     query =
@@ -151,7 +158,10 @@ defmodule Bitblocks.Chain.TxPipeline.ScriptAnalysisBackfill do
           |> order_by([t], fragment("? + 0", t.id)),
         else: order_by(query, [t], asc: t.id)
 
-    Derivations.bounded(ctx.opts, fn -> Repo.all(query) end)
+    # Structs again, as `write/1` and `Bitcom.index/1` take them.
+    Derivations.bounded(ctx.opts, fn ->
+      query |> Repo.all() |> Derivations.fill_raw(ctx.opts) |> Enum.map(&struct(Transaction, &1))
+    end)
   end
 
   defp process(rows, report, ctx) do

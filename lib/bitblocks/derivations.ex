@@ -575,6 +575,66 @@ defmodule Bitblocks.Derivations do
     end
   end
 
+  @doc """
+  A page's raw bytes, loaded under a byte budget (#123).
+
+  `rows` are a page in its order, each with `:id` and `:raw_bytes`: the
+  `octet_length` of the raw the row needs, or nil when it needs none (select
+  it as `fragment("octet_length(?)", t.raw)`, which reads the TOAST header,
+  not the bytes). Returns the longest prefix whose needed bytes fit
+  `:page_raw_bytes` (`:derivation_page_raw_bytes`, 64 MB), always at least
+  the first row, with `:raw` filled for the rows that need it. The caller
+  carries on after the last row returned, so the rest come on later pages.
+
+  A 1,000-row page with a few large inscriptions held gigabytes before this;
+  now a page holds at most the budget, or one tx larger than it.
+
+  It first collects this process's garbage: the previous page's binaries are
+  dead by now, but a long-running job whose heap barely churns would
+  otherwise keep them, off-heap, until a collection it rarely needs.
+  """
+  @spec fill_raw([map()], keyword()) :: [map()]
+  def fill_raw(rows, opts \\ [])
+  def fill_raw([], _opts), do: []
+
+  def fill_raw(rows, opts) do
+    :erlang.garbage_collect()
+    page = within_bytes(rows, page_raw_bytes(opts))
+    ids = for %{raw_bytes: n, id: id} <- page, n != nil, do: id
+
+    raws =
+      if ids == [],
+        do: %{},
+        else:
+          Repo.all(
+            from(t in Bitblocks.Chain.Transaction, where: t.id in ^ids, select: {t.id, t.raw})
+          )
+          |> Map.new()
+
+    Enum.map(page, fn row ->
+      row |> Map.delete(:raw_bytes) |> Map.put(:raw, row.raw_bytes && Map.get(raws, row.id))
+    end)
+  end
+
+  @doc false
+  # The longest prefix of `rows` whose `:raw_bytes` sum within `budget`,
+  # never empty.
+  def within_bytes([first | rest], budget) do
+    {kept, _} =
+      Enum.reduce_while(rest, {[first], first.raw_bytes || 0}, fn row, {kept, total} ->
+        total = total + (row.raw_bytes || 0)
+        if total > budget, do: {:halt, {kept, total}}, else: {:cont, {[row | kept], total}}
+      end)
+
+    Enum.reverse(kept)
+  end
+
+  defp page_raw_bytes(opts) do
+    Keyword.get_lazy(opts, :page_raw_bytes, fn ->
+      Application.get_env(:bitblocks, :derivation_page_raw_bytes, 64_000_000)
+    end)
+  end
+
   defp statement_timeout_ms(opts) do
     Keyword.get_lazy(opts, :statement_timeout_ms, fn ->
       Application.get_env(:bitblocks, :derivation_statement_timeout_ms, 60_000)
