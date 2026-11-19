@@ -1,11 +1,14 @@
 # Stripe
 
-Bitblocks uses Stripe for one thing so far: recording AI crawlers' x402 payments, through [x402_ex](https://github.com/afomi/x402_ex).
-A crawler over its budget gets a 402 with a price; it pays in USDC, and each settled payment is recorded in Stripe as a machine payment.
-The plan is under "Paid crawler access (x402)" in [PLAN.md](../PLAN.md).
+Bitblocks uses Stripe for two things:
 
-Bulk downloads have a published price, $1.00 per GiB, quoted on `/pricing#downloads` and `GET /api/v1/downloads/quote` (https://github.com/afomi/bitblocks/issues/111).
-They don't touch Stripe yet: a buyer mails us the quote, and Checkout comes with the shared groundwork under "Payments" in [PLAN.md](../PLAN.md).
+- Recording AI crawlers' x402 payments, through [x402_ex](https://github.com/afomi/x402_ex).
+  A crawler over its budget gets a 402 with a price; it pays in USDC, and each settled payment is recorded in Stripe as a machine payment.
+  The plan is under "Paid crawler access (x402)" in [PLAN.md](../PLAN.md).
+- Selling bulk downloads of a block range with Stripe Checkout, at the published $1.00 per GiB (https://github.com/afomi/bitblocks/issues/111).
+  It is built and dormant until the keys below are set: [Bulk downloads: Checkout](#bulk-downloads-checkout).
+
+Both go through one HTTP client, x402_ex's `X402.HTTPClient`, and tests stub Stripe the same way (`Req.Test`), so no test ever calls Stripe.
 
 Bitblocks has its own Stripe account, separate from jurisdictional's.
 This repo is public: never put the account id, keys, draft prices or customer details in it.
@@ -126,7 +129,66 @@ bin/bitblocks rpc 'Bitblocks.Release.x402_reconcile()'
 `x402_status()` names the key variable and whether it is set, never its value.
 Paid requests are rows in `x402_payments`: an `auth:` row per claimed authorization, and a `tx:` row per settled transaction with its PaymentIntent.
 
-## Later: live mode (not yet)
+## Bulk downloads: Checkout
+
+A signed-in buyer quotes a block range on `/pricing#downloads`, clicks "Pay", and pays once by card on Stripe Checkout.
+Stripe's signed `checkout.session.completed` webhook marks the purchase paid; the redirect back to `/downloads/<id>` alone opens nothing.
+Then each file's sha256 is computed once from the tx store, and the page gives the manifest, signed links (S3 presigned, 15 minutes, re-issued free for 30 days) and a script that downloads, checks and resumes.
+The code is `Bitblocks.Payments.Stripe` (Checkout and webhook signatures), `Bitblocks.Downloads.Purchases` (the purchase's life), `BitblocksWeb.StripeWebhookController` and `BitblocksWeb.DownloadLive`.
+
+### What it needs
+
+| Variable | Mode | What it is |
+| --- | --- | --- |
+| `DOWNLOADS_CHECKOUT_MODE` | | `sandbox` (the default, Stripe test mode) or `live` |
+| `STRIPE_SANDBOX_SECRET_KEY` | sandbox | the sandbox key x402 already uses, with **Checkout Sessions: Write** added |
+| `STRIPE_SANDBOX_WEBHOOK_SECRET` | sandbox | the sandbox webhook endpoint's signing secret, `whsec_…` |
+| `STRIPE_SECRET_KEY` | live | the live key, with **Checkout Sessions: Write** |
+| `STRIPE_WEBHOOK_SECRET` | live | the live webhook endpoint's signing secret, `whsec_…` |
+
+With the mode's key or webhook secret missing, Checkout is dormant: no "Pay" button, the quote keeps "Contact us", and `POST /webhooks/stripe` answers 503.
+A live key in sandbox mode, or a test key in live mode, is refused the same way.
+In sandbox mode only an admin sees "Pay", so nobody buys real files with a test card.
+
+```bash
+bin/bitblocks rpc 'Bitblocks.Release.downloads_checkout_status()'
+```
+
+It prints the mode, each variable's name and whether it is set (never a value), and the purchases by status.
+
+### Your steps, test mode first
+
+1. In the Stripe Dashboard, open the bitblocks sandbox (the banner across the top says you're in a sandbox).
+2. **Developers → API keys**: on the sandbox restricted key (`bitblocks-x402-sandbox`), choose **⋯ → Edit key**, set **Checkout Sessions** to **Write**, and save.
+   The key's value doesn't change, so `STRIPE_SANDBOX_SECRET_KEY` stays as it is.
+   If a payment is refused for a missing permission, the key's request log names it; add only that one, and note it here.
+3. **Developers → Webhooks → Add endpoint** (in the sandbox):
+   - Endpoint URL: `https://bitblocks.app/webhooks/stripe`
+   - Events: `checkout.session.completed`, `checkout.session.expired`, `charge.refunded`
+   - Then open the endpoint and reveal its **Signing secret** (`whsec_…`).
+4. Set it, in your own terminal, from your checkout of the infra repo (a hidden prompt you paste into):
+
+   ```bash
+   aws-vault exec default -- ./scripts/app-secret-set.sh bitblocks STRIPE_SANDBOX_WEBHOOK_SECRET
+   ```
+
+5. Deploy (or run the deploy workflow by hand), so the nodes read it, then check `Release.downloads_checkout_status()` says `configured`.
+6. Signed in as an admin, quote a small range on `/pricing#downloads`, click "Pay", and pay with Stripe's test card `4242 4242 4242 4242` (any future date, any CVC).
+   You land on `/downloads/<id>`, which says "Waiting for payment confirmation" and turns to "Paid" when the webhook arrives.
+   The payment shows under **Payments** in the sandbox, and the webhook delivery under the endpoint.
+7. Refund it in the Dashboard: the page turns to "Refunded" and its links close.
+
+Stripe's smallest card payment is $0.50, so a range under that is refused before Checkout.
+A purchase is one Checkout session: the session's idempotency key is the purchase id, and a second "Pay" on the same quote within a day reopens the same session.
+Every event is recorded in `stripe_events` by its id before it changes anything, so a replay or a second delivery does nothing.
+Any refund, whole or part, closes the links.
+
+### Live, later
+
+Set `DOWNLOADS_CHECKOUT_MODE=live`, give the live restricted key **Checkout Sessions: Write** (`STRIPE_SECRET_KEY`), add the same webhook endpoint in live mode, and set its secret as `STRIPE_WEBHOOK_SECRET`.
+In live mode every signed-in user sees "Pay".
+
+## Later: x402 live mode (not yet)
 
 Live mode waits on your go, after the sandbox run is shown end to end.
 It needs:

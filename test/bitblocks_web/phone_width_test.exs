@@ -97,6 +97,25 @@ defmodule BitblocksWeb.PhoneWidthTest do
     assert overflow(session) <= 0, "/transactions/:txid scrolls sideways at #{@width} px"
   end
 
+  test "a bought download, its files, links and script fit a phone", %{session: session} do
+    blocks = Bitblocks.Repo.all(Bitblocks.Chain.Block)
+    user = Bitblocks.DownloadsFixtures.user!()
+    purchase = Bitblocks.DownloadsFixtures.ready_purchase!(user, blocks)
+
+    session =
+      session
+      |> visit("/about")
+      |> Wallaby.Browser.set_cookie(
+        Bitblocks.DownloadsFixtures.session_cookie_key(),
+        Bitblocks.DownloadsFixtures.session_cookie(user)
+      )
+      |> visit("/downloads/#{purchase.id}")
+      |> assert_has(css("#download-files-table"))
+      |> assert_has(css("#download-script"))
+
+    assert overflow(session) <= 0, "/downloads/:id scrolls sideways at #{@width} px"
+  end
+
   test "/pricing with an estimate, its arithmetic and the size bands fits a phone", %{
     session: session
   } do

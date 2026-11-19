@@ -142,6 +142,26 @@ defmodule Bitblocks.TxStore.S3 do
     end
   end
 
+  # Signed locally with the instance role's credentials (its session token
+  # rides in the URL); no request to S3. The bucket stays private: only a
+  # URL signed here, before it expires, can read the object.
+  @impl true
+  def presigned_url(key, ttl_seconds, filename) do
+    with {:ok, bucket} <- bucket() do
+      ExAws.Config.new(:s3)
+      |> ExAws.S3.presigned_url(:get, bucket, key,
+        expires_in: ttl_seconds,
+        query_params: [
+          {"response-content-disposition", ~s(attachment; filename="#{filename}")}
+        ]
+      )
+      |> case do
+        {:ok, url} -> {:ok, url}
+        {:error, reason} -> {:error, {:s3_presign, reason}}
+      end
+    end
+  end
+
   @impl true
   def ready?, do: with({:ok, _} <- bucket(), do: :ok)
 

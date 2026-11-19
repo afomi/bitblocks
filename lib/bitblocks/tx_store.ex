@@ -51,7 +51,11 @@ defmodule Bitblocks.TxStore do
               {:ok, part :: term()} | {:error, term()}
   @callback multipart_complete(upload :: term(), parts :: [term()]) :: :ok | {:error, term()}
   @callback multipart_abort(upload :: term()) :: :ok | {:error, term()}
-  @optional_callbacks multipart_start: 1,
+  # A signed, expiring GET for one object (paid downloads).
+  @callback presigned_url(key :: String.t(), ttl_seconds :: pos_integer(), filename :: String.t()) ::
+              {:ok, String.t()} | {:error, term()}
+  @optional_callbacks presigned_url: 3,
+                      multipart_start: 1,
                       multipart_put_part: 3,
                       multipart_complete: 2,
                       multipart_abort: 1
@@ -269,6 +273,52 @@ defmodule Bitblocks.TxStore do
 
   @doc "Whether the configured adapter can take writes."
   def ready?, do: adapter().ready?()
+
+  @doc """
+  A signed URL that fetches the object at `key` straight from the store,
+  good for `ttl_seconds`, saved as `filename`: an S3 presigned GET in prod,
+  so a download's bytes never pass through a node
+  (https://github.com/afomi/bitblocks/issues/111). Signing is local; no
+  request is made. `{:error, :not_supported}` from an adapter without it.
+  """
+  @spec presigned_url(String.t(), pos_integer(), String.t()) ::
+          {:ok, String.t()} | {:error, term()}
+  def presigned_url(key, ttl_seconds, filename) do
+    adapter = adapter()
+
+    if Code.ensure_loaded?(adapter) and function_exported?(adapter, :presigned_url, 3),
+      do: adapter.presigned_url(key, ttl_seconds, filename),
+      else: {:error, :not_supported}
+  end
+
+  @doc """
+  The sha256 (lowercase hex) and size of the object at `key`, read in
+  ranged chunks of `chunk_bytes` (8 MiB), so memory stays at one chunk
+  whatever the object's size.
+  """
+  @spec object_sha256(String.t(), non_neg_integer(), pos_integer()) ::
+          {:ok, String.t()} | {:error, term()}
+  def object_sha256(key, size, chunk_bytes \\ 8 * 1024 * 1024) do
+    with {:ok, stored} <- adapter().size(key),
+         :ok <- if(stored == size, do: :ok, else: {:error, {:size_mismatch, stored, size}}) do
+      hash_chunks(key, 0, size, chunk_bytes, :crypto.hash_init(:sha256))
+    end
+  end
+
+  defp hash_chunks(_key, offset, size, _chunk, state) when offset >= size,
+    do: {:ok, state |> :crypto.hash_final() |> Base.encode16(case: :lower)}
+
+  defp hash_chunks(key, offset, size, chunk, state) do
+    length = min(chunk, size - offset)
+
+    case adapter().get_range(key, offset, length) do
+      {:ok, bytes} ->
+        hash_chunks(key, offset + length, size, chunk, :crypto.hash_update(state, bytes))
+
+      {:error, _} = error ->
+        error
+    end
+  end
 
   @doc """
   Re-checks up to `n` stored txs: each object must exist with the byte size of

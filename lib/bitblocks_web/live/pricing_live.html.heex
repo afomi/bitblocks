@@ -710,17 +710,82 @@
               </p>
             </div>
 
+            <div
+              :if={@checkout}
+              id="downloads-checkout"
+              class="mt-5"
+            >
+              <div
+                :if={purchasable(@quote) == :ok}
+                class="flex flex-col sm:flex-row sm:items-center gap-3"
+              >
+                <button
+                  :if={@current_user}
+                  type="button"
+                  id="downloads-pay"
+                  phx-click="pay"
+                  phx-disable-with="Opening checkout..."
+                  class="shrink-0 px-6 py-3 bg-brand-strong text-white font-medium rounded hover:opacity-90 transition-colors text-center"
+                >
+                  Pay {format_usd(@quote.price_usd)}
+                </button>
+                <a
+                  :if={!@current_user}
+                  id="downloads-sign-in-to-pay"
+                  href={BitblocksWeb.UserAuth.sign_in_path(quote_path(@quote))}
+                  class="shrink-0 px-6 py-3 bg-brand-strong text-white font-medium rounded hover:opacity-90 transition-colors text-center"
+                >
+                  Sign in to pay
+                </a>
+                <p class="text-xs text-neutral-500">
+                  One card payment through Stripe.
+                  Your links open as soon as Stripe confirms it, for {Bitblocks.Downloads.Purchases.valid_days()} days.
+                </p>
+              </div>
+              <p
+                :if={purchasable(@quote) != :ok}
+                id="downloads-not-purchasable"
+                class="text-sm text-neutral-400"
+              >
+                {refusal_message(elem(purchasable(@quote), 1))}
+              </p>
+              <p
+                :if={@pay_error}
+                id="downloads-pay-error"
+                role="alert"
+                class="mt-2 text-sm text-neutral-50"
+              >
+                {@pay_error}
+              </p>
+            </div>
+
             <div class="mt-5 flex flex-col sm:flex-row sm:items-center gap-3">
               <a
                 id="downloads-contact"
                 href={quote_mailto(@contact_email, @quote)}
-                class="shrink-0 px-6 py-3 bg-brand-strong text-white font-medium rounded hover:opacity-90 transition-colors text-center"
+                class={[
+                  "shrink-0 px-6 py-3 font-medium rounded transition-colors text-center",
+                  if(@checkout,
+                    do: "border border-neutral-700 text-neutral-50 hover:bg-neutral-800",
+                    else: "bg-brand-strong text-white hover:opacity-90"
+                  )
+                ]}
               >
                 Contact us
               </a>
-              <p class="text-xs text-neutral-500">
+              <p
+                :if={!@checkout}
+                class="text-xs text-neutral-500"
+              >
                 Paying online is coming.
                 For now, write to us with this quote.
+              </p>
+              <p
+                :if={@checkout}
+                class="text-xs text-neutral-500"
+              >
+                Questions, or a range we can't sell online yet?
+                Write to us with this quote.
               </p>
             </div>
           </div>

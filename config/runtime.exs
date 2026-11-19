@@ -229,6 +229,14 @@ if config_env() == :prod do
     paid_per_family_per_minute:
       String.to_integer(System.get_env("X402_PAID_PER_FAMILY_PER_MINUTE", "600"))
 
+  # Paid bulk downloads through Stripe Checkout (docs/STRIPE.md,
+  # Bitblocks.Payments.Stripe, #111). Dormant until both the mode's secret key
+  # and webhook signing secret are set: sandbox (the default) reads
+  # STRIPE_SANDBOX_SECRET_KEY and STRIPE_SANDBOX_WEBHOOK_SECRET, live reads
+  # STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET. Read when used, never held here.
+  config :bitblocks, Bitblocks.Payments.Stripe,
+    mode: System.get_env("DOWNLOADS_CHECKOUT_MODE", "sandbox")
+
   database_url =
     System.get_env("DATABASE_URL") ||
       raise """

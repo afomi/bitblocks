@@ -51,6 +51,29 @@ defmodule BitblocksWeb.PricingDownloadsAxeTest do
     |> assert_no_violations()
   end
 
+  test "the estimate with Pay is accessible in light and dark mode", %{session: session} do
+    Bitblocks.DownloadsFixtures.with_checkout_configured()
+
+    Bitblocks.Repo.update_all(Bitblocks.Chain.Block,
+      set: [raw_object_stored_at: DateTime.utc_now() |> DateTime.truncate(:second)]
+    )
+
+    user = Bitblocks.DownloadsFixtures.user!()
+
+    session
+    |> visit("/about")
+    |> Wallaby.Browser.set_cookie(
+      Bitblocks.DownloadsFixtures.session_cookie_key(),
+      Bitblocks.DownloadsFixtures.session_cookie(user)
+    )
+    |> with_estimate()
+    |> assert_has(css("#downloads-pay", text: "Pay $1.25"))
+    |> assert_no_violations()
+    |> execute_script(@dark_mode_script)
+    |> assert_has(css("html.dark"))
+    |> assert_no_violations()
+  end
+
   test "the estimate is accessible in dark mode", %{session: session} do
     session
     |> with_estimate()

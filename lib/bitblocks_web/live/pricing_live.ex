@@ -10,8 +10,16 @@ defmodule BitblocksWeb.PricingLive do
   `#downloads` quotes a bulk download of a block range (`Bitblocks.Downloads`,
   https://github.com/afomi/bitblocks/issues/111): size, file count and price
   from stored block sizes, bounded by `complete_through`, with the arithmetic
-  shown (billable GiB x the price per GiB). Paying online isn't built, so the
-  quote links to us by mail.
+  shown (billable GiB x the price per GiB), and a "Contact us" that mails it.
+
+  "Pay" buys the quote with Stripe Checkout (`Bitblocks.Downloads.Purchases`)
+  for a signed-in user, once Checkout is configured
+  (`Bitblocks.Payments.Stripe.configured?/0`); in Stripe's test mode only an
+  admin sees it. The click quotes the range afresh on the server, stores the
+  purchase, and sends the browser to Stripe; the price never comes from the
+  browser. A range we can't serve (a block not in the file store, no exact
+  price, under Stripe's smallest payment) says why instead of offering "Pay".
+  Until Checkout is configured, the quote keeps "Contact us" alone.
 
   The estimate is live: each change to the form (debounced in the browser),
   each named range (`Downloads.presets/1`) and each band of the size view
@@ -30,6 +38,8 @@ defmodule BitblocksWeb.PricingLive do
 
   alias Bitblocks.ApiKeys
   alias Bitblocks.Downloads
+  alias Bitblocks.Downloads.Purchases
+  alias Bitblocks.Payments.Stripe
   alias Bitblocks.SyncProgress
   alias Bitblocks.Usage
   alias BitblocksWeb.Plugs.RateLimiter.AiCrawlers
@@ -40,9 +50,9 @@ defmodule BitblocksWeb.PricingLive do
   @usage_hours 24
 
   @impl true
-  def mount(_params, _session, socket) do
+  def mount(params, _session, socket) do
     coverage = Index.coverage(SyncProgress.snapshot().overview)
-    params = default_quote_params(coverage)
+    params = quote_params(params, coverage)
 
     socket =
       socket
@@ -71,6 +81,8 @@ defmodule BitblocksWeb.PricingLive do
       |> assign(:quoted_at, nil)
       |> assign(:pending_quote, nil)
       |> assign(:usage, nil)
+      |> assign(:checkout, checkout_open?(socket))
+      |> assign(:pay_error, nil)
 
     if connected?(socket) do
       {:ok,
@@ -103,6 +115,22 @@ defmodule BitblocksWeb.PricingLive do
 
   def handle_event("band", %{"from" => from, "to" => to}, socket) do
     {:noreply, quote_range(socket, from, to)}
+  end
+
+  # Buys the range in the form, quoted afresh here: nothing the browser sends
+  # but the range, data and format reaches the price.
+  def handle_event("pay", _params, socket) do
+    user = socket.assigns[:current_user]
+
+    with true <- socket.assigns.checkout || {:error, :not_configured},
+         {:ok, purchase} <- Purchases.create(user, socket.assigns.quote_form.params),
+         {:ok, url} <- Purchases.start_checkout(purchase, BitblocksWeb.Endpoint.url()) do
+      {:noreply, redirect(socket, external: url)}
+    else
+      {:error, reason} ->
+        Logger.info("Download checkout not started: #{inspect(reason)}")
+        {:noreply, assign(socket, :pay_error, pay_error(reason))}
+    end
   end
 
   @impl true
@@ -233,7 +261,49 @@ defmodule BitblocksWeb.PricingLive do
       {:error, :unavailable}
   end
 
-  # Blocks 0 to 99,999, or as far as the complete blocks reach.
+  # Stripe Checkout is open to this visitor: configured, and in test mode
+  # (sandbox) only for an admin, so nobody buys real files with a test card.
+  defp checkout_open?(socket) do
+    Stripe.configured?() and (Stripe.mode() == "live" or socket.assigns[:admin?] == true)
+  end
+
+  defp pay_error(reason) when is_atom(reason) or is_tuple(reason) do
+    case reason do
+      {:stripe_error, _, _, _} -> "Stripe couldn't open checkout just now. Try again shortly."
+      :stripe_unavailable -> "Stripe couldn't open checkout just now. Try again shortly."
+      :invalid_response -> "Stripe couldn't open checkout just now. Try again shortly."
+      {:not_configured, _} -> Purchases.refusal_message(:not_configured)
+      other -> Purchases.refusal_message(other)
+    end
+  end
+
+  defp pay_error(_), do: "Checkout couldn't start. Try again shortly."
+
+  @doc "Whether this quote can be bought online, or why not (`Purchases.purchasable/1`)."
+  def purchasable(quote), do: Purchases.purchasable(quote)
+
+  defdelegate refusal_message(reason), to: Purchases
+
+  @doc "/pricing with this quote's range, to come back to after signing in."
+  def quote_path(quote) do
+    "/pricing?" <>
+      URI.encode_query(%{from: quote.from, to: quote.to, data: quote.data, format: quote.format})
+  end
+
+  # The range from the URL (a cancelled checkout comes back with it), else
+  # blocks 0 to 99,999, or as far as the complete blocks reach.
+  defp quote_params(%{"from" => from, "to" => to} = params, _coverage)
+       when is_binary(from) and is_binary(to) do
+    %{
+      "from" => from,
+      "to" => to,
+      "data" => Map.get(params, "data", "raw"),
+      "format" => Map.get(params, "format", "bin")
+    }
+  end
+
+  defp quote_params(_params, coverage), do: default_quote_params(coverage)
+
   defp default_quote_params(coverage) do
     to =
       case coverage do

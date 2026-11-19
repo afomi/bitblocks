@@ -136,6 +136,19 @@ defmodule Bitblocks.TxStore.Local do
   @impl true
   def public_url(_key), do: nil
 
+  # Dev and test: a file:// URL to the object, with the expiry and name in
+  # the query so a caller sees the same shape as S3's. Nothing checks it;
+  # there is no server for a local store.
+  @impl true
+  def presigned_url(key, ttl_seconds, filename) do
+    expires = System.system_time(:second) + ttl_seconds
+
+    {:ok,
+     "file://" <>
+       Path.expand(path(key)) <>
+       "?" <> URI.encode_query(%{"expires" => expires, "filename" => filename})}
+  end
+
   @impl true
   def ready?, do: :ok
 
