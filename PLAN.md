@@ -52,7 +52,7 @@ https://github.com/afomi/bitblocks/issues/87 · https://github.com/afomi/bitbloc
 
 - Payments: five lines, one Stripe account ([docs/STRIPE.md](docs/STRIPE.md)) and one Stripe groundwork.
   The groundwork is built once, before the first line that needs it: a Stripe client over Req, a customer per user, Checkout, the customer portal, and signature-checked webhooks idempotent on the event id.
-  Built so far, with bulk downloads: Checkout and signature-checked webhooks idempotent on the event id (`Bitblocks.Payments.Stripe`, `stripe_events`), over x402_ex's HTTP client; a customer per user and the portal wait for monthly plans.
+  Built: Checkout (one payment, or a subscription), the customer portal, a customer per user (Stripe's, held on the user's plan subscription), and signature-checked webhooks idempotent on the event id through one dispatcher (`Bitblocks.Payments.Stripe`, `Bitblocks.Payments.StripeEvents`, `stripe_events`), over x402_ex's HTTP client.
   jurisdictional's `Jurisdictional.Billing` is the reference; agree with jurisdictional whether it becomes a shared library, as x402_ex did.
   1. AI crawlers pay per request, through x402 (below).
   2. Bulk downloads: one quoted, paid, resumable download of a block range: https://github.com/afomi/bitblocks/issues/111
@@ -62,6 +62,11 @@ https://github.com/afomi/bitblocks/issues/87 · https://github.com/afomi/bitbloc
      Until then "Contact us" mails the quote; next is Ryan's test-mode payment, then live mode.
   3. Monthly plans: three tiers and a custom high-volume plan, moving a user's keys to the tier: https://github.com/afomi/bitblocks/issues/112
      Ryan sets the tier prices before launch; drafts stay out of this public repo.
+     Built dormant (`Bitblocks.Billing`, `/pricing#plans` and `#plan`): plans are config (`BILLING_PLANS`, a JSON array in the secret, each with its Stripe Price id), and with none set `/pricing` reads as before.
+     "Choose" opens Checkout in subscription mode; signed webhooks move every key the user owns to the plan's limit without changing it, keep it through past due, and return it to the trial's when Stripe ends the subscription, in any order.
+     "Your plan" shows status, renewal, this period's use against the allowance (shown, not enforced) and "Manage billing".
+     Next, Ryan's steps: [docs/STRIPE.md](docs/STRIPE.md#monthly-plans), then a test-mode subscription and cancel.
+     Not built: the email on downgrade, alerts at 80% and 100% beyond the page, a hard ceiling at the allowance, and the custom plan's admin-set limits.
   4. Cloud services: managed projections, filtered databases and dedicated instances, quoted and billed monthly: https://github.com/afomi/bitblocks/issues/113
      The quote request is built (2026-11-19, `/pricing#cloud`, `Bitblocks.CloudQuote`): the filter as the projection API takes it, a capped estimate over blocks to `complete_through`, and "Request a quote" by mail to enterprise@bitblocks.app.
      No price is set; quotes from `/admin/quotes`, subscriptions and `/account/services` come with the groundwork.

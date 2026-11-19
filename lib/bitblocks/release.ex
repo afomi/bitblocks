@@ -2536,6 +2536,85 @@ defmodule Bitblocks.Release do
   end
 
   @doc """
+  Where monthly plans stand (https://github.com/afomi/bitblocks/issues/112,
+  docs/STRIPE.md#monthly-plans): Stripe's mode and keys (names only, never
+  values), each configured plan with its limits, which of the events plans
+  need the webhook has delivered so far, and subscriptions by status.
+
+      bin/bitblocks rpc 'Bitblocks.Release.plans_status()'
+
+  Returns `%{for_sale: boolean, plans: [id], stripe: atom, missing_events: [type]}`.
+  The key's permissions can't be read without calling Stripe; this names them.
+  """
+  def plans_status do
+    alias Bitblocks.Billing
+    alias Bitblocks.Payments.Stripe
+
+    stripe = Stripe.status()
+    set? = fn env -> if System.get_env(env) in [nil, ""], do: "is NOT set", else: "is set" end
+
+    {plans, plans_line} =
+      case Billing.load_plans() do
+        {:ok, []} -> {[], "none configured (BILLING_PLANS #{set?.("BILLING_PLANS")})"}
+        {:ok, plans} -> {plans, "#{length(plans)} configured"}
+        {:error, why} -> {[], "INVALID, all off: #{why}"}
+      end
+
+    for_sale = plans != [] and stripe == :ok
+
+    IO.puts(
+      "monthly plans: #{if for_sale, do: "for sale", else: "dormant"}" <>
+        if(for_sale and Stripe.mode() == "sandbox", do: " (sandbox: admins only)", else: "")
+    )
+
+    IO.puts(
+      "  stripe:         #{if stripe == :ok, do: "configured", else: stripe} (#{Stripe.mode()})"
+    )
+
+    IO.puts("  secret key:     #{Stripe.key_env()} #{set?.(Stripe.key_env())}")
+
+    IO.puts(
+      "  webhook secret: #{Stripe.webhook_secret_env()} #{set?.(Stripe.webhook_secret_env())}"
+    )
+
+    IO.puts("  plans:          #{plans_line}")
+
+    for p <- plans do
+      IO.puts(
+        "    #{p.id} (#{p.name}): #{p.price_cents} cents/month, #{p.requests_per_minute}/min, " <>
+          "#{p.monthly_requests} requests and #{p.monthly_gib} GiB a month, Stripe Price set"
+      )
+    end
+
+    IO.puts(
+      "  key permissions to grant: Checkout Sessions: Write, Customer portal: Write " <>
+        "(not checkable without calling Stripe)"
+    )
+
+    {seen, counts} =
+      with_running_repo(fn ->
+        {Billing.delivered_events(Stripe.livemode?()), Billing.counts()}
+      end)
+
+    missing = Enum.reject(Billing.webhook_events(), &Map.has_key?(seen, &1))
+
+    IO.puts("  webhook events delivered so far, this mode:")
+
+    for type <- Billing.webhook_events() do
+      IO.puts("    #{type}: #{Map.get(seen, type, "none yet")}")
+    end
+
+    IO.puts("  subscriptions:  #{inspect(counts)}")
+
+    %{
+      for_sale: for_sale,
+      plans: Enum.map(plans, & &1.id),
+      stripe: stripe,
+      missing_events: missing
+    }
+  end
+
+  @doc """
   Records in Stripe each settled x402 payment that has no PaymentIntent yet
   (a Stripe outage during the request), through `X402.Reconciler`. Safe to
   repeat; `Bitblocks.Workers.X402ReconcileWorker` runs it every 10 minutes.

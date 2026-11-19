@@ -134,4 +134,35 @@ defmodule Bitblocks.Payments.StripeTest do
     assert {"line_items[0][price_data][currency]", "usd"} in form
     assert {"metadata[purchase_id]", "x"} in form
   end
+
+  test "subscription_checkout_form/1 names the plan's Price and no amount" do
+    form =
+      Stripe.subscription_checkout_form(%{
+        price_id: "price_x",
+        success_url: "https://example.test/pricing#plan",
+        cancel_url: "https://example.test/pricing#plans",
+        client_reference_id: "row",
+        customer: "cus_x",
+        metadata: %{plan_subscription_id: "row"}
+      })
+
+    assert {"mode", "subscription"} in form
+    assert {"line_items[0][price]", "price_x"} in form
+    assert {"customer", "cus_x"} in form
+    assert {"subscription_data[metadata][plan_subscription_id]", "row"} in form
+    refute Enum.any?(form, fn {k, _} -> String.contains?(k, "amount") end)
+  end
+
+  test "a portal session goes only to Stripe's billing host, and needs a customer" do
+    with_checkout_configured()
+
+    Req.Test.stub(Stripe, fn conn ->
+      Req.Test.json(conn, %{"id" => "bps_1", "url" => "https://evil.example/p"})
+    end)
+
+    assert Stripe.create_portal_session("cus_x", "https://example.test") ==
+             {:error, :invalid_response}
+
+    assert Stripe.create_portal_session(nil, "https://example.test") == {:error, :no_customer}
+  end
 end

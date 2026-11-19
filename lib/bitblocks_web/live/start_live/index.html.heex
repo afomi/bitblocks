@@ -229,6 +229,12 @@
         >
           <p>
             Your key starts <span class="font-mono">{@trial_key.prefix}</span>.
+            It's good for
+            <span
+              id="start-key-rate"
+              class="font-mono tabular-nums"
+            >{format_number(@trial_key.requests_per_minute)}</span>
+            requests a minute.
             If you've lost it, replace it, and the old one stops working within a minute.
           </p>
           <button
