@@ -264,6 +264,35 @@
                 >{statement.sha256}</span>
               </p>
               <p>{statement.maker}</p>
+              <%= case Map.get(statement, :signature) do %>
+                <% %{envelope: _} = signature -> %>
+                  <div
+                    id="interop-statement-signature"
+                    class="space-y-2"
+                  >
+                    <p>
+                      Signed with BRC-77 over these exact bytes, for anyone to check.
+                      Signed by our identity key:
+                      <span
+                        id="interop-statement-signer"
+                        class="font-mono text-xs break-all"
+                      >{signature.signer}</span>
+                    </p>
+                    <pre
+                      id="interop-statement-envelope"
+                      class="overflow-x-auto whitespace-pre-wrap break-all rounded bg-gray-50 p-2 font-mono text-xs text-gray-900 dark:bg-gray-900 dark:text-gray-100"
+                    >{signature.envelope}</pre>
+                    <p>
+                      To check it, pass the statement's bytes and this envelope (hex) to <code class="font-mono text-xs">SignedMessage.verify</code> in <code class="font-mono text-xs">@bsv/sdk</code>, then confirm the signer is the key above.
+                      Each signature takes a fresh key ID, so a second check signs differently.
+                    </p>
+                  </div>
+                <% _ -> %>
+                  <p id="interop-statement-unsigned">
+                    Not signed: this server holds no signing key yet.
+                    The statement stands on its own, and anyone can make the same one from their own headers.
+                  </p>
+              <% end %>
             <% %{status: "refused"} = statement -> %>
               <p id="interop-statement-refused">
                 BRC-237 refuses this material: <span class="font-mono text-xs">{statement.code}</span>.

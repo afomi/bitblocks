@@ -72,6 +72,35 @@ defmodule BitblocksWeb.StartInteropLiveTest do
 
       %{statement: statement} = assigns_of(view).report
       assert has_element?(view, "#interop-statement-sha256", statement.sha256)
+
+      # No signing key in the suite: the page says the statement is unsigned.
+      assert statement.signature == nil
+      assert has_element?(view, "#interop-statement-unsigned", "Not signed")
+      refute has_element?(view, "#interop-statement-signature")
+    end
+
+    test "with a signing key, the statement's BRC-77 signature shows under it", %{conn: conn} do
+      RealHeaders.insert(814_435)
+      key = :crypto.strong_rand_bytes(32)
+      previous = Application.get_env(:bitblocks, :statement_signing_key)
+      Application.put_env(:bitblocks, :statement_signing_key, Base.encode16(key))
+      on_exit(fn -> Application.put_env(:bitblocks, :statement_signing_key, previous) end)
+
+      {:ok, view, _html} = live(conn, ~p"/start/interop")
+      paste(view, hex("brc62-example"))
+
+      %{statement: %{canonical: canonical, signature: signature}} = assigns_of(view).report
+      signer = Base.encode16(Bitblocks.Interop.Brc77.public_key(key), case: :lower)
+
+      assert signature.signer == signer
+      assert has_element?(view, "#interop-statement-signer", signer)
+      assert has_element?(view, "#interop-statement-envelope", signature.envelope)
+      assert has_element?(view, "#interop-statement-signature", "SignedMessage.verify")
+      refute has_element?(view, "#interop-statement-unsigned")
+
+      assert Bitblocks.Interop.StatementSignature.verify(canonical, signature.envelope,
+               signer: signer
+             ) == {:ok, %{signer: signer, recipient: "anyone"}}
     end
 
     test "no header reads unknown, with the reason", %{conn: conn} do

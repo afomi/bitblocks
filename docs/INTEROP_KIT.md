@@ -159,9 +159,78 @@ Every check offers one: `POST /api/v1/beef/verify` answers with `data.statement`
 `statement.status` is `made`, with `canonical` (the statement's exact bytes, section 4) and `sha256` (their hash, the value an acceptance record's `evidenceHash` takes); `refused`, with BRC-237's `code`; or `unavailable`, when we hold no verified header at our tip for it to name.
 It is made from the headers we hold that are both verified and canonical, with event `received` and `conflicts.checked` false, because we look for no conflict.
 `madeAt` is the moment of the check, so two checks of one BEEF differ there and nowhere else.
-Not yet: BRC-77 signing of statements.
+A made statement carries `signature`, a BRC-77 signature over its exact bytes, or `null` while no signing key is set (see "A signed statement" below).
 No published format covers acceptance, so the acceptance record is our candidate, `interop-kit/payment-acceptance/v0`.
 A second implementation writes it with its own code, and its receipt format, `receipt_v2`, points at a record by hash.
+
+### A signed statement
+
+When the server holds a signing key, each made statement carries a BRC-77 signature over its `canonical` bytes, exactly as they are, never re-serialized (`Bitblocks.Interop.StatementSignature`):
+
+```json
+"signature": {
+  "scheme": "BRC-77",
+  "envelope": "42423301…",
+  "signer": "<our identity key, compressed hex>",
+  "recipient": "anyone"
+}
+```
+
+`envelope` is the whole BRC-77 structure in hex: version, signer, recipient (`00` for anyone), key ID and DER signature.
+Each signature takes a fresh random key ID, as BRC-77 asks, so two signatures over the same bytes differ and both verify.
+With no key set, `signature` is `null` and the statement is otherwise the same; the field is always there on a made statement, so a reader can tell "unsigned" from "not yet supported".
+A refused or unavailable statement has no `signature`.
+
+By default it is signed for anyone, so anyone can check it with the statement alone.
+A caller can name one verifier instead: `"verifier": "<identity key, 66 hex digits>"` beside `beef` in the JSON body, or `?verifier=` beside raw bytes.
+Then only that verifier's private key checks it (BRC-77's private form), and to everyone else the envelope proves nothing.
+A `verifier` that isn't a compressed key on the curve is a 400.
+`/start/interop` always signs for anyone, and shows the envelope and signer under the statement.
+
+To check one with `@bsv/sdk`:
+
+```js
+import { SignedMessage, Utils } from '@bsv/sdk'
+
+const ok = SignedMessage.verify(
+  Utils.toArray(statement.canonical, 'utf8'),
+  Utils.toArray(statement.signature.envelope, 'hex')
+  // , verifierPrivateKey   (only for a statement signed for you as named verifier)
+)
+```
+
+then compare the envelope's signer (the 33 bytes after its 4-byte version) with the identity key you expect from us.
+In Elixir, `Bitblocks.Interop.StatementSignature.verify(canonical, envelope, signer: expected_hex)` does both, and takes `recipient_key:` for a named-verifier signature.
+A BRC-100 wallet for anyone can check it too: `verifySignature` over the bytes with the envelope's DER signature, protocol `[2, "message signing"]`, its key ID in base64 and its signer as counterparty.
+The signature says Bitblocks made this statement from these bytes; what the statement claims is still distance only, against our headers.
+
+The implementation is `Bitblocks.Interop.Brc77` over `Bitblocks.Interop.Brc42`, pinned three ways:
+
+- BRC-42's own ten test vectors (private and public derivation) and `@bsv/sdk`'s BRC-3 compliance vector, in `test/bitblocks/interop/brc42_test.exs`.
+- Envelopes written by `@bsv/sdk` 2.4.0's `SignedMessage.sign`, for anyone and for one recipient, over a small message and over BRC-237's statement S1, with the keys of the SDK's own SignedMessage tests (`test/support/fixtures/brc/brc77_sdk_v1.json`, run once on 2026-11-19).
+  Each verifies here, and our signer writes each byte for byte from the same key ID; `test/bitblocks/interop/brc77_test.exs` holds them.
+  The other way round was checked in the same run: our envelopes verify with the SDK's `SignedMessage.verify`.
+- The `receipt_v2` envelopes, from the implementation that wrote them, byte for byte (`test/bitblocks/interop/receipt_v2_vectors_test.exs`).
+
+BRC-77's two hex examples don't give the message they sign, so only their framing is tested.
+
+#### The key
+
+The key is `STATEMENT_SIGNING_KEY`, a private key as 64 hex digits or as WIF, read by `config/runtime.exs`.
+It is unset by default in every environment, so statements go out with `signature: null` until it is set; the suite makes its own keys.
+It is never logged or shown.
+`bin/bitblocks rpc 'Bitblocks.Release.status()'` says `Statement signing: configured: true` or `false`, and a value that isn't a key reads `false` with a reason, logs one error without the value, and leaves statements unsigned.
+
+In prod it lives in the bitblocks app secret with the other keys.
+Ryan sets it from his checkout of the infra repo, at a hidden prompt, and the next deploy writes it to each node:
+
+```bash
+aws-vault exec default -- ./scripts/app-secret-set.sh bitblocks STATEMENT_SIGNING_KEY
+```
+
+Make it a key used for nothing else and holding no coins, since it signs on a web server for any caller who sends a BEEF.
+Its public key is the signer every signed statement names; publish it once the key is set, so readers know which signer to expect.
+Rotating the key means a new signer, and statements signed before keep verifying under the old one.
 
 Evidence says what was checked.
 Acceptance says what the receiver took as payment.
@@ -197,7 +266,7 @@ Bitblocks reads and writes the record (`Bitblocks.Interop.PaymentAcceptance`).
 Its refusals are named alike across readers: `missing_field`, `unknown_field` and `invalid_field` (a field of the wrong shape, unsorted `outputs` or a repeated outpoint), each with the field's name.
 `verify/1` takes `{"body", "signature"}` and checks the BRC-77 signature over the exact body bytes, for anyone, by `acceptedBy`.
 `sign/3` signs with a receiver's identity key, and refuses a key that isn't `acceptedBy`.
-BRC-77 and BRC-42 are in `Bitblocks.Interop.Brc77`, and the canonical form in `Bitblocks.Interop.Jcs`.
+BRC-77 is in `Bitblocks.Interop.Brc77`, BRC-42 in `Bitblocks.Interop.Brc42`, and the canonical form in `Bitblocks.Interop.Jcs`.
 
 The canonical form is RFC 8785 over a restricted set of values: strings, integers within ±(2^53 - 1), `null`, arrays and objects.
 A reader refuses floats, booleans, larger integers, duplicate member names, and bytes that parse but aren't already canonical.
@@ -259,7 +328,7 @@ The Civic Studio standards register records what this kit follows, under Chain (
 
 | Thing | Register status |
 |---|---|
-| Payment evidence statement (BRC-237) | adopted, in part: we read statements and make distance-only ones with no section 2.3 checks; BRC-77 signing of a statement is not built yet |
+| Payment evidence statement (BRC-237) | adopted, in part: we read statements and make distance-only ones with no section 2.3 checks; BRC-77 signing of a statement is built, and dormant until the signing key is set |
 | Payment acceptance record (`interop-kit/payment-acceptance/v0`) | proposed |
 | Network ids (CAIP-2 `bsv:mainnet`, `bsv:testnet`) | adopted |
 | Agent payment protocols (x402, AP2) | considered, not declined |

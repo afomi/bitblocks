@@ -461,6 +461,10 @@ defmodule Bitblocks.Release do
     throttled = BitblocksWeb.Plugs.RateLimiter.throttled_crawlers()
     IO.puts("  AI crawlers 402'd:  #{format_throttled(throttled)} (this node, since boot)")
 
+    # Whether BRC-237 statements are BRC-77 signed (STATEMENT_SIGNING_KEY); never the key.
+    signing = Bitblocks.Interop.StatementSignature.status()
+    IO.puts("  Statement signing:  #{format_signing(signing)}")
+
     audit =
       if Keyword.get(opts, :audit, false) do
         %{count: deficit_count} = result = audit_completeness()
@@ -480,9 +484,16 @@ defmodule Bitblocks.Release do
       complete_through: complete_through,
       transactions: total_txs,
       ai_crawlers_throttled: throttled,
+      statement_signing: %{configured: signing == :configured, status: signing},
       audit: audit
     }
   end
+
+  defp format_signing(:configured), do: "configured: true"
+  defp format_signing(:not_configured), do: "configured: false (STATEMENT_SIGNING_KEY unset)"
+
+  defp format_signing(:invalid),
+    do: "configured: false (STATEMENT_SIGNING_KEY is set but isn't a key; statements unsigned)"
 
   defp format_throttled(throttled) when map_size(throttled) == 0, do: "none"
 

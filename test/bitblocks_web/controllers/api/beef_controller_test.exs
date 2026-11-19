@@ -34,6 +34,15 @@ defmodule BitblocksWeb.Api.BeefControllerTest do
     end)
   end
 
+  # A key made for the test alone; returns its 32 bytes.
+  defp with_signing_key(value) do
+    previous = Application.get_env(:bitblocks, :statement_signing_key)
+    key = if value == :generate, do: :crypto.strong_rand_bytes(32)
+    Application.put_env(:bitblocks, :statement_signing_key, key && Base.encode16(key))
+    on_exit(fn -> Application.put_env(:bitblocks, :statement_signing_key, previous) end)
+    key
+  end
+
   defp with_limit(bytes) do
     previous = Application.get_env(:bitblocks, :beef_verify_max_bytes)
     Application.put_env(:bitblocks, :beef_verify_max_bytes, bytes)
@@ -94,6 +103,64 @@ defmodule BitblocksWeb.Api.BeefControllerTest do
                )
     end
 
+    test "with no signing key, the statement says signature null", %{conn: conn} do
+      RealHeaders.insert(814_435)
+      with_signing_key(nil)
+
+      %{"statement" => statement} =
+        conn |> post_raw(brc62()) |> json_response(200) |> Map.fetch!("data")
+
+      assert statement["status"] == "made"
+      assert Map.has_key?(statement, "signature")
+      assert statement["signature"] == nil
+    end
+
+    test "with a signing key, the statement is BRC-77 signed for anyone", %{conn: conn} do
+      RealHeaders.insert(814_435)
+      key = with_signing_key(:generate)
+
+      %{"statement" => statement} =
+        conn |> post_raw(brc62()) |> json_response(200) |> Map.fetch!("data")
+
+      signer = Base.encode16(Bitblocks.Interop.Brc77.public_key(key), case: :lower)
+
+      assert %{"scheme" => "BRC-77", "recipient" => "anyone", "signer" => ^signer} =
+               statement["signature"]
+
+      # Over the exact canonical bytes, checked with nothing but them.
+      assert Bitblocks.Interop.Brc77.verify(
+               statement["canonical"],
+               Base.decode16!(statement["signature"]["envelope"], case: :lower)
+             ) == {:ok, Bitblocks.Interop.Brc77.public_key(key)}
+    end
+
+    test "with a verifier identity key, signed for that verifier only", %{conn: conn} do
+      RealHeaders.insert(814_435)
+      with_signing_key(:generate)
+      verifier = :crypto.strong_rand_bytes(32)
+      verifier_hex = Base.encode16(Bitblocks.Interop.Brc77.public_key(verifier), case: :lower)
+
+      for conn <- [
+            post_json(conn, %{beef: Base.encode16(brc62()), verifier: verifier_hex}),
+            build_conn()
+            |> put_req_header("content-type", "application/octet-stream")
+            |> post(@path <> "?verifier=#{verifier_hex}", brc62())
+          ] do
+        %{"canonical" => canonical, "signature" => signature} =
+          json_response(conn, 200)["data"]["statement"]
+
+        assert signature["recipient"] == verifier_hex
+
+        assert {:ok, %{recipient: ^verifier_hex}} =
+                 Bitblocks.Interop.StatementSignature.verify(canonical, signature["envelope"],
+                   recipient_key: verifier
+                 )
+
+        assert Bitblocks.Interop.StatementSignature.verify(canonical, signature["envelope"]) ==
+                 {:error, :not_anyone}
+      end
+    end
+
     test "with no header at our tip, no statement is made", %{conn: conn} do
       %{"statement" => statement} =
         conn |> post_raw(brc62()) |> json_response(200) |> Map.fetch!("data")
@@ -146,6 +213,20 @@ defmodule BitblocksWeb.Api.BeefControllerTest do
 
     test "hex that isn't hex is a 400", %{conn: conn} do
       assert conn |> post_json(%{beef: "not hex"}) |> json_response(400)
+    end
+
+    test "a verifier that isn't a public key is a 400", %{conn: conn} do
+      for verifier <- ["nope", "02" <> String.duplicate("0", 64), 7] do
+        conn = build_conn() |> post_json(%{beef: Base.encode16(brc62()), verifier: verifier})
+        assert json_response(conn, 400)["error"] =~ "verifier"
+      end
+
+      conn =
+        conn
+        |> put_req_header("content-type", "application/octet-stream")
+        |> post(@path <> "?verifier=zz", brc62())
+
+      assert json_response(conn, 400)["error"] =~ "verifier"
     end
 
     test "JSON without a beef string is a 400", %{conn: conn} do
