@@ -109,6 +109,12 @@
         A key goes in the header, as <code class="font-mono text-xs">Authorization: Bearer bbk_...</code>
         or <code class="font-mono text-xs">x-api-key: bbk_...</code>.
       </p>
+      <p id="key-by-signing">
+        A wallet or agent can take a key with no account, by signing.
+        It gets a message from <code class="font-mono text-xs">GET /api/v1/keys/challenge</code> and signs it with its own key, as a Bitcoin Signed Message.
+        Then it sends the <code class="font-mono text-xs">challenge</code>, the <code class="font-mono text-xs">signature</code> and its <code class="font-mono text-xs">address</code> to <code class="font-mono text-xs">POST /api/v1/keys</code>, and the key comes back once.
+        The key is bound to that address, and signing again replaces it.
+      </p>
       <p>
         <.text_link href="/pricing">Pricing</.text_link> covers what comes after the free tier.
       </p>

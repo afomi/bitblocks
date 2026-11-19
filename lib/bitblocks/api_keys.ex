@@ -15,11 +15,18 @@ defmodule Bitblocks.ApiKeys do
 
   A signed-in user can take one trial key from `/start` (#59), with a small
   budget and no scopes. Replacing it revokes the old one.
+
+  A wallet or agent can take one by signing a bitblocks challenge instead
+  (#121): `challenge_message/3` is the text it signs as a Bitcoin Signed
+  Message, and `issue_signed/3` recovers the address from the signature and
+  binds the key to it, one active key per address, each challenge once. The
+  web layer issues and checks the challenge itself (`BitblocksWeb.Api.KeyController`).
   """
 
   import Ecto.Query
 
   alias Bitblocks.Accounts.User
+  alias Bitblocks.Aip
   alias Bitblocks.ApiKeys.ApiKey
   alias Bitblocks.Repo
 
@@ -29,7 +36,8 @@ defmodule Bitblocks.ApiKeys do
 
   @doc """
   Creates a key. Returns `{:ok, %ApiKey{}, token}`; the token isn't stored.
-  Options: `:scopes`, none by default, and `:user_id`, the key's owner.
+  Options: `:scopes`, none by default; `:user_id`, the key's owner; and
+  `:address` and `:challenge_nonce`, for a key taken by signing.
   """
   @spec create(String.t(), pos_integer(), keyword()) ::
           {:ok, ApiKey.t(), String.t()} | {:error, term()}
@@ -43,7 +51,9 @@ defmodule Bitblocks.ApiKeys do
       token_hash: hash(token),
       prefix: String.slice(token, 0, 12),
       scopes: Keyword.get(opts, :scopes, []),
-      user_id: Keyword.get(opts, :user_id)
+      user_id: Keyword.get(opts, :user_id),
+      address: Keyword.get(opts, :address),
+      challenge_nonce: Keyword.get(opts, :challenge_nonce)
     })
     |> Repo.insert()
     |> case do
@@ -75,6 +85,103 @@ defmodule Bitblocks.ApiKeys do
   def replace_trial(%User{} = user) do
     if key = trial_key(user), do: revoke(key.id)
     issue_trial(user)
+  end
+
+  @doc """
+  The text a wallet signs for a key: the site, a one-time nonce and when it
+  was issued, one per line, no trailing newline. The caller signs it exactly.
+  """
+  @spec challenge_message(String.t(), String.t(), DateTime.t()) :: String.t()
+  def challenge_message(site, nonce, %DateTime{} = issued_at) do
+    Enum.join(
+      [
+        "Sign this to get a bitblocks API key bound to your key.",
+        "Site: #{site}",
+        "Nonce: #{nonce}",
+        "Issued: #{DateTime.to_iso8601(issued_at)}"
+      ],
+      "\n"
+    )
+  end
+
+  @doc """
+  Issues a key bound to whoever signed `message` (a `challenge_message/3`),
+  revoking any key that address already holds. The caller has checked that
+  bitblocks issued the challenge and that it's fresh; `nonce` is its nonce,
+  and a nonce redeemed before is `{:error, :challenge_used}`.
+
+  Options: `:address`, when the caller says who it expects; a signature from
+  anyone else is `{:error, {:wrong_signer, recovered}}`.
+  """
+  @spec issue_signed(String.t(), String.t(), String.t(), keyword()) ::
+          {:ok, ApiKey.t(), String.t()}
+          | {:error, :bad_signature | :challenge_used | :conflict | {:wrong_signer, String.t()}}
+  def issue_signed(message, signature, nonce, opts \\ []) do
+    with {:ok, address} <- signer_address(message, signature),
+         :ok <- expected_signer(address, Keyword.get(opts, :address)) do
+      Repo.transaction(fn ->
+        Repo.update_all(
+          from(k in ApiKey, where: k.address == ^address and is_nil(k.revoked_at)),
+          set: [revoked_at: DateTime.utc_now() |> DateTime.truncate(:second)]
+        )
+
+        case create("signed:" <> address, @trial_requests_per_minute,
+               address: address,
+               challenge_nonce: nonce
+             ) do
+          {:ok, key, token} -> {key, token}
+          {:error, changeset} -> Repo.rollback(insert_error(changeset))
+        end
+      end)
+      |> case do
+        {:ok, {key, token}} ->
+          forget_revoked(address, key.id)
+          {:ok, key, token}
+
+        error ->
+          error
+      end
+    end
+  end
+
+  @doc "The address's active signed key, or nil."
+  @spec signed_key(String.t()) :: ApiKey.t() | nil
+  def signed_key(address) when is_binary(address) do
+    Repo.one(from k in ApiKey, where: k.address == ^address and is_nil(k.revoked_at))
+  end
+
+  # The mainnet P2PKH address of the key the signature recovers to. Recovery
+  # is the check: any well-formed signature recovers to *some* key, so a
+  # signature over other text binds the key to an address nobody holds.
+  # A caller that wants that caught sends the address it expects.
+  defp signer_address(message, signature) do
+    with {:ok, pubkey_hex} <- Aip.recover_pubkey(message, signature),
+         {:ok, pubkey} <- Base.decode16(pubkey_hex, case: :lower) do
+      {:ok, B58.encode58_check!(BSV.Hash.sha256_ripemd160(pubkey), <<0x00>>)}
+    else
+      _ -> {:error, :bad_signature}
+    end
+  rescue
+    _ -> {:error, :bad_signature}
+  end
+
+  defp expected_signer(_address, nil), do: :ok
+  defp expected_signer(address, address), do: :ok
+  defp expected_signer(address, _other), do: {:error, {:wrong_signer, address}}
+
+  defp insert_error(changeset) do
+    if Keyword.has_key?(changeset.errors, :challenge_nonce),
+      do: :challenge_used,
+      else: :conflict
+  end
+
+  # Revoked rows stop working on this node now, other nodes within the TTL.
+  defp forget_revoked(address, keep_id) do
+    ensure_cache()
+
+    from(k in ApiKey, where: k.address == ^address and k.id != ^keep_id, select: k.token_hash)
+    |> Repo.all()
+    |> Enum.each(&:ets.delete(@cache, &1))
   end
 
   @doc """

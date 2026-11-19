@@ -54,6 +54,10 @@ defmodule BitblocksWeb.Router do
     # Public data a light client checks merkle roots against, from a browser (#60).
     get "/headers/:height", HeaderController, :show
     get "/headers", HeaderController, :index
+
+    # A key for whoever signs our challenge, no account needed (#121).
+    get "/keys/challenge", KeyController, :challenge
+    post "/keys", KeyController, :create
   end
 
   # Operator tools, for an API key with the ops_read scope (#50). Read-only,
