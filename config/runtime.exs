@@ -122,6 +122,12 @@ if config_env() != :test do
   config :ueberauth, Ueberauth.Strategy.Github.OAuth,
     client_id: System.get_env("GITHUB_CLIENT_ID"),
     client_secret: System.get_env("GITHUB_CLIENT_SECRET")
+
+  # The identity key that BRC-77 signs BRC-237 statements with
+  # (Bitblocks.Interop.StatementSignature, docs/INTEROP_KIT.md): 64 hex digits
+  # or WIF. Unset, statements go out with signature: null. In prod it comes
+  # from the same secret as the GitHub keys. Never logged.
+  config :bitblocks, :statement_signing_key, System.get_env("STATEMENT_SIGNING_KEY")
 end
 
 # config/runtime.exs is executed for all environments, including

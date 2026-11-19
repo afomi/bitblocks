@@ -7,7 +7,12 @@ defmodule BitblocksWeb.Api.BeefController do
   The body is the BEEF: raw bytes as `application/octet-stream`, or
   `{"beef": "<hex>"}` as `application/json`.
 
-    * 400: `beef` is missing or isn't hex;
+  A made statement carries a BRC-77 signature when a signing key is set
+  (`Bitblocks.Interop.StatementSignature`), for anyone to check, or for one
+  verifier: `"verifier": "<identity key, hex>"` in the JSON body, or
+  `?verifier=` beside raw bytes.
+
+    * 400: `beef` is missing or isn't hex, or `verifier` isn't a public key;
     * 413: the BEEF is over the limit (`:beef_verify_max_bytes`);
     * 415: any other content type;
     * 422: the bytes aren't a BEEF we can read, with `reason`.
@@ -23,19 +28,36 @@ defmodule BitblocksWeb.Api.BeefController do
   use BitblocksWeb, :controller
 
   alias Bitblocks.Chain.BeefVerifier
-  alias Bitblocks.Interop.Check
+  alias Bitblocks.Interop.{Check, StatementSignature}
 
   @read_length 1_000_000
 
   @doc "POST /api/v1/beef/verify"
   def verify(conn, _params) do
-    with {:ok, bytes, conn} <- body(conn),
-         {:ok, answer} <- BeefVerifier.verify(bytes, max_bytes: max_bytes()) do
+    with {:ok, verifier} <- verifier(conn),
+         {:ok, bytes, conn} <- body(conn),
+         {:ok, answer} <-
+           BeefVerifier.verify(bytes, max_bytes: max_bytes(), verifier: verifier) do
       json(conn, %{data: answer})
     else
       {:error, :too_large} -> too_large(conn)
       {:refused, status, message} -> error(conn, status, message)
       {:error, reason} when is_atom(reason) -> unreadable(conn, reason)
+    end
+  end
+
+  # Whom a signed statement is for: `verifier` in the JSON body, or in the
+  # query string beside raw bytes. Absent, anyone.
+  defp verifier(conn) do
+    value =
+      case conn.body_params do
+        %{"verifier" => value} -> value
+        _ -> conn.query_params["verifier"]
+      end
+
+    case StatementSignature.parse_recipient(value) do
+      {:ok, verifier} -> {:ok, verifier}
+      :error -> {:refused, 400, "verifier must be a compressed public key, 66 hex digits"}
     end
   end
 

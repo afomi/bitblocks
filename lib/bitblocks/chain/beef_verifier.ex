@@ -36,6 +36,7 @@ defmodule Bitblocks.Chain.BeefVerifier do
 
   alias Bitblocks.Chain.Beef.Reader
   alias Bitblocks.Chain.{Headers, PaymentEvidence}
+  alias Bitblocks.Interop.StatementSignature
   alias Bitblocks.Sync
 
   @maker "Distance only: the ancestry walked against our headers, with no script, amount or " <>
@@ -73,10 +74,13 @@ defmodule Bitblocks.Chain.BeefVerifier do
   @doc """
   Parses and checks a BEEF. `{:ok, answer}` whatever the evidence shows, or
   `{:error, reason}` from `Beef.Reader` when the bytes aren't a BEEF. `opts`
-  are `Reader.parse/2`'s limits.
+  are `Reader.parse/2`'s limits, and `:verifier`, the identity key a signed
+  statement is made for (`statement/4`; `:anyone` by default).
   """
   @spec verify(binary(), keyword()) :: {:ok, map()} | {:error, atom()}
   def verify(bytes, opts \\ []) when is_binary(bytes) do
+    {verifier, opts} = Keyword.pop(opts, :verifier, :anyone)
+
     with {:ok, beef} <- Reader.parse(bytes, opts) do
       tip = Sync.tip()
 
@@ -86,7 +90,7 @@ defmodule Bitblocks.Chain.BeefVerifier do
       answer =
         beef
         |> evaluate(headers, tip)
-        |> Map.put(:statement, statement(bytes, headers, tip))
+        |> Map.put(:statement, statement(bytes, headers, tip, verifier: verifier))
 
       {:ok, answer}
     end
@@ -99,9 +103,12 @@ defmodule Bitblocks.Chain.BeefVerifier do
   headers. Made from the headers we hold that are both verified and
   canonical, and our tip, whose header the statement names.
 
-    * `%{status: "made", canonical:, sha256:, ...}`: `canonical` is the
-      statement's exact bytes (section 4), and `sha256` their hash, the
-      value an acceptance record's `evidenceHash` takes.
+    * `%{status: "made", canonical:, sha256:, signature:, ...}`: `canonical`
+      is the statement's exact bytes (section 4), and `sha256` their hash,
+      the value an acceptance record's `evidenceHash` takes. `signature` is
+      a BRC-77 signature over `canonical` by our identity key
+      (`Interop.StatementSignature`), for anyone to check or for the
+      `:verifier` identity key given, and `nil` when no signing key is set.
     * `%{status: "refused", code:}`: BRC-237 refuses the material, with
       its code (`MALFORMED`, `ANCHOR_MISMATCH`, `CONFLICT`, `OVER_BOUND`).
     * `%{status: "unavailable", reason:}`: we hold no header at our tip that
@@ -110,8 +117,8 @@ defmodule Bitblocks.Chain.BeefVerifier do
   No conflict was looked for, so the statement says `conflicts.checked`
   false, and its event is `received`.
   """
-  @spec statement(binary(), map(), integer() | nil) :: map()
-  def statement(bytes, headers, tip) do
+  @spec statement(binary(), map(), integer() | nil, keyword()) :: map()
+  def statement(bytes, headers, tip, opts \\ []) do
     relied_on =
       for {height, %{verified: true, canonical: true, header: hex}} <- headers, into: %{} do
         {height, Base.decode16!(hex, case: :lower)}
@@ -127,6 +134,7 @@ defmodule Bitblocks.Chain.BeefVerifier do
             version: "bsv-payment-evidence/v1",
             canonical: canonical,
             sha256: :crypto.hash(:sha256, canonical) |> Base.encode16(case: :lower),
+            signature: StatementSignature.sign(canonical, Keyword.get(opts, :verifier, :anyone)),
             maker: @maker
           }
 
