@@ -75,7 +75,8 @@ defmodule BitblocksWeb.PhoneWidthTest do
         {"facts", "/facts"},
         {"about", "/about"},
         {"start", "/start"},
-        {"reorgs", "/reorgs"}
+        {"reorgs", "/reorgs"},
+        {"pricing", "/pricing"}
       ] do
     test "#{name} fits a phone", %{session: session} do
       session =
