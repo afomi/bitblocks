@@ -104,6 +104,9 @@ defmodule BitblocksWeb.Router do
     # HodLocker (#76): what the indexed time locks back a post with
     get "/hodlocker/posts/:txid", HodlockerController, :post
 
+    # Bulk downloads (#111): the free quote only, no checkout yet
+    get "/downloads/quote", DownloadController, :quote
+
     # Is this outpoint an ordinal/token? yes | no | unknown (fail-closed wallets)
     get "/outpoints/:txid/:vout", OutpointController, :show
 

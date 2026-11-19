@@ -126,6 +126,277 @@
       </div>
     </section>
 
+    <%!-- Bulk downloads, the free quote (#111): no checkout yet --%>
+    <section
+      id="downloads"
+      aria-labelledby="downloads-heading"
+      class="border-t border-neutral-800 py-8 scroll-mt-6"
+    >
+      <p class="font-mono text-xs text-neutral-500 uppercase tracking-wider mb-2">
+        Downloads
+      </p>
+      <h2
+        id="downloads-heading"
+        class="text-lg font-semibold text-neutral-50 mb-3"
+      >
+        Bulk downloads
+      </h2>
+      <div class="max-w-2xl space-y-3 text-sm text-neutral-400 leading-relaxed mb-6">
+        <p>
+          Hydrating your own database from the chain?
+          Take a block range in one download, instead of millions of API calls.
+          Quote it here, for free: the size and file count come from the block sizes we store.
+        </p>
+        <p>
+          A quote covers only blocks we hold whole, each one complete with every transaction stored and its merkle root rebuilt.
+        </p>
+      </div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <.form
+          for={@quote_form}
+          id="downloads-form"
+          phx-change="quote_change"
+          phx-submit="quote"
+          class="bg-surface-raised rounded p-6 border border-neutral-800 space-y-5"
+        >
+          <fieldset>
+            <legend class="text-sm font-medium text-neutral-50 mb-2">
+              Block range
+            </legend>
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label
+                  for="downloads-from"
+                  class="block text-xs text-neutral-500 mb-1"
+                >
+                  From block
+                </label>
+                <input
+                  id="downloads-from"
+                  type="text"
+                  inputmode="numeric"
+                  autocomplete="off"
+                  name={@quote_form[:from].name}
+                  value={@quote_form[:from].value}
+                  class="block w-full rounded border border-neutral-700 bg-surface-base px-3 py-2 font-mono text-sm text-neutral-50 tabular-nums"
+                />
+              </div>
+              <div>
+                <label
+                  for="downloads-to"
+                  class="block text-xs text-neutral-500 mb-1"
+                >
+                  To block (inclusive)
+                </label>
+                <input
+                  id="downloads-to"
+                  type="text"
+                  inputmode="numeric"
+                  autocomplete="off"
+                  name={@quote_form[:to].name}
+                  value={@quote_form[:to].value}
+                  aria-describedby="downloads-to-hint"
+                  class="block w-full rounded border border-neutral-700 bg-surface-base px-3 py-2 font-mono text-sm text-neutral-50 tabular-nums"
+                />
+              </div>
+            </div>
+            <p
+              :if={@coverage}
+              id="downloads-to-hint"
+              class="text-xs text-neutral-500 mt-2"
+            >
+              Complete through block
+              <span class="font-mono tabular-nums text-neutral-50">{format_number(@coverage.through)}</span>.
+            </p>
+          </fieldset>
+
+          <fieldset>
+            <legend class="text-sm font-medium text-neutral-50 mb-2">
+              Data
+            </legend>
+            <div class="space-y-2">
+              <label
+                :for={option <- @data_options}
+                for={"downloads-data-#{option.id}"}
+                class={[
+                  "flex items-center gap-2 text-sm",
+                  if(option.available, do: "text-neutral-50", else: "text-neutral-500")
+                ]}
+              >
+                <input
+                  id={"downloads-data-#{option.id}"}
+                  type="radio"
+                  name={@quote_form[:data].name}
+                  value={option.id}
+                  checked={@quote_form[:data].value == option.id}
+                  disabled={!option.available}
+                />
+                <span>
+                  {option.label}<span :if={!option.available}> (coming)</span>
+                </span>
+              </label>
+            </div>
+          </fieldset>
+
+          <div>
+            <label
+              for="downloads-format"
+              class="block text-sm font-medium text-neutral-50 mb-2"
+            >
+              Format
+            </label>
+            <select
+              id="downloads-format"
+              name={@quote_form[:format].name}
+              class="block w-full rounded border border-neutral-700 bg-surface-base px-3 py-2 text-sm text-neutral-50"
+            >
+              <option
+                :for={format <- formats_for(@data_options, @quote_form[:data].value)}
+                value={format.id}
+                selected={@quote_form[:format].value == format.id}
+              >
+                {format.label}
+              </option>
+            </select>
+          </div>
+
+          <button
+            type="submit"
+            id="downloads-quote-button"
+            phx-disable-with="Quoting..."
+            class="w-full sm:w-auto px-6 py-3 bg-brand-strong text-white font-medium rounded hover:opacity-90 transition-colors"
+          >
+            Get a quote
+          </button>
+        </.form>
+
+        <div
+          id="downloads-result"
+          aria-live="polite"
+          class="bg-surface-raised rounded p-6 border border-neutral-800"
+        >
+          <p
+            :if={@quote_error}
+            id="downloads-error"
+            role="alert"
+            class="text-sm text-neutral-50"
+          >
+            {@quote_error}
+          </p>
+
+          <p
+            :if={!@quote && !@quote_error}
+            class="text-sm text-neutral-500"
+          >
+            Your quote shows here: the size in GiB, the file count and what it covers.
+          </p>
+
+          <div
+            :if={@quote}
+            id="downloads-quote"
+          >
+            <p class="font-mono text-xs text-neutral-500 uppercase tracking-wider mb-2">
+              Quote
+            </p>
+            <div class="border-t border-neutral-800">
+              <div class="py-2.5 border-b border-neutral-800 flex justify-between gap-4">
+                <span class="text-sm text-neutral-400">Blocks</span>
+                <span
+                  id="downloads-quote-range"
+                  class="font-mono text-sm text-neutral-50 tabular-nums text-right"
+                >
+                  {format_number(@quote.from)} to {format_number(@quote.to)}
+                </span>
+              </div>
+              <div class="py-2.5 border-b border-neutral-800 flex justify-between gap-4">
+                <span class="text-sm text-neutral-400">Files</span>
+                <span
+                  id="downloads-quote-files"
+                  class="font-mono text-sm text-neutral-50 tabular-nums text-right"
+                >
+                  {format_number(@quote.files)}
+                </span>
+              </div>
+              <div class="py-2.5 border-b border-neutral-800 flex justify-between gap-4">
+                <span class="text-sm text-neutral-400">Size</span>
+                <span
+                  id="downloads-quote-size"
+                  class="font-mono text-sm text-neutral-50 tabular-nums text-right"
+                >
+                  <span :if={!@quote.bytes_exact}>at least </span>{format_gib(@quote.bytes)} GiB
+                </span>
+              </div>
+              <div class="py-2.5 border-b border-neutral-800 flex justify-between gap-4">
+                <span class="text-sm text-neutral-400">Bytes</span>
+                <span
+                  id="downloads-quote-bytes"
+                  class="font-mono text-sm text-neutral-50 tabular-nums text-right"
+                >
+                  {format_number(@quote.bytes)}
+                </span>
+              </div>
+              <div class="py-2.5 border-b border-neutral-800 flex justify-between gap-4">
+                <span class="text-sm text-neutral-400">Price</span>
+                <span
+                  id="downloads-quote-price"
+                  class="font-mono text-sm text-neutral-50 tabular-nums text-right"
+                >
+                  {if @quote.price_usd, do: "$#{@quote.price_usd}", else: "Price on request"}
+                </span>
+              </div>
+            </div>
+
+            <div class="mt-4 space-y-2 text-sm text-neutral-400 leading-relaxed">
+              <p id="downloads-quote-covers">
+                Every block in this range is complete, with every transaction stored: we hold blocks 0 through
+                <span class="font-mono tabular-nums text-neutral-50">{format_number(@quote.complete_through)}</span>
+                whole.
+              </p>
+              <p>
+                Each file is one block's exact bytes: its header, then every transaction in order.
+              </p>
+              <p
+                :if={@quote.sizes_missing > 0}
+                id="downloads-quote-missing"
+              >
+                <span class="font-mono tabular-nums text-neutral-50">{format_number(@quote.sizes_missing)}</span>
+                blocks have no stored size yet, so the size above leaves them out.
+                The first:
+                <span class="font-mono tabular-nums text-neutral-50">{Enum.map_join(@quote.sizes_missing_heights, ", ", &format_number/1)}</span>.
+              </p>
+              <p
+                :if={@quote.not_in_store > 0}
+                id="downloads-quote-not-in-store"
+              >
+                <span class="font-mono tabular-nums text-neutral-50">{format_number(@quote.not_in_store)}</span>
+                of these blocks aren't in our file store yet, so we'd fetch them from our node first.
+              </p>
+            </div>
+
+            <div class="mt-5 flex flex-col sm:flex-row sm:items-center gap-3">
+              <a
+                id="downloads-contact"
+                href={quote_mailto(@contact_email, @quote)}
+                class="shrink-0 px-6 py-3 bg-brand-strong text-white font-medium rounded hover:opacity-90 transition-colors text-center"
+              >
+                Contact us
+              </a>
+              <p class="text-xs text-neutral-500">
+                Paying online is coming.
+                For now, write to us with this quote.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <p class="max-w-2xl text-sm text-neutral-400 leading-relaxed mt-4">
+        Agents can ask for the same quote with a key:
+        <code class="font-mono text-neutral-50">GET /api/v1/downloads/quote?from=0&amp;to=99999&amp;data=raw</code>.
+      </p>
+    </section>
+
     <%!-- AI crawlers and data licensing: the crawler 402 links here (#107) --%>
     <section
       id="crawlers"
