@@ -66,7 +66,9 @@ defmodule Bitblocks.DB.GinPending do
           ])
 
           %{rows: [[pages]]} =
-            Repo.query!("SELECT gin_clean_pending_list($1::text::regclass)", [index])
+            Repo.query!("SELECT gin_clean_pending_list($1::text::regclass)", [index],
+              telemetry_options: [expected_slow: true]
+            )
 
           pages
         end,
