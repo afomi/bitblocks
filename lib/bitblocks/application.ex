@@ -20,6 +20,16 @@ defmodule Bitblocks.Application do
     Bitblocks.Ops.ErrorLog.attach()
     Bitblocks.TelemetryHandlers.attach()
 
+    # X402_ENABLED without what it needs is off; say so rather than look on.
+    case Bitblocks.Payments.X402.status() do
+      status when status in [:ok, :disabled] ->
+        :ok
+
+      status ->
+        require Logger
+        Logger.warning("x402 is enabled but off: #{status} (Release.x402_status/0)")
+    end
+
     children = [
       BitblocksWeb.Telemetry,
       # Every outbound HTTP call (node RPC, WhatsOnChain, S3, mail): Bitblocks.HTTP.

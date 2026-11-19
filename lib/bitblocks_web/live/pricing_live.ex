@@ -2,8 +2,10 @@ defmodule BitblocksWeb.PricingLive do
   @moduledoc """
   `/pricing`: the plans, and (`#crawlers`) the way in for AI crawlers and data
   licensing, which the crawler 402 links to (`BitblocksWeb.Plugs.RateLimiter`,
-  #107). No price is set for crawlers yet (#61), so that section says to
-  write to us. Its budget and coverage are read when the page loads.
+  #107). Keys have no price yet (#61), so that section says to write to us;
+  with x402 on, it also gives the per-request price and how to pay
+  (`#crawlers-x402`). Its budget, coverage and price are read when the page
+  loads.
   """
   use BitblocksWeb, :live_view
 
@@ -27,7 +29,24 @@ defmodule BitblocksWeb.PricingLive do
      |> assign(:crawler_budget, crawler_budget())
      |> assign(:fetcher_budget, fetcher_budget())
      |> assign(:coverage, Index.coverage(SyncProgress.snapshot().overview))
-     |> assign(:contact_email, AiCrawlers.contact_email())}
+     |> assign(:contact_email, AiCrawlers.contact_email())
+     |> assign(:x402, x402())}
+  end
+
+  @doc """
+  What the x402 offer is, for `#crawlers-x402`, or nil while x402 is off
+  (`Bitblocks.Payments.X402.enabled?/0`), so no price shows that can't be paid.
+  """
+  def x402 do
+    alias Bitblocks.Payments.X402, as: Pay
+
+    if Pay.enabled?() do
+      %{
+        price: Pay.price_usdc(),
+        network: Pay.network(),
+        network_name: Pay.network_name(Pay.network())
+      }
+    end
   end
 
   @doc "Requests a minute an AI crawler family shares without a key."

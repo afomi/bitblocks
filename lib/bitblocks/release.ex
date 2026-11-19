@@ -2380,4 +2380,87 @@ defmodule Bitblocks.Release do
 
     max(n, 0)
   end
+
+  # ---------------------------------------------------------------------------
+  # x402: AI crawlers paying for requests over their budget (docs/STRIPE.md).
+
+  @doc """
+  Says whether x402 payments are on, and if not, why: the network, price,
+  deposit address and which Stripe key name records them. Prints no key.
+
+      bin/bitblocks rpc 'Bitblocks.Release.x402_status()'
+  """
+  def x402_status do
+    alias Bitblocks.Payments.X402, as: Pay
+
+    status = Pay.status()
+    key_env = Pay.stripe_key_env()
+    key_set = if System.get_env(key_env), do: "is set", else: "is NOT set"
+
+    IO.puts("x402: #{status}")
+    IO.puts("  network:     #{Pay.network()} (#{Pay.network_name(Pay.network())})")
+    IO.puts("  price:       #{Pay.price_atomic()} atomic (#{Pay.price_usdc()} USDC)")
+    IO.puts("  pay_to:      #{Pay.pay_to() || "not set (X402_PAY_TO)"}")
+    IO.puts("  stripe key:  #{key_env} #{key_set}")
+
+    status
+  end
+
+  @doc """
+  Records in Stripe each settled x402 payment that has no PaymentIntent yet
+  (a Stripe outage during the request), through `X402.Reconciler`. Safe to
+  repeat; `Bitblocks.Workers.X402ReconcileWorker` runs it every 10 minutes.
+
+      bin/bitblocks rpc 'Bitblocks.Release.x402_reconcile()'
+  """
+  def x402_reconcile(opts \\ []) do
+    with_running_repo(fn ->
+      case Bitblocks.Payments.X402.reconcile(opts) do
+        {:ok, :disabled} ->
+          IO.puts("x402 is off (#{Bitblocks.Payments.X402.status()}); nothing reconciled")
+          {:ok, :disabled}
+
+        {:ok, %{recorded: recorded, failed: failed}} = result ->
+          IO.puts("x402 reconcile: #{length(recorded)} recorded, #{length(failed)} failed")
+          for {tx, reason} <- failed, do: IO.puts("  failed #{tx}: #{inspect(reason)}")
+          result
+
+        {:error, reason} = error ->
+          IO.puts("x402 reconcile could not list payments: #{inspect(reason)}")
+          error
+      end
+    end)
+  end
+
+  @doc """
+  Creates bitblocks' Stripe crypto deposit address, the `X402_PAY_TO` every
+  offer pays. Once, by hand, off the request path; never shared with another
+  app. Dry run by default: it names the key and the request, and calls nothing.
+
+      bin/bitblocks rpc 'Bitblocks.Release.x402_create_deposit_address(network: "base")'
+      bin/bitblocks rpc 'Bitblocks.Release.x402_create_deposit_address(network: "base", apply: true)'
+
+  The key is the one for `X402_NETWORK` (Base Sepolia, the default:
+  `STRIPE_SANDBOX_SECRET_KEY`). With `apply: true` it prints only the address.
+  Set it as `X402_PAY_TO` in the bitblocks secret, not in the repo
+  (docs/STRIPE.md).
+  """
+  def x402_create_deposit_address(opts \\ []) do
+    case Bitblocks.Payments.X402.create_deposit_address(opts) do
+      {:dry_run, plan} ->
+        IO.puts("Dry run: would POST #{plan.url}")
+        IO.puts("  network=#{plan.network}, Stripe-Version: #{plan.stripe_version}")
+        IO.puts("  with the #{plan.key_mode} key in #{plan.key_env}")
+        IO.puts("Add apply: true to create it.")
+        {:dry_run, plan}
+
+      {:ok, address} ->
+        IO.puts(address)
+        {:ok, address}
+
+      {:error, reason} = error ->
+        IO.puts("Not created: #{inspect(reason)}")
+        error
+    end
+  end
 end

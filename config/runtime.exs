@@ -206,6 +206,23 @@ if config_env() == :prod do
     ai_fetcher_max_requests:
       String.to_integer(System.get_env("RATE_LIMIT_AI_FETCHER_PER_MINUTE", "30"))
 
+  # x402: an AI crawler over its budget can pay for the request (docs/STRIPE.md,
+  # Bitblocks.Payments.X402). Off unless X402_ENABLED=true, and then only with
+  # X402_PAY_TO, our Stripe deposit address (Release.x402_create_deposit_address/1).
+  # The Stripe key is read per payment from STRIPE_SANDBOX_SECRET_KEY (Base
+  # Sepolia) or STRIPE_SECRET_KEY (Base mainnet), never held in config.
+  config :bitblocks, Bitblocks.Payments.X402,
+    enabled: System.get_env("X402_ENABLED", "false") == "true",
+    network: System.get_env("X402_NETWORK", "eip155:84532"),
+    pay_to: System.get_env("X402_PAY_TO"),
+    price_atomic: String.to_integer(System.get_env("X402_PRICE_ATOMIC", "10000")),
+    facilitator: System.get_env("X402_FACILITATOR", "x402org"),
+    # Paid attempts, each a facilitator call, before x402_ex sees the header.
+    paid_per_ip_per_minute:
+      String.to_integer(System.get_env("X402_PAID_PER_IP_PER_MINUTE", "30")),
+    paid_per_family_per_minute:
+      String.to_integer(System.get_env("X402_PAID_PER_FAMILY_PER_MINUTE", "600"))
+
   database_url =
     System.get_env("DATABASE_URL") ||
       raise """

@@ -152,6 +152,9 @@ config :bitblocks, Oban,
        # Gifts to the donation address in blocks above the sync, read by us
        # (#74, Support.Scan): a no-op until scan_from_height is set.
        {"*/2 * * * *", Bitblocks.Workers.SupportScanWorker},
+       # Settled x402 payments not yet in Stripe (docs/STRIPE.md): a no-op
+       # while x402 is off, light on the default lane otherwise.
+       {"*/10 * * * *", Bitblocks.Workers.X402ReconcileWorker},
        # A new Bitcom registry snapshot, if the registry changed (#21).
        {"17 4 * * *", Bitblocks.Workers.BitcomSnapshotWorker}
      ]}

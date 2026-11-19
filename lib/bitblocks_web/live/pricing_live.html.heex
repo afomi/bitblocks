@@ -179,8 +179,48 @@
           <code class="font-mono text-neutral-50">/api/v1/status</code>
           always says where the index stands.
         </p>
+        <div
+          :if={@x402}
+          id="crawlers-x402"
+          class="space-y-3"
+        >
+          <h3
+            id="crawlers-x402-heading"
+            class="text-sm font-semibold text-neutral-50 pt-2"
+          >
+            Paying with x402
+          </h3>
+          <p>
+            Past the free budget, a crawler can also pay for each request with <a
+              href="https://x402.org"
+              class="underline text-neutral-50 hover:opacity-80"
+            >x402</a>, with no key and no account.
+            One request costs
+            <span
+              id="crawlers-x402-price"
+              class="font-mono tabular-nums text-neutral-50"
+            >{@x402.price} USDC</span>
+            on
+            <span
+              id="crawlers-x402-network"
+              class="font-mono text-neutral-50"
+            >{@x402.network_name}</span>
+            (<code class="font-mono text-neutral-50">{@x402.network}</code>).
+          </p>
+          <p>
+            The 402 carries a <code class="font-mono text-neutral-50">PAYMENT-REQUIRED</code> header with the offer, in the <code class="font-mono text-neutral-50">exact</code> scheme.
+            Sign it with an x402 client, and send the same request again with the payment in a <code class="font-mono text-neutral-50">PAYMENT-SIGNATURE</code> header.
+            Once the payment settles, you get the page, with its receipt in a <code class="font-mono text-neutral-50">PAYMENT-RESPONSE</code> header.
+            Each payment is good for one request to the URL it names, once.
+            A payment we can't take gets a 402 with a fresh offer, and a 503 means try again shortly.
+          </p>
+          <p>
+            Payment opens what the free budget opens, and no more.
+            For the chain data API, or for more than a few requests, a key is the better way in.
+          </p>
+        </div>
         <p>
-          There's no checkout for crawlers yet.
+          There's no checkout for crawler keys yet.
           Write to
           <a
             id="crawlers-contact"
