@@ -37,12 +37,18 @@ defmodule BitblocksWeb.PricingLive do
   `#usage` shows a signed-in user their own measured use (`Bitblocks.Usage`)
   over the last 24 hours: as themselves, and through their key. No API price
   is set yet (https://github.com/afomi/bitblocks/issues/61).
+
+  `#plans` and `#plan` are monthly plans (`Bitblocks.Billing`,
+  `BitblocksWeb.PlanComponents`, https://github.com/afomi/bitblocks/issues/112):
+  dormant, and absent from the page, until plans are configured and Stripe
+  is; in Stripe's test mode only an admin sees them.
   """
   use BitblocksWeb, :live_view
 
   require Logger
 
   alias Bitblocks.ApiKeys
+  alias Bitblocks.Billing
   alias Bitblocks.Downloads
   alias Bitblocks.Downloads.Purchases
   alias Bitblocks.Payments.Stripe
@@ -58,6 +64,7 @@ defmodule BitblocksWeb.PricingLive do
   @impl true
   def mount(params, _session, socket) do
     coverage = Index.coverage(SyncProgress.snapshot().overview)
+    plan_params = if is_map(params), do: params, else: %{}
     params = quote_params(params, coverage)
 
     socket =
@@ -89,12 +96,17 @@ defmodule BitblocksWeb.PricingLive do
       |> assign(:usage, nil)
       |> assign(:checkout, checkout_open?(socket))
       |> assign(:pay_error, nil)
+      |> assign_plans(plan_params)
 
     if connected?(socket) do
+      if user = socket.assigns[:current_user],
+        do: Phoenix.PubSub.subscribe(Bitblocks.PubSub, Billing.topic(user.id))
+
       {:ok,
        socket
        |> start_async(:sizes, fn -> Downloads.size_bands() end)
        |> assign(:usage, own_usage(socket.assigns[:current_user]))
+       |> assign_plan_usage()
        |> then(&if(coverage, do: request_quote(&1, params), else: &1))}
     else
       {:ok, socket}
@@ -139,7 +151,39 @@ defmodule BitblocksWeb.PricingLive do
     end
   end
 
+  # Monthly plans (#112): only the plan id comes from the browser; its price
+  # and limits are the server's config, and the row is the signed-in user's.
+  def handle_event("choose_plan", %{"plan" => plan_id}, socket) do
+    user = socket.assigns[:current_user]
+
+    with true <- socket.assigns.plans_for_sale || {:error, :not_configured},
+         {:ok, url} <- Billing.choose(user, plan_id, BitblocksWeb.Endpoint.url()) do
+      {:noreply, redirect(socket, external: url)}
+    else
+      {:error, reason} ->
+        Logger.info("Plan checkout not started: #{inspect(reason)}")
+        {:noreply, assign(socket, :plans_error, Billing.refusal_message(reason))}
+    end
+  end
+
+  def handle_event("manage_billing", _params, socket) do
+    case socket.assigns[:current_user] &&
+           Billing.portal_url(socket.assigns.current_user, BitblocksWeb.Endpoint.url()) do
+      {:ok, url} ->
+        {:noreply, redirect(socket, external: url)}
+
+      other ->
+        Logger.info("Billing portal not opened: #{inspect(other)}")
+        reason = with {:error, r} <- other, do: r
+        {:noreply, assign(socket, :plan_error, Billing.refusal_message(reason))}
+    end
+  end
+
   @impl true
+  def handle_info({:plan_subscription, _row}, socket) do
+    {:noreply, socket |> assign_plans(%{}) |> assign(:plan_pending, false) |> assign_plan_usage()}
+  end
+
   def handle_info(:run_pending_quote, socket) do
     case socket.assigns.pending_quote do
       nil -> {:noreply, socket}
@@ -231,6 +275,63 @@ defmodule BitblocksWeb.PricingLive do
   end
 
   defp own_usage(_), do: nil
+
+  # The plans on offer and the user's own plan. With none configured, or
+  # Stripe not configured, plans_for_sale is false and #plans renders nothing.
+  defp assign_plans(socket, params) do
+    user = socket.assigns[:current_user]
+    subscription = user && Billing.subscription_for_view(user)
+
+    pending =
+      case user && Billing.get_for_user(params["plan_checkout"], user) do
+        %{status: "checkout_open"} -> true
+        _ -> Map.get(socket.assigns, :plan_pending, false) and is_nil(subscription)
+      end
+
+    assign(socket,
+      plans: Billing.plans(),
+      plans_for_sale: Billing.for_sale?(socket.assigns[:admin?] == true),
+      plan_subscription: subscription,
+      plan_entitled: subscription != nil and Billing.entitled?(subscription),
+      plan_can_manage:
+        subscription != nil and is_binary(subscription.stripe_customer_id) and
+          Stripe.configured?(),
+      plan_pending: pending,
+      plans_error: Map.get(socket.assigns, :plans_error),
+      plan_error: Map.get(socket.assigns, :plan_error),
+      plan_usage: Map.get(socket.assigns, :plan_usage)
+    )
+  rescue
+    error in [DBConnection.ConnectionError, Postgrex.Error] ->
+      Logger.warning("Plans failed: #{Exception.message(error)}")
+
+      assign(socket,
+        plans: [],
+        plans_for_sale: false,
+        plan_subscription: nil,
+        plan_entitled: false,
+        plan_can_manage: false,
+        plan_pending: false,
+        plans_error: nil,
+        plan_error: nil,
+        plan_usage: nil
+      )
+  end
+
+  defp assign_plan_usage(%{assigns: %{plan_subscription: %{} = s}} = socket) do
+    usage =
+      try do
+        Billing.period_usage(s)
+      rescue
+        error in [DBConnection.ConnectionError, Postgrex.Error] ->
+          Logger.warning("Plan usage failed: #{Exception.message(error)}")
+          :unavailable
+      end
+
+    assign(socket, :plan_usage, usage)
+  end
+
+  defp assign_plan_usage(socket), do: socket
 
   @doc "The usage tables to show: as the signed-in user, then through their key."
   def usage_groups(%{session: session, key: key}) do

@@ -1,12 +1,13 @@
 defmodule BitblocksWeb.StripeWebhookController do
   @moduledoc """
-  `POST /webhooks/stripe`: Stripe's events for paid downloads
-  (https://github.com/afomi/bitblocks/issues/111, docs/STRIPE.md).
+  `POST /webhooks/stripe`: Stripe's events for paid downloads and monthly
+  plans (https://github.com/afomi/bitblocks/issues/111,
+  https://github.com/afomi/bitblocks/issues/112, docs/STRIPE.md).
 
   Every delivery must carry a valid `Stripe-Signature` over its exact body
   (`Bitblocks.Payments.Stripe.verify_webhook/3`), or it is a 400 and nothing
   is read from it. A verified event is handled once by its id
-  (`Bitblocks.Downloads.Purchases.handle_event/1`) and answered 200, a
+  (`Bitblocks.Payments.StripeEvents.handle/1`) and answered 200, a
   duplicate included, so Stripe stops sending it. A database failure is a
   500, so Stripe tries again later. While Checkout is dormant (no webhook
   secret), every delivery is a 503.
@@ -15,8 +16,8 @@ defmodule BitblocksWeb.StripeWebhookController do
 
   require Logger
 
-  alias Bitblocks.Downloads.Purchases
   alias Bitblocks.Payments.Stripe
+  alias Bitblocks.Payments.StripeEvents
 
   def create(conn, _params) do
     {raw, conn} = raw_body(conn)
@@ -24,7 +25,7 @@ defmodule BitblocksWeb.StripeWebhookController do
 
     case Stripe.verify_webhook(raw, header) do
       {:ok, event} ->
-        case Purchases.handle_event(event) do
+        case StripeEvents.handle(event) do
           {:ok, outcome} ->
             json(conn, %{received: true, outcome: outcome})
 

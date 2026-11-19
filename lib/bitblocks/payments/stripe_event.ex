@@ -11,6 +11,7 @@ defmodule Bitblocks.Payments.StripeEvent do
     field :type, :string
     field :livemode, :boolean
     field :purchase_id, :binary_id
+    field :plan_subscription_id, :binary_id
     field :outcome, :string
     field :received_at, :utc_datetime
   end

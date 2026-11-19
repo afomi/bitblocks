@@ -71,6 +71,29 @@ defmodule BitblocksWeb.StripeWebhookControllerTest do
     assert Repo.get!(Purchase, p.id).status == "checkout_open"
   end
 
+  test "the same endpoint moves a subscriber's key to the plan, signed only (#112)", %{
+    conn: conn
+  } do
+    import Bitblocks.BillingFixtures
+
+    with_plans()
+    stub_stripe(self())
+    user = user!()
+    {:ok, key, _token} = Bitblocks.ApiKeys.issue_trial(user)
+    {:ok, _} = Bitblocks.Billing.choose(user, "small", "https://example.test")
+    [row] = Repo.all(Bitblocks.Billing.PlanSubscription)
+    event = plan_event("checkout.session.completed", completed_plan_session(row))
+
+    {body, _} = signed(event)
+    {_, forged} = signed(event, "whsec_not_ours")
+    assert json_response(deliver(conn, body, forged), 400) == %{"error" => "bad_signature"}
+    assert Repo.get!(Bitblocks.ApiKeys.ApiKey, key.id).requests_per_minute == 60
+
+    {body, signature} = signed(event)
+    assert json_response(deliver(build_conn(), body, signature), 200)["outcome"] == "subscribed"
+    assert Repo.get!(Bitblocks.ApiKeys.ApiKey, key.id).requests_per_minute == 300
+  end
+
   test "the success redirect alone opens nothing", %{conn: conn, purchase: p} do
     conn = conn |> init_test_session(%{"user_id" => p.user_id}) |> get("/downloads/#{p.id}")
     assert html_response(conn, 200) =~ "Waiting for payment confirmation"

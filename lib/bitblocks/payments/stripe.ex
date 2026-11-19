@@ -1,7 +1,8 @@
 defmodule Bitblocks.Payments.Stripe do
   @moduledoc """
-  Stripe Checkout and signed webhooks, for paid bulk downloads
-  (https://github.com/afomi/bitblocks/issues/111, docs/STRIPE.md).
+  Stripe Checkout, the customer portal and signed webhooks, for paid bulk
+  downloads (https://github.com/afomi/bitblocks/issues/111) and monthly
+  plans (https://github.com/afomi/bitblocks/issues/112), docs/STRIPE.md.
 
   Requests go through x402_ex's hardened client (`X402.HTTPClient`): no
   retries, no redirects, a bounded body and deadline, and its test seam
@@ -33,6 +34,7 @@ defmodule Bitblocks.Payments.Stripe do
   alias X402.HTTPClient
 
   @checkout_url "https://api.stripe.com/v1/checkout/sessions"
+  @portal_url "https://api.stripe.com/v1/billing_portal/sessions"
   # Pinned so a dashboard default change can't move the shapes we read.
   @default_version "2024-06-20"
   @tolerance_seconds 300
@@ -97,9 +99,101 @@ defmodule Bitblocks.Payments.Stripe do
   def create_checkout_session(params, idempotency_key) when is_binary(idempotency_key) do
     with :ok <- status_ok(),
          {:ok, key} <- secret_key() do
-      post(key, @checkout_url, checkout_form(params), idempotency_key)
+      post(key, @checkout_url, checkout_form(params), idempotency_key, &checkout_response/1)
     end
   end
+
+  @doc """
+  Creates a Checkout session in subscription mode for one configured Stripe
+  Price (`price_id`, billed monthly), for monthly plans
+  (https://github.com/afomi/bitblocks/issues/112). The amount is that Price's,
+  set in Stripe; nothing from the browser reaches it. `idempotency_key` is the
+  plan subscription's id. Returns `{:ok, %{id: "cs_...", url: "https://..."}}`.
+
+  `params`: `:price_id`, `:success_url`, `:cancel_url`, `:client_reference_id`,
+  `:metadata` (a map, set on both the session and the subscription), and
+  `:customer` (a `cus_` id we already hold for this user) when there is one.
+  """
+  @spec create_subscription_checkout(map(), String.t()) :: {:ok, map()} | {:error, term()}
+  def create_subscription_checkout(params, idempotency_key) when is_binary(idempotency_key) do
+    with :ok <- status_ok(),
+         {:ok, key} <- secret_key() do
+      post(
+        key,
+        @checkout_url,
+        subscription_checkout_form(params),
+        idempotency_key,
+        &checkout_response/1
+      )
+    end
+  end
+
+  @doc "The subscription Checkout form body, as ordered pairs (exposed for tests and review)."
+  @spec subscription_checkout_form(map()) :: [{String.t(), String.t()}]
+  def subscription_checkout_form(params) do
+    metadata = Map.get(params, :metadata, %{})
+
+    customer =
+      case params[:customer] do
+        "cus_" <> _ = customer -> [{"customer", customer}]
+        _ -> []
+      end
+
+    [
+      {"mode", "subscription"},
+      {"line_items[0][price]", params.price_id},
+      {"line_items[0][quantity]", "1"},
+      {"success_url", params.success_url},
+      {"cancel_url", params.cancel_url},
+      {"client_reference_id", params.client_reference_id}
+    ] ++
+      customer ++
+      for({k, v} <- metadata, do: {"metadata[#{k}]", to_string(v)}) ++
+      for {k, v} <- metadata, do: {"subscription_data[metadata][#{k}]", to_string(v)}
+  end
+
+  @doc """
+  Creates a customer portal session for `customer` (a `cus_` id), returning to
+  `return_url`: where a subscriber updates the card, changes plan or cancels.
+  Needs the portal set up in the Dashboard and the key's
+  **Customer portal: Write**. Returns `{:ok, %{id: "bps_...", url: "https://..."}}`.
+  """
+  @spec create_portal_session(String.t() | nil, String.t()) :: {:ok, map()} | {:error, term()}
+  def create_portal_session("cus_" <> _ = customer, return_url) when is_binary(return_url) do
+    with :ok <- status_ok(),
+         {:ok, key} <- secret_key() do
+      # A portal session is short-lived and harmless to make twice, so each
+      # click gets its own idempotency key.
+      idempotency_key = "portal:" <> Base.url_encode64(:crypto.strong_rand_bytes(12))
+
+      post(
+        key,
+        @portal_url,
+        [{"customer", customer}, {"return_url", return_url}],
+        idempotency_key,
+        &portal_response/1
+      )
+    end
+  end
+
+  def create_portal_session(_customer, _return_url), do: {:error, :no_customer}
+
+  defp checkout_response(%{"id" => "cs_" <> _ = id, "url" => url}) when is_binary(url) do
+    # The browser is sent here, so only Stripe's own Checkout host.
+    if stripe_checkout_url?(url),
+      do: {:ok, %{id: id, url: url}},
+      else: {:error, :invalid_response}
+  end
+
+  defp checkout_response(_), do: {:error, :invalid_response}
+
+  defp portal_response(%{"id" => "bps_" <> _ = id, "url" => url}) when is_binary(url) do
+    if stripe_host_url?(url, "billing.stripe.com"),
+      do: {:ok, %{id: id, url: url}},
+      else: {:error, :invalid_response}
+  end
+
+  defp portal_response(_), do: {:error, :invalid_response}
 
   defp status_ok do
     case status() do
@@ -140,7 +234,7 @@ defmodule Bitblocks.Payments.Stripe do
     end
   end
 
-  defp post(key, url, form, idempotency_key) do
+  defp post(key, url, form, idempotency_key, parse) do
     timeout = 10_000
 
     req = [
@@ -160,14 +254,8 @@ defmodule Bitblocks.Payments.Stripe do
     case HTTPClient.request(req, deadline_ms: timeout, req_options: config(:req_options, [])) do
       {:ok, status, body} when status in 200..299 ->
         case Jason.decode(body) do
-          {:ok, %{"id" => "cs_" <> _ = id, "url" => session_url}} when is_binary(session_url) ->
-            # The browser is sent here, so only Stripe's own Checkout host.
-            if stripe_checkout_url?(session_url),
-              do: {:ok, %{id: id, url: session_url}},
-              else: {:error, :invalid_response}
-
-          _ ->
-            {:error, :invalid_response}
+          {:ok, %{} = decoded} -> parse.(decoded)
+          _ -> {:error, :invalid_response}
         end
 
       {:ok, status, body} ->
@@ -182,11 +270,13 @@ defmodule Bitblocks.Payments.Stripe do
   end
 
   @doc "True for an https URL on Stripe's Checkout host."
-  def stripe_checkout_url?(url) when is_binary(url) do
-    match?(%URI{scheme: "https", host: "checkout.stripe.com", userinfo: nil}, URI.parse(url))
+  def stripe_checkout_url?(url), do: stripe_host_url?(url, "checkout.stripe.com")
+
+  defp stripe_host_url?(url, host) when is_binary(url) do
+    match?(%URI{scheme: "https", host: ^host, userinfo: nil}, URI.parse(url))
   end
 
-  def stripe_checkout_url?(_), do: false
+  defp stripe_host_url?(_, _), do: false
 
   defp stripe_error(body) do
     case Jason.decode(body) do

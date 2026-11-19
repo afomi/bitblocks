@@ -72,12 +72,29 @@ defmodule Bitblocks.ApiKeys do
   end
 
   @doc """
-  Issues the user's trial key. Returns `{:ok, %ApiKey{}, token}`, or an error
-  changeset when they already hold one.
+  Issues the user's key. Returns `{:ok, %ApiKey{}, token}`, or an error
+  changeset when they already hold one. It gets the trial's budget, or their
+  monthly plan's while they have one (`Bitblocks.Billing`,
+  https://github.com/afomi/bitblocks/issues/112), so a replaced key keeps it.
   """
   @spec issue_trial(User.t()) :: {:ok, ApiKey.t(), String.t()} | {:error, term()}
   def issue_trial(%User{} = user) do
-    create("trial:#{user.login}", @trial_requests_per_minute, user_id: user.id)
+    create("trial:#{user.login}", Bitblocks.Billing.key_requests_per_minute(user),
+      user_id: user.id
+    )
+  end
+
+  @doc """
+  This node forgets the cached lookups of every key the user owns, so a
+  changed limit counts from their next request; other nodes within the TTL.
+  """
+  @spec forget_user_keys(integer()) :: :ok
+  def forget_user_keys(user_id) when is_integer(user_id) do
+    ensure_cache()
+
+    from(k in ApiKey, where: k.user_id == ^user_id, select: k.token_hash)
+    |> Repo.all()
+    |> Enum.each(&:ets.delete(@cache, &1))
   end
 
   @doc "Revokes the user's trial key, if any, and issues a new one."

@@ -42,7 +42,6 @@ defmodule Bitblocks.Downloads.Purchases do
   alias Bitblocks.Downloads
   alias Bitblocks.Downloads.{ObjectDigest, Purchase}
   alias Bitblocks.Payments.Stripe
-  alias Bitblocks.Payments.StripeEvent
   alias Bitblocks.Repo
   alias Bitblocks.TxStore
   alias Bitblocks.TxStore.BlockObject
@@ -286,58 +285,28 @@ defmodule Bitblocks.Downloads.Purchases do
   # Stripe events
 
   @doc """
-  Handles one verified Stripe event, exactly once by its id. Returns
+  Handles one verified Stripe event, exactly once by its id, through the one
+  dispatcher (`Bitblocks.Payments.StripeEvents.handle/1`). Returns
   `{:ok, outcome}` (`"duplicate"` for an id seen before), where outcome
   names what happened: `paid`, `expired`, `refunded`, `ignored`, or why the
   event changed nothing (`unknown_purchase`, `wrong_mode`, `amount_mismatch`, ...).
   """
   @spec handle_event(map()) :: {:ok, String.t()} | {:error, term()}
-  def handle_event(%{"id" => id, "type" => type} = event) when is_binary(id) do
-    livemode = event["livemode"] == true
-    now = now()
+  defdelegate handle_event(event), to: Bitblocks.Payments.StripeEvents, as: :handle
 
-    result =
-      Repo.transaction(fn ->
-        {inserted, _} =
-          Repo.insert_all(
-            StripeEvent,
-            [%{id: id, type: type, livemode: livemode, outcome: "pending", received_at: now}],
-            on_conflict: :nothing,
-            conflict_target: :id
-          )
+  @doc """
+  Applies a download's event inside the dispatcher's transaction, after its
+  id was recorded. Returns `{outcome, purchase | nil}`.
+  """
+  @spec apply_stripe_event(String.t(), map(), DateTime.t()) :: {String.t(), Purchase.t() | nil}
+  def apply_stripe_event(type, object, now), do: apply_event(type, object, now)
 
-        if inserted == 0 do
-          {"duplicate", nil}
-        else
-          {outcome, purchase} =
-            if livemode == Stripe.livemode?(),
-              do: apply_event(type, event_object(event), now),
-              else: {"wrong_mode", nil}
-
-          Repo.update_all(from(e in StripeEvent, where: e.id == ^id),
-            set: [outcome: outcome, purchase_id: purchase && purchase.id]
-          )
-
-          {outcome, purchase}
-        end
-      end)
-
-    case result do
-      {:ok, {outcome, purchase}} ->
-        if purchase, do: broadcast(purchase)
-        if outcome == "paid", do: enqueue_prepare(purchase)
-        Logger.info("Stripe event #{id} #{type}: #{outcome}")
-        {:ok, outcome}
-
-      {:error, reason} ->
-        {:error, reason}
-    end
+  @doc "After the event's transaction commits: tell the page, and prepare a paid download."
+  def after_stripe_event(outcome, %Purchase{} = purchase) do
+    broadcast(purchase)
+    if outcome == "paid", do: enqueue_prepare(purchase)
+    :ok
   end
-
-  def handle_event(_), do: {:error, :invalid_event}
-
-  defp event_object(%{"data" => %{"object" => %{} = object}}), do: object
-  defp event_object(_), do: %{}
 
   defp apply_event("checkout.session.completed", session, now) do
     case purchase_for_session(session) do

@@ -7,8 +7,10 @@ Bitblocks uses Stripe for two things:
   The plan is under "Paid crawler access (x402)" in [PLAN.md](../PLAN.md).
 - Selling bulk downloads of a block range with Stripe Checkout, at the published $1.00 per GiB (https://github.com/afomi/bitblocks/issues/111).
   It is built and dormant until the keys below are set: [Bulk downloads: Checkout](#bulk-downloads-checkout).
+- Monthly plans, a Stripe subscription that raises a user's key limit without changing the key (https://github.com/afomi/bitblocks/issues/112).
+  It is built and dormant until plans are configured: [Monthly plans](#monthly-plans).
 
-Both go through one HTTP client, x402_ex's `X402.HTTPClient`, and tests stub Stripe the same way (`Req.Test`), so no test ever calls Stripe.
+All of them go through one HTTP client, x402_ex's `X402.HTTPClient`, and tests stub Stripe the same way (`Req.Test`), so no test ever calls Stripe.
 
 Bitblocks has its own Stripe account, separate from jurisdictional's.
 This repo is public: never put the account id, keys, draft prices or customer details in it.
@@ -187,6 +189,89 @@ Any refund, whole or part, closes the links.
 
 Set `DOWNLOADS_CHECKOUT_MODE=live`, give the live restricted key **Checkout Sessions: Write** (`STRIPE_SECRET_KEY`), add the same webhook endpoint in live mode, and set its secret as `STRIPE_WEBHOOK_SECRET`.
 In live mode every signed-in user sees "Pay".
+
+## Monthly plans
+
+A signed-in user picks a plan on `/pricing#plans`, clicks "Choose", and subscribes on Stripe Checkout.
+Stripe's signed webhooks, never the redirect, move their key to the plan's rate limit: the same key, a higher `requests_per_minute`, from their next request on this node and within a minute on the others.
+"Your plan" on `/pricing#plan` shows the plan, its status and renewal date, this period's use against the allowance (from `Bitblocks.Usage`), and "Manage billing", which opens Stripe's customer portal.
+The code is `Bitblocks.Billing` (plans and the subscription's life), `Bitblocks.Payments.StripeEvents` (the one event dedupe, for downloads and plans), `Bitblocks.Payments.Stripe` (Checkout, the portal, signatures) and `BitblocksWeb.PlanComponents`.
+
+It uses the same key, the same webhook endpoint and the same `stripe_events` table as bulk downloads; nothing is added beside them.
+
+### How it decides
+
+- A plan is entitled while Stripe says the subscription is `active`, `trialing` or `past_due`.
+  A failed payment keeps the plan's limit through Stripe's retries; when Stripe gives up (`unpaid` or `canceled`) or the subscription ends, the key goes back to the trial's 60 a minute.
+  What Stripe does after the last retry is set in the Dashboard (**Settings → Billing → Subscriptions and emails → Manage failed payments**); either cancelling or marking unpaid ends the plan here.
+- Events are handled once by their id, and an event older than the newest one applied to that subscription (by its `created`) changes nothing, so they can arrive in any order.
+- Every key the user owns follows the plan, and a key they make later starts at the plan's limit.
+- The allowance is shown, not enforced: at 100% the key keeps the plan's rate and "Your plan" says so; nothing is billed as overage.
+- A plan switched in the customer portal moves the subscription to the plan with that Price, and its limits.
+- Each subscription keeps a copy of its plan's limits as chosen, so editing the plans' config never changes a subscriber's limit by itself.
+- In sandbox mode only an admin sees the plans, so no test price shows to the public.
+
+### Plans are config, never in this repo
+
+Plans live in the bitblocks secret as `BILLING_PLANS`, a JSON array, one object per plan:
+
+| Field | What it is |
+| --- | --- |
+| `id` | a short slug, `a-z`, `0-9`, `_` or `-` |
+| `name` | what `/pricing` calls it |
+| `price_cents` | the monthly price `/pricing` shows, in US cents |
+| `stripe_price_id` | the Stripe Price Checkout charges, `price_…`: monthly, recurring, the same amount |
+| `requests_per_minute` | the key's rate limit on the plan, up to 100,000 |
+| `monthly_requests` | the monthly allowance of API requests |
+| `monthly_gib` | the monthly allowance of data sent, in GiB |
+
+Its shape, with placeholders where the decided numbers go:
+
+```json
+[
+  {"id": "tier_1", "name": "<name>", "price_cents": <cents>, "stripe_price_id": "price_<id>",
+   "requests_per_minute": <rpm>, "monthly_requests": <requests>, "monthly_gib": <gib>}
+]
+```
+
+Checkout charges the Stripe Price, and the page shows `price_cents`, so set both to the same amount.
+Each subscription event that carries the Price's amount is checked against `price_cents`, and a mismatch is logged as an error.
+One plan that doesn't parse turns every plan off, and `plans_status()` names it.
+With `BILLING_PLANS` unset, `/pricing` reads as it did: no plans section and no "Choose".
+
+```bash
+bin/bitblocks rpc 'Bitblocks.Release.plans_status()'
+```
+
+It prints the mode, each key and secret's name and whether it is set (never a value), each plan with its limits, which of the needed events the webhook has delivered so far, and the subscriptions by status.
+
+### Your steps, test mode first
+
+1. In the sandbox, **Product catalog → Add product**, once per plan: a name, and a **Recurring**, **Monthly** price in USD.
+   Copy each price's id (`price_…`).
+2. **Developers → API keys**: on the sandbox restricted key, choose **⋯ → Edit key**, set **Checkout Sessions** to **Write** (if downloads haven't already) and **Customer portal** to **Write**, and save.
+   The key's value doesn't change.
+   If a call is refused for a missing permission, the key's request log names it; add only that one, and note it here.
+3. **Settings → Billing → Customer portal**: turn on cancelling and updating the payment method.
+   To let subscribers switch plans there, add the plans' products under **Subscriptions → Customers can switch plans**.
+4. **Developers → Webhooks**: on the `https://bitblocks.app/webhooks/stripe` endpoint from [bulk downloads](#your-steps-test-mode-first) (add it as step 3 there says if it isn't there yet), choose **Edit destination** and add these events to the ones it has:
+   `customer.subscription.created`, `customer.subscription.updated`, `customer.subscription.deleted`, `invoice.paid`, `invoice.payment_failed`.
+   It already has `checkout.session.completed` and `checkout.session.expired`; one endpoint serves both, and adding events doesn't change its signing secret.
+5. Write the plans' JSON in a local file outside any repo, with the price ids from step 1, then set it from your own terminal (a hidden prompt you paste into):
+
+   ```bash
+   aws-vault exec default -- ./scripts/app-secret-set.sh bitblocks BILLING_PLANS
+   ```
+
+6. Deploy (or run the deploy workflow by hand), then check `Release.plans_status()` says `for sale (sandbox: admins only)`.
+7. Signed in as an admin with a key from `/start`, click "Choose" on a plan, and pay with `4242 4242 4242 4242`.
+   You land on `/pricing#plan`, which says "Waiting for Stripe to confirm" and then shows the plan; `/start` shows your key's new limit.
+8. Click "Manage billing", cancel in the portal, and see the subscription end in the Dashboard; once Stripe sends `customer.subscription.deleted` (at once, or at the period's end), your key is back to 60 a minute.
+
+### Live, later
+
+Once the prices are decided, make the same products and prices in live mode, give the live restricted key **Customer portal: Write**, add the events above to the live endpoint, set the portal up in live mode, and set `BILLING_PLANS` with the live price ids.
+The mode is the one `DOWNLOADS_CHECKOUT_MODE` sets, for downloads and plans alike.
 
 ## Later: x402 live mode (not yet)
 

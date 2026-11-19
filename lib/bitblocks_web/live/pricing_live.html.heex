@@ -87,6 +87,23 @@
       </div>
     </section>
 
+    <%!-- Monthly plans (#112): nothing renders while they are dormant --%>
+    <BitblocksWeb.PlanComponents.monthly_plans
+      plans={@plans}
+      for_sale={@plans_for_sale}
+      current_user={@current_user}
+      subscribed={@plan_entitled}
+      error={@plans_error}
+    />
+    <BitblocksWeb.PlanComponents.your_plan
+      subscription={@plan_subscription}
+      usage={@plan_usage}
+      pending={@plan_pending}
+      can_manage={@plan_can_manage}
+      contact_email={@contact_email}
+      error={@plan_error}
+    />
+
     <%!-- Your own use, measured and not billed (#61) --%>
     <section
       id="usage"

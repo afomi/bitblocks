@@ -237,6 +237,11 @@ if config_env() == :prod do
   config :bitblocks, Bitblocks.Payments.Stripe,
     mode: System.get_env("DOWNLOADS_CHECKOUT_MODE", "sandbox")
 
+  # Monthly plans (Bitblocks.Billing, #112, docs/STRIPE.md#monthly-plans): a
+  # JSON array of plans in the bitblocks secret, never in this repo. Unset,
+  # no plan is offered and /pricing reads as before.
+  config :bitblocks, Bitblocks.Billing, plans_json: System.get_env("BILLING_PLANS")
+
   database_url =
     System.get_env("DATABASE_URL") ||
       raise """
