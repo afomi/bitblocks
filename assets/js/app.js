@@ -66,6 +66,28 @@ topbar.config({barColors: {0: "#29d"}, shadowColor: "rgba(0, 0, 0, .3)"})
 window.addEventListener("phx:page-loading-start", _info => topbar.show(300))
 window.addEventListener("phx:page-loading-stop", _info => topbar.hide())
 
+// Copy buttons (BitblocksWeb.MultisigComponents.copy_button): the text to
+// copy rides in the event's detail. The button reads "Copied" or "Couldn't
+// copy" for a moment, and the live region beside it says so to a screen
+// reader.
+window.addEventListener("bitblocks:copy", event => {
+  const button = event.target
+  const label = button.querySelector("[data-copy-label]")
+  const status = document.getElementById(`${button.id}-status`)
+  const show = (shown, spoken) => {
+    if (label) label.textContent = shown
+    if (status) status.textContent = spoken
+    setTimeout(() => {
+      if (label) label.textContent = "Copy"
+      if (status) status.textContent = ""
+    }, 2000)
+  }
+  const failed = () => show("Couldn't copy", `Couldn't copy ${event.detail.label}`)
+  if (!navigator.clipboard) return failed()
+  navigator.clipboard.writeText(event.detail.text)
+    .then(() => show("Copied", `Copied ${event.detail.label}`), failed)
+})
+
 // connect if there are any LiveViews on the page
 liveSocket.connect()
 

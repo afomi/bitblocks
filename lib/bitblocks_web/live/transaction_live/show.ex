@@ -16,6 +16,9 @@ defmodule BitblocksWeb.TransactionLive.Show do
        collection_slug: nil,
        collection_module: nil,
        input_satoshis: %{},
+       multisig_inputs: [],
+       multisig_more_inputs: false,
+       multisig_outputs: [],
        output_descriptors: [],
        script_templates: %{},
        output_protocols: %{},
@@ -124,7 +127,8 @@ defmodule BitblocksWeb.TransactionLive.Show do
         {nil, nil, nil}
       end
 
-    input_satoshis = build_input_satoshis(decoded_tx)
+    previous_outputs = previous_outputs(decoded_tx)
+    input_satoshis = SatsIn.values(previous_outputs)
     nft_facts = transaction.txid && Chain.nft_facts(transaction.txid)
 
     protocol_links =
@@ -148,6 +152,8 @@ defmodule BitblocksWeb.TransactionLive.Show do
      |> assign(:collection_slug, collection_slug)
      |> assign(:collection_module, collection_module)
      |> assign(:input_satoshis, input_satoshis)
+     |> assign_multisig_inputs(decoded_tx, previous_outputs)
+     |> assign(:multisig_outputs, Enum.filter(output_descriptors, &(&1.type == :multisig)))
      |> assign(:output_descriptors, output_descriptors)
      |> assign(:script_templates, script_templates)
      |> assign(:output_protocols, output_protocols)
@@ -159,6 +165,16 @@ defmodule BitblocksWeb.TransactionLive.Show do
      |> assign(:descriptors_by_vout, Map.new(output_descriptors, &{&1.vout, &1}))
      |> assign(:stas_outputs, stas_outputs(decoded_tx))
      |> assign_locks(decoded_tx, transaction.txid, block)}
+  end
+
+  # Which keys signed each multisig input, and whether inputs past the
+  # page's cap went unread (Bitblocks.Multisig).
+  defp assign_multisig_inputs(socket, decoded_tx, previous_outputs) do
+    {inputs, more?} = Bitblocks.Multisig.signers(decoded_tx, previous_outputs)
+
+    socket
+    |> assign(:multisig_inputs, inputs)
+    |> assign(:multisig_more_inputs, more?)
   end
 
   # HodLocker (#75): what this tx's time locks back; nLockTime (#76): the
@@ -423,23 +439,25 @@ defmodule BitblocksWeb.TransactionLive.Show do
   defp blank_to_nil(" "), do: nil
   defp blank_to_nil(v), do: v
 
-  # {txid, vout} => satoshis for each input whose previous tx we store, read
-  # as `outputs[vout + 1]` alone in one query (`Steps.SatsIn.lookup/1`, the
-  # pipeline's own sats-in lookup). It used to load each previous tx's whole
+  # {txid, vout} => the previous output's stored JSON for each input whose
+  # previous tx we store, read as `outputs[vout + 1]` alone in one query
+  # (`Steps.SatsIn.stored_outputs/1`, the pipeline's own sats-in lookup).
+  # Input values (`SatsIn.values/1`) and multisig signers
+  # (`Bitblocks.Multisig.signers/2`) both read from it. It used to load each previous tx's whole
   # row and raw bytes (from the blob store when not in the database) and
   # decode it, per input, so a crawler on many-input txs stacked minutes-long
   # renders until a node ran out of memory (2026-11-18, 11:07 UTC).
   # An input whose previous tx isn't stored is simply missing from the map.
-  defp build_input_satoshis(nil), do: %{}
+  defp previous_outputs(nil), do: %{}
 
-  defp build_input_satoshis(%BSV.Tx{inputs: inputs}) do
+  defp previous_outputs(%BSV.Tx{inputs: inputs}) do
     coinbase_txid = String.duplicate("0", 64)
 
     inputs
     |> Enum.map(fn input -> {BSV.OutPoint.get_txid(input.outpoint), input.outpoint.vout} end)
     |> Enum.reject(fn {txid, _vout} -> txid == coinbase_txid end)
     |> Enum.uniq()
-    |> SatsIn.lookup()
+    |> SatsIn.stored_outputs()
   end
 
   defp page_title(:show), do: "Show Transaction"

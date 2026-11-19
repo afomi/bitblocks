@@ -129,13 +129,24 @@ defmodule BitblocksWeb.ScriptComponents do
 
   defp card_body(%{descriptor: %{type: :multisig}} = assigns) do
     ~H"""
-    <.script_field
-      :for={{pubkey, i} <- Enum.with_index(@descriptor.fields.pubkeys)}
-      label={if i == 0, do: "#{@descriptor.fields.m}-of-#{@descriptor.fields.n} multisig", else: ""}
-      title={"Requires #{@descriptor.fields.m} of the #{@descriptor.fields.n} keys to spend"}
+    <div
+      id={"output-#{@descriptor.vout}-multisig"}
+      class="text-xs leading-snug"
     >
-      <%= pubkey %>
-    </.script_field>
+      <p
+        class="text-sm text-gray-800 dark:text-gray-200"
+        title={"#{@descriptor.fields.m}-of-#{@descriptor.fields.n} multisig"}
+      >
+        <%= Bitblocks.Multisig.lock_sentence(@descriptor.fields.m, @descriptor.fields.n) %>.
+      </p>
+      <%!-- The keys in full; the short form with copy buttons is under "Who had to agree" --%>
+      <.script_field
+        :for={{pubkey, k} <- Enum.with_index(@descriptor.fields.pubkeys)}
+        label={"Key #{k + 1}:"}
+      >
+        <%= pubkey %>
+      </.script_field>
+    </div>
     """
   end
 

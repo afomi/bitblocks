@@ -94,9 +94,22 @@ defmodule Bitblocks.Chain.TxPipeline.Steps.SatsIn do
   @spec lookup([{String.t(), non_neg_integer()}]) :: %{
           {String.t(), non_neg_integer()} => non_neg_integer()
         }
-  def lookup([]), do: %{}
+  def lookup(outpoints), do: outpoints |> stored_outputs() |> values()
 
-  def lookup(outpoints) do
+  @doc """
+  The stored JSON of each `{txid, vout}`'s previous output (one
+  getrawtransaction `vout` object, as `transactions.outputs` holds it), as
+  `%{{txid, vout} => json}`, in the same one query per #{@lookup_batch}
+  outpoints as `lookup/1`. Outpoints whose tx or output isn't stored are
+  absent. For a reader that needs more of the output than its value (the
+  tx page reads a multisig lock's script from it), so one query serves both.
+  """
+  @spec stored_outputs([{String.t(), non_neg_integer()}]) :: %{
+          {String.t(), non_neg_integer()} => String.t()
+        }
+  def stored_outputs([]), do: %{}
+
+  def stored_outputs(outpoints) do
     outpoints
     |> Enum.chunk_every(@lookup_batch)
     |> Enum.reduce(%{}, fn batch, acc ->
@@ -112,13 +125,23 @@ defmodule Bitblocks.Chain.TxPipeline.Steps.SatsIn do
           [txids, vouts]
         )
 
-      Enum.reduce(rows, acc, fn [txid, vout, output], acc ->
-        case output_value(output, vout) do
-          nil -> acc
-          sats -> Map.put(acc, {txid, vout}, sats)
-        end
-      end)
+      for [txid, vout, output] <- rows, is_binary(output), into: acc, do: {{txid, vout}, output}
     end)
+  end
+
+  @doc """
+  `stored_outputs/1`'s result as values in satoshis, `lookup/1`'s shape:
+  an element that names another index or carries no value is left out.
+  """
+  @spec values(%{{String.t(), non_neg_integer()} => String.t()}) :: %{
+          {String.t(), non_neg_integer()} => non_neg_integer()
+        }
+  def values(stored) do
+    for {{_txid, vout} = outpoint, json} <- stored,
+        sats = output_value(json, vout),
+        is_integer(sats),
+        into: %{},
+        do: {outpoint, sats}
   end
 
   @doc """

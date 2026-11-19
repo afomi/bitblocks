@@ -513,6 +513,106 @@
     </p>
   </section>
 
+  <%!-- Bare multisig: who had to agree, and who did (Bitblocks.Multisig) --%>
+  <section
+    :if={@multisig_outputs != [] or @multisig_inputs != []}
+    id="tx-multisig"
+    class="bg-white border border-gray-200 rounded-lg p-6 mb-6 dark:bg-gray-800 dark:border-gray-700"
+  >
+    <h2 class="text-xl font-semibold text-gray-900 dark:text-white mb-2">
+      Who had to agree
+    </h2>
+
+    <div
+      :for={input <- @multisig_inputs}
+      id={"multisig-input-#{input.vin}"}
+      class="mb-4 last:mb-0"
+    >
+      <%= if input.status == :checked do %>
+        <p class="text-sm text-gray-700 dark:text-gray-300">
+          Input #<%= input.vin %> spends
+          <.link
+            navigate={~p"/transactions/#{input.txid}"}
+            class="font-mono underline text-blue-700 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
+          >
+            <%= String.slice(input.txid, 0, 16) %>…
+          </.link>
+          output #<%= input.vout %>, which was <%= String.downcase(Bitblocks.Multisig.lock_sentence(input.m, input.n)) %>.
+        </p>
+        <p
+          id={"multisig-input-#{input.vin}-signed"}
+          class="text-sm font-semibold text-gray-900 dark:text-white mt-1"
+        >
+          <%= BitblocksWeb.MultisigComponents.headline(input) %>
+        </p>
+        <BitblocksWeb.MultisigComponents.key_list
+          id={"multisig-input-#{input.vin}-keys"}
+          pubkeys={input.pubkeys}
+          states={BitblocksWeb.MultisigComponents.key_states(input)}
+        />
+        <p
+          :for={sig <- input.signatures}
+          :if={BitblocksWeb.MultisigComponents.signature_note(sig, input.n)}
+          id={"multisig-input-#{input.vin}-signature-#{sig.index}"}
+          class="text-sm text-gray-700 dark:text-gray-300 mt-1"
+        >
+          <%= BitblocksWeb.MultisigComponents.signature_note(sig, input.n) %>
+        </p>
+        <p
+          :if={input.extra_pushes > 0}
+          id={"multisig-input-#{input.vin}-extra"}
+          class="text-sm text-gray-700 dark:text-gray-300 mt-1"
+        >
+          Its unlocking script carries <%= input.extra_pushes %> more <%= BitblocksWeb.MultisigComponents.plural(input.extra_pushes, "item") %> than the lock has keys.
+          We read the first <%= input.n %>.
+        </p>
+        <p class="text-xs text-gray-600 dark:text-gray-400 mt-2">
+          We checked each signature against the keys of the output it spends, in the order the keys are listed.
+          We didn't run the rest of the script.
+        </p>
+      <% else %>
+        <p class="text-sm text-gray-700 dark:text-gray-300">
+          Input #<%= input.vin %>: previous output not in our index.
+        </p>
+        <p class="text-sm text-gray-600 dark:text-gray-400 mt-1">
+          Its unlocking script carries <%= length(input.signatures) + input.extra_pushes %> <%= BitblocksWeb.MultisigComponents.plural(length(input.signatures) + input.extra_pushes, "signature") %> in a multisig spend's shape.
+          Without the output it spends, we can't say which keys signed.
+        </p>
+      <% end %>
+    </div>
+
+    <p
+      :if={@multisig_more_inputs}
+      id="multisig-more-inputs"
+      class="text-sm text-gray-600 dark:text-gray-400 mb-4"
+    >
+      This page reads the first <%= Bitblocks.Multisig.max_inputs() %> multisig inputs.
+      Later inputs that may spend a multisig output aren't shown.
+    </p>
+
+    <div
+      :for={descriptor <- @multisig_outputs}
+      id={"multisig-output-#{descriptor.vout}"}
+      class="mb-4 last:mb-0"
+    >
+      <p class="text-sm text-gray-700 dark:text-gray-300">
+        Output #<%= descriptor.vout %> is <%= String.downcase(Bitblocks.Multisig.lock_sentence(descriptor.fields.m, descriptor.fields.n)) %>.
+      </p>
+      <p
+        :if={descriptor.fields.n > 1}
+        class="text-sm text-gray-600 dark:text-gray-400 mt-1"
+      >
+        <%= if descriptor.fields.m == descriptor.fields.n,
+          do: "Every one of them has to sign to spend it.",
+          else: "Any #{descriptor.fields.m} of them, signing together, can spend it." %>
+      </p>
+      <BitblocksWeb.MultisigComponents.key_list
+        id={"multisig-output-#{descriptor.vout}-keys"}
+        pubkeys={descriptor.fields.pubkeys}
+      />
+    </div>
+  </section>
+
   <%!-- HodLocker (#75): what this tx's time locks back, from Bitblocks.HodLocker --%>
   <section
     :if={@hodlocker}
