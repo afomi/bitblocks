@@ -90,7 +90,7 @@ defmodule Bitblocks.MixProject do
       {:ueberauth, "~> 0.10"},
       {:ueberauth_github, "~> 0.8"},
       # x402 payments for the AI crawler 402 (docs/STRIPE.md).
-      {:x402_ex, git: "https://github.com/afomi/x402_ex.git", tag: "v0.1.1"}
+      {:x402_ex, git: "https://github.com/afomi/x402_ex.git", tag: "v0.1.2"}
     ]
   end
 
