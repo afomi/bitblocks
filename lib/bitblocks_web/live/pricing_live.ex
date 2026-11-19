@@ -28,6 +28,12 @@ defmodule BitblocksWeb.PricingLive do
   is an aggregate over `blocks`: a request inside the interval waits for its
   end, and only the latest one runs.
 
+  `#cloud` (`BitblocksWeb.PricingLive.CloudQuote`,
+  https://github.com/afomi/bitblocks/issues/113) describes managed
+  projections, filtered databases and dedicated instances, and requests a
+  quote by mail with a filter spec and a bounded estimate. `#consulting`
+  (https://github.com/afomi/bitblocks/issues/114) is a mailto, nothing more.
+
   `#usage` shows a signed-in user their own measured use (`Bitblocks.Usage`)
   over the last 24 hours: as themselves, and through their key. No API price
   is set yet (https://github.com/afomi/bitblocks/issues/61).
@@ -341,6 +347,14 @@ defmodule BitblocksWeb.PricingLive do
 
     "mailto:#{email}?" <> URI.encode_query(%{subject: subject, body: body}, :rfc3986)
   end
+
+  @doc """
+  The mailto for consulting (https://github.com/afomi/bitblocks/issues/114):
+  our address with the subject set. Consulting is quoted and invoiced by
+  hand, so it has no Checkout, plan or key here.
+  """
+  def consulting_mailto(email),
+    do: "mailto:#{email}?" <> URI.encode_query(%{subject: "Consulting enquiry"}, :rfc3986)
 
   @doc """
   The price as the quote shows it, with its arithmetic:
