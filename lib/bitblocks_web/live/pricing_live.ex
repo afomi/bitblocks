@@ -350,11 +350,26 @@ defmodule BitblocksWeb.PricingLive do
 
   @doc """
   The mailto for consulting (https://github.com/afomi/bitblocks/issues/114):
-  our address with the subject set. Consulting is quoted and invoiced by
-  hand, so it has no Checkout, plan or key here.
+  our address with the subject set, and a body asking what a scope needs.
+  Consulting is through Civic Studio, quoted and invoiced there, so it has
+  no Checkout, plan or key here.
   """
-  def consulting_mailto(email),
-    do: "mailto:#{email}?" <> URI.encode_query(%{subject: "Consulting enquiry"}, :rfc3986)
+  def consulting_mailto(email) do
+    body =
+      Enum.join(
+        [
+          "Organization:",
+          "What you're building:",
+          "What you need from us:",
+          "A scoped project, or a block of technical hours:",
+          "Timeline:"
+        ],
+        "\n"
+      )
+
+    "mailto:#{email}?" <>
+      URI.encode_query(%{subject: "Consulting enquiry", body: body}, :rfc3986)
+  end
 
   @doc """
   The price as the quote shows it, with its arithmetic:
