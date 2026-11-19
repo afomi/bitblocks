@@ -281,20 +281,35 @@ defmodule Bitblocks.Chain.TxIngest do
     )
   end
 
-  defp insert_row(changeset, txid) do
+  # The row's own INSERT, before any :tx step runs. A step's cancel is
+  # logged by TxPipeline with the step's name; this one is the insert itself
+  # (the row and its index entries), named `step=insert_row`.
+  defp insert_row(changeset, attrs, block, started) do
     case Repo.insert(changeset, on_conflict: :nothing, conflict_target: :txid) do
       {:ok, tx} -> {:ok, tx}
       {:error, changeset} -> {:error, {:changeset, changeset}}
     end
   rescue
     e in Postgrex.Error ->
-      Logger.error(
-        "TxIngest insert of tx #{txid} canceled (#{inspect(e.postgres[:code])}): " <>
-          Exception.message(e)
-      )
-
+      took = System.monotonic_time(:millisecond) - started
+      Logger.error(cancel_message(attrs, block, e.postgres[:code], took, Exception.message(e)))
       {:error, {:insert_canceled, e.postgres[:code]}}
   end
+
+  @doc false
+  # The cancel line infra reads in the digest (#87): which stage, which block
+  # and tx, how big the tx is, and how long it ran before Postgres stopped it.
+  def cancel_message(attrs, block, code, took_ms, message) do
+    "TxIngest insert canceled step=insert_row block=#{block_height(block)} tx=#{attrs.txid} " <>
+      "code=#{code} took=#{took_ms}ms inputs=#{length(attrs[:inputs] || [])} " <>
+      "outputs=#{length(attrs[:outputs] || [])} size=#{byte_size_of(attrs)}: #{message}"
+  end
+
+  defp block_height(%{height: height}), do: height
+  defp block_height(_), do: "unknown"
+
+  defp byte_size_of(%{raw: raw}) when is_binary(raw), do: div(byte_size(raw), 2)
+  defp byte_size_of(_), do: "unknown"
 
   # A tx whose insert and steps took over half their budget, named with its
   # size, so a slow one is found before the client timeout kills it (#87).
@@ -324,7 +339,7 @@ defmodule Bitblocks.Chain.TxIngest do
         fn ->
           server_timeouts(timeout)
 
-          case insert_row(changeset, attrs.txid) do
+          case insert_row(changeset, attrs, block, started) do
             {:ok, tx} ->
               case Enum.find(TxPipeline.run_tx(tx, block), &match?({_, {:error, _}}, &1)) do
                 nil -> :ok

@@ -67,7 +67,15 @@ defmodule BitblocksWeb.StripeWebhookControllerTest do
     {body, signature} = signed(event("checkout.session.completed", completed_session(p)))
     without_checkout()
 
-    assert json_response(deliver(conn, body, signature), 503) == %{"error" => "not_configured"}
+    log =
+      ExUnit.CaptureLog.capture_log(fn ->
+        assert json_response(deliver(conn, body, signature), 503) == %{
+                 "error" => "not_configured"
+               }
+      end)
+
+    # Logged, so a registered endpoint sending into a dormant app shows up (#143).
+    assert log =~ "no webhook secret is set"
     assert Repo.get!(Purchase, p.id).status == "checkout_open"
   end
 
