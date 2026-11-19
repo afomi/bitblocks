@@ -518,8 +518,14 @@ defmodule Bitblocks.Derivations do
   # the same connection.
   defp note_transaction do
     %{rows: [[pid, started]]} = Repo.query!("SELECT pg_backend_pid(), now()")
-    Process.put(@open_tx, {pid, started})
+    put_open_transaction({pid, started})
   end
+
+  @doc false
+  # Notes `{backend_pid, xact_start}` as this process's open transaction, as
+  # bounded/2 does under `watched: true`; a test of the watchdog notes one it
+  # opened on its own connection.
+  def put_open_transaction(open), do: Process.put(@open_tx, open)
 
   @doc """
   The bounded transaction `pid` has open, as `{backend_pid, xact_start}`,
@@ -537,20 +543,36 @@ defmodule Bitblocks.Derivations do
   Cancels the statement of a transaction a killed process left open, named
   by `open_transaction/1`, only while that backend is still in that same
   transaction: a connection already back in the pool has another
-  `xact_start`, or none, and is left alone. Returns whether one was
-  cancelled.
+  `xact_start`, or none, and is left alone. Returns what it found:
+
+    * `:cancelled`: the backend was running a statement in that
+      transaction, and it was cancelled;
+    * `:idle`: the backend was still in that transaction but between
+      statements, so there was nothing to cancel (it aborts the transaction
+      once the pool's disconnect reaches it);
+    * `:gone`: the backend is no longer in that transaction;
+    * `:none`: no transaction was open.
   """
-  @spec cancel_transaction({integer(), DateTime.t()} | nil) :: boolean()
-  def cancel_transaction(nil), do: false
+  @spec cancel_transaction({integer(), DateTime.t()} | nil) ::
+          :cancelled | :idle | :gone | :none
+  def cancel_transaction(nil), do: :none
 
   def cancel_transaction({backend_pid, started}) do
     %{rows: rows} =
       Repo.query!(
-        "SELECT pg_cancel_backend(pid) FROM pg_stat_activity WHERE pid = $1 AND xact_start = $2",
+        """
+        SELECT CASE WHEN state = 'active' THEN pg_cancel_backend(pid) ELSE false END
+        FROM pg_stat_activity
+        WHERE pid = $1 AND xact_start = $2
+        """,
         [backend_pid, started]
       )
 
-    rows == [[true]]
+    case rows do
+      [[true]] -> :cancelled
+      [[false]] -> :idle
+      [] -> :gone
+    end
   end
 
   defp statement_timeout_ms(opts) do

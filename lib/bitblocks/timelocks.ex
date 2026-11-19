@@ -210,13 +210,19 @@ defmodule Bitblocks.Timelocks do
   completes, but nothing records from which height it began, so those
   blocks count here once a backfill run covers them. Reads
   `derivation_runs`, a small table.
+
+  `halted` runs count too: a backfill chain hands a range off at a deploy
+  as a `halted` run and an `ok` one (`Bitblocks.BackfillChains`). A halted
+  run's `to_height` is the last block it finished whole, so the two tile
+  the range; one that finished no block has a nil `to_height` and counts
+  for nothing.
   """
   @spec indexed_through(integer() | nil) :: non_neg_integer() | nil
   def indexed_through(complete_through) when is_integer(complete_through) do
     through =
       from(r in Run,
         where:
-          r.derivation == "timelocks" and r.applied and r.outcome == "ok" and
+          r.derivation == "timelocks" and r.applied and r.outcome in ["ok", "halted"] and
             r.version == ^@version and not is_nil(r.from_height) and not is_nil(r.to_height),
         order_by: [asc: r.from_height, desc: r.to_height],
         select: {r.from_height, r.to_height}

@@ -74,12 +74,15 @@ defmodule Bitblocks.BackfillChains do
     2. The transaction rolls back. A COMMIT is only ever sent by the
        runner, which is dead, so nothing of the batch in flight commits.
        DBConnection's pool owns the connection, and on its holder's death
-       it disconnects it rather than checking it back in; Postgres aborts a
-       transaction whose client is gone. A statement still running on the
-       server would only notice at its end, holding its row locks until
-       then, so the job also cancels it (`pg_cancel_backend`), only while
-       that backend is still in that same transaction: a connection already
-       back in the pool has another `xact_start`, and is left alone.
+       it disconnects it rather than checking it back in. Postgrex's
+       disconnect sends a cancel request for the statement in flight and
+       then Terminate, so the backend aborts the transaction and its row
+       locks are freed at once (`BackfillWatchdogRollbackTest` shows it on a
+       real connection). As a second line, should that cancel not land, the
+       job cancels the statement itself (`pg_cancel_backend`), only while
+       that backend is still in that same transaction and running a
+       statement: a connection already back in the pool has another
+       `xact_start`, and is left alone. Its log line says which it found.
     3. It hands off at the last committed checkpoint, as above: the run
        left `running` reads `halted`, the heartbeat is cleared, and the job
        returns `{:snooze, 5}`. Oban records the snooze as `scheduled` five
@@ -419,11 +422,9 @@ defmodule Bitblocks.BackfillChains do
       {^ref, result} -> result
     after
       0 ->
-        cancelled? = cancel_open(open)
-
         Logger.warning(
-          "Backfill: shutdown watchdog stopped the batch in flight" <>
-            if(cancelled?, do: "; its statement cancelled", else: "")
+          "Backfill: shutdown watchdog stopped the batch in flight; " <>
+            describe_cancel(cancel_open(open))
         )
 
         :watchdog
@@ -435,10 +436,26 @@ defmodule Bitblocks.BackfillChains do
   defp cancel_open(open) do
     Derivations.cancel_transaction(open)
   rescue
-    error ->
-      Logger.warning("Backfill: statement not cancelled: " <> Exception.message(error))
-      false
+    error -> {:error, Exception.message(error)}
   end
+
+  @doc false
+  # What the watchdog's log line says happened to the runner's transaction.
+  def describe_cancel(:cancelled),
+    do: "its running statement was cancelled and its transaction rolls back"
+
+  def describe_cancel(:idle),
+    do: "its transaction was idle between statements, nothing to cancel; it rolls back"
+
+  def describe_cancel(:gone),
+    do:
+      "its transaction had already ended (the pool's disconnect cancelled and closed it, " <>
+        "or it committed just before the kill), nothing to cancel"
+
+  def describe_cancel(:none), do: "it had no transaction open"
+
+  def describe_cancel({:error, message}),
+    do: "its statement could not be cancelled (#{message}); its transaction still rolls back"
 
   defp watchdog_due? do
     case Bitblocks.Shutdown.stopping_for_ms() do
@@ -464,10 +481,7 @@ defmodule Bitblocks.BackfillChains do
       )
 
     running = from(r in Run, where: r.chain_id == ^chain.id and r.outcome == "running")
-
-    if checkpoint do
-      Repo.update_all(where(running, [r], not is_nil(r.to_height)), set: [to_height: checkpoint])
-    end
+    cover_to_checkpoint(running, checkpoint, tx)
 
     # Its counts are those saved with its last checkpoint.
     Repo.update_all(running,
@@ -487,6 +501,26 @@ defmodule Bitblocks.BackfillChains do
     {:snooze, @hand_off_snooze_s}
   end
 
+  # A halted run's `to_height` is the last block it finished whole, so the
+  # runs of a range tile it with no overlap and no gap
+  # (`Timelocks.indexed_through/1` reads them that way): the checkpoint's
+  # block when it is done whole, the block before when the run stopped
+  # inside it (the next run starts at that block). A run that finished no
+  # block of its own (its checkpoint predates it, a watchdog stop before its
+  # first batch was saved) gets nil: it covers nothing. A run with no
+  # heights (tx_size) is left alone.
+  defp cover_to_checkpoint(runs, checkpoint, tx) do
+    runs = where(runs, [r], not is_nil(r.from_height) and not is_nil(r.to_height))
+    covered = if is_integer(checkpoint), do: if(tx, do: checkpoint - 1, else: checkpoint)
+
+    if covered do
+      Repo.update_all(where(runs, [r], r.from_height <= ^covered), set: [to_height: covered])
+      Repo.update_all(where(runs, [r], r.from_height > ^covered), set: [to_height: nil])
+    else
+      Repo.update_all(runs, set: [to_height: nil])
+    end
+  end
+
   defp describe_checkpoint(checkpoint, nil), do: inspect(checkpoint)
   defp describe_checkpoint(checkpoint, tx), do: "#{checkpoint} (inside, after tx id #{tx})"
 
@@ -504,10 +538,8 @@ defmodule Bitblocks.BackfillChains do
         set: [heartbeat_at: nil, handed_off_at: DateTime.utc_now()]
       )
 
-    # The run covered its start up to the checkpoint; the next starts after it.
-    # (A tx_size run records no heights.)
-    if report.run_id && checkpoint && report.to_height do
-      Repo.update_all(from(r in Run, where: r.id == ^report.run_id), set: [to_height: checkpoint])
+    if report.run_id do
+      cover_to_checkpoint(from(r in Run, where: r.id == ^report.run_id), checkpoint, tx)
     end
 
     Logger.info(

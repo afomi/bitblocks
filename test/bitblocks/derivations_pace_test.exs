@@ -151,8 +151,8 @@ defmodule Bitblocks.DerivationsPaceTest do
 
     test "cancels nothing on a backend no longer in that transaction" do
       %{rows: [[pid]]} = Repo.query!("SELECT pg_backend_pid()")
-      refute Derivations.cancel_transaction({pid, ~U[2000-01-01 00:00:00.000000Z]})
-      refute Derivations.cancel_transaction(nil)
+      assert Derivations.cancel_transaction({pid, ~U[2000-01-01 00:00:00.000000Z]}) == :gone
+      assert Derivations.cancel_transaction(nil) == :none
     end
   end
 end
