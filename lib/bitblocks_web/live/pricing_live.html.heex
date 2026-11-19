@@ -260,6 +260,43 @@
       </div>
     </section>
 
+    <%!-- Cloud services, quote request only (https://github.com/afomi/bitblocks/issues/113) --%>
+    <.live_component
+      module={BitblocksWeb.PricingLive.CloudQuote}
+      id="cloud-quote"
+      through={@coverage && @coverage.through}
+      contact_email={@contact_email}
+    />
+
+    <%!-- Consulting, outside the billing code (https://github.com/afomi/bitblocks/issues/114) --%>
+    <section
+      id="consulting"
+      aria-labelledby="consulting-heading"
+      class="border-t border-neutral-800 py-8 scroll-mt-6"
+    >
+      <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <h2
+            id="consulting-heading"
+            class="text-lg font-semibold text-neutral-50 mb-1"
+          >
+            Consulting
+          </h2>
+          <p class="text-sm text-neutral-500 leading-relaxed max-w-xl">
+            Building on BSV and want expert help with a scoped piece of work?
+            Tell us what you're building, and we'll agree a scope and send an invoice.
+          </p>
+        </div>
+        <a
+          id="consulting-contact"
+          href={consulting_mailto(@contact_email)}
+          class="shrink-0 px-6 py-3 rounded border border-neutral-700 text-neutral-50 font-medium hover:border-brand focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand text-center"
+        >
+          Contact us<span class="sr-only"> about consulting</span>
+        </a>
+      </div>
+    </section>
+
     <%!-- Bulk downloads, the free quote (#111): no checkout yet --%>
     <section
       id="downloads"

@@ -243,4 +243,7 @@ Keep the sponsorship ledger and service revenue separate, the same rule as the s
    Bitblocks has no MCP server.
    A read-only one (tx, address and Bitcom lookups, plus projection status and hydrate) is worth adding after tenant keys exist, so agent traffic is keyed like any tenant's.
 
+Asking for one: `/pricing#cloud` (https://github.com/afomi/bitblocks/issues/113) reads a filter the way `Projection.changeset/2` takes it, shows its JSON and definition hash, and estimates what it would hold today with the projection's own query, over blocks to `complete_through`, counted to a cap under a short statement timeout (`Bitblocks.CloudQuote`).
+There is no price yet: "Request a quote" mails the spec and the estimate to us.
+
 Operating a projection from the CLI: `Release.create_projection/1`, `list_projections/0`, `set_projection_from_height/2`, `pause_projection/1`, `resume_projection/1`, `set_projection_webhook/2`.

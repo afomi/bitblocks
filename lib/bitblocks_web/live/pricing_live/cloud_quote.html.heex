@@ -1,0 +1,393 @@
+<section
+  id="cloud"
+  aria-labelledby="cloud-heading"
+  class="border-t border-neutral-800 py-8 scroll-mt-6"
+>
+  <p class="font-mono text-xs text-neutral-500 uppercase tracking-wider mb-2">
+    Cloud
+  </p>
+  <h2
+    id="cloud-heading"
+    class="text-lg font-semibold text-neutral-50 mb-3"
+  >
+    Cloud services
+  </h2>
+  <div class="max-w-2xl space-y-3 text-sm text-neutral-400 leading-relaxed mb-6">
+    <p>
+      Need one slice of the chain kept current, without running a node or indexing the whole chain?
+      We run your filter against our full index and keep it current for you.
+    </p>
+    <p>
+      Every cloud service is quoted: describe what you need below, see what it would hold today, and send it to us.
+    </p>
+  </div>
+
+  <ul
+    id="cloud-services"
+    class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6"
+  >
+    <li
+      id="cloud-service-card-projection"
+      class="bg-surface-raised rounded p-6 border border-neutral-800 flex flex-col"
+    >
+      <h3 class="text-sm font-medium text-neutral-50 mb-2">
+        Managed projections
+      </h3>
+      <p class="text-sm text-neutral-500 leading-relaxed mb-4 grow">
+        Your filter over every tx we hold, kept current.
+        Hydrate its history with a cursor, then follow new matches over SSE or a webhook, through
+        <code class="font-mono text-xs text-neutral-50 break-all">/api/v1/projections/:id</code>.
+      </p>
+      <button
+        type="button"
+        id="cloud-choose-projection"
+        phx-click={choose("projection", @myself)}
+        class="self-start px-4 py-2 rounded border border-neutral-700 text-sm text-neutral-50 hover:border-brand focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand"
+      >
+        Request a quote<span class="sr-only"> for managed projections</span>
+      </button>
+    </li>
+    <li
+      id="cloud-service-card-database"
+      class="bg-surface-raised rounded p-6 border border-neutral-800 flex flex-col"
+    >
+      <h3 class="text-sm font-medium text-neutral-50 mb-2">
+        Filtered databases
+      </h3>
+      <p class="text-sm text-neutral-500 leading-relaxed mb-4 grow">
+        The same filter, delivered as a Postgres database we host and keep current.
+        You query it with SQL; we run the node and the index.
+      </p>
+      <button
+        type="button"
+        id="cloud-choose-database"
+        phx-click={choose("database", @myself)}
+        class="self-start px-4 py-2 rounded border border-neutral-700 text-sm text-neutral-50 hover:border-brand focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand"
+      >
+        Request a quote<span class="sr-only"> for filtered databases</span>
+      </button>
+    </li>
+    <li
+      id="cloud-service-card-instance"
+      class="bg-surface-raised rounded p-6 border border-neutral-800 flex flex-col"
+    >
+      <h3 class="text-sm font-medium text-neutral-50 mb-2">
+        Dedicated instances
+      </h3>
+      <p class="text-sm text-neutral-500 leading-relaxed mb-4 grow">
+        A Bitblocks instance of your own, the whole index or a slice of it, for load that shouldn't be shared.
+        We size it with you.
+      </p>
+      <button
+        type="button"
+        id="cloud-choose-instance"
+        phx-click={choose("instance", @myself)}
+        class="self-start px-4 py-2 rounded border border-neutral-700 text-sm text-neutral-50 hover:border-brand focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand"
+      >
+        Request a quote<span class="sr-only"> for dedicated instances</span>
+      </button>
+    </li>
+  </ul>
+
+  <h3
+    id="cloud-quote-heading"
+    class="text-sm font-medium text-neutral-50 mb-3"
+  >
+    Describe what you need
+  </h3>
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+    <.form
+      for={@form}
+      id="cloud-form"
+      phx-change="change"
+      phx-submit="estimate"
+      phx-target={@myself}
+      class="bg-surface-raised rounded p-6 border border-neutral-800 space-y-5"
+    >
+      <fieldset>
+        <legend class="text-sm font-medium text-neutral-50 mb-2">
+          Service
+        </legend>
+        <div class="space-y-2">
+          <label
+            :for={service <- Bitblocks.CloudQuote.services()}
+            for={"cloud-service-#{service.id}"}
+            class="flex items-start gap-2 text-sm text-neutral-50"
+          >
+            <input
+              id={"cloud-service-#{service.id}"}
+              type="radio"
+              name={@form[:service].name}
+              value={service.id}
+              checked={@form[:service].value == service.id}
+              class="mt-1"
+            />
+            <span>
+              {service.label}
+              <span class="block text-xs text-neutral-500">{service.delivery}</span>
+            </span>
+          </label>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend class="text-sm font-medium text-neutral-50 mb-2">
+          What it reads
+        </legend>
+        <div class="space-y-2">
+          <label
+            for="cloud-source-transactions"
+            class="flex items-start gap-2 text-sm text-neutral-50"
+          >
+            <input
+              id="cloud-source-transactions"
+              type="radio"
+              name={@form[:source].name}
+              value="transactions"
+              checked={@form[:source].value != "bitcom_commands"}
+              class="mt-1"
+            />
+            <span>
+              Transactions, by their tags
+              <span class="block text-xs text-neutral-500">source: transactions</span>
+            </span>
+          </label>
+          <label
+            for="cloud-source-bitcom_commands"
+            class="flex items-start gap-2 text-sm text-neutral-50"
+          >
+            <input
+              id="cloud-source-bitcom_commands"
+              type="radio"
+              name={@form[:source].name}
+              value="bitcom_commands"
+              checked={@form[:source].value == "bitcom_commands"}
+              class="mt-1"
+            />
+            <span>
+              The Bitcom command log
+              <span class="block text-xs text-neutral-500">source: bitcom_commands</span>
+            </span>
+          </label>
+        </div>
+      </fieldset>
+
+      <fieldset
+        :if={@form[:source].value != "bitcom_commands"}
+        id="cloud-filter"
+        aria-describedby="cloud-filter-rule"
+      >
+        <legend class="text-sm font-medium text-neutral-50 mb-1">
+          Filter
+        </legend>
+        <p
+          id="cloud-filter-rule"
+          class="text-xs text-neutral-500 mb-3"
+        >
+          A tx matches when it carries every value you list.
+          Separate values with commas or new lines, up to {Bitblocks.CloudQuote.max_values()} in each.
+        </p>
+        <div class="space-y-3">
+          <div :for={column <- Bitblocks.CloudQuote.columns()}>
+            <label
+              for={"cloud-filter-#{column.column}"}
+              class="block text-xs text-neutral-50 mb-1"
+            >
+              {column.label}
+              <code class="font-mono text-neutral-500">{column.column}</code>
+            </label>
+            <textarea
+              id={"cloud-filter-#{column.column}"}
+              name={"cloud[filter][#{column.column}]"}
+              rows="1"
+              autocomplete="off"
+              spellcheck="false"
+              phx-debounce="400"
+              aria-describedby={"cloud-filter-#{column.column}-hint"}
+              class="block w-full rounded border border-neutral-700 bg-surface-base px-3 py-2 font-mono text-sm text-neutral-50"
+            >{Phoenix.HTML.Form.normalize_value("textarea", get_in(@form.params, ["filter", column.column]))}</textarea>
+            <p
+              id={"cloud-filter-#{column.column}-hint"}
+              class="text-xs text-neutral-500 mt-1"
+            >
+              {column.hint}
+            </p>
+          </div>
+        </div>
+      </fieldset>
+
+      <div :if={@form[:source].value == "bitcom_commands"}>
+        <label
+          for="cloud-namespace"
+          class="block text-sm font-medium text-neutral-50 mb-1"
+        >
+          Bitcom namespace (optional)
+        </label>
+        <input
+          id="cloud-namespace"
+          type="text"
+          autocomplete="off"
+          spellcheck="false"
+          phx-debounce="400"
+          name={@form[:namespace].name}
+          value={@form[:namespace].value}
+          aria-describedby="cloud-namespace-hint"
+          class="block w-full rounded border border-neutral-700 bg-surface-base px-3 py-2 font-mono text-sm text-neutral-50"
+        />
+        <p
+          id="cloud-namespace-hint"
+          class="text-xs text-neutral-500 mt-1"
+        >
+          A command projection serves the whole command log, so its filter is empty.
+          A namespace narrows this estimate, and we note it in your request.
+        </p>
+      </div>
+
+      <div>
+        <label
+          for="cloud-from"
+          class="block text-sm font-medium text-neutral-50 mb-1"
+        >
+          History from block
+        </label>
+        <input
+          id="cloud-from"
+          type="text"
+          inputmode="numeric"
+          autocomplete="off"
+          phx-debounce="400"
+          name={@form[:from_height].name}
+          value={@form[:from_height].value}
+          aria-describedby="cloud-from-hint"
+          class="block w-full rounded border border-neutral-700 bg-surface-base px-3 py-2 font-mono text-sm text-neutral-50 tabular-nums"
+        />
+        <p
+          id="cloud-from-hint"
+          class="text-xs text-neutral-500 mt-1"
+        >
+          The projection's <code class="font-mono">from_height</code>: the first block it covers.
+        </p>
+      </div>
+
+      <button
+        type="submit"
+        id="cloud-estimate-button"
+        disabled={@estimating}
+        class="w-full sm:w-auto px-6 py-3 rounded border border-neutral-700 text-neutral-50 font-medium hover:border-brand focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand disabled:opacity-60 disabled:cursor-wait"
+      >
+        <%= if @estimating do %>
+          Counting...
+        <% else %>
+          Estimate
+        <% end %>
+      </button>
+    </.form>
+
+    <div
+      id="cloud-result"
+      aria-live="polite"
+      class="bg-surface-raised rounded p-6 border border-neutral-800 space-y-4 min-w-0"
+    >
+      <ul
+        :if={match?({:error, _}, @spec)}
+        id="cloud-errors"
+        class="text-sm text-neutral-50 space-y-1 list-disc pl-5"
+      >
+        <li :for={message <- elem(@spec, 1)}>{message}</li>
+      </ul>
+
+      <%= if spec = ok_spec(@spec) do %>
+      <div>
+        <p class="text-xs text-neutral-500 mb-1">
+          The filter, as the projection API takes it
+        </p>
+        <pre
+          id="cloud-filter-json"
+          class="font-mono text-xs text-neutral-50 bg-surface-base rounded border border-neutral-800 p-3 whitespace-pre-wrap break-all"
+        >{Bitblocks.CloudQuote.filter_json(spec)}</pre>
+        <p
+          :if={spec.definition_hash}
+          class="text-xs text-neutral-500 mt-2 break-all"
+        >
+          Definition hash
+          <span
+            id="cloud-definition-hash"
+            class="font-mono text-neutral-50"
+          >{spec.definition_hash}</span>
+        </p>
+      </div>
+      <% end %>
+
+      <div id="cloud-estimate-area">
+        <p class="text-xs text-neutral-500 mb-1">
+          What it would hold today
+        </p>
+        <p
+          :if={@estimating}
+          id="cloud-estimating"
+          class="text-sm text-neutral-500"
+        >
+          Counting...
+        </p>
+        <p
+          :if={!@estimating && @estimate_error}
+          id="cloud-estimate-error"
+          class="text-sm text-neutral-50"
+        >
+          {@estimate_error}
+        </p>
+        <div
+          :if={!@estimating && @estimate}
+          id="cloud-estimate"
+        >
+          <p class="text-2xl font-semibold text-neutral-50 tabular-nums">
+            <%= if @estimate.capped do %>
+              More than {format_number(@estimate.cap)}
+            <% else %>
+              {format_number(@estimate.count)}
+            <% end %>
+            <span class="text-sm font-normal text-neutral-400">{@estimate.unit}</span>
+          </p>
+          <p
+            id="cloud-estimate-covers"
+            class="text-xs text-neutral-500 mt-1"
+          >
+            An estimate, counted now over blocks
+            <span class="font-mono tabular-nums text-neutral-50">{format_number(@estimate.from)}</span>
+            to
+            <span class="font-mono tabular-nums text-neutral-50">{format_number(@estimate.through)}</span>,
+            the blocks we hold complete.
+            The count stops at {format_number(@estimate.cap)}, and newer blocks will add to it.
+          </p>
+        </div>
+        <p
+          :if={!@estimating && !@estimate && !@estimate_error}
+          id="cloud-estimate-none"
+          class="text-sm text-neutral-500"
+        >
+          Choose "Estimate" to count what it would hold today.
+          <%= if @through do %>
+            We hold every block complete through
+            <span class="font-mono tabular-nums text-neutral-50">{format_number(@through)}</span>.
+          <% end %>
+        </p>
+      </div>
+
+      <div class="border-t border-neutral-800 pt-4">
+        <a
+          id="cloud-request"
+          href={Bitblocks.CloudQuote.mailto(@contact_email, @form[:service].value, ok_spec(@spec), @estimate)}
+          class="inline-block px-6 py-3 bg-brand-strong text-white font-medium rounded hover:opacity-90 transition-colors text-center focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand"
+        >
+          Request a quote
+        </a>
+        <p class="text-xs text-neutral-500 mt-3">
+          This opens an email to
+          <span class="font-mono text-neutral-50">{@contact_email}</span>
+          with your request filled in.
+          We'll reply with a quote.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>

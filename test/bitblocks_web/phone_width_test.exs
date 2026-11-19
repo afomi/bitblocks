@@ -143,6 +143,21 @@ defmodule BitblocksWeb.PhoneWidthTest do
     assert overflow(session) <= 0, "/pricing with an estimate scrolls sideways at #{@width} px"
   end
 
+  test "/pricing#cloud with a filter estimated fits a phone", %{session: session} do
+    transaction_fixture(%{block_height: 3, protocols: ["MAP"]})
+
+    session =
+      session
+      |> visit("/pricing#cloud")
+      |> fill_in(css("#cloud-filter-protocols"), with: "MAP")
+      |> assert_has(css("#cloud-definition-hash"))
+      |> click(css("#cloud-estimate-button"))
+      |> assert_has(css("#cloud-estimate-covers"))
+
+    assert overflow(session) <= 0,
+           "/pricing#cloud with an estimate scrolls sideways at #{@width} px"
+  end
+
   test "the menu button opens the menu on a phone", %{session: session} do
     session
     |> visit("/")
