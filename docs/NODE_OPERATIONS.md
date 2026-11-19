@@ -127,7 +127,8 @@ The node keeps a lot in memory and writes it out at shutdown.
 Docker's default is to wait 10 seconds and then kill the process.
 A killed node can come back needing a `-reindex`, which re-reads the whole chain and takes days.
 
-The production box already runs with a 3600 s stop timeout and `unless-stopped`; this section is for a new node.
+The production box runs this way since 2026-11-19 (https://github.com/afomi/bitblocks/issues/54): `unless-stopped`, a 3600 s stop timeout, a 48 GiB memory limit, Docker log rotation (100 MB, 5 files) and a health check (`bitcoin-cli getblockcount`, every 5 minutes, 30 minutes to start).
+The rest of this section is for a new node.
 If you use Compose, give it a long grace period, a restart policy and a memory limit:
 
 ```yaml
@@ -136,7 +137,7 @@ services:
     image: bitcoinsv/bitcoin-sv:<pinned-version>   # pin it; never :latest
     restart: unless-stopped
     stop_grace_period: 15m
-    mem_limit: 12g        # above dbcache + maxmempool + ~2 GB headroom
+    mem_limit: 48g        # above every cache's ceiling: coinsdbcache + dbcache + maxsigcachesize + maxmempool, plus headroom
     ulimits:
       nofile: 65536
     ports:
@@ -151,7 +152,8 @@ services:
         max-file: "5"
 ```
 
-If you started it with `docker run`, the same flags are `--restart unless-stopped --stop-timeout 900 --memory 12g --log-opt max-size=100m --log-opt max-file=5`.
+If you started it with `docker run`, the same flags are `--restart unless-stopped --stop-timeout 3600 --memory 48g --memory-swap 48g --log-opt max-size=100m --log-opt max-file=5 --health-cmd 'bitcoin-cli getblockcount >/dev/null' --health-interval 5m --health-start-period 30m`.
+Size the memory limit from your own config, never below the caches' total: on the production box `coinsdbcache=16384`, `dbcache=2048`, `maxsigcachesize=4GB` and `maxmempool=16000` reach about 38 GiB at most, so 12 GiB would get the node killed.
 Changing them means recreating the container (the data dir is a volume, so the chain survives).
 Check what you have now:
 
@@ -206,7 +208,8 @@ docker inspect --format '{{.LogPath}}' $BSV_CONTAINER | xargs sudo ls -lh
 ```
 
 With `printtoconsole=1` and the Docker log options above, Docker rotates the log for you.
-If the node writes `debug.log` instead, rotate it on the host:
+The production box's node writes its own log file in the data dir (`bitcoind.log`), so a logrotate entry rotates it weekly, as the file's owner, with `copytruncate`.
+If your node writes a log file too, rotate it on the host:
 
 ```bash
 sudo tee /etc/logrotate.d/bsv-node >/dev/null <<'EOF'
