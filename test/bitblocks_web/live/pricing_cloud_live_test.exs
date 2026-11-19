@@ -131,7 +131,16 @@ defmodule BitblocksWeb.PricingCloudLiveTest do
       assert has_element?(view, "#consulting-contact", "Contact us")
 
       [href] = html |> Floki.parse_document!() |> Floki.attribute("#consulting-contact", "href")
-      assert {@email, %{"subject" => "Consulting enquiry"}} = mail_parts(href)
+      assert {@email, %{"subject" => "Consulting enquiry", "body" => body}} = mail_parts(href)
+      assert body =~ "block of technical hours"
+
+      assert has_element?(
+               view,
+               ~s(#consulting-civic-studio[href="https://civic.studio"]),
+               "Civic Studio"
+             )
+
+      assert render(element(view, "#consulting")) =~ "a block of technical hours"
       refute render(element(view, "#consulting")) =~ "$"
     end
 
