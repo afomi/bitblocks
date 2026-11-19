@@ -30,6 +30,11 @@ config :bitblocks, :sync_workers, 2
 # overrides it at runtime, and SYNC_STOP_AT_HEIGHT=none clears it.
 config :bitblocks, :sync_stop_at_height, 600_000
 
+# Bulk downloads cost $1.00 a GiB (Ryan, 2026-11-19), shown on exact quotes
+# at /pricing#downloads and GET /api/v1/downloads/quote. Dev and test leave it
+# unset (price on request); tests set it where they need it.
+config :bitblocks, Bitblocks.Downloads, price_usd_per_gib: "1.00"
+
 config :bitblocks, Oban,
   queues: [
     default: 10,

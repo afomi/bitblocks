@@ -131,6 +131,9 @@ config :bitblocks, :tx_type_counts_refresh, false
 # Tests refresh the /facts figures themselves (Bitblocks.Facts.refresh/0).
 config :bitblocks, :facts_refresh, false
 
+# /pricing quotes at once in tests; the interval's own test sets it.
+config :bitblocks, :downloads_quote_interval_ms, 0
+
 # Wallaby configuration
 config :wallaby,
   otp_app: :bitblocks,

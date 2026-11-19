@@ -24,9 +24,18 @@ defmodule Bitblocks.Downloads do
 
   Transaction JSON and data packs are listed as coming, and are refused.
 
-  No price is decided. `price_usd_per_gib` under `config :bitblocks,
-  Bitblocks.Downloads` is nil by default, and then the quote's `price_usd` is
-  nil and the price is on request.
+  The price is `price_usd_per_gib` under `config :bitblocks,
+  Bitblocks.Downloads`: $1.00 a GiB in prod (config/prod.exs), nil (price on
+  request) in dev and test unless set. The arithmetic is the quote's own:
+  `billable_gib` (bytes / 1,073,741,824, rounded half up to 0.01 GiB, at
+  least 0.01 for any bytes) times `price_usd_per_gib`, rounded to the cent.
+  A quote with a block of no stored size has only a lower bound, so no price.
+
+  To help choose a range, `presets/1` names a few ranges (the first 100,000
+  blocks, everything we hold, eras between halvings and forks), and
+  `size_bands/1` gives the size of each 50,000-block band up to
+  `complete_through`: one bounded aggregate per band over `blocks`, cached
+  for `:size_bands_ttl_ms` (10 minutes), since it changes slowly.
   """
 
   import Ecto.Query
@@ -38,6 +47,45 @@ defmodule Bitblocks.Downloads do
   @gib 1_073_741_824
   @missing_sample 10
   @query_timeout 15_000
+  @band_size 50_000
+  @size_bands_ttl_ms 600_000
+  @size_bands_key {__MODULE__, :size_bands}
+
+  # Ranges a buyer often wants. `:complete_through` as `to` means as far as
+  # we hold; every range is clipped to it. Heights from
+  # priv/data/chain_annotations.json.
+  @presets [
+    %{id: "first_100k", label: "First 100,000 blocks", from: 0, to: 99_999},
+    %{id: "all", label: "Everything we hold", from: 0, to: :complete_through},
+    %{
+      id: "first_halving",
+      label: "Up to the first halving",
+      from: 0,
+      to: 209_999,
+      note: "The 50-coin era"
+    },
+    %{
+      id: "second_halving",
+      label: "First to second halving",
+      from: 210_000,
+      to: 419_999,
+      note: "The 25-coin era"
+    },
+    %{
+      id: "before_bch",
+      label: "Before the Bitcoin Cash split",
+      from: 0,
+      to: 478_558,
+      note: "The history BTC, BCH and BSV share"
+    },
+    %{
+      id: "bsv",
+      label: "Bitcoin SV since its split",
+      from: 556_767,
+      to: :complete_through,
+      note: "From the November 2018 split on"
+    }
+  ]
 
   @data [
     %{
@@ -70,6 +118,8 @@ defmodule Bitblocks.Downloads do
           sizes_missing: non_neg_integer(),
           sizes_missing_heights: [non_neg_integer()],
           not_in_store: non_neg_integer(),
+          billable_gib: Decimal.t(),
+          price_usd_per_gib: Decimal.t() | nil,
           price_usd: Decimal.t() | nil
         }
 
@@ -108,7 +158,11 @@ defmodule Bitblocks.Downloads do
     * `not_in_store`: blocks whose object isn't in the tx store yet, which
       would be refetched from our node first;
     * `complete_through`: what the quote is bounded by;
-    * `price_usd`: nil while no price is configured.
+    * `billable_gib`: the size the price is figured on, `bytes` / 1 GiB
+      rounded half up to 0.01, and at least 0.01 for any bytes;
+    * `price_usd_per_gib`: the configured price, nil while none is set;
+    * `price_usd`: `billable_gib` x `price_usd_per_gib`, rounded to the
+      cent; nil while no price is set or while a size is missing.
   """
   @spec quote(term(), term(), term(), keyword()) :: {:ok, quote()} | {:error, error()}
   def quote(from, to, data, opts \\ []) do
@@ -121,11 +175,151 @@ defmodule Bitblocks.Downloads do
     end
   end
 
-  @doc "The price per GiB in USD, from config; nil (price on request) by default."
-  @spec price_usd_per_gib() :: number() | Decimal.t() | nil
+  @doc """
+  The price per GiB in USD as a Decimal, from config; nil (price on request)
+  when none is set.
+  """
+  @spec price_usd_per_gib() :: Decimal.t() | nil
   def price_usd_per_gib do
-    Application.get_env(:bitblocks, __MODULE__, [])
-    |> Keyword.get(:price_usd_per_gib)
+    case config(:price_usd_per_gib, nil) do
+      nil -> nil
+      n -> to_decimal(n)
+    end
+  end
+
+  @doc """
+  The size a price is figured on: `bytes` in GiB, rounded half up to 0.01,
+  and at least 0.01 for any bytes, so a small range never reads as free.
+  """
+  @spec billable_gib(non_neg_integer()) :: Decimal.t()
+  def billable_gib(0), do: Decimal.new("0.00")
+
+  def billable_gib(bytes) when is_integer(bytes) and bytes > 0 do
+    bytes
+    |> Decimal.new()
+    |> Decimal.div(Decimal.new(@gib))
+    |> Decimal.round(2, :half_up)
+    |> Decimal.max(Decimal.new("0.01"))
+  end
+
+  @doc """
+  The price of `bytes`, or nil while no price is set: `billable_gib/1` times
+  the price per GiB, rounded half up to the cent.
+  """
+  @spec price_for(non_neg_integer()) :: Decimal.t() | nil
+  def price_for(bytes) when is_integer(bytes) and bytes >= 0 do
+    case price_usd_per_gib() do
+      nil -> nil
+      per_gib -> bytes |> billable_gib() |> Decimal.mult(per_gib) |> Decimal.round(2, :half_up)
+    end
+  end
+
+  @doc "A dollar amount with two decimals and thousands separated: `$1,234.50`."
+  @spec format_usd(Decimal.t()) :: String.t()
+  def format_usd(%Decimal{} = amount) do
+    [whole, fraction] =
+      amount |> Decimal.round(2, :half_up) |> Decimal.to_string(:normal) |> String.split(".")
+
+    "$" <> format_number(String.to_integer(whole)) <> "." <> fraction
+  end
+
+  @doc """
+  The named ranges, each clipped to `complete_through`:
+
+    * `from` and `to`: the range as it can be quoted today (`to` no higher
+      than `complete_through`);
+    * `clipped`: `to` was lowered to `complete_through`;
+    * `available`: false when even `from` is above `complete_through`.
+  """
+  @spec presets(integer()) :: [map()]
+  def presets(complete_through) do
+    for preset <- @presets do
+      wanted = if preset.to == :complete_through, do: complete_through, else: preset.to
+      to = min(wanted, complete_through)
+
+      preset
+      |> Map.put_new(:note, nil)
+      |> Map.merge(%{
+        to: to,
+        clipped: to < wanted,
+        available: complete_through >= 0 and preset.from <= to
+      })
+    end
+  end
+
+  @doc "A named range by its id, clipped as `presets/1` does, or nil."
+  @spec preset(term(), integer()) :: map() | nil
+  def preset(id, complete_through),
+    do: Enum.find(presets(complete_through), &(&1.id == id))
+
+  @doc """
+  The size of each #{@band_size}-block band from 0 to `complete_through`,
+  for choosing a range: `%{complete_through, band_size, bands, computed_at}`,
+  each band `%{from, to, blocks, bytes, bytes_exact, sizes_missing,
+  price_usd}`; the last band ends at `complete_through`.
+
+  One aggregate per band over `blocks` by its height index, never
+  `transactions`. Cached for `:size_bands_ttl_ms` (10 minutes);
+  `opts[:complete_through]` computes afresh for that height, uncached.
+  """
+  @spec size_bands(keyword()) :: map()
+  def size_bands(opts \\ []) do
+    now = System.monotonic_time(:millisecond)
+
+    case {Keyword.fetch(opts, :complete_through), :persistent_term.get(@size_bands_key, nil)} do
+      {{:ok, complete_through}, _} ->
+        compute_size_bands(complete_through)
+
+      {:error, {expires, value}} when expires > now ->
+        value
+
+      {:error, _} ->
+        value = compute_size_bands(Sync.complete_through())
+        :persistent_term.put(@size_bands_key, {now + size_bands_ttl_ms(), value})
+        value
+    end
+  end
+
+  @doc "Drops the cached `size_bands/1`, for tests and after a size backfill."
+  @spec clear_size_bands() :: :ok
+  def clear_size_bands do
+    :persistent_term.erase(@size_bands_key)
+    :ok
+  end
+
+  defp size_bands_ttl_ms, do: config(:size_bands_ttl_ms, @size_bands_ttl_ms)
+
+  defp compute_size_bands(complete_through) do
+    bands =
+      if complete_through < 0 do
+        []
+      else
+        for from <- 0..complete_through//@band_size do
+          to = min(from + @band_size - 1, complete_through)
+          row = aggregate(from, to)
+
+          %{
+            from: from,
+            to: to,
+            blocks: row.blocks,
+            bytes: row.bytes,
+            bytes_exact: row.sizes_missing == 0,
+            sizes_missing: row.sizes_missing,
+            price_usd: if(row.sizes_missing == 0, do: price_for(row.bytes))
+          }
+        end
+      end
+
+    %{
+      complete_through: complete_through,
+      band_size: @band_size,
+      bands: bands,
+      computed_at: DateTime.utc_now() |> DateTime.truncate(:second)
+    }
+  end
+
+  defp config(key, default) do
+    Application.get_env(:bitblocks, __MODULE__, []) |> Keyword.get(key, default)
   end
 
   @doc "A plain sentence for an error from `quote/4`, for the page and the API."
@@ -170,20 +364,24 @@ defmodule Bitblocks.Downloads do
     |> String.reverse()
   end
 
+  # One aggregate over `blocks` by its height index.
+  defp aggregate(from, to) do
+    Repo.one(
+      from(b in Block,
+        where: b.height >= ^from and b.height <= ^to,
+        select: %{
+          blocks: count(b.id),
+          bytes: fragment("coalesce(sum(?), 0)::bigint", b.size),
+          sizes_missing: fragment("count(*) FILTER (WHERE ? IS NULL)", b.size),
+          not_in_store: fragment("count(*) FILTER (WHERE ? IS NULL)", b.raw_object_stored_at)
+        }
+      ),
+      timeout: @query_timeout
+    )
+  end
+
   defp build(from, to, data, format, complete_through) do
-    row =
-      Repo.one(
-        from(b in Block,
-          where: b.height >= ^from and b.height <= ^to,
-          select: %{
-            blocks: count(b.id),
-            bytes: fragment("coalesce(sum(?), 0)::bigint", b.size),
-            sizes_missing: fragment("count(*) FILTER (WHERE ? IS NULL)", b.size),
-            not_in_store: fragment("count(*) FILTER (WHERE ? IS NULL)", b.raw_object_stored_at)
-          }
-        ),
-        timeout: @query_timeout
-      )
+    row = aggregate(from, to)
 
     missing_heights =
       if row.sizes_missing > 0 do
@@ -214,27 +412,15 @@ defmodule Bitblocks.Downloads do
       sizes_missing: row.sizes_missing,
       sizes_missing_heights: missing_heights,
       not_in_store: row.not_in_store,
-      price_usd: price(row.bytes, row.sizes_missing)
+      billable_gib: billable_gib(row.bytes),
+      price_usd_per_gib: price_usd_per_gib(),
+      # A price only on exact bytes, and only once one is configured.
+      price_usd: if(row.sizes_missing == 0, do: price_for(row.bytes))
     }
   end
 
-  # A price only on exact bytes, and only once one is configured.
-  defp price(_bytes, missing) when missing > 0, do: nil
-
-  defp price(bytes, 0) do
-    case price_usd_per_gib() do
-      nil ->
-        nil
-
-      per_gib ->
-        per_gib
-        |> to_decimal()
-        |> Decimal.mult(Decimal.div(Decimal.new(bytes), Decimal.new(@gib)))
-        |> Decimal.round(2)
-    end
-  end
-
-  defp to_decimal(n) when is_float(n), do: Decimal.from_float(n)
+  defp to_decimal(%Decimal{} = n), do: n
+  defp to_decimal(n) when is_float(n), do: n |> Float.to_string() |> Decimal.new()
   defp to_decimal(n), do: Decimal.new(n)
 
   defp within(to, complete_through) when to > complete_through,

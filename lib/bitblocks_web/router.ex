@@ -106,6 +106,7 @@ defmodule BitblocksWeb.Router do
 
     # Bulk downloads (#111): the free quote only, no checkout yet
     get "/downloads/quote", DownloadController, :quote
+    get "/downloads/sizes", DownloadController, :sizes
 
     # Is this outpoint an ordinal/token? yes | no | unknown (fail-closed wallets)
     get "/outpoints/:txid/:vout", OutpointController, :show

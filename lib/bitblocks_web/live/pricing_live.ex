@@ -8,84 +8,221 @@ defmodule BitblocksWeb.PricingLive do
   loads.
 
   `#downloads` quotes a bulk download of a block range (`Bitblocks.Downloads`,
-  https://github.com/afomi/bitblocks/issues/111): size and file count from
-  stored block sizes, bounded by `complete_through`. No price is set, so the
-  quote says "Price on request" and links to us. A socket gets one quote per
-  `@quote_interval_ms`, since each is an aggregate over `blocks`.
+  https://github.com/afomi/bitblocks/issues/111): size, file count and price
+  from stored block sizes, bounded by `complete_through`, with the arithmetic
+  shown (billable GiB x the price per GiB). Paying online isn't built, so the
+  quote links to us by mail.
+
+  The estimate is live: each change to the form (debounced in the browser),
+  each named range (`Downloads.presets/1`) and each band of the size view
+  (`Downloads.size_bands/1`, loaded async and cached) asks for a quote. A
+  socket still runs at most one quote per `quote_interval_ms/0`, since each
+  is an aggregate over `blocks`: a request inside the interval waits for its
+  end, and only the latest one runs.
+
+  `#usage` shows a signed-in user their own measured use (`Bitblocks.Usage`)
+  over the last 24 hours: as themselves, and through their key. No API price
+  is set yet (https://github.com/afomi/bitblocks/issues/61).
   """
   use BitblocksWeb, :live_view
 
   require Logger
 
+  alias Bitblocks.ApiKeys
   alias Bitblocks.Downloads
   alias Bitblocks.SyncProgress
+  alias Bitblocks.Usage
   alias BitblocksWeb.Plugs.RateLimiter.AiCrawlers
   alias BitblocksWeb.Seo
   alias BitblocksWeb.StartLive.Index
 
-  @quote_interval_ms 1_000
   @default_range 100_000
+  @usage_hours 24
 
   @impl true
   def mount(_params, _session, socket) do
     coverage = Index.coverage(SyncProgress.snapshot().overview)
+    params = default_quote_params(coverage)
 
-    {:ok,
-     socket
-     |> assign(
-       Seo.public_page(
-         page_title: "Pricing",
-         meta_description:
-           "Bitblocks API pricing: start free, and pay for what you use as you grow.",
-         canonical_path: "/pricing"
-       )
-     )
-     |> assign(:crawler_budget, crawler_budget())
-     |> assign(:fetcher_budget, fetcher_budget())
-     |> assign(:coverage, coverage)
-     |> assign(:contact_email, AiCrawlers.contact_email())
-     |> assign(:x402, x402())
-     |> assign(:data_options, Downloads.data_options())
-     |> assign(:quote_form, to_form(default_quote_params(coverage), as: :quote))
-     |> assign(:quote, nil)
-     |> assign(:quote_error, nil)
-     |> assign(:quoted_at, nil)}
+    socket =
+      socket
+      |> assign(
+        Seo.public_page(
+          page_title: "Pricing",
+          meta_description:
+            "Bitblocks API pricing: start free, and pay for what you use as you grow. " <>
+              "Bulk downloads of a block range at a published price per GiB, quoted for free.",
+          canonical_path: "/pricing"
+        )
+      )
+      |> assign(:crawler_budget, crawler_budget())
+      |> assign(:fetcher_budget, fetcher_budget())
+      |> assign(:coverage, coverage)
+      |> assign(:contact_email, AiCrawlers.contact_email())
+      |> assign(:x402, x402())
+      |> assign(:data_options, Downloads.data_options())
+      |> assign(:price_per_gib, Downloads.price_usd_per_gib())
+      |> assign(:holding, if(coverage, do: coverage.through, else: -1))
+      |> assign(:sizes, nil)
+      |> assign(:sizes_error, nil)
+      |> assign(:quote_form, to_form(params, as: :quote))
+      |> assign(:quote, nil)
+      |> assign(:quote_error, nil)
+      |> assign(:quoted_at, nil)
+      |> assign(:pending_quote, nil)
+      |> assign(:usage, nil)
+
+    if connected?(socket) do
+      {:ok,
+       socket
+       |> start_async(:sizes, fn -> Downloads.size_bands() end)
+       |> assign(:usage, own_usage(socket.assigns[:current_user]))
+       |> then(&if(coverage, do: request_quote(&1, params), else: &1))}
+    else
+      {:ok, socket}
+    end
   end
 
   @impl true
   def handle_event("quote_change", %{"quote" => params}, socket) do
-    {:noreply, assign(socket, :quote_form, to_form(params, as: :quote))}
+    {:noreply,
+     socket |> assign(:quote_form, to_form(params, as: :quote)) |> request_quote(params)}
   end
 
   def handle_event("quote", %{"quote" => params}, socket) do
-    socket = assign(socket, :quote_form, to_form(params, as: :quote))
-    now = System.monotonic_time(:millisecond)
+    {:noreply,
+     socket |> assign(:quote_form, to_form(params, as: :quote)) |> request_quote(params)}
+  end
 
-    if socket.assigns.quoted_at && now - socket.assigns.quoted_at < @quote_interval_ms do
-      {:noreply,
-       assign(socket,
-         quote: nil,
-         quote_error: "One quote a second, please. Try again in a moment."
-       )}
-    else
-      socket = assign(socket, :quoted_at, now)
-
-      case quote_or_unavailable(params) do
-        {:ok, quote} ->
-          {:noreply, assign(socket, quote: quote, quote_error: nil)}
-
-        {:error, :unavailable} ->
-          {:noreply,
-           assign(socket,
-             quote: nil,
-             quote_error: "Quotes are unavailable right now. Try again shortly."
-           )}
-
-        {:error, reason} ->
-          {:noreply, assign(socket, quote: nil, quote_error: Downloads.error_message(reason))}
-      end
+  def handle_event("preset", %{"id" => id}, socket) do
+    case Downloads.preset(id, socket.assigns.holding) do
+      %{available: true, from: from, to: to} -> {:noreply, quote_range(socket, from, to)}
+      _ -> {:noreply, socket}
     end
   end
+
+  def handle_event("band", %{"from" => from, "to" => to}, socket) do
+    {:noreply, quote_range(socket, from, to)}
+  end
+
+  @impl true
+  def handle_info(:run_pending_quote, socket) do
+    case socket.assigns.pending_quote do
+      nil -> {:noreply, socket}
+      params -> {:noreply, socket |> assign(:pending_quote, nil) |> run_quote(params)}
+    end
+  end
+
+  @impl true
+  def handle_async(:sizes, {:ok, sizes}, socket) do
+    {:noreply, assign(socket, sizes: sizes, holding: sizes.complete_through)}
+  end
+
+  def handle_async(:sizes, {:exit, reason}, socket) do
+    Logger.warning("Download size bands failed: #{inspect(reason)}")
+    {:noreply, assign(socket, :sizes_error, "Sizes by range are unavailable right now.")}
+  end
+
+  # Sets the form's range, keeping the data and format, and asks for a quote.
+  defp quote_range(socket, from, to) do
+    params =
+      socket.assigns.quote_form.params
+      |> Map.merge(%{"from" => to_string(from), "to" => to_string(to)})
+
+    socket |> assign(:quote_form, to_form(params, as: :quote)) |> request_quote(params)
+  end
+
+  # At most one quote per interval: inside it, the latest params wait for its end.
+  defp request_quote(socket, params) do
+    now = System.monotonic_time(:millisecond)
+    since = socket.assigns.quoted_at && now - socket.assigns.quoted_at
+    interval = quote_interval_ms()
+
+    cond do
+      is_nil(since) or since >= interval ->
+        socket |> assign(:pending_quote, nil) |> run_quote(params)
+
+      socket.assigns.pending_quote ->
+        assign(socket, :pending_quote, params)
+
+      true ->
+        Process.send_after(self(), :run_pending_quote, interval - since)
+        assign(socket, :pending_quote, params)
+    end
+  end
+
+  defp run_quote(socket, params) do
+    socket = assign(socket, :quoted_at, System.monotonic_time(:millisecond))
+
+    case quote_or_unavailable(params) do
+      {:ok, quote} ->
+        assign(socket, quote: quote, quote_error: nil)
+
+      {:error, :unavailable} ->
+        assign(socket,
+          quote: nil,
+          quote_error: "Quotes are unavailable right now. Try again shortly."
+        )
+
+      {:error, reason} ->
+        assign(socket, quote: nil, quote_error: Downloads.error_message(reason))
+    end
+  end
+
+  @doc """
+  Milliseconds between two quotes on one socket:
+  `config :bitblocks, :downloads_quote_interval_ms`, 1,000 by default.
+  """
+  def quote_interval_ms, do: Application.get_env(:bitblocks, :downloads_quote_interval_ms, 1_000)
+
+  # A signed-in user's own use over the last day: as themselves, and through
+  # their key, if they hold one. Two small queries over the rollups.
+  defp own_usage(%{id: id} = user) do
+    key = ApiKeys.trial_key(user)
+
+    %{
+      hours: @usage_hours,
+      session: Usage.caller_usage({"user", to_string(id)}, hours: @usage_hours),
+      key:
+        key &&
+          %{
+            prefix: key.prefix,
+            usage: Usage.caller_usage({"key", to_string(key.id)}, hours: @usage_hours)
+          }
+    }
+  rescue
+    error in [DBConnection.ConnectionError, Postgrex.Error] ->
+      Logger.warning("Own usage failed: #{Exception.message(error)}")
+      :unavailable
+  end
+
+  defp own_usage(_), do: nil
+
+  @doc "The usage tables to show: as the signed-in user, then through their key."
+  def usage_groups(%{session: session, key: key}) do
+    [{"As you, signed in", "usage-session", session}] ++
+      if(key, do: [{"Your key #{key.prefix}...", "usage-key", key.usage}], else: [])
+  end
+
+  @doc "An endpoint class in plain words, for the usage table."
+  def class_label("read"), do: "API reads"
+  def class_label("raw_export"), do: "Raw bytes and exports"
+  def class_label("stream"), do: "Streams"
+  def class_label("proof"), do: "Proofs and BEEF"
+  def class_label("ops"), do: "Ops"
+  def class_label("page"), do: "Pages"
+  def class_label(other), do: other
+
+  @doc "The band's share of the largest band, as a CSS width, at least 1% when it holds bytes."
+  def band_width(_bytes, 0), do: "0%"
+  def band_width(0, _max), do: "0%"
+  def band_width(bytes, max), do: "#{max(Float.round(bytes / max * 100, 1), 1.0)}%"
+
+  @doc "The largest band's bytes."
+  def max_band_bytes(%{bands: bands}), do: bands |> Enum.map(& &1.bytes) |> Enum.max(fn -> 0 end)
+
+  defdelegate format_usd(amount), to: Downloads
+  defdelegate format_bytes(n), to: Usage
 
   # A slow or failed query says so on the page rather than crashing it.
   defp quote_or_unavailable(params) do
@@ -126,6 +263,7 @@ defmodule BitblocksWeb.PricingLive do
           "Data: #{quote.data}, format: #{quote.format}",
           "Files: #{format_number(quote.files)}",
           "Size: #{format_number(quote.bytes)} bytes (#{format_gib(quote.bytes)} GiB)",
+          "Price: #{price_line(quote)}",
           "Complete through: #{format_number(quote.complete_through)}"
         ],
         "\n"
@@ -134,14 +272,34 @@ defmodule BitblocksWeb.PricingLive do
     "mailto:#{email}?" <> URI.encode_query(%{subject: subject, body: body}, :rfc3986)
   end
 
-  @doc "Bytes as GiB with two decimals, and a floor so a small range doesn't read as zero."
+  @doc """
+  The price as the quote shows it, with its arithmetic:
+  "2.50 GiB x $1.00 per GiB = $2.50", or why there is none.
+  """
+  def price_line(%{price_usd: %Decimal{} = price} = quote) do
+    "#{Decimal.to_string(quote.billable_gib, :normal)} GiB x " <>
+      "#{format_usd(quote.price_usd_per_gib)} per GiB = #{format_usd(price)}"
+  end
+
+  def price_line(%{price_usd_per_gib: %Decimal{} = per_gib}),
+    do: "on request (some sizes are missing; #{format_usd(per_gib)} per GiB once known)"
+
+  def price_line(_quote), do: "on request"
+
+  @doc """
+  Bytes as GiB with two decimals, rounded half up as the price is, and a
+  floor so a small range doesn't read as zero.
+  """
   def format_gib(0), do: "0"
 
-  def format_gib(bytes) when bytes * 100 < 1_073_741_824, do: "< 0.01"
+  def format_gib(bytes) when bytes * 200 < 1_073_741_824, do: "< 0.01"
 
   def format_gib(bytes) do
     [whole, fraction] =
-      (bytes / 1_073_741_824) |> :erlang.float_to_binary(decimals: 2) |> String.split(".")
+      bytes
+      |> Downloads.billable_gib()
+      |> Decimal.to_string(:normal)
+      |> String.split(".")
 
     format_number(String.to_integer(whole)) <> "." <> fraction
   end

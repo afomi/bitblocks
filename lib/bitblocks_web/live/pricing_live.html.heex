@@ -87,6 +87,140 @@
       </div>
     </section>
 
+    <%!-- Your own use, measured and not billed (#61) --%>
+    <section
+      id="usage"
+      aria-labelledby="usage-heading"
+      class="border-t border-neutral-800 py-8 scroll-mt-6"
+    >
+      <p class="font-mono text-xs text-neutral-500 uppercase tracking-wider mb-2">
+        Your use
+      </p>
+      <h2
+        id="usage-heading"
+        class="text-lg font-semibold text-neutral-50 mb-3"
+      >
+        What am I using?
+      </h2>
+      <div class="max-w-2xl space-y-3 text-sm text-neutral-400 leading-relaxed mb-4">
+        <p>
+          We measure every API request by caller and by kind, so the pay-per-use price can follow what each kind costs to serve.
+          It's measured, not billed: no API price is set yet.
+        </p>
+        <p :if={!@current_user}>
+          <.link
+            navigate={~p"/sign-in"}
+            class="text-neutral-50 underline underline-offset-2"
+          >
+            Sign in
+          </.link>
+          to see your own use here, or call
+          <code class="font-mono text-neutral-50 break-all">GET /api/v1/usage?hours=24</code>
+          with your key.
+        </p>
+      </div>
+
+      <div
+        :if={@current_user}
+        id="usage-own"
+        class="bg-surface-raised rounded p-6 border border-neutral-800 max-w-2xl"
+      >
+        <p
+          :if={is_nil(@usage)}
+          class="text-sm text-neutral-500"
+        >
+          Loading your use...
+        </p>
+        <p
+          :if={@usage == :unavailable}
+          id="usage-unavailable"
+          class="text-sm text-neutral-50"
+        >
+          Your use is unavailable right now. Try again shortly.
+        </p>
+        <div :if={is_map(@usage)}>
+          <div
+            :for={{title, id, usage} <- usage_groups(@usage)}
+            id={id}
+            class="mb-5 last:mb-0"
+          >
+            <h3 class="text-sm font-medium text-neutral-50 mb-2">
+              {title}, last {@usage.hours} hours
+            </h3>
+            <p
+              :if={usage.totals.requests == 0}
+              class="text-sm text-neutral-500"
+            >
+              No requests yet.
+            </p>
+            <table
+              :if={usage.totals.requests > 0}
+              class="w-full text-sm"
+            >
+              <caption class="sr-only">
+                {title}: requests and data sent by kind, last {@usage.hours} hours
+              </caption>
+              <thead>
+                <tr class="text-left text-xs text-neutral-500">
+                  <th
+                    scope="col"
+                    class="font-normal pb-1"
+                  >
+                    Kind
+                  </th>
+                  <th
+                    scope="col"
+                    class="font-normal pb-1 text-right"
+                  >
+                    Requests
+                  </th>
+                  <th
+                    scope="col"
+                    class="font-normal pb-1 text-right"
+                  >
+                    Data sent
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr
+                  :for={row <- usage.by_class}
+                  class="border-t border-neutral-800"
+                >
+                  <td class="py-1.5 text-neutral-400">{class_label(row.class)}</td>
+                  <td class="py-1.5 font-mono text-neutral-50 tabular-nums text-right">
+                    {format_number(row.requests)}
+                  </td>
+                  <td class="py-1.5 font-mono text-neutral-50 tabular-nums text-right whitespace-nowrap">
+                    {format_bytes(row.response_bytes)}
+                  </td>
+                </tr>
+                <tr class="border-t border-neutral-700">
+                  <th
+                    scope="row"
+                    class="py-1.5 text-left font-medium text-neutral-50"
+                  >
+                    Total
+                  </th>
+                  <td class="py-1.5 font-mono text-neutral-50 tabular-nums text-right">
+                    {format_number(usage.totals.requests)}
+                  </td>
+                  <td class="py-1.5 font-mono text-neutral-50 tabular-nums text-right whitespace-nowrap">
+                    {format_bytes(usage.totals.response_bytes)}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="text-xs text-neutral-500 mt-4">
+            Counts reach this view within a minute.
+            Your key's own view is
+            <code class="font-mono break-all">GET /api/v1/usage?hours=24</code>.
+          </p>
+        </div>
+      </div>
+    </section>
+
     <%!-- Enterprise --%>
     <section class="border-t border-neutral-800 py-8">
       <div class="bg-surface-raised rounded p-6 border border-neutral-700">
@@ -147,9 +281,182 @@
           Take a block range in one download, instead of millions of API calls.
           Quote it here, for free: the size and file count come from the block sizes we store.
         </p>
+        <p
+          :if={@price_per_gib}
+          id="downloads-rate"
+        >
+          Downloads cost
+          <span class="font-mono tabular-nums text-neutral-50">{format_usd(@price_per_gib)} per GiB</span>,
+          so the price is the size times that rate, and the quote shows the sum.
+        </p>
+        <p
+          :if={!@price_per_gib}
+          id="downloads-rate"
+        >
+          The price is on request for now: write to us with your quote.
+        </p>
         <p>
           A quote covers only blocks we hold whole, each one complete with every transaction stored and its merkle root rebuilt.
         </p>
+      </div>
+
+      <%!-- Named ranges and the size by band, for choosing a range --%>
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
+        <div
+          id="downloads-presets"
+          class="bg-surface-raised rounded p-6 border border-neutral-800"
+        >
+          <h3 class="text-sm font-medium text-neutral-50 mb-1">
+            Start from a range
+          </h3>
+          <p class="text-xs text-neutral-500 mb-3">
+            Each one fills in the form and quotes it.
+            A range is cut off where our complete blocks end.
+          </p>
+          <ul class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <li :for={preset <- Bitblocks.Downloads.presets(@holding)}>
+              <button
+                type="button"
+                id={"downloads-preset-#{preset.id}"}
+                phx-click="preset"
+                phx-value-id={preset.id}
+                disabled={!preset.available}
+                aria-describedby={"downloads-preset-#{preset.id}-range"}
+                class="w-full h-full text-left rounded border border-neutral-700 px-3 py-2 hover:border-brand focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand disabled:opacity-60 disabled:hover:border-neutral-700 disabled:cursor-not-allowed"
+              >
+                <span class="block text-sm text-neutral-50">{preset.label}</span>
+                <span
+                  id={"downloads-preset-#{preset.id}-range"}
+                  class="block font-mono text-xs text-neutral-500 tabular-nums"
+                >
+                  <%= cond do %>
+                    <% !preset.available -> %>
+                      From {format_number(preset.from)}: not held yet
+                    <% preset.clipped -> %>
+                      {format_number(preset.from)} to {format_number(preset.to)}, as far as we hold
+                    <% true -> %>
+                      {format_number(preset.from)} to {format_number(preset.to)}
+                  <% end %>
+                </span>
+                <span
+                  :if={preset.note}
+                  class="block text-xs text-neutral-500"
+                >
+                  {preset.note}
+                </span>
+              </button>
+            </li>
+          </ul>
+        </div>
+
+        <div
+          id="downloads-sizes"
+          class="bg-surface-raised rounded p-6 border border-neutral-800"
+        >
+          <h3 class="text-sm font-medium text-neutral-50 mb-1">
+            Where the bytes are
+          </h3>
+          <p class="text-xs text-neutral-500 mb-3">
+            The size of every 50,000 blocks we hold.
+            Early blocks are small; later ones carry most of the bytes.
+            Choose a band to quote it.
+          </p>
+          <p
+            :if={!@sizes && !@sizes_error}
+            id="downloads-sizes-loading"
+            class="text-sm text-neutral-500"
+          >
+            Adding up the sizes...
+          </p>
+          <p
+            :if={@sizes_error}
+            id="downloads-sizes-error"
+            class="text-sm text-neutral-50"
+          >
+            {@sizes_error}
+          </p>
+          <p
+            :if={@sizes && @sizes.bands == []}
+            id="downloads-sizes-empty"
+            class="text-sm text-neutral-500"
+          >
+            No blocks are complete yet.
+          </p>
+          <table
+            :if={@sizes && @sizes.bands != []}
+            id="downloads-sizes-table"
+            class="w-full text-sm"
+          >
+            <caption class="sr-only">
+              Size of each 50,000-block band, through block {format_number(@sizes.complete_through)}
+            </caption>
+            <thead>
+              <tr class="text-left text-xs text-neutral-500">
+                <th
+                  scope="col"
+                  class="font-normal pb-1"
+                >
+                  Blocks
+                </th>
+                <th
+                  scope="col"
+                  class="font-normal pb-1 text-right"
+                >
+                  Size
+                </th>
+                <th
+                  scope="col"
+                  class="font-normal pb-1 w-1/3"
+                >
+                  <span class="sr-only">Share of the largest band</span>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                :for={band <- @sizes.bands}
+                id={"downloads-band-#{band.from}"}
+                class="border-t border-neutral-800"
+              >
+                <td class="py-1.5 pr-2">
+                  <button
+                    type="button"
+                    phx-click="band"
+                    phx-value-from={band.from}
+                    phx-value-to={band.to}
+                    aria-label={"Quote blocks #{format_number(band.from)} to #{format_number(band.to)}"}
+                    class="font-mono text-xs text-neutral-50 tabular-nums underline decoration-neutral-500 underline-offset-2 hover:decoration-brand focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand text-left"
+                  >
+                    {format_number(band.from)} to {format_number(band.to)}
+                  </button>
+                </td>
+                <td class="py-1.5 pr-2 font-mono text-xs text-neutral-50 tabular-nums text-right whitespace-nowrap">
+                  <span :if={!band.bytes_exact}>at least </span>{format_gib(band.bytes)} GiB
+                </td>
+                <td class="py-1.5">
+                  <div
+                    class="h-2 rounded-sm bg-neutral-800"
+                    aria-hidden="true"
+                  >
+                    <div
+                      class="h-2 rounded-sm bg-brand"
+                      style={"width: #{band_width(band.bytes, max_band_bytes(@sizes))}"}
+                    >
+                    </div>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+          <p
+            :if={@sizes && @sizes.bands != []}
+            class="text-xs text-neutral-500 mt-3"
+          >
+            Through block
+            <span class="font-mono tabular-nums">{format_number(@sizes.complete_through)}</span>,
+            added up at {Calendar.strftime(@sizes.computed_at, "%H:%M UTC")} and refreshed every ten minutes.
+          </p>
+        </div>
       </div>
 
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -177,6 +484,7 @@
                   type="text"
                   inputmode="numeric"
                   autocomplete="off"
+                  phx-debounce="400"
                   name={@quote_form[:from].name}
                   value={@quote_form[:from].value}
                   class="block w-full rounded border border-neutral-700 bg-surface-base px-3 py-2 font-mono text-sm text-neutral-50 tabular-nums"
@@ -194,6 +502,7 @@
                   type="text"
                   inputmode="numeric"
                   autocomplete="off"
+                  phx-debounce="400"
                   name={@quote_form[:to].name}
                   value={@quote_form[:to].value}
                   aria-describedby="downloads-to-hint"
@@ -277,9 +586,16 @@
           class="bg-surface-raised rounded p-6 border border-neutral-800"
         >
           <p
+            :if={@pending_quote}
+            id="downloads-updating"
+            class="text-xs text-neutral-500 mb-2"
+          >
+            Updating the estimate...
+          </p>
+
+          <p
             :if={@quote_error}
             id="downloads-error"
-            role="alert"
             class="text-sm text-neutral-50"
           >
             {@quote_error}
@@ -289,7 +605,7 @@
             :if={!@quote && !@quote_error}
             class="text-sm text-neutral-500"
           >
-            Your quote shows here: the size in GiB, the file count and what it covers.
+            Your estimate shows here as you change the range: the size in GiB, the file count, the price and what it covers.
           </p>
 
           <div
@@ -342,19 +658,39 @@
                   id="downloads-quote-price"
                   class="font-mono text-sm text-neutral-50 tabular-nums text-right"
                 >
-                  {if @quote.price_usd, do: "$#{@quote.price_usd}", else: "Price on request"}
+                  {if @quote.price_usd, do: format_usd(@quote.price_usd), else: "Price on request"}
                 </span>
               </div>
             </div>
+
+            <p
+              :if={@quote.price_usd}
+              id="downloads-quote-arithmetic"
+              class="mt-3 font-mono text-xs text-neutral-400 tabular-nums"
+            >
+              {Decimal.to_string(@quote.billable_gib, :normal)} GiB x {format_usd(@quote.price_usd_per_gib)} per GiB = {format_usd(@quote.price_usd)}
+            </p>
+            <p
+              :if={@quote.price_usd}
+              class="mt-1 text-xs text-neutral-500"
+            >
+              A GiB is 1,073,741,824 bytes.
+              The size is rounded to the nearest 0.01 GiB, and is at least 0.01.
+            </p>
+            <p
+              :if={!@quote.price_usd && @quote.price_usd_per_gib && !@quote.bytes_exact}
+              id="downloads-quote-price-why"
+              class="mt-3 text-xs text-neutral-500"
+            >
+              Some blocks in this range have no stored size yet, so we can't give an exact price.
+              At {format_usd(@quote.price_usd_per_gib)} per GiB it is at least {format_usd(Decimal.mult(@quote.billable_gib, @quote.price_usd_per_gib))}; write to us and we'll confirm it.
+            </p>
 
             <div class="mt-4 space-y-2 text-sm text-neutral-400 leading-relaxed">
               <p id="downloads-quote-covers">
                 Every block in this range is complete, with every transaction stored: we hold blocks 0 through
                 <span class="font-mono tabular-nums text-neutral-50">{format_number(@quote.complete_through)}</span>
                 whole.
-              </p>
-              <p>
-                Each file is one block's exact bytes: its header, then every transaction in order.
               </p>
               <p
                 :if={@quote.sizes_missing > 0}
@@ -391,9 +727,52 @@
         </div>
       </div>
 
-      <p class="max-w-2xl text-sm text-neutral-400 leading-relaxed mt-4">
+      <div
+        id="downloads-notes"
+        class="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4"
+      >
+        <div>
+          <h3 class="text-sm font-medium text-neutral-50 mb-1">
+            What a file is
+          </h3>
+          <p class="text-sm text-neutral-400 leading-relaxed">
+            One <span class="font-mono">.bin</span> file per block, holding that block's exact bytes.
+            The 80-byte header comes first, then the transaction count, then every transaction in order.
+            It's the same block your node would serve, byte for byte.
+          </p>
+        </div>
+        <div>
+          <h3 class="text-sm font-medium text-neutral-50 mb-1">
+            How to check it
+          </h3>
+          <p class="text-sm text-neutral-400 leading-relaxed">
+            Hash a file's first 80 bytes twice with SHA-256 and reverse the result: that's the block hash, which any node or explorer will confirm.
+            Then hash each transaction the same way to get its txid, and rebuild the merkle root from those txids: it matches the one in the header.
+            You can check every file without trusting us.
+          </p>
+        </div>
+        <div>
+          <h3 class="text-sm font-medium text-neutral-50 mb-1">
+            What isn't covered yet
+          </h3>
+          <p class="text-sm text-neutral-400 leading-relaxed">
+            Blocks above the ones we hold whole<span :if={@holding >= 0}> (through
+              <span class="font-mono tabular-nums text-neutral-50">{format_number(@holding)}</span>)</span>, until our sync completes them.
+            Transaction JSON and data packs, which are coming.
+            Paying online, which is coming: for now we take your quote by mail.
+          </p>
+        </div>
+      </div>
+
+      <p
+        id="downloads-api"
+        class="max-w-2xl text-sm text-neutral-400 leading-relaxed mt-6"
+      >
         Agents can ask for the same quote with a key:
-        <code class="font-mono text-neutral-50">GET /api/v1/downloads/quote?from=0&amp;to=99999&amp;data=raw</code>.
+        <code class="font-mono text-neutral-50 break-all">GET /api/v1/downloads/quote?from=0&amp;to=99999&amp;data=raw</code>
+        returns the size, the price and its arithmetic (<code class="font-mono text-neutral-50">billable_gib</code>, <code class="font-mono text-neutral-50">price_usd_per_gib</code>, <code class="font-mono text-neutral-50">price_usd</code>).
+        <code class="font-mono text-neutral-50 break-all">GET /api/v1/downloads/sizes</code>
+        returns the size of each band and the named ranges.
       </p>
     </section>
 

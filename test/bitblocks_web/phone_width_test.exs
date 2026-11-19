@@ -97,6 +97,33 @@ defmodule BitblocksWeb.PhoneWidthTest do
     assert overflow(session) <= 0, "/transactions/:txid scrolls sideways at #{@width} px"
   end
 
+  test "/pricing with an estimate, its arithmetic and the size bands fits a phone", %{
+    session: session
+  } do
+    previous = Application.get_env(:bitblocks, Bitblocks.Downloads)
+    Application.put_env(:bitblocks, Bitblocks.Downloads, price_usd_per_gib: "1.00")
+    Bitblocks.Downloads.clear_size_bands()
+
+    on_exit(fn ->
+      Bitblocks.Downloads.clear_size_bands()
+
+      if previous,
+        do: Application.put_env(:bitblocks, Bitblocks.Downloads, previous),
+        else: Application.delete_env(:bitblocks, Bitblocks.Downloads)
+    end)
+
+    Bitblocks.Repo.update_all(Bitblocks.Chain.Block, set: [size: 123_456_789])
+
+    session =
+      session
+      |> visit("/pricing#downloads")
+      |> assert_has(css("#downloads-sizes-table"))
+      |> click(css("#downloads-preset-all"))
+      |> assert_has(css("#downloads-quote-arithmetic"))
+
+    assert overflow(session) <= 0, "/pricing with an estimate scrolls sideways at #{@width} px"
+  end
+
   test "the menu button opens the menu on a phone", %{session: session} do
     session
     |> visit("/")
