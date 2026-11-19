@@ -34,6 +34,10 @@ defmodule Bitblocks.Derivations.BackfillChain do
     # batch is committed: a job taking the range starts after it. Saved with
     # the heartbeat after each batch, cleared when the range is done.
     field :checkpoint_height, :integer
+    # Set when the batch stopped inside a dense block: the block at
+    # checkpoint_height is done only through this transactions.id, and a job
+    # taking the range resumes inside it, after this id.
+    field :checkpoint_tx_id, :integer
     # When a job last stopped at a batch boundary, its node shutting down,
     # and handed the range on.
     field :handed_off_at, :utc_datetime_usec

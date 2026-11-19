@@ -53,7 +53,7 @@ defmodule Bitblocks.Chain.TxSizeBackfill do
   defp next(after_id, _report, %{last_id: last}) when after_id >= last, do: :done
 
   defp next(after_id, report, ctx) do
-    upto = min(after_id + ctx.window, ctx.last_id)
+    upto = min(after_id + Derivations.batch_limit(ctx.window), ctx.last_id)
 
     {found, over, no_raw} =
       Derivations.bounded(ctx.opts, fn ->

@@ -9,7 +9,7 @@ defmodule Bitblocks.BackfillChainsTest do
   import ExUnit.CaptureIO
 
   alias Bitblocks.BackfillChains
-  alias Bitblocks.Chain.{RawBlock, Transaction, TxIngest}
+  alias Bitblocks.Chain.{RawBlock, Spend, Transaction, TxIngest}
   alias Bitblocks.Derivations.{BackfillChain, Run}
   alias Bitblocks.Release
   alias Bitblocks.Workers.BackfillChainWorker
@@ -550,6 +550,178 @@ defmodule Bitblocks.BackfillChainsTest do
 
       assert %{rows_changed: 3, rows_below_version: 3, not_ok: 1} =
                BackfillChains.status(chain.id)
+    end
+  end
+
+  # https://github.com/afomi/bitblocks/issues/115: a batch in dense blocks
+  # outlasted the 60 s grace period, and the hand-off never ran.
+  describe "bounded batches and the shutdown watchdog" do
+    setup do
+      on_exit(fn -> Bitblocks.Shutdown.reset() end)
+      :ok
+    end
+
+    defp spend_count(txid),
+      do: Repo.aggregate(from(s in Spend, where: s.spending_txid == ^txid), :count)
+
+    # One block of `n` txs whose spends were never recorded: tx_steps work.
+    defp dense_block(height, n) do
+      block = block_fixture(%{height: height, sync_state: "completed"})
+
+      txids =
+        for sats <- 1..n do
+          {txid, hex} = tx([funding_outpoint()], [p2pkh(address(), 7_000 + sats)])
+          json = RawBlock.tx_json(txid, Base.decode16!(hex, case: :mixed))
+          :ok = TxIngest.store(json, block)
+          txid
+        end
+
+      Repo.delete_all(from(s in Spend, where: s.spending_txid in ^txids))
+
+      Repo.all(
+        from(t in Transaction, where: t.txid in ^txids, order_by: t.id, select: {t.id, t.txid})
+      )
+    end
+
+    # Sets the real flag, as prep_stop does, once `ready?` holds; sends the
+    # test the moment it did.
+    defp stop_when(ready?) do
+      test = self()
+
+      Task.start(fn ->
+        Enum.find(1..400, fn _ ->
+          Process.sleep(5)
+          ready?.()
+        end)
+
+        Bitblocks.Shutdown.begin()
+        send(test, {:stopping_at, System.monotonic_time(:millisecond)})
+      end)
+    end
+
+    defp watchdog(ms) do
+      Application.put_env(:bitblocks, :backfill_watchdog_ms, ms)
+      Application.put_env(:bitblocks, :backfill_watchdog_poll_ms, 10)
+
+      on_exit(fn ->
+        Application.delete_env(:bitblocks, :backfill_watchdog_ms)
+        Application.delete_env(:bitblocks, :backfill_watchdog_poll_ms)
+      end)
+    end
+
+    test "a stop inside a dense block hands off there; the other node finishes it once" do
+      ids = dense_block(85, 8)
+      txids = Enum.map(ids, &elem(&1, 1))
+
+      {:ok, chain} =
+        BackfillChains.start("tx_steps", 85, 85, apply: true, step: 10, tx_batch: 1, pause_ms: 80)
+
+      stop_when(fn -> Enum.count(txids, &(spend_count(&1) > 0)) >= 2 end)
+
+      assert {:snooze, 5} = perform(chain, 85)
+
+      assert %{checkpoint_height: 85, checkpoint_tx_id: cp, heartbeat_at: nil} = reload(chain)
+      assert is_integer(cp) and List.keymember?(ids, cp, 0)
+
+      # Committed through the checkpoint, nothing after it.
+      for {id, txid} <- ids, do: assert(spend_count(txid) == if(id <= cp, do: 1, else: 0))
+
+      assert status_output(chain) =~ "inside the block after tx id #{cp}"
+
+      Bitblocks.Shutdown.reset()
+      assert :ok = perform(chain, 85)
+
+      for {_id, txid} <- ids, do: assert(spend_count(txid) == 1)
+
+      assert [%Run{outcome: "halted", rows_changed: a}, %Run{outcome: "ok", rows_changed: b} = ok] =
+               Repo.all(from(r in Run, where: r.chain_id == ^chain.id, order_by: r.id))
+
+      assert a + b == 8
+      assert ok.command =~ "(after tx id #{cp})"
+      assert %{status: "done", checkpoint_height: nil, checkpoint_tx_id: nil} = reload(chain)
+    end
+
+    test "a batch that outlasts the window is stopped by the watchdog, and hands off within it",
+         %{tx: first} do
+      [second, third] = Enum.map([91, 92], fn h -> h |> store_tx() |> tap(&unfill/1) end)
+      watchdog(100)
+
+      # One id per batch; each batch sleeps 600 ms after its write, longer
+      # than the window left once the node starts to stop.
+      {:ok, chain} =
+        BackfillChains.start("tx_size", first.id, third.id,
+          apply: true,
+          step: 10,
+          id_window: 1,
+          pause_ms: 600
+        )
+
+      # Stopping while the second batch runs, its write committed.
+      stop_when(fn -> Repo.get!(Transaction, second.id).raw_in_db == true end)
+
+      assert {:snooze, 5} = perform(chain, first.id)
+      returned = System.monotonic_time(:millisecond)
+      assert_received {:stopping_at, stopping_at}
+
+      # Within the window: the watchdog's 100 ms, not the batch's 600 ms.
+      assert returned - stopping_at < 450
+
+      # Handed off at the last committed checkpoint, the heartbeat cleared,
+      # the run closed: nothing is left `executing` or `running`.
+      assert %{checkpoint_height: cp, heartbeat_at: nil, handed_off_at: %DateTime{}} =
+               reload(chain)
+
+      assert cp == first.id
+
+      assert [%Run{outcome: "halted", error: error, rows_changed: 1}] =
+               Repo.all(from(r in Run, where: r.chain_id == ^chain.id))
+
+      assert error =~ "watchdog"
+
+      # The runner is gone: the third batch never comes.
+      Process.sleep(700)
+      refute Repo.get!(Transaction, third.id).raw_in_db
+
+      # The other node takes it from the checkpoint. The stopped batch's
+      # committed write stays and isn't redone.
+      chain |> Ecto.Changeset.change(opts: %{"id_window" => 1}) |> Repo.update!()
+      Bitblocks.Shutdown.reset()
+      assert :ok = perform(chain, first.id)
+
+      assert Enum.all?([first, second, third], &(Repo.get!(Transaction, &1.id).raw_in_db == true))
+
+      assert [%Run{outcome: "halted"}, %Run{outcome: "ok", rows_changed: 1}] =
+               Repo.all(from(r in Run, where: r.chain_id == ^chain.id, order_by: r.id))
+
+      assert %{status: "done"} = reload(chain)
+    end
+
+    test "with no shutdown, the watchdog never stops a long batch" do
+      watchdog(10)
+      assert :done = BackfillChains.run_watched(fn -> Process.sleep(100) && :done end)
+    end
+
+    test "an error in the runner is raised in the job, as before" do
+      assert_raise RuntimeError, "range failed", fn ->
+        BackfillChains.run_watched(fn -> raise "range failed" end)
+      end
+    end
+
+    test "a job that dies takes its runner with it, so the heartbeat goes stale" do
+      test = self()
+
+      job =
+        spawn(fn ->
+          BackfillChains.run_watched(fn ->
+            send(test, {:runner, self()})
+            Process.sleep(:infinity)
+          end)
+        end)
+
+      assert_receive {:runner, runner}
+      ref = Process.monitor(runner)
+      Process.exit(job, :kill)
+      assert_receive {:DOWN, ^ref, :process, ^runner, _}
     end
   end
 

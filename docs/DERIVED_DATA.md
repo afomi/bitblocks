@@ -298,16 +298,32 @@ A job that takes a range with a checkpoint inside it starts at the checkpoint pl
 Moving `next_from` on to the next range clears it.
 `token_recipients` pages by instance id rather than height, so it has no checkpoint: it starts its range over, and rows already at the version drop out.
 
-**Across a deploy** (https://github.com/afomi/bitblocks/issues/115).
+**Bounded batches** (https://github.com/afomi/bitblocks/issues/115).
+A batch is what a deploy waits for, so `Bitblocks.Derivations` keeps each one near `:derivation_batch_ms` (20 s; `batch_ms:` on a chain).
+Each batch has a deadline, checked between blocks and between the committed pages of a block.
+How many blocks a batch reads and how many txs a page takes are sized from the last one: over the target, at least halve; under half of it, grow by a quarter; in between, hold.
+Pages aim at `:derivation_page_ms` (2 s; `page_ms:`), and neither size goes above the configured `block_batch` or `tx_batch`.
+`tx_steps`, `script_analysis`, `timelocks` and `bap` also stop inside a dense block: the checkpoint is then `checkpoint_height` with `checkpoint_tx_id`, and the next job resumes inside that block, after that tx.
+`tallies` and `tx_types` sum or stamp a block whole, so their batches end between blocks only.
+
+**Across a deploy.**
 On SIGTERM, `Bitblocks.Application.prep_stop/1` sets `Bitblocks.Shutdown` before the supervision tree stops, so the flag is up for all of Oban's 60 s `shutdown_grace_period`.
-At the next batch boundary the job stops: its run reads `halted`, with `to_height` cut to the checkpoint, the heartbeat is cleared, `handed_off_at` is stamped, and the job snoozes for 5 seconds.
+The batch in flight ends after the page it is on.
+The job then stops: its run reads `halted`, with `to_height` cut to the checkpoint, the heartbeat is cleared, `handed_off_at` is stamped, and the job snoozes for 5 seconds.
 It is never left `executing` for Lifeline, so the other node, or the new one, takes the range within seconds, from the checkpoint.
 A job that starts on a node already stopping snoozes the same way.
 A `token_recipients` dry run doesn't hand off, since a rerun would count its rows again; it takes the crash path below.
 
+**The watchdog.**
+A single page, statement or streamed block can still outlast the window, so the backfill runs in a runner process the job links and waits on.
+45 s after the flag (`:backfill_watchdog_ms`), the job kills the runner, which rolls its open transaction back (only the runner ever sends a COMMIT, and the pool disconnects a dead holder's connection), and cancels the statement it left running, only while that backend is still in that transaction.
+Then it hands off at the last committed checkpoint as above; the run reads `halted` with an error naming the watchdog.
+Writes the stopped batch committed after its last checkpoint stay applied and are not redone, though their counts are lost.
+`BackfillChains`'s moduledoc has the mechanism in full.
+
 **Across a crash.**
-A batch that can't finish inside the grace period dies with the node, as does a job on a node that crashes.
-Only that batch is lost: the checkpoint never moves past work that wasn't committed.
+A job on a node that dies outright takes its runner with it.
+Only the batch in flight is lost: the checkpoint never moves past work that wasn't committed.
 The heartbeat goes stale after 15 minutes, one copy claims the range (one conditional update), closes the dead run as `abandoned`, and carries on from the checkpoint.
 
 **The counts.**
