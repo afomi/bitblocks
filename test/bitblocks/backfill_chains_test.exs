@@ -633,12 +633,53 @@ defmodule Bitblocks.BackfillChainsTest do
 
       for {_id, txid} <- ids, do: assert(spend_count(txid) == 1)
 
-      assert [%Run{outcome: "halted", rows_changed: a}, %Run{outcome: "ok", rows_changed: b} = ok] =
-               Repo.all(from(r in Run, where: r.chain_id == ^chain.id, order_by: r.id))
+      assert [
+               %Run{outcome: "halted", rows_changed: a} = halted,
+               %Run{outcome: "ok", rows_changed: b} = ok
+             ] = Repo.all(from(r in Run, where: r.chain_id == ^chain.id, order_by: r.id))
 
       assert a + b == 8
       assert ok.command =~ "(after tx id #{cp})"
       assert %{status: "done", checkpoint_height: nil, checkpoint_tx_id: nil} = reload(chain)
+
+      # The halted run finished no block whole: it covers nothing, and the
+      # ok run covers block 85.
+      assert {halted.from_height, halted.to_height} == {85, nil}
+      assert {ok.from_height, ok.to_height} == {85, 85}
+      runs = capture_io(fn -> Release.derivation_runs(derivation: "tx_steps") end)
+      assert runs =~ "85.. (no block finished)"
+    end
+
+    test "a halted run's to_height is the last block it finished whole" do
+      dense_block(85, 2)
+      ids = dense_block(86, 8)
+      txids = Enum.map(ids, &elem(&1, 1))
+
+      {:ok, chain} =
+        BackfillChains.start("tx_steps", 85, 86, apply: true, step: 10, tx_batch: 1, pause_ms: 80)
+
+      stop_when(fn -> Enum.count(txids, &(spend_count(&1) > 0)) >= 2 end)
+      assert {:snooze, 5} = perform(chain, 85)
+      assert %{checkpoint_height: 86, checkpoint_tx_id: cp} = reload(chain)
+      assert is_integer(cp)
+
+      Bitblocks.Shutdown.reset()
+      assert :ok = perform(chain, 85)
+
+      # The two runs tile 85..86: no overlap, no gap.
+      assert [%Run{outcome: "halted"} = halted, %Run{outcome: "ok"} = ok] =
+               Repo.all(from(r in Run, where: r.chain_id == ^chain.id, order_by: r.id))
+
+      assert {halted.from_height, halted.to_height} == {85, 85}
+      assert {ok.from_height, ok.to_height} == {86, 86}
+    end
+
+    test "the watchdog's log line says what happened to the open transaction" do
+      assert BackfillChains.describe_cancel(:cancelled) =~ "running statement was cancelled"
+      assert BackfillChains.describe_cancel(:idle) =~ "idle between statements, nothing to cancel"
+      assert BackfillChains.describe_cancel(:gone) =~ "already ended"
+      assert BackfillChains.describe_cancel(:none) =~ "no transaction open"
+      assert BackfillChains.describe_cancel({:error, "boom"}) =~ "could not be cancelled (boom)"
     end
 
     test "a batch that outlasts the window is stopped by the watchdog, and hands off within it",

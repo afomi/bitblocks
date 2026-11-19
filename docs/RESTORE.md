@@ -283,6 +283,22 @@ When Ryan calls it, with the sync stopped (`index.stopped` or `paused` on `/api/
 4. The sync carries on from `complete_through + 1` by itself (docs/SYNCING.md); clear or raise `SYNC_STOP_AT_HEIGHT`, and unpause on `/syncing` if it was paused.
    `/syncing` and `/api/v1/status` show it moving.
 
+### Rolling the code back past a checkpoint inside a block
+
+Code from https://github.com/afomi/bitblocks/pull/119 on can save a backfill chain's checkpoint inside a dense block: `checkpoint_tx_id` set beside `checkpoint_height`.
+Older code ignores `checkpoint_tx_id` and would start after `checkpoint_height`, skipping the rest of that block.
+So before deploying code older than that pull request to a database that newer code has run on, **Infra** runs:
+
+```sql
+UPDATE derivation_chains
+SET checkpoint_height = checkpoint_height - 1, checkpoint_tx_id = NULL
+WHERE checkpoint_tx_id IS NOT NULL;
+```
+
+The chain then takes that block again from its start.
+Redoing it writes nothing new: the backfills select by version or by missing rows, so the txs already done drop out.
+A restore from an archive taken before that pull request has no such rows; the update finds none.
+
 ## 5. Cost and time
 
 From the measured sizes in [STORAGE_PLAN.md](STORAGE_PLAN.md): 370 GB used at `complete_through` 348,921 (2026-11-13), 433 GB allocated, 5.3 KB per stored tx; about 560 to 620 GB used at 400,000 (est.).

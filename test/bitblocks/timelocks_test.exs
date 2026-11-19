@@ -157,6 +157,27 @@ defmodule Bitblocks.TimelocksTest do
       assert Timelocks.indexed_through(10_000) == 400
     end
 
+    # A chain's hand-off at a deploy splits a range into a halted run and an
+    # ok one (https://github.com/afomi/bitblocks/issues/115).
+    test "a halted run and the ok run after it cover the range together" do
+      # Stopped inside block 100: the halted run finished 0..99, the next
+      # run took 100 up again.
+      run!(0, 99, %{outcome: "halted"})
+      assert Timelocks.indexed_through(10_000) == 99
+
+      run!(100, 300)
+      assert Timelocks.indexed_through(10_000) == 300
+    end
+
+    test "a halted run that finished no block covers nothing" do
+      run!(0, 100)
+      run!(101, nil, %{outcome: "halted"})
+      assert Timelocks.indexed_through(10_000) == 100
+
+      run!(101, 200)
+      assert Timelocks.indexed_through(10_000) == 200
+    end
+
     test "never reaches past complete_through" do
       run!(0, 1_000)
 

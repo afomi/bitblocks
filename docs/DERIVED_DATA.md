@@ -305,6 +305,19 @@ How many blocks a batch reads and how many txs a page takes are sized from the l
 Pages aim at `:derivation_page_ms` (2 s; `page_ms:`), and neither size goes above the configured `block_batch` or `tx_batch`.
 `tx_steps`, `script_analysis`, `timelocks` and `bap` also stop inside a dense block: the checkpoint is then `checkpoint_height` with `checkpoint_tx_id`, and the next job resumes inside that block, after that tx.
 `tallies` and `tx_types` sum or stamp a block whole, so their batches end between blocks only.
+A halted run's `to_height` is the last block it finished whole (the block before the checkpoint's, when it stopped inside one), or nil when it finished none, so the runs of a range tile it with no overlap and no gap.
+
+**Rolling the code back.**
+Code older than https://github.com/afomi/bitblocks/pull/119 ignores `checkpoint_tx_id` and would skip the rest of that block.
+Before deploying such code, run:
+
+```sql
+UPDATE derivation_chains
+SET checkpoint_height = checkpoint_height - 1, checkpoint_tx_id = NULL
+WHERE checkpoint_tx_id IS NOT NULL;
+```
+
+The chain then redoes that block from its start, and redoing it writes nothing new (docs/RESTORE.md, section 4).
 
 **Across a deploy.**
 On SIGTERM, `Bitblocks.Application.prep_stop/1` sets `Bitblocks.Shutdown` before the supervision tree stops, so the flag is up for all of Oban's 60 s `shutdown_grace_period`.
@@ -316,7 +329,9 @@ A `token_recipients` dry run doesn't hand off, since a rerun would count its row
 
 **The watchdog.**
 A single page, statement or streamed block can still outlast the window, so the backfill runs in a runner process the job links and waits on.
-45 s after the flag (`:backfill_watchdog_ms`), the job kills the runner, which rolls its open transaction back (only the runner ever sends a COMMIT, and the pool disconnects a dead holder's connection), and cancels the statement it left running, only while that backend is still in that transaction.
+45 s after the flag (`:backfill_watchdog_ms`), the job kills the runner, which rolls its open transaction back: only the runner ever sends a COMMIT, and the pool disconnects a dead holder's connection.
+Postgrex's disconnect cancels the statement in flight and closes the session, so its locks are freed at once.
+As a second line, the job cancels a statement still running in that same transaction itself, and its log line says which it found.
 Then it hands off at the last committed checkpoint as above; the run reads `halted` with an error naming the watchdog.
 Writes the stopped batch committed after its last checkpoint stay applied and are not redone, though their counts are lost.
 `BackfillChains`'s moduledoc has the mechanism in full.

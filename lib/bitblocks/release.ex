@@ -1195,7 +1195,13 @@ defmodule Bitblocks.Release do
       runs = Bitblocks.Derivations.list_runs(opts)
 
       for r <- runs do
-        range = if r.from_height, do: "#{r.from_height}..#{r.to_height}", else: "all"
+        range =
+          cond do
+            is_nil(r.from_height) -> "all"
+            # A halted run that finished no block of its own (Bitblocks.BackfillChains).
+            is_nil(r.to_height) -> "#{r.from_height}.. (no block finished)"
+            true -> "#{r.from_height}..#{r.to_height}"
+          end
 
         IO.puts(
           "##{r.id} #{r.derivation} v#{r.version} #{range} " <>
