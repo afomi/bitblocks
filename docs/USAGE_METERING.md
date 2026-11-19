@@ -83,6 +83,7 @@ bin/bitblocks rpc 'Bitblocks.Release.usage_report(hours: 720, limit: 50)'
 `/usage` (admin) shows the same over the last day, week or 30 days.
 
 A key holder, or a signed-in user, reads their own at `GET /api/v1/usage?hours=24` (1 to 720): totals and each class, with per-request means, flushed rollups plus this node's last minute.
+A signed-in user also sees theirs on `/pricing#usage` ("What am I using?"): requests and data sent by class over the last 24 hours, as themselves and through their key, labelled measured and not billed.
 
 ## From here to a rate
 

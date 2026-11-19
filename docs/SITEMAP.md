@@ -14,6 +14,7 @@ Search engines get the public subset at `/sitemap.xml` (`BitblocksWeb.SitemapCon
 | `/reorgs` | Reorganizations this index has seen, as annotations at a height |
 | `/protocols` | Moved to `/types#protocols` (301) |
 | `/guide` | Getting started guide |
+| `/pricing` | Plans; `#downloads`, a live bulk-download estimate at $1.00 per GiB with named ranges and the size of each 50,000-block band; `#usage`, your own measured use when signed in; `#crawlers` |
 | `/did` | Decentralized identity explorer |
 | `/apps` | Applications directory |
 | `/resources` | External resources and links |
@@ -84,6 +85,8 @@ All `GET` unless noted.
 | Endpoint | Description |
 |----------|-------------|
 | `/api/v1/usage` | Your own key's (or session's) measured usage by endpoint class. `?hours=24` ([USAGE_METERING.md](USAGE_METERING.md)) |
+| `/api/v1/downloads/quote` | A bulk download's size, files and price with its arithmetic. `?from=&to=&data=raw` |
+| `/api/v1/downloads/sizes` | Size of each 50,000-block band to `complete_through`, and the named ranges |
 
 ### Addresses
 

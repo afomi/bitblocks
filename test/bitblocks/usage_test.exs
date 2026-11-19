@@ -150,7 +150,9 @@ defmodule Bitblocks.UsageTest do
       assert row.endpoint_class == "read"
       assert DateTime.to_unix(row.hour) |> rem(3600) == 0
 
-      report = Usage.report(hours: 24)
+      # Other tests' requests sit in the shared meter table, and flush with
+      # these; the most callers a report lists keeps this one in it.
+      report = Usage.report(hours: 24, limit: 500)
       read = Enum.find(report.by_class, &(&1.class == "read"))
       raw = Enum.find(report.by_class, &(&1.class == "raw_export"))
       assert read.requests >= 2

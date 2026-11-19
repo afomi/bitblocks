@@ -58,4 +58,75 @@ defmodule BitblocksWeb.Api.DownloadControllerTest do
 
     assert body["error"] == "coming"
   end
+
+  describe "with a price per GiB" do
+    setup do
+      previous = Application.get_env(:bitblocks, Bitblocks.Downloads)
+      Application.put_env(:bitblocks, Bitblocks.Downloads, price_usd_per_gib: "1.00")
+
+      on_exit(fn ->
+        if previous,
+          do: Application.put_env(:bitblocks, Bitblocks.Downloads, previous),
+          else: Application.delete_env(:bitblocks, Bitblocks.Downloads)
+      end)
+    end
+
+    test "quotes the price with the fields it comes from", %{conn: conn} do
+      body =
+        conn
+        |> get(~p"/api/v1/downloads/quote?from=0&to=2&data=raw")
+        |> json_response(200)
+
+      assert %{
+               "bytes" => 3_285,
+               "billable_gib" => "0.01",
+               "price_usd_per_gib" => "1.00",
+               "price_usd" => "0.01",
+               "price" => "quoted",
+               "price_reason" => nil
+             } = body["data"]
+
+      assert body["meta"]["pricing"] =~ "billable_gib x price_usd_per_gib"
+      assert body["meta"]["check"] =~ "merkleroot"
+    end
+
+    test "names why a range with a missing size has no price", %{conn: conn} do
+      block_fixture(%{height: 4, size: nil, sync_state: "completed"})
+      Bitblocks.Repo.update_all(Bitblocks.Chain.Block, set: [sync_state: "completed"])
+
+      body =
+        conn
+        |> get(~p"/api/v1/downloads/quote?from=0&to=4&data=raw")
+        |> json_response(200)
+
+      assert %{"price_usd" => nil, "price" => "on_request", "price_reason" => "sizes_missing"} =
+               body["data"]
+    end
+  end
+
+  test "says no price is set while none is configured", %{conn: conn} do
+    body = conn |> get(~p"/api/v1/downloads/quote?from=0&to=0&data=raw") |> json_response(200)
+    assert body["data"]["price_reason"] == "no_price_set"
+    assert body["data"]["price_usd_per_gib"] == nil
+  end
+
+  describe "GET /api/v1/downloads/sizes" do
+    setup do
+      Bitblocks.Downloads.clear_size_bands()
+      on_exit(&Bitblocks.Downloads.clear_size_bands/0)
+    end
+
+    test "gives each band's size and the named ranges", %{conn: conn} do
+      body = conn |> get(~p"/api/v1/downloads/sizes") |> json_response(200)
+
+      assert [%{"from" => 0, "to" => 2, "blocks" => 3, "bytes" => 3_285, "bytes_exact" => true}] =
+               body["data"]
+
+      assert body["meta"]["complete_through"] == 2
+      assert body["meta"]["band_size"] == 50_000
+
+      assert %{"id" => "all", "from" => 0, "to" => 2, "available" => true} =
+               Enum.find(body["meta"]["presets"], &(&1["id"] == "all"))
+    end
+  end
 end

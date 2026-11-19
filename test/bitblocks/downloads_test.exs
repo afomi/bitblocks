@@ -123,6 +123,82 @@ defmodule Bitblocks.DownloadsTest do
       assert {:ok, %{price_usd: price}} = Downloads.quote(0, 1, "raw")
       assert Decimal.equal?(price, Decimal.new("4.50"))
     end
+
+    test "at $1.00 a GiB, is the billable GiB times the rate, to the cent" do
+      # 2.505 GiB rounds half up to 2.51.
+      chain([@gib, @gib, div(@gib * 505, 1000) + 1])
+      Application.put_env(:bitblocks, Downloads, price_usd_per_gib: "1.00")
+
+      assert {:ok, quote} = Downloads.quote(0, 2, "raw")
+      assert Decimal.equal?(quote.price_usd_per_gib, Decimal.new("1.00"))
+      assert Decimal.equal?(quote.billable_gib, Decimal.new("2.51"))
+      assert Decimal.equal?(quote.price_usd, Decimal.new("2.51"))
+      assert Downloads.format_usd(quote.price_usd) == "$2.51"
+    end
+
+    test "a missing size gives no price, though the rate is set" do
+      chain([@gib, nil])
+      Application.put_env(:bitblocks, Downloads, price_usd_per_gib: 1.0)
+
+      assert {:ok, quote} = Downloads.quote(0, 1, "raw")
+      assert quote.price_usd == nil
+      assert Decimal.equal?(quote.price_usd_per_gib, Decimal.new("1.0"))
+    end
+
+    test "billable_gib/1 never reads a small range as free" do
+      assert Decimal.equal?(Downloads.billable_gib(0), 0)
+      assert Decimal.equal?(Downloads.billable_gib(1), Decimal.new("0.01"))
+      assert Decimal.equal?(Downloads.billable_gib(div(@gib, 2)), Decimal.new("0.50"))
+      assert Downloads.format_usd(Decimal.new("12345.5")) == "$12,345.50"
+    end
+  end
+
+  describe "presets/1" do
+    test "clips each range to complete_through, and marks those out of reach" do
+      presets = Map.new(Downloads.presets(300_000), &{&1.id, &1})
+
+      assert %{from: 0, to: 99_999, clipped: false, available: true} = presets["first_100k"]
+      assert %{from: 0, to: 300_000, available: true} = presets["all"]
+      assert %{from: 210_000, to: 300_000, clipped: true} = presets["second_halving"]
+      assert %{available: false} = presets["bsv"]
+
+      assert %{to: 99_999} = Downloads.preset("first_100k", 1_000_000)
+      assert Downloads.preset("nope", 10) == nil
+      assert Enum.all?(Downloads.presets(-1), &(not &1.available))
+    end
+  end
+
+  describe "size_bands/1" do
+    setup do
+      Downloads.clear_size_bands()
+      on_exit(&Downloads.clear_size_bands/0)
+    end
+
+    test "sums each band up to complete_through, from blocks only" do
+      chain([100, 200, nil])
+
+      assert %{complete_through: 2, band_size: 50_000, bands: [band]} = Downloads.size_bands()
+      assert %{from: 0, to: 2, blocks: 3, bytes: 300, bytes_exact: false, sizes_missing: 1} = band
+      assert band.price_usd == nil
+
+      assert %{bands: [_, %{from: 50_000, to: 60_000}]} =
+               Downloads.size_bands(complete_through: 60_000)
+    end
+
+    test "is cached until cleared" do
+      chain([100])
+      assert %{bands: [%{bytes: 100}]} = Downloads.size_bands()
+
+      block_fixture(%{height: 1, size: 50, sync_state: "completed"})
+      assert %{complete_through: 0} = Downloads.size_bands()
+
+      Downloads.clear_size_bands()
+      assert %{complete_through: 1, bands: [%{bytes: 150}]} = Downloads.size_bands()
+    end
+
+    test "is empty with nothing complete" do
+      assert %{complete_through: -1, bands: []} = Downloads.size_bands()
+    end
   end
 
   test "data_options/0 lists raw as available and the rest as coming" do
