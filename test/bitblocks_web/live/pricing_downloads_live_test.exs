@@ -167,6 +167,9 @@ defmodule BitblocksWeb.PricingDownloadsLiveTest do
       chain([100, 200, 300])
 
       {:ok, view, _html} = live(conn, ~p"/pricing")
+      # The page quotes on connect when the shared sync snapshot (left by an
+      # earlier test) has coverage; let that quote's interval pass first.
+      Process.sleep(350)
       submit_quote(view, %{"from" => "0", "to" => "0"})
       assert has_element?(view, "#downloads-quote-bytes", "100")
 
