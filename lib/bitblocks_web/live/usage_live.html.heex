@@ -1,0 +1,132 @@
+<div class="max-w-6xl mx-auto px-4 py-8 text-gray-900 dark:text-gray-100">
+  <h1 class="text-2xl font-bold text-gray-900 dark:text-white mb-2">
+    Usage
+  </h1>
+  <p class="text-sm text-gray-600 dark:text-gray-400 mb-6">
+    What each caller used, by endpoint class: requests, response bytes, database time and upstream calls.
+    This is measurement only, and nobody is charged for it.
+    Counts reach these rollups within a minute of each request.
+  </p>
+
+  <nav
+    id="usage-windows"
+    class="flex gap-4 text-sm mb-6"
+  >
+    <.link
+      :for={{hours, label} <- @windows}
+      patch={"/usage?hours=#{hours}"}
+      id={"usage-window-#{hours}"}
+      class={[
+        "underline",
+        @hours == hours && "font-semibold text-gray-900 dark:text-white",
+        @hours != hours && "text-blue-700 dark:text-blue-400"
+      ]}
+    >
+      {label}
+    </.link>
+  </nav>
+
+  <p
+    id="usage-summary"
+    class="text-sm mb-6"
+  >
+    {delimit(@report.totals.requests)} requests from {delimit(@report.callers)} callers, {bytes(
+      @report.totals.response_bytes
+    )} sent, {seconds(@report.totals.db_us)} of database time, {delimit(upstream(@report.totals))} upstream calls.
+  </p>
+
+  <h2 class="text-lg font-semibold mb-2">
+    By endpoint class
+  </h2>
+  <p
+    :if={@report.by_class == []}
+    id="usage-empty"
+    class="text-sm text-gray-600 dark:text-gray-400 mb-6"
+  >
+    No requests measured in this window yet.
+  </p>
+  <div class="overflow-x-auto mb-8">
+    <table
+      :if={@report.by_class != []}
+      id="usage-by-class"
+      class="w-full text-sm"
+    >
+      <thead>
+        <tr class="text-left text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-700">
+          <th class="py-2 pr-4">Class</th>
+          <th class="py-2 pr-4 text-right">Requests</th>
+          <th class="py-2 pr-4 text-right">4xx / 5xx</th>
+          <th class="py-2 pr-4 text-right">Bytes</th>
+          <th class="py-2 pr-4 text-right">Per request</th>
+          <th class="py-2 pr-4 text-right">DB time</th>
+          <th class="py-2 pr-4 text-right">DB per request</th>
+          <th class="py-2 pr-4 text-right">Node</th>
+          <th class="py-2 pr-4 text-right">WoC</th>
+          <th class="py-2 pr-4 text-right">CoinGecko</th>
+          <th class="py-2 text-right">Other</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr
+          :for={u <- @report.by_class}
+          id={"usage-class-#{u.class}"}
+          class="border-b border-gray-100 dark:border-gray-800"
+        >
+          <td class="py-2 pr-4 font-mono">{u.class}</td>
+          <td class="py-2 pr-4 text-right">{delimit(u.requests)}</td>
+          <td class="py-2 pr-4 text-right">{delimit(u.status_4xx)} / {delimit(u.status_5xx)}</td>
+          <td class="py-2 pr-4 text-right">{bytes(u.response_bytes)}</td>
+          <td class="py-2 pr-4 text-right">{mean(u.per_request, :response_bytes)}</td>
+          <td class="py-2 pr-4 text-right">{seconds(u.db_us)}</td>
+          <td class="py-2 pr-4 text-right">{mean(u.per_request, :db_ms)}</td>
+          <td class="py-2 pr-4 text-right">{delimit(u.node_calls)}</td>
+          <td class="py-2 pr-4 text-right">{delimit(u.woc_calls)}</td>
+          <td class="py-2 pr-4 text-right">{delimit(u.coingecko_calls)}</td>
+          <td class="py-2 text-right">{delimit(u.other_calls)}</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2 class="text-lg font-semibold mb-2">
+    By caller
+  </h2>
+  <p class="text-sm text-gray-600 dark:text-gray-400 mb-2">
+    The top {length(@report.by_caller)} of {delimit(@report.callers)} callers, by requests.
+    Anonymous visitors share one row, and no IP address is kept.
+  </p>
+  <div class="overflow-x-auto">
+    <table
+      :if={@report.by_caller != []}
+      id="usage-by-caller"
+      class="w-full text-sm"
+    >
+      <thead>
+        <tr class="text-left text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-700">
+          <th class="py-2 pr-4">Caller</th>
+          <th class="py-2 pr-4">Classes</th>
+          <th class="py-2 pr-4 text-right">Requests</th>
+          <th class="py-2 pr-4 text-right">Bytes</th>
+          <th class="py-2 pr-4 text-right">DB time</th>
+          <th class="py-2 text-right">Upstream</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr
+          :for={c <- @report.by_caller}
+          id={"usage-caller-#{c.caller_kind}-#{c.caller_id}"}
+          class="border-b border-gray-100 dark:border-gray-800"
+        >
+          <td class="py-2 pr-4">{c.label}</td>
+          <td class="py-2 pr-4 font-mono text-xs">
+            {Enum.map_join(c.by_class, ", ", &"#{&1.class} #{delimit(&1.requests)}")}
+          </td>
+          <td class="py-2 pr-4 text-right">{delimit(c.totals.requests)}</td>
+          <td class="py-2 pr-4 text-right">{bytes(c.totals.response_bytes)}</td>
+          <td class="py-2 pr-4 text-right">{seconds(c.totals.db_us)}</td>
+          <td class="py-2 text-right">{delimit(upstream(c.totals))}</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>

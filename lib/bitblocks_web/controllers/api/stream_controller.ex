@@ -13,12 +13,26 @@ defmodule BitblocksWeb.Api.StreamController do
   Events reach a stream on any node that shares PubSub with the publisher.
   """
   use BitblocksWeb, :controller
+  # chunk/2 below counts each chunk's bytes for Bitblocks.Usage (#61).
+  import Plug.Conn, except: [chunk: 2]
 
   alias BitblocksWeb.SseLimiter
   alias BitblocksWeb.Utils.BsvParams
   alias BitblocksWeb.Utils.IpHelper
 
   @pubsub Bitblocks.PubSub
+
+  # Plug.Conn.chunk/2, metering the bytes once they are sent.
+  defp chunk(conn, data) do
+    case Plug.Conn.chunk(conn, data) do
+      {:ok, _conn} = sent ->
+        Bitblocks.Usage.add_bytes(data)
+        sent
+
+      error ->
+        error
+    end
+  end
 
   # Heartbeat cadence — also the granularity at which we check the lifetime cap.
   defp heartbeat_ms do

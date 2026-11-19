@@ -2399,6 +2399,67 @@ defmodule Bitblocks.Release do
   end
 
   # ---------------------------------------------------------------------------
+  # Usage metering (#61, docs/USAGE_METERING.md): measured, nobody charged.
+
+  @doc """
+  Prints and returns what callers used over the last `hours` (default 24, at
+  most 90 days): requests, response bytes, database time, upstream calls, by
+  endpoint class and by caller (the top 20), with per-request means.
+  Flushes this node's counters first; other nodes' last minute may not be in.
+  Read-only apart from that flush.
+
+      bin/bitblocks rpc 'Bitblocks.Release.usage_report()'
+      bin/bitblocks rpc 'Bitblocks.Release.usage_report(168)'
+      bin/bitblocks rpc 'Bitblocks.Release.usage_report(hours: 720, limit: 50)'
+  """
+  def usage_report(opts \\ [])
+  def usage_report(hours) when is_integer(hours), do: usage_report(hours: hours)
+
+  def usage_report(opts) when is_list(opts) do
+    alias Bitblocks.Usage
+
+    case Usage.flush() do
+      {:ok, _} -> :ok
+      {:error, reason} -> IO.puts("  (this node's last minute isn't in: #{reason})")
+    end
+
+    report = Usage.report(Keyword.put_new(opts, :limit, 20))
+
+    IO.puts("\n=== Usage, #{report.hours} h: #{report.from} to #{report.to} ===")
+    IO.puts("  #{usage_line(report.totals)}")
+    IO.puts("\n  By endpoint class:")
+
+    Enum.each(report.by_class, fn u ->
+      IO.puts("    #{String.pad_trailing(u.class, 11)} #{usage_line(u)}")
+    end)
+
+    IO.puts("\n  By caller (top #{length(report.by_caller)} of #{report.callers}):")
+    Enum.each(report.by_caller, &IO.puts("    #{&1.label}: #{usage_line(&1.totals)}"))
+
+    report
+  end
+
+  defp usage_line(%{requests: n} = u) do
+    upstream = u.node_calls + u.woc_calls + u.coingecko_calls + u.other_calls
+
+    means =
+      case u.per_request do
+        nil ->
+          ""
+
+        m ->
+          "; per req #{Bitblocks.Usage.format_bytes(m.response_bytes)}, " <>
+            "#{m.duration_ms} ms, db #{m.db_ms} ms"
+      end
+
+    "#{n} req (#{u.status_4xx} 4xx, #{u.status_5xx} 5xx), " <>
+      "#{Bitblocks.Usage.format_bytes(u.response_bytes)}, " <>
+      "db #{Float.round(u.db_us / 1_000_000, 2)} s in #{u.db_queries} queries, " <>
+      "upstream #{upstream} (node #{u.node_calls}, woc #{u.woc_calls}, " <>
+      "coingecko #{u.coingecko_calls}, other #{u.other_calls})" <> means
+  end
+
+  # ---------------------------------------------------------------------------
   # x402: AI crawlers paying for requests over their budget (docs/STRIPE.md).
 
   @doc """

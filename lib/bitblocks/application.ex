@@ -74,6 +74,8 @@ defmodule Bitblocks.Application do
       {Oban, Bitblocks.NodeRole.oban_config(Application.fetch_env!(:bitblocks, Oban))},
       # Leads the sync on the Oban leader node: cursor, dispatch, concurrency
       Bitblocks.NodeRole.writer_only(Bitblocks.Sync.Coordinator),
+      # Usage counters by caller and endpoint class, flushed to usage_rollups each minute (#61)
+      Bitblocks.Usage.Flusher,
       # Mining proxy — serves block templates to remote hashers
       Bitblocks.MiningProxy,
       # Generic collections registry

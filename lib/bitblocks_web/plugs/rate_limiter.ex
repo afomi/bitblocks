@@ -132,6 +132,11 @@ defmodule BitblocksWeb.Plugs.RateLimiter do
         {conn, user_id} = session_user_id(conn)
 
         {bucket, max_requests, tier} = budget(conn, user_id, ip, now, anonymous)
+
+        # Who to meter the request under (Bitblocks.Usage), with no query.
+        conn =
+          if tier in [:admin, :signed_in], do: assign(conn, :caller_user_id, user_id), else: conn
+
         limit(conn, bucket, now, window_ms, max_requests, tier)
 
       token ->

@@ -113,6 +113,10 @@ config :bitblocks, :invalid_request_threshold, 10_000
 # covered by test/bitblocks_web/admin_gate_test.exs, which re-enables it.
 config :bitblocks, :admin_auth, enabled: false
 
+# Usage rollups (Bitblocks.Usage): no timer, the flusher has no sandbox;
+# tests call Usage.flush/0 themselves.
+config :bitblocks, :usage_flush_ms, nil
+
 # Raise the per-IP rate limit in tests. Many controller tests share the
 # 127.0.0.1 source IP, so the production-tight 20/min limit would otherwise
 # turn assertions into flaky 429s depending on test order.

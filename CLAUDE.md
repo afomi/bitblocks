@@ -161,6 +161,7 @@ GET /api/v1/status/derivations` shows the versions and latest runs.
   - `/syncing` - signed-in live sync view: blocks fetching on each lane with synced and processed x of y, recent completions, tips and blocks by sync_state, from one shared snapshot (`Bitblocks.SyncProgress`; `docs/SYNCING.md`); admins also get the operator panel there: pause, worker slots, node load, failed blocks, the audit. `/sync` redirects to it
   - `/chain-scrubber` - admin only: scrub the chain genesis to tip in three.js from precomputed tiles (`docs/CHAIN_SCRUBBER.md`); `/chain-scrubber/tiles/manifest` and `/chain-scrubber/tiles/:level/:idx` serve the tiles from ETS with no DB query
   - `/tx-graph` - admin only: the transaction flow space, a block range in three.js with every input as an arc to the output it spends, scrubbed by a playhead (`docs/TX_FLOW.md`); data from `/chain-scrubber/flow?from=&to=` (`Bitblocks.ChainFlow`), and past 50,000 txs one node per block from the flow tiles (`Bitblocks.FlowTiles`, ETS, `/chain-scrubber/flow-tiles/*`)
+  - `/usage` - admin only: requests, response bytes, database time and upstream calls by endpoint class and caller, over a day, a week or 30 days, from the hourly rollups (`Bitblocks.Usage`, `docs/USAGE_METERING.md`, #61); measured, nobody charged
   - `/burns` - admin only: the blocks that burned sats (`blocks.burned`), most first or newest first, each opening to its stored txs by `burned_satoshis` (`Bitblocks.Burns`)
   - `/annotations` - admin only: CRUD for chain annotations (forks, upgrades, halvings, mintings, milestones, world events), placed by height, txid or date (`Bitblocks.Annotations`); drawn on both scenes
   - `/dev/dashboard` - LiveDashboard (dev only)
@@ -298,6 +299,10 @@ bin/bitblocks rpc 'Bitblocks.Release.x402_reconcile()'
 # The deposit address, once, by hand: dry run first; apply prints only the address, which goes in X402_PAY_TO, not the repo
 bin/bitblocks rpc 'Bitblocks.Release.x402_create_deposit_address(network: "base")'
 bin/bitblocks rpc 'Bitblocks.Release.x402_create_deposit_address(network: "base", apply: true)'
+
+# Measured usage, nobody charged (#61, docs/USAGE_METERING.md): by endpoint class and caller, over the last N hours (default 24)
+bin/bitblocks rpc 'Bitblocks.Release.usage_report()'
+bin/bitblocks rpc 'Bitblocks.Release.usage_report(hours: 720, limit: 50)'
 ```
 
 `/syncing` shows the loop live; admins also get the worker-slot control and the load on our node there.
@@ -342,6 +347,7 @@ GET /api/v1/ops/node            — ops_read key: node height and headers, RPC a
 GET /api/v1/ops/errors          — ops_read key: recent error log lines, secrets and addresses removed (?limit=)
 POST /api/v1/ops/mcp            — ops_read key: the same four tools over MCP (Streamable HTTP, JSON)
 GET /api/v1/price/bsv           — cached BSV spot price (USD) from CoinGecko
+GET /api/v1/usage               — your own key's (or session's) measured usage over ?hours= (1–720, default 24): totals and each endpoint class (read, raw_export, stream, proof, ops, page) with per-request means; measured, not billed (docs/USAGE_METERING.md)
 GET /api/v1/support             — sponsorship numbers for the off-site page: monthly costs, target, BSV received from our own data: the index through complete_through, then our own read of newer blocks for the donation address (Support.Scan, from scan_from_height); received_through_height, received_pending_from_height, received_note, received_sources (index, scan); received_sats_30d nil with received_30d_reason until our data reaches the last 30 days (CORS *)
 GET /api/v1/stream/blocks       — SSE stream: `block_updated` (height, hash, sync_state; each new header and state change) and `reorg` (fork_point, fork_height, orphans)
 GET /api/v1/metanet/:txid       — Metanet node with parent, children, MURL path

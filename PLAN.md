@@ -61,7 +61,7 @@ https://github.com/afomi/bitblocks/issues/87 · https://github.com/afomi/bitbloc
      Ryan sets the tier prices before launch; drafts stay out of this public repo.
   4. Cloud services: managed projections, filtered databases and dedicated instances, quoted and billed monthly: https://github.com/afomi/bitblocks/issues/113
   5. Consulting: rare, and outside the app's billing code; its channel is Ryan's call: https://github.com/afomi/bitblocks/issues/114
-  Lines 3 and 4 need per-key use counting first (https://github.com/afomi/bitblocks/issues/61).
+  Lines 3 and 4 price from per-key use counting, which is measured now ([docs/USAGE_METERING.md](docs/USAGE_METERING.md), https://github.com/afomi/bitblocks/issues/61).
 - Paid crawler access (x402), agreed with jurisdictional on 2026-11-18:
   - One shared library, `x402_ex` (`afomi/x402_ex`), protocol and verification only.
     bitblocks builds v0.1, including `X402.Stripe`, and jurisdictional gives it a security review before it is tagged.
