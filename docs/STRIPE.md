@@ -36,7 +36,7 @@ The key's own request log is under **⋯ → View request logs** next to it, whi
 
 The key goes into the bitblocks secret in AWS Secrets Manager (`bitblocks/prod`), under its own name, so it never sits beside a live key by accident.
 
-In your own terminal, from `~/workspace/infra`:
+In your own terminal, from your checkout of the infra repo:
 
 ```bash
 pbpaste | aws-vault exec default -- ./scripts/app-secret-set.sh bitblocks STRIPE_SANDBOX_SECRET_KEY --stdin

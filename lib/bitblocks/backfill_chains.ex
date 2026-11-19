@@ -21,6 +21,35 @@ defmodule Bitblocks.BackfillChains do
 
   A dry run's counts live in its `derivation_runs` rows, and `status/1` sums
   them, so they survive a restart too.
+
+  ## Checkpoint and hand-off (https://github.com/afomi/bitblocks/issues/115)
+
+  After each batch the job saves `checkpoint_height`, the highest height (tx
+  id for `tx_size`) whose batch is committed, in the same UPDATE as the
+  heartbeat, and the run's counts so far in the same transaction. A job that
+  takes a range with a checkpoint inside it starts at the checkpoint plus
+  one, whether it follows a hand-off, a crash or a Lifeline rescue; moving
+  `next_from` on clears it. So the counts of the runs of a range, however it
+  ended, add up to the range once.
+
+  A block backfill's cursor is the last block of its batch, and
+  `blocks.height` is unique, so that height is done whole. `token_recipients`
+  pages by instance id, not height, so it has no checkpoint: it starts its
+  range over, and rows already at the version drop out; an applied run saves
+  its counts per batch and can hand off, a dry run (whose rows stay below the
+  version, so a rerun counts them again) does neither.
+
+  On a deploy, each node gets SIGTERM. `Bitblocks.Application.prep_stop/1`
+  sets `Bitblocks.Shutdown` before the supervision tree stops; the flag is a
+  `:persistent_term`, free to read after every batch, and up for the whole of
+  Oban's 60 s `shutdown_grace_period` (`Bitblocks.Shutdown` says why there).
+  At the next batch boundary the job stops (the run reads `halted`), clears
+  the heartbeat, stamps `handed_off_at` and returns `{:snooze, 5}`, so it is
+  never left `executing` for Lifeline, and the other node (or the new one)
+  takes the range within seconds, from the checkpoint. A job that starts on
+  a stopping node snoozes the same way. A batch that can't finish inside the
+  grace period dies with the node: only that batch is lost, the checkpoint
+  is behind it, and the stale heartbeat hands the range on as before.
   """
 
   import Ecto.Query
@@ -64,6 +93,14 @@ defmodule Bitblocks.BackfillChains do
   # A beat that can't write within this gives up until the next one; below the
   # 5 s the job waits for its beater to stop, so no beat lands after the clear.
   @beat_timeout_ms 4_000
+
+  # How long a job handing off waits before a node takes the range again.
+  @hand_off_snooze_s 5
+
+  # Runs whose counts a status sums: all but one still running. A run's counts
+  # cover the batches up to its chain's checkpoint, which the next run of the
+  # range starts after. (A run abandoned before checkpoints holds zeros.)
+  @counted_outcomes ~w(ok halted partial abandoned)
 
   def derivations, do: @derivations
 
@@ -182,6 +219,7 @@ defmodule Bitblocks.BackfillChains do
       is_nil(chain) -> {:cancel, :no_chain}
       chain.status != "running" -> {:cancel, {:chain, chain.status}}
       chain.next_from != from -> {:cancel, :superseded}
+      stopping?() -> {:snooze, @hand_off_snooze_s}
       claim(chain.id) -> work(chain, from, last_attempt?)
       true -> {:snooze, 120}
     end
@@ -214,14 +252,60 @@ defmodule Bitblocks.BackfillChains do
     close_dead_runs(chain)
 
     to = min(from + chain.range_step - 1, chain.range_to)
-    every = Application.get_env(:bitblocks, :backfill_beat_every_ms, @beat_every_ms)
-    report = with_heartbeat(chain.id, every, fn -> run_backfill(chain, from, to) end)
-    clear_heartbeat(chain.id)
+    start = resume_at(chain.checkpoint_height, from, to)
 
-    case report.outcome do
-      "ok" -> advance(chain, from, to)
-      _ -> retry_or_fail(chain, report.error, last_attempt?)
+    if start > to do
+      # The checkpoint already reached the end: a job stopped after the last batch.
+      clear_heartbeat(chain.id)
+      advance(chain, from, to)
+    else
+      every = Application.get_env(:bitblocks, :backfill_beat_every_ms, @beat_every_ms)
+      report = with_heartbeat(chain.id, every, fn -> run_backfill(chain, start, to) end)
+
+      case report.outcome do
+        "halted" ->
+          hand_off(chain, report)
+
+        "ok" ->
+          clear_heartbeat(chain.id)
+          advance(chain, from, to)
+
+        _ ->
+          clear_heartbeat(chain.id)
+          retry_or_fail(chain, report.error, last_attempt?)
+      end
     end
+  end
+
+  # Where a job takes the range up: after a checkpoint inside it, else its start.
+  defp resume_at(checkpoint, from, to)
+       when is_integer(checkpoint) and checkpoint >= from and checkpoint <= to,
+       do: checkpoint + 1
+
+  defp resume_at(_checkpoint, from, _to), do: from
+
+  # The node is stopping and the run halted at a batch boundary, its
+  # checkpoint and counts saved with that batch. The beater has stopped
+  # (with_heartbeat waits for it), so no beat lands after this clear, and the
+  # next job finds the range free at once.
+  defp hand_off(chain, report) do
+    {1, [checkpoint]} =
+      Repo.update_all(
+        from(c in BackfillChain, where: c.id == ^chain.id, select: c.checkpoint_height),
+        set: [heartbeat_at: nil, handed_off_at: DateTime.utc_now()]
+      )
+
+    # The run covered its start up to the checkpoint; the next starts after it.
+    # (A tx_size run records no heights.)
+    if report.run_id && checkpoint && report.to_height do
+      Repo.update_all(from(r in Run, where: r.id == ^report.run_id), set: [to_height: checkpoint])
+    end
+
+    Logger.info(
+      "Backfill chain ##{chain.id}: node stopping; handed off at checkpoint #{inspect(checkpoint)}"
+    )
+
+    {:snooze, @hand_off_snooze_s}
   end
 
   # Past the alive?/1 check, nothing of this chain is working, so a run still
@@ -244,10 +328,82 @@ defmodule Bitblocks.BackfillChains do
           apply: chain.applied,
           chain_id: chain.id,
           command: "chain ##{chain.id} #{chain.derivation} #{from}..#{to}",
-          on_batch: fn _ -> beat(chain.id) end
+          after_batch: &after_batch(chain, &1, &2)
         ]
 
     backfill(chain.derivation, from, to, opts)
+  end
+
+  # After each committed batch: beat, save the checkpoint where it is exact
+  # (with the run's counts, in one transaction), and stop here when the node
+  # is stopping and the range can be handed on from this point.
+  defp after_batch(chain, cursor, report) do
+    checkpoint = checkpoint(chain.derivation, cursor)
+    save_batch(chain, checkpoint, report)
+
+    if stopping?() and hand_off?(chain, checkpoint),
+      do: :halt,
+      else: :cont
+  end
+
+  # The node is stopping (`Bitblocks.Shutdown`). `config :bitblocks,
+  # :backfill_stopping?` (a 0-arity fun) stands in for it in tests.
+  defp stopping? do
+    case Application.get_env(:bitblocks, :backfill_stopping?) do
+      nil -> Bitblocks.Shutdown.stopping?()
+      fun -> fun.()
+    end
+  end
+
+  # {:at, h}: every row at or below h in the range is done. The block
+  # backfills page blocks keyset on (height, id), and `blocks.height` is
+  # unique, so the last block's height is done whole. :none: the cursor isn't
+  # a height (token_recipients pages by instance id).
+  defp checkpoint("tx_size", id) when is_integer(id), do: {:at, id}
+  defp checkpoint("token_recipients", _cursor), do: :none
+  defp checkpoint(_derivation, {height, _id}) when is_integer(height), do: {:at, height}
+  defp checkpoint(_derivation, {height, _id, _}) when is_integer(height), do: {:at, height}
+  defp checkpoint(_derivation, _cursor), do: :none
+
+  defp hand_off?(_chain, {:at, _}), do: true
+  defp hand_off?(chain, :none), do: chain.applied
+
+  defp save_batch(chain, checkpoint, report) do
+    now = DateTime.utc_now()
+
+    {set, counts?} =
+      case checkpoint do
+        {:at, height} -> {[heartbeat_at: now, checkpoint_height: height], true}
+        :none -> {[heartbeat_at: now], chain.applied}
+      end
+
+    Repo.transaction(
+      fn ->
+        Repo.update_all(from(c in BackfillChain, where: c.id == ^chain.id), set: set)
+        if counts? and report.run_id, do: save_counts(report)
+      end,
+      timeout: @beat_timeout_ms
+    )
+  rescue
+    # A checkpoint behind is safe: the next job redoes a batch. The beater
+    # keeps the heartbeat fresh meanwhile.
+    error ->
+      Logger.warning(
+        "Backfill chain ##{chain.id}: checkpoint not written, retrying next batch: " <>
+          Exception.message(error)
+      )
+  end
+
+  defp save_counts(report) do
+    Repo.update_all(from(r in Run, where: r.id == ^report.run_id),
+      set: [
+        rows_examined: report.rows_examined,
+        rows_changed: report.rows_changed,
+        rows_below_version: report.rows_below_version,
+        blocks_examined: report.blocks_examined,
+        details: report.details
+      ]
+    )
   end
 
   defp allowed(key), do: Enum.find(@backfill_opts, &(Atom.to_string(&1) == key))
@@ -269,11 +425,12 @@ defmodule Bitblocks.BackfillChains do
   defp advance(chain, from, to) do
     done? = to >= chain.range_to
 
-    # Keyed on next_from, so only one copy of a job moves the chain on.
+    # Keyed on next_from, so only one copy of a job moves the chain on. The
+    # checkpoint belonged to this range, so it goes with it.
     {moved, _} =
       Repo.update_all(
         from(c in BackfillChain, where: c.id == ^chain.id and c.next_from == ^from),
-        set: [next_from: to + 1]
+        set: [next_from: to + 1, checkpoint_height: nil]
       )
 
     if moved == 1 do
@@ -390,13 +547,16 @@ defmodule Bitblocks.BackfillChains do
   # chain paused before the rerun): nothing works on it, so it is not current.
   defp summarize(chain) do
     runs = Repo.all(from(r in Run, where: r.chain_id == ^chain.id, order_by: [asc: r.id]))
-    counted = Enum.filter(runs, &(&1.outcome == "ok"))
+    counted = Enum.filter(runs, &(&1.outcome in counted_outcomes(chain)))
     alive = alive?(chain)
 
     %{
       chain: chain,
       alive: alive,
-      ranges_done: length(counted),
+      ranges_done: Enum.count(runs, &(&1.outcome == "ok")),
+      checkpoint_height: chain.checkpoint_height,
+      handed_off_at: chain.handed_off_at,
+      hand_offs: Enum.count(runs, &(&1.outcome == "halted")),
       ranges_total: ranges_total(chain),
       current: if(alive, do: Enum.find(runs, &(&1.outcome == "running"))),
       next_range: next_range(chain),
@@ -405,9 +565,14 @@ defmodule Bitblocks.BackfillChains do
       rows_below_version: sum(counted, &(&1.rows_below_version || 0)),
       blocks_examined: sum(counted, & &1.blocks_examined),
       details: sum_details(counted),
-      not_ok: Enum.count(runs, &(&1.outcome not in ["ok", "running"]))
+      not_ok: Enum.count(runs, &(&1.outcome not in ["ok", "running", "halted"]))
     }
   end
+
+  # A token_recipients dry run has no checkpoint and its rows stay below the
+  # version, so a rerun counts the whole range again: only `ok` runs add up.
+  defp counted_outcomes(%{derivation: "token_recipients", applied: false}), do: ["ok"]
+  defp counted_outcomes(_chain), do: @counted_outcomes
 
   defp ranges_total(c), do: ceil((c.range_to - c.range_from + 1) / c.range_step)
 

@@ -11,7 +11,11 @@ defmodule Bitblocks.Derivations do
     * calls the batch function until it says `:done`, keeping the report
       after each batch, so an error records `partial` (with the error) and
       leaves the batches before it applied;
-    * prints progress through `:on_batch`.
+    * prints progress through `:on_batch`;
+    * after each batch, asks `:after_batch` (given the cursor the next batch
+      starts after, and the report) whether to go on (`:cont`) or stop
+      there (`:halt`), which records `halted`: a clean stop at a batch
+      boundary, for `Bitblocks.BackfillChains` to hand the rest on.
 
   The batch function bounds its own statements with `bounded/2` (a short
   transaction under a `statement_timeout`) and calls `pause/1` after each
@@ -68,7 +72,8 @@ defmodule Bitblocks.Derivations do
 
   @doc """
   Runs a backfill (`spec`) to the end, recording it in `derivation_runs`.
-  Returns the report; `outcome` is `"ok"`, `"partial"` or `"failed"`.
+  Returns the report; `outcome` is `"ok"`, `"partial"`, `"failed"` or
+  `"halted"` (`:after_batch` stopped it).
   Never raises for an error in a batch: it is recorded and returned.
   """
   @spec run(spec(), keyword()) :: report()
@@ -107,11 +112,12 @@ defmodule Bitblocks.Derivations do
       error: nil
     }
 
-    {report, batches} = loop(spec, spec.cursor, report, 0, opts)
+    {report, batches, ending} = loop(spec, spec.cursor, report, 0, opts)
 
     report =
-      case report.error do
-        nil -> %{report | outcome: "ok"}
+      case {ending, report.error} do
+        {:halted, _} -> %{report | outcome: "halted"}
+        {_, nil} -> %{report | outcome: "ok"}
         _ when batches > 0 -> %{report | outcome: "partial"}
         _ -> %{report | outcome: "failed"}
       end
@@ -138,18 +144,30 @@ defmodule Bitblocks.Derivations do
   defp loop(spec, cursor, report, batches, opts) do
     case attempt(spec, cursor, report) do
       {:ok, :done} ->
-        {report, batches}
+        {report, batches, :done}
 
       {:ok, {:cont, cursor, report}} ->
         if on_batch = opts[:on_batch], do: on_batch.(report)
-        loop(spec, cursor, report, batches + 1, opts)
+
+        case after_batch(opts, cursor, report) do
+          :halt -> {report, batches + 1, :halted}
+          :cont -> loop(spec, cursor, report, batches + 1, opts)
+        end
 
       {:error, message} ->
         Logger.error(
           "Derivations #{spec.derivation} v#{spec.version} stopped after #{batches} batch(es): #{message}"
         )
 
-        {%{report | error: message}, batches}
+        {%{report | error: message}, batches, :error}
+    end
+  end
+
+  # Called once a batch has returned, so everything it wrote is committed.
+  defp after_batch(opts, cursor, report) do
+    case opts[:after_batch] do
+      nil -> :cont
+      fun -> fun.(cursor, report)
     end
   end
 

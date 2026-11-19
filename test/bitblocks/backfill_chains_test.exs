@@ -347,6 +347,212 @@ defmodule Bitblocks.BackfillChainsTest do
     end
   end
 
+  # https://github.com/afomi/bitblocks/issues/115
+  describe "checkpoint and hand-off" do
+    setup %{tx: first} do
+      txs = [first | Enum.map([91, 92], fn h -> h |> store_tx() |> tap(&unfill/1) end)]
+      on_exit(fn -> Bitblocks.Shutdown.reset() end)
+      %{txs: txs}
+    end
+
+    # One chain range over the three txs, one id per batch.
+    defp three_chain([first, _, last], opts) do
+      {:ok, chain} =
+        BackfillChains.start(
+          "tx_size",
+          first.id,
+          last.id,
+          Keyword.merge([step: 10, id_window: 1], opts)
+        )
+
+      chain
+    end
+
+    defp filled?(tx), do: Repo.get!(Transaction, tx.id).raw_in_db == true
+
+    # The chain's `stopping?` answers from this list, one answer per check
+    # (run_range's first, then one per batch), then the last answer on.
+    defp stop_after(answers) do
+      {:ok, agent} = Agent.start_link(fn -> answers end)
+
+      Application.put_env(:bitblocks, :backfill_stopping?, fn ->
+        Agent.get_and_update(agent, fn
+          [last] -> {last, [last]}
+          [next | rest] -> {next, rest}
+        end)
+      end)
+
+      on_exit(fn -> Application.delete_env(:bitblocks, :backfill_stopping?) end)
+    end
+
+    defp chain_runs(chain),
+      do: Repo.all(from(r in Run, where: r.chain_id == ^chain.id, order_by: r.id))
+
+    test "each batch saves its checkpoint and the run's counts so far", %{txs: txs} do
+      [first, second, _] = txs
+      chain = three_chain(txs, apply: true, pause_ms: 150)
+
+      watcher =
+        Task.async(fn ->
+          for _ <- 1..80, reduce: MapSet.new() do
+            seen ->
+              Process.sleep(5)
+              c = reload(chain)
+
+              changed =
+                Repo.one(from(r in Run, where: r.chain_id == ^chain.id, select: r.rows_changed))
+
+              MapSet.put(seen, {c.checkpoint_height, changed})
+          end
+        end)
+
+      assert :ok = perform(chain, first.id)
+      seen = Task.await(watcher)
+
+      # The checkpoint and the counts move together, batch by batch.
+      assert {first.id, 1} in seen
+      assert {second.id, 2} in seen
+      # Moving next_from on clears it.
+      assert %{checkpoint_height: nil, next_from: next} = reload(chain)
+      assert next == List.last(txs).id + 1
+    end
+
+    test "a range with a checkpoint in it starts at the checkpoint plus one", %{txs: txs} do
+      [first, second, third] = txs
+      chain = three_chain(txs, apply: true)
+      chain |> Ecto.Changeset.change(checkpoint_height: first.id) |> Repo.update!()
+
+      assert :ok = perform(chain, first.id)
+
+      refute filled?(first)
+      assert filled?(second) and filled?(third)
+      assert [%Run{outcome: "ok", command: command}] = chain_runs(chain)
+      assert command =~ "#{second.id}..#{third.id}"
+      assert %{status: "done", checkpoint_height: nil} = reload(chain)
+    end
+
+    test "a checkpoint past the range's last batch moves the chain on", %{txs: txs} do
+      [first, _, third] = txs
+      chain = three_chain(txs, apply: true)
+      chain |> Ecto.Changeset.change(checkpoint_height: third.id) |> Repo.update!()
+
+      assert :ok = perform(chain, first.id)
+      refute filled?(first)
+      assert chain_runs(chain) == []
+      assert %{status: "done", checkpoint_height: nil, heartbeat_at: nil} = reload(chain)
+    end
+
+    test "a node stopping mid-range hands off at the next batch boundary", %{txs: txs} do
+      [first, second, third] = txs
+      chain = three_chain(txs, apply: true, pause_ms: 300)
+
+      # The real flag, as prep_stop sets it, once the first batch is saved.
+      Task.start(fn ->
+        Enum.find(1..200, fn _ ->
+          Process.sleep(5)
+          reload(chain).checkpoint_height != nil
+        end)
+
+        Bitblocks.Shutdown.begin()
+      end)
+
+      assert {:snooze, 5} = perform(chain, first.id)
+
+      assert %{heartbeat_at: nil, checkpoint_height: cp, handed_off_at: %DateTime{}} =
+               reload(chain)
+
+      assert cp == second.id
+      assert filled?(first) and filled?(second)
+      refute filled?(third)
+      assert [%Run{outcome: "halted", rows_changed: 2}] = chain_runs(chain)
+      assert Repo.aggregate(from(r in Run, where: r.outcome == "running"), :count) == 0
+
+      # A job that starts while the node is stopping snoozes without the range.
+      assert {:snooze, 5} = perform(chain, first.id)
+      assert reload(chain).heartbeat_at == nil
+
+      output = status_output(chain)
+      assert output =~ "checkpoint #{second.id}"
+      assert output =~ "last handed off"
+
+      # The other node takes it at once, from the checkpoint.
+      Bitblocks.Shutdown.reset()
+      assert :ok = perform(chain, first.id)
+      assert filled?(third)
+      assert [%Run{outcome: "halted"}, %Run{outcome: "ok", command: command}] = chain_runs(chain)
+      assert command =~ "#{third.id}..#{third.id}"
+      assert %{status: "done", checkpoint_height: nil} = reload(chain)
+    end
+
+    test "prep_stop marks the node as stopping" do
+      refute Bitblocks.Shutdown.stopping?()
+      assert :state = Bitblocks.Application.prep_stop(:state)
+      assert Bitblocks.Shutdown.stopping?()
+    end
+
+    test "a dry run's counts add up once across a hand-off", %{txs: txs} do
+      [first, _, _] = txs
+      chain = three_chain(txs, [])
+
+      # Not at the start, stopping after the first batch.
+      stop_after([false, true])
+      assert {:snooze, 5} = perform(chain, first.id)
+      assert %{checkpoint_height: cp} = reload(chain)
+      assert cp == first.id
+
+      stop_after([false])
+      assert :ok = perform(chain, first.id)
+
+      assert [%Run{outcome: "halted", rows_changed: 1}, %Run{outcome: "ok", rows_changed: 2}] =
+               chain_runs(chain)
+
+      assert %{
+               rows_changed: 3,
+               rows_examined: 3,
+               rows_below_version: 3,
+               ranges_done: 1,
+               hand_offs: 1,
+               not_ok: 0
+             } = BackfillChains.status(chain.id)
+
+      refute Enum.any?(txs, &filled?/1)
+    end
+
+    test "a crash with no hand-off: one copy claims the stale range, from the checkpoint",
+         %{txs: txs} do
+      [first, second, third] = txs
+      chain = three_chain(txs, [])
+
+      # A job died after its first batch: its checkpoint and counts saved with
+      # that batch, its heartbeat gone stale, its run left running.
+      chain
+      |> Ecto.Changeset.change(checkpoint_height: first.id, heartbeat_at: minutes_ago(30))
+      |> Repo.update!()
+
+      dead = dead_run(chain, "chain ##{chain.id} tx_size #{first.id}..#{third.id}")
+
+      dead
+      |> Ecto.Changeset.change(rows_examined: 1, rows_changed: 1, rows_below_version: 1)
+      |> Repo.update!()
+
+      # Of two copies, the one that claims the range works it; the other waits.
+      BackfillChains.with_heartbeat(chain.id, 60_000, fn ->
+        assert {:snooze, 120} = perform(chain, first.id, 2)
+      end)
+
+      set_heartbeat(chain, minutes_ago(30))
+      assert :ok = perform(chain, first.id, 2)
+
+      assert [%Run{outcome: "abandoned"}, %Run{outcome: "ok", command: command}] =
+               chain_runs(chain)
+
+      assert command =~ "#{second.id}..#{third.id}"
+
+      assert %{rows_changed: 3, rows_below_version: 3, not_ok: 1} =
+               BackfillChains.status(chain.id)
+    end
+  end
+
   test "Release starts a chain and reads it back", %{tx: tx} do
     output =
       capture_io(fn ->

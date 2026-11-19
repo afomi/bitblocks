@@ -90,6 +90,15 @@ defmodule Bitblocks.Application do
     Supervisor.start_link(List.flatten(children), opts)
   end
 
+  # Before the supervision tree stops (SIGTERM on a deploy): long jobs see it
+  # between batches and hand their work on within Oban's grace period
+  # (https://github.com/afomi/bitblocks/issues/115).
+  @impl true
+  def prep_stop(state) do
+    Bitblocks.Shutdown.begin()
+    state
+  end
+
   # Tell Phoenix to update the endpoint configuration
   # whenever the application is updated.
   @impl true
