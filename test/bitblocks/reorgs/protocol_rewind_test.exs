@@ -574,9 +574,15 @@ defmodule Bitblocks.Reorgs.ProtocolRewindTest do
       assert {:ok, %{trace_state: "untraced", trail: []}} = OrdinalCollections.trace(read)
       assert_marked(read, origin)
 
-      # The re-trace the mark queued answers from the row as it now is.
-      assert {:ok, %{trace_state: "current", owner: ^owner, trail: []}} =
+      # The re-trace the mark queued answers from the row as it now is: from
+      # the origin. Our index here holds no blocks from genesis, so it says
+      # what it can't answer rather than name an owner.
+      assert {:ok, %{trace_state: "untraced", current_outpoint: ^origin, trail: []} = retraced} =
                OrdinalCollections.trace(reload(read))
+
+      assert retraced.traced_at
+      assert retraced.trace_reason =~ "isn't in a block we store"
+      refute retraced.owner == owner
     end
 
     test "a trace of an item the reorg removed says so" do

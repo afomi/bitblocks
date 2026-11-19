@@ -101,6 +101,44 @@ defmodule BitblocksWeb.CollectionLiveTest do
     end
   end
 
+  describe "how far our index reaches (docs/WOC_USE.md)" do
+    test "short of our tip, both pages name the block owners are traced through", %{conn: conn} do
+      index_through(118, 120)
+
+      {:ok, view, _html} = live(conn, ~p"/collections")
+      note = view |> element("#trace-coverage") |> render()
+      assert note =~ "complete through block 118 of 120"
+      assert note =~ "reads &quot;Owner unknown&quot; until our sync reaches it"
+
+      {:ok, view, _html} = live(conn, ~p"/collections/grand-tardinians")
+      assert view |> element("#trace-coverage") |> render() =~ "complete through block 118 of 120"
+    end
+
+    test "complete through our tip, there is nothing to explain", %{conn: conn} do
+      index_through(120)
+
+      {:ok, view, _html} = live(conn, ~p"/collections/grand-tardinians")
+      refute has_element?(view, "#trace-coverage")
+    end
+
+    test "an item our index can't place yet says why", %{conn: conn} do
+      cid = OrdinalCollections.known()["grand-tardinians"]
+
+      item =
+        item!(cid, 7, %{
+          trace_state: "partial",
+          trace_reason:
+            "no spend of abc_0 in our spend index, which is complete through block 118 of 120; " <>
+              "a spend from block 119 on isn't indexed yet; the next trace continues from here"
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/collections/grand-tardinians")
+      panel = view |> element("#item-#{item.id}") |> render_click()
+      assert panel =~ "Owner unknown: no spend of abc_0 in our spend index"
+      assert panel =~ "complete through block 118 of 120"
+    end
+  end
+
   describe "show" do
     test "the standard pill links to the standard's type page", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/collections/grand-tardinians")

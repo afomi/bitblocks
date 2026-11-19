@@ -25,6 +25,12 @@ defmodule BitblocksWeb.Api.CollectionController do
   `trace_error` and `trace_checked_at` report a failed last attempt; the
   state and location stay those of the last trace that answered.
 
+  Spends come from our own spend index only (docs/WOC_USE.md); WhatsOnChain
+  only supplies raw txs, each checked against its txid. An item that may have
+  moved above the block our index is complete through is `partial` (or
+  `untraced`, at its origin) with a `reason` naming that block; the items and
+  lookup `meta` carry `indexed_through_height` and `tip_height`.
+
   `member` is `true`, `false`, or `"unknown"`. `false` needs a finished chain
   walk and every trace settled, `current` or `ended` (see
   `OrdinalCollections.absence/2`).
@@ -58,7 +64,7 @@ defmodule BitblocksWeb.Api.CollectionController do
 
       json(conn, %{
         data: Enum.map(page.items, &item_json/1),
-        meta: %{collection_id: cid, next_cursor: page.next_cursor}
+        meta: Map.merge(%{collection_id: cid, next_cursor: page.next_cursor}, index_meta())
       })
     end
   end
@@ -103,7 +109,7 @@ defmodule BitblocksWeb.Api.CollectionController do
           end
         end
 
-      json(conn, %{data: data, meta: %{collection_id: cid}})
+      json(conn, %{data: data, meta: Map.put(index_meta(), :collection_id, cid)})
     end
   end
 
@@ -113,6 +119,18 @@ defmodule BitblocksWeb.Api.CollectionController do
     |> json(%{
       error: "Expected {\"outpoints\": [outpoint, …]} with at most #{@max_lookup} entries"
     })
+  end
+
+  # How far our own spend index reaches: owners are traced through it alone
+  # (docs/WOC_USE.md), so an item that may have moved above
+  # `indexed_through_height` reads partial or untraced until the sync gets there.
+  defp index_meta do
+    coverage = Bitblocks.Chain.Utxos.coverage()
+
+    %{
+      indexed_through_height: coverage.indexed_through_height,
+      tip_height: coverage.tip_height
+    }
   end
 
   defp normalize(outpoint) when is_binary(outpoint), do: String.replace(outpoint, ~r/[.:]/, "_")

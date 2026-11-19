@@ -34,6 +34,14 @@ How we apply it:
 What changes: `current` now needs our index complete through our tip.
 Until the sync reaches the tip, every item's trace ends `partial` at its last outpoint our index can place, with its owner cleared, and the walks of collections found by their chain alone stop at the first link our index can't answer for.
 
+How it reads (landed 2026-11-19, https://github.com/afomi/bitblocks/issues/95):
+
+- The known collections all sit above the sync's stop height (`Sync.stop_height/0`), so until the storage plan lets the sync climb to the tip, a re-traced item reads `partial` or `untraced` with no owner.
+- An item answers with a reason naming the block our index is complete through, such as "no spend of `<outpoint>` in our spend index, which is complete through block N of M; a spend from block N+1 on isn't indexed yet".
+- `/collections` and each collection's page say how far our index reaches and that an item past it reads "Owner unknown" until the sync gets there (`CollectionComponents.trace_coverage/1`); nothing shows once the index reaches our tip.
+- `GET /api/v1/collections/:id/items` and the lookup carry `meta.indexed_through_height` and `meta.tip_height`.
+- Nothing re-traces by itself: rows traced before keep their answer, with `trace_source` `whatsonchain`, until a collection sync (`Release.sync_ordinal_collection/1`) or an item's `?refresh=1` traces them again.
+
 ## The uses still to decide
 
 "Ryan decides" is `pending` wherever the change would lose function.

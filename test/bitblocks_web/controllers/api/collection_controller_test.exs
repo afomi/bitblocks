@@ -63,6 +63,27 @@ defmodule BitblocksWeb.Api.CollectionControllerTest do
     assert data["owner"] == buyer
   end
 
+  test "past our index, a trace is unsettled with a reason naming the block, never WhatsOnChain's answer",
+       ctx do
+    # Blocks 119 to 121 are headers only: a spend of the origin may sit there.
+    index_through(118, 121)
+
+    data = get_json("/api/v1/collections/#{ctx.cid}/items/#{ctx.origin}?refresh=1")["data"]
+
+    assert data["trace_state"] == "untraced"
+    assert data["owner"] == nil
+    assert data["spent"] == nil
+    assert data["trace_source"] == "index"
+    assert data["ownership"]["reason"] =~ "complete through block 118 of 121"
+
+    # Only raw txs were asked of WhatsOnChain (the stub raises on anything else).
+    assert Enum.all?(Process.get(:woc_calls, []), &match?({:txs, _}, &1))
+
+    meta = get_json("/api/v1/collections/#{ctx.cid}/items")["meta"]
+    assert meta["indexed_through_height"] == 118
+    assert meta["tip_height"] == 121
+  end
+
   test "unknown outpoints are a 404 with member unknown; unknown collections a 404", ctx do
     body = get_json("/api/v1/collections/#{ctx.cid}/items/#{String.duplicate("a", 64)}_0", 404)
     assert body["member"] == "unknown"
