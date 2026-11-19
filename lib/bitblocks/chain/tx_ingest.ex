@@ -264,28 +264,81 @@ defmodule Bitblocks.Chain.TxIngest do
     io |> Kernel.*(@insert_ms_per_io) |> max(base) |> min(max(@insert_timeout_cap, base))
   end
 
+  # Postgres cancels a statement, or a lock wait, before DBConnection's
+  # client timeout kills the whole connection (#87). The cancel comes back
+  # as an error naming what waited (55P03 lock_timeout, 57014
+  # statement_timeout), logged with its step by TxPipeline, and the
+  # connection survives; the block's retry redoes the tx. One round trip,
+  # scoped to this transaction.
+  defp server_timeouts(timeout) do
+    statement_ms =
+      Application.get_env(:bitblocks, :tx_insert_statement_timeout_ms) ||
+        max(timeout - 10_000, 1_000)
+
+    Repo.query!(
+      "SELECT set_config('statement_timeout', $1, true), set_config('lock_timeout', $2, true)",
+      [Integer.to_string(statement_ms), Integer.to_string(div(statement_ms, 2))]
+    )
+  end
+
+  defp insert_row(changeset, txid) do
+    case Repo.insert(changeset, on_conflict: :nothing, conflict_target: :txid) do
+      {:ok, tx} -> {:ok, tx}
+      {:error, changeset} -> {:error, {:changeset, changeset}}
+    end
+  rescue
+    e in Postgrex.Error ->
+      Logger.error(
+        "TxIngest insert of tx #{txid} canceled (#{inspect(e.postgres[:code])}): " <>
+          Exception.message(e)
+      )
+
+      {:error, {:insert_canceled, e.postgres[:code]}}
+  end
+
+  # A tx whose insert and steps took over half their budget, named with its
+  # size, so a slow one is found before the client timeout kills it (#87).
+  defp slow_insert(attrs, block, started, timeout) do
+    took = System.monotonic_time(:millisecond) - started
+
+    if took > div(timeout, 2) do
+      Logger.warning(
+        "TxIngest slow insert block=#{block.height} tx=#{attrs.txid} took=#{took}ms " <>
+          "of #{timeout}ms inputs=#{length(attrs[:inputs] || [])} " <>
+          "outputs=#{length(attrs[:outputs] || [])}"
+      )
+    end
+  end
+
   defp insert(attrs, block) do
     changeset = Chain.Transaction.changeset(%Chain.Transaction{}, attrs)
 
     # The insert and the :tx steps commit together: a step that fails rolls
     # the row back, so the block's retry (which skips stored txids) redoes
     # the whole tx instead of leaving its spends or tokens unrecorded.
+    timeout = insert_timeout(attrs)
+    started = System.monotonic_time(:millisecond)
+
     result =
       Repo.transaction(
         fn ->
-          case Repo.insert(changeset, on_conflict: :nothing, conflict_target: :txid) do
+          server_timeouts(timeout)
+
+          case insert_row(changeset, attrs.txid) do
             {:ok, tx} ->
               case Enum.find(TxPipeline.run_tx(tx, block), &match?({_, {:error, _}}, &1)) do
                 nil -> :ok
                 {step, _error} -> Repo.rollback({:tx_step_failed, attrs.txid, step})
               end
 
-            {:error, changeset} ->
-              Repo.rollback({:changeset, changeset})
+            {:error, reason} ->
+              Repo.rollback(reason)
           end
         end,
-        timeout: insert_timeout(attrs)
+        timeout: timeout
       )
+
+    slow_insert(attrs, block, started, timeout)
 
     case result do
       {:ok, :ok} ->
@@ -296,6 +349,9 @@ defmodule Bitblocks.Chain.TxIngest do
 
       {:error, {:changeset, changeset}} ->
         Logger.error("TxIngest failed to store tx #{attrs.txid}: #{inspect(changeset.errors)}")
+        {:error, {:insert_failed, attrs.txid}}
+
+      {:error, {:insert_canceled, _}} ->
         {:error, {:insert_failed, attrs.txid}}
     end
   end
