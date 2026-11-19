@@ -18,7 +18,8 @@ Related: [TX_STORAGE.md](TX_STORAGE.md) (the tx store and its order of work), [D
 - At full tip, a row for every tx in today's shape is about **30 to 73 TB** (derived, section 2), $3,400 to $8,400 a month in gp3, and the top of that range is past RDS's 64 TiB limit.
   Even with the raw bytes, the JSON and the duplicate indexes gone, a row for every tx is about 17 TB.
 - bitblocks-db was **about 563 GB used on 2026-11-17** (infra, about 22:59 UTC, restated in [this comment](https://github.com/afomi/bitblocks/issues/96#issuecomment-6965455801)); `complete_through` was 378,842 at 2026-11-18 00:35 UTC ([/api/v1/status](https://bitblocks.app/api/v1/status)).
-- The sync stops at **400,000** until this plan lands (`config/prod.exs`, `:sync_stop_at_height`); headers keep reaching the tip.
+- The sync stops at **600,000** since 2026-11-19 (Ryan), raised from 400,000 with the database's storage max at 2 TB (`config/prod.exs`, `:sync_stop_at_height`); headers keep reaching the tip.
+  Estimated from header tx counts at 5.3 KB per stored tx: blocks 400,000 to about 478,000 average about 2,000 txs, then the chain thins until about 600,000, so 600,000 lands near 1.55 to 1.6 TB.
   At the growth since 2026-11-12, 400,000 lands at about 660 to 685 GB (derived, section 4), so infra's 650 GB alarm comes first, near 394,000 to 397,000.
 - **Recommendation:** stop at 400,000 or 650 GB used, whichever comes first, as the draft said: infra sets `SYNC_STOP_AT_HEIGHT` near 394,000 at runtime, with the pause on /syncing as the backstop when the alarm fires.
   Then a dump that leaves `raw`, `inputs` and `outputs` out, once every completed block has its S3 object, serves as the last copy and as the restore into a smaller instance.
