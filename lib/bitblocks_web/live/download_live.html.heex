@@ -1,0 +1,360 @@
+<div class="bg-surface-base min-h-screen">
+  <div class="max-w-5xl mx-auto px-4">
+    <section class="border-b border-neutral-800 pt-10 pb-6">
+      <p class="font-mono text-xs text-neutral-500 uppercase tracking-wider mb-2">
+        Bulk download
+      </p>
+      <h1 class="text-3xl font-semibold text-neutral-50 tracking-tight mb-3">
+        Blocks {format_number(@purchase.from_height)} to {format_number(@purchase.to_height)}
+      </h1>
+      <p class="text-neutral-500 leading-relaxed">
+        Raw block files (.bin), one per block.
+      </p>
+    </section>
+
+    <section
+      id="download-status"
+      aria-live="polite"
+      class="py-6 border-b border-neutral-800"
+    >
+      <h2
+        id="download-state"
+        class="text-xl font-semibold text-neutral-50 mb-2"
+      >
+        {state_label(@state)}
+      </h2>
+
+      <div
+        :if={@state == :awaiting_payment}
+        class="space-y-2 text-sm text-neutral-400 leading-relaxed"
+      >
+        <p>
+          We open your download as soon as Stripe confirms the payment.
+          This page updates by itself; you don't need to reload it.
+        </p>
+        <p :if={@purchase.status == "checkout_open" && @purchase.stripe_checkout_url}>
+          Haven't paid yet?
+          <a
+            id="download-return-to-checkout"
+            href={@purchase.stripe_checkout_url}
+            class="text-brand-strong dark:text-brand underline underline-offset-2"
+          >
+            Return to checkout
+          </a>
+        </p>
+      </div>
+
+      <p
+        :if={@state == :preparing}
+        id="download-preparing"
+        class="text-sm text-neutral-400 leading-relaxed"
+      >
+        Thank you: your payment is confirmed.
+        We're checking each file's sha256 before we give you the links:
+        <span class="font-mono tabular-nums text-neutral-50">{format_number(@purchase.hashed_files)}</span>
+        of
+        <span class="font-mono tabular-nums text-neutral-50">{format_number(@purchase.files)}</span>
+        so far.
+        This page updates by itself.
+      </p>
+
+      <p
+        :if={@state == :ready}
+        id="download-ready"
+        class="text-sm text-neutral-400 leading-relaxed"
+      >
+        Your files are ready.
+        Download them as often as you need until
+        <span class="text-neutral-50">{format_time(@purchase.expires_at)}</span>; new links are free until then.
+      </p>
+
+      <p
+        :if={@state == :expired}
+        class="text-sm text-neutral-400 leading-relaxed"
+      >
+        The links for this download closed on
+        <span class="text-neutral-50">{format_time(@purchase.expires_at)}</span>, {Bitblocks.Downloads.Purchases.valid_days()} days after payment.
+        Write to us if you need them again.
+      </p>
+
+      <p
+        :if={@state == :refunded}
+        class="text-sm text-neutral-400 leading-relaxed"
+      >
+        This purchase was refunded, so its links are closed.
+      </p>
+
+      <p
+        :if={@state == :failed}
+        class="text-sm text-neutral-400 leading-relaxed"
+      >
+        Something didn't match when we prepared these files, so we haven't given out links.
+        We'll refund you or put it right; write to us and quote this page's address.
+      </p>
+
+      <p
+        :if={@state == :checkout_expired}
+        class="text-sm text-neutral-400 leading-relaxed"
+      >
+        Checkout closed before a payment was made, so nothing was charged.
+        <a
+          href={~p"/pricing?#{[from: @purchase.from_height, to: @purchase.to_height, data: @purchase.data, format: @purchase.format]}" <> "#downloads"}
+          class="text-brand-strong dark:text-brand underline underline-offset-2"
+        >
+          Get a new quote
+        </a>
+      </p>
+
+      <dl class="mt-5 grid grid-cols-1 sm:grid-cols-2 gap-x-8 border-t border-neutral-800">
+        <div class="py-2.5 border-b border-neutral-800 flex justify-between gap-4">
+          <dt class="text-sm text-neutral-400">Files</dt>
+          <dd
+            id="download-files"
+            class="font-mono text-sm text-neutral-50 tabular-nums text-right"
+          >
+            {format_number(@purchase.files)}
+          </dd>
+        </div>
+        <div class="py-2.5 border-b border-neutral-800 flex justify-between gap-4">
+          <dt class="text-sm text-neutral-400">Bytes</dt>
+          <dd
+            id="download-bytes"
+            class="font-mono text-sm text-neutral-50 tabular-nums text-right"
+          >
+            {format_number(@purchase.bytes)}
+          </dd>
+        </div>
+        <div class="py-2.5 border-b border-neutral-800 flex justify-between gap-4">
+          <dt class="text-sm text-neutral-400">Price</dt>
+          <dd
+            id="download-price"
+            class="font-mono text-sm text-neutral-50 tabular-nums text-right"
+          >
+            {price(@purchase)}
+          </dd>
+        </div>
+        <div class="py-2.5 border-b border-neutral-800 flex justify-between gap-4">
+          <dt class="text-sm text-neutral-400">Paid</dt>
+          <dd class="font-mono text-sm text-neutral-50 tabular-nums text-right">
+            {if @purchase.paid_at, do: format_time(@purchase.paid_at), else: "Not yet"}
+          </dd>
+        </div>
+      </dl>
+    </section>
+
+    <section
+      :if={@state == :ready}
+      id="download-everything"
+      class="py-6 border-b border-neutral-800"
+    >
+      <h2 class="text-xl font-semibold text-neutral-50 mb-2">
+        Download everything
+      </h2>
+      <p class="text-sm text-neutral-400 leading-relaxed mb-3">
+        Run this in an empty directory.
+        It saves every file, checks each one against its sha256, and skips the files already there and correct.
+        If it stops, or your network drops, run it again: it carries on from where it got to, at no extra charge.
+        It needs bash and curl, and works on Linux and macOS.
+      </p>
+      <div class="flex items-center gap-2 mb-2">
+        <button
+          type="button"
+          id="download-script-copy"
+          class="px-3 py-1.5 text-xs font-medium rounded border border-neutral-700 text-neutral-50 hover:bg-neutral-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+          phx-click={JS.dispatch("bitblocks:copy", detail: %{text: script(@base_url, @purchase, @token), label: "the download script"})}
+        >
+          <span data-copy-label>Copy</span>
+          <span class="sr-only">the download script</span>
+        </button>
+        <span
+          id="download-script-copy-status"
+          class="sr-only"
+          aria-live="polite"
+        ></span>
+        <span class="text-xs text-neutral-500">
+          The script holds a key to this download for 7 days; reload this page for a new one.
+        </span>
+      </div>
+      <pre
+        id="download-script"
+        tabindex="0"
+        aria-label="Download script"
+        class="bg-surface-raised border border-neutral-800 rounded p-4 overflow-x-auto text-xs text-neutral-400 font-mono leading-relaxed"
+      >{script(@base_url, @purchase, @token)}</pre>
+
+      <div class="mt-4 space-y-2 text-sm text-neutral-400 leading-relaxed">
+        <p>
+          <a
+            id="download-manifest"
+            href={~p"/downloads/#{@purchase.id}/manifest.json"}
+            class="text-brand-strong dark:text-brand underline underline-offset-2"
+          >
+            Download the manifest (JSON)
+          </a>:
+          every file with its height, block hash, merkle root, bytes and sha256.
+        </p>
+        <p :if={@purchase.manifest_sha256}>
+          The manifest's own sha256:
+          <span
+            id="download-manifest-sha256"
+            class="font-mono text-xs text-neutral-50 break-all"
+          >{@purchase.manifest_sha256}</span>
+        </p>
+        <p>
+          Check a file without trusting us: hash its first 80 bytes twice with SHA-256 and reverse the result.
+          That's its block hash, which any node or explorer will confirm.
+        </p>
+      </div>
+    </section>
+
+    <section
+      :if={@state == :ready}
+      id="download-files-section"
+      class="py-6"
+    >
+      <h2 class="text-xl font-semibold text-neutral-50 mb-2">
+        Files
+      </h2>
+      <p class="text-sm text-neutral-400 leading-relaxed mb-4">
+        Each link is signed for {div(Bitblocks.Downloads.Purchases.link_ttl_seconds(), 60)} minutes and goes straight to our file store.
+        Lost your place?
+        Give the block to carry on from, and "Resume" signs new links from there, free.
+      </p>
+
+      <.form
+        for={%{}}
+        as={:resume}
+        id="download-resume-form"
+        phx-submit="resume"
+        class="flex flex-col sm:flex-row sm:items-end gap-3 mb-4"
+      >
+        <div>
+          <label
+            for="download-resume-from"
+            class="block text-xs text-neutral-400 mb-1"
+          >
+            Carry on from block
+          </label>
+          <input
+            type="text"
+            inputmode="numeric"
+            id="download-resume-from"
+            name="resume[from]"
+            value={@page_from}
+            class="w-full sm:w-48 bg-surface-raised border border-neutral-700 rounded px-3 py-2 font-mono text-sm text-neutral-50"
+          />
+        </div>
+        <button
+          type="submit"
+          id="download-resume"
+          class="px-5 py-2 bg-brand-strong text-white font-medium rounded hover:opacity-90"
+        >
+          Resume
+        </button>
+      </.form>
+
+      <p
+        :if={@links_error}
+        id="download-links-error"
+        role="alert"
+        class="text-sm text-neutral-50 mb-3"
+      >
+        {@links_error}
+      </p>
+
+      <div class="overflow-x-auto">
+        <table
+          id="download-files-table"
+          class="w-full text-sm"
+        >
+          <caption class="sr-only">
+            Files from block {format_number(@page_from)}, with each file's block hash and sha256
+          </caption>
+          <thead>
+            <tr class="border-b border-neutral-800 text-left text-xs text-neutral-500">
+              <th
+                scope="col"
+                class="py-2 pr-4 font-medium"
+              >
+                Block
+              </th>
+              <th
+                scope="col"
+                class="py-2 pr-4 font-medium"
+              >
+                File
+              </th>
+              <th
+                scope="col"
+                class="py-2 pr-4 font-medium text-right"
+              >
+                Bytes
+              </th>
+              <th
+                scope="col"
+                class="py-2 font-medium"
+              >
+                sha256
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr
+              :for={file <- @files}
+              id={"download-file-#{file.height}"}
+              class="border-b border-neutral-900 align-top"
+            >
+              <td class="py-2 pr-4 font-mono tabular-nums text-neutral-50">
+                {format_number(file.height)}
+              </td>
+              <td class="py-2 pr-4 font-mono text-xs break-all">
+                <a
+                  :if={file[:url]}
+                  href={file.url}
+                  download={file.name}
+                  class="text-brand-strong dark:text-brand underline underline-offset-2"
+                >
+                  {file.name}
+                </a>
+                <span
+                  :if={!file[:url]}
+                  class="text-neutral-400"
+                >
+                  {file.name}
+                </span>
+              </td>
+              <td class="py-2 pr-4 font-mono tabular-nums text-neutral-400 text-right">
+                {format_number(file.bytes)}
+              </td>
+              <td class="py-2 font-mono text-xs text-neutral-400 break-all">
+                {file.sha256}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <nav
+        aria-label="Pages of files"
+        class="mt-4 flex gap-4 text-sm"
+      >
+        <.link
+          :if={@page_from > @purchase.from_height}
+          id="download-first-page"
+          patch={~p"/downloads/#{@purchase.id}"}
+          class="text-brand-strong dark:text-brand underline underline-offset-2"
+        >
+          First files
+        </.link>
+        <.link
+          :if={next_from(@files, @purchase)}
+          id="download-next-page"
+          patch={~p"/downloads/#{@purchase.id}?#{[from: next_from(@files, @purchase)]}"}
+          class="text-brand-strong dark:text-brand underline underline-offset-2"
+        >
+          Next files
+        </.link>
+      </nav>
+    </section>
+  </div>
+</div>

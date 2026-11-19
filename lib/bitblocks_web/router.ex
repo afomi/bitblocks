@@ -390,6 +390,36 @@ defmodule BitblocksWeb.Router do
     get "/", PageController, :home
   end
 
+  # A bought download (#111): the page is the buyer's only (checked in the
+  # LiveView); the manifest and links take the buyer's session or the
+  # script's signed token, so they skip :browser's html-only accepts.
+  scope "/", BitblocksWeb do
+    pipe_through :browser
+
+    live_session :downloads,
+      on_mount: [{UserAuth, :mount_current_user}] do
+      live "/downloads/:id", DownloadLive
+    end
+  end
+
+  pipeline :download_files do
+    plug :fetch_session
+    plug :fetch_current_user
+  end
+
+  scope "/", BitblocksWeb do
+    pipe_through :download_files
+
+    get "/downloads/:id/manifest.json", DownloadFileController, :manifest
+    get "/downloads/:id/links.tsv", DownloadFileController, :links
+  end
+
+  # Stripe's signed events (#111). No session and no CSRF token: the
+  # signature over the raw body is the check (BitblocksWeb.RawBodyReader).
+  scope "/", BitblocksWeb do
+    post "/webhooks/stripe", StripeWebhookController, :create
+  end
+
   # Declared before the signed-in scope so /transactions/new isn't captured by
   # /transactions/:id.
   scope "/", BitblocksWeb do

@@ -52,12 +52,14 @@ https://github.com/afomi/bitblocks/issues/87 · https://github.com/afomi/bitbloc
 
 - Payments: five lines, one Stripe account ([docs/STRIPE.md](docs/STRIPE.md)) and one Stripe groundwork.
   The groundwork is built once, before the first line that needs it: a Stripe client over Req, a customer per user, Checkout, the customer portal, and signature-checked webhooks idempotent on the event id.
+  Built so far, with bulk downloads: Checkout and signature-checked webhooks idempotent on the event id (`Bitblocks.Payments.Stripe`, `stripe_events`), over x402_ex's HTTP client; a customer per user and the portal wait for monthly plans.
   jurisdictional's `Jurisdictional.Billing` is the reference; agree with jurisdictional whether it becomes a shared library, as x402_ex did.
   1. AI crawlers pay per request, through x402 (below).
   2. Bulk downloads: one quoted, paid, resumable download of a block range: https://github.com/afomi/bitblocks/issues/111
      The free quote is built (`Bitblocks.Downloads`, `/pricing#downloads`, `GET /api/v1/downloads/quote`, `GET /api/v1/downloads/sizes`), raw block files only.
      The price is $1.00 per GiB (Ryan, 2026-11-19; `price_usd_per_gib` in config/prod.exs), published on `/pricing` with its arithmetic, a live estimate, named ranges and the size of each 50,000-block band.
-     Checkout, webhooks, links and resume come with the groundwork; until then "Contact us" mails the quote.
+     Checkout, the signed webhook, `/downloads/<id>`, signed links and the resume script are built (`Bitblocks.Downloads.Purchases`, `Bitblocks.Payments.Stripe`), dormant until Ryan adds Checkout to the sandbox key and sets the sandbox webhook secret: [docs/STRIPE.md](docs/STRIPE.md#bulk-downloads-checkout).
+     Until then "Contact us" mails the quote; next is Ryan's test-mode payment, then live mode.
   3. Monthly plans: three tiers and a custom high-volume plan, moving a user's keys to the tier: https://github.com/afomi/bitblocks/issues/112
      Ryan sets the tier prices before launch; drafts stay out of this public repo.
   4. Cloud services: managed projections, filtered databases and dedicated instances, quoted and billed monthly: https://github.com/afomi/bitblocks/issues/113

@@ -2496,6 +2496,46 @@ defmodule Bitblocks.Release do
   end
 
   @doc """
+  Whether paid downloads' Stripe Checkout is configured
+  (https://github.com/afomi/bitblocks/issues/111, docs/STRIPE.md): the mode,
+  each variable it reads and whether it is set, never a value, and the
+  purchases by status.
+
+      bin/bitblocks rpc 'Bitblocks.Release.downloads_checkout_status()'
+
+  Returns `%{configured: boolean, status: atom, mode: String.t()}`.
+  """
+  def downloads_checkout_status do
+    alias Bitblocks.Payments.Stripe
+
+    status = Stripe.status()
+    set? = fn env -> if System.get_env(env) in [nil, ""], do: "is NOT set", else: "is set" end
+
+    IO.puts(
+      "downloads checkout: #{if status == :ok, do: "configured", else: "dormant (#{status})"}"
+    )
+
+    IO.puts(
+      "  mode:           #{Stripe.mode()}#{if Stripe.mode() == "sandbox", do: " (admins only)"}"
+    )
+
+    IO.puts("  secret key:     #{Stripe.key_env()} #{set?.(Stripe.key_env())}")
+
+    IO.puts(
+      "  webhook secret: #{Stripe.webhook_secret_env()} #{set?.(Stripe.webhook_secret_env())}"
+    )
+
+    IO.puts("  webhook path:   /webhooks/stripe")
+
+    counts =
+      with_running_repo(fn -> Bitblocks.Downloads.Purchases.counts_by_status() end)
+
+    IO.puts("  purchases:      #{inspect(counts)}")
+
+    %{configured: status == :ok, status: status, mode: Stripe.mode()}
+  end
+
+  @doc """
   Records in Stripe each settled x402 payment that has no PaymentIntent yet
   (a Stripe outage during the request), through `X402.Reconciler`. Safe to
   repeat; `Bitblocks.Workers.X402ReconcileWorker` runs it every 10 minutes.

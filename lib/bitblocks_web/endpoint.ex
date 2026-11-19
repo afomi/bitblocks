@@ -55,6 +55,8 @@ defmodule BitblocksWeb.Endpoint do
   plug Plug.Parsers,
     parsers: [:urlencoded, :multipart, :json],
     pass: ["*/*"],
+    # The Stripe webhook's signature is over the exact body (#111).
+    body_reader: {BitblocksWeb.RawBodyReader, :read_body, []},
     json_decoder: Phoenix.json_library()
 
   plug Plug.MethodOverride
