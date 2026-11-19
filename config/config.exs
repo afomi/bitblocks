@@ -125,7 +125,9 @@ config :bitblocks, Oban,
   repo: Bitblocks.Repo,
   # On SIGTERM (a deploy), give running jobs a minute to finish before the
   # node exits. .github/scripts/deploy.sh stops the container with a longer
-  # timeout, so Docker doesn't SIGKILL inside this window.
+  # timeout, so Docker doesn't SIGKILL inside this window. A backfill chain's
+  # watchdog stops a batch still running 45 s into it (Bitblocks.BackfillChains,
+  # :backfill_watchdog_ms), so keep this well above that.
   shutdown_grace_period: :timer.seconds(60),
   plugins: [
     Oban.Plugins.Pruner,

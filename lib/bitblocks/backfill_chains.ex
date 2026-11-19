@@ -33,7 +33,14 @@ defmodule Bitblocks.BackfillChains do
   ended, add up to the range once.
 
   A block backfill's cursor is the last block of its batch, and
-  `blocks.height` is unique, so that height is done whole. `token_recipients`
+  `blocks.height` is unique, so that height is done whole. A batch also ends
+  inside a dense block once its time is up (`Bitblocks.Derivations`: about
+  20 s a batch, sized from the last one), for the backfills whose pages
+  stand alone (`tx_steps`, `script_analysis`, `timelocks`, `bap`): its
+  cursor `{:within, height, tx_id}` saves `checkpoint_height` with
+  `checkpoint_tx_id`, and the next job resumes inside that block, after that
+  tx (`resume_after_tx:`). `tallies` and `tx_types` sum or stamp a block
+  whole, so they end their batches between blocks only. `token_recipients`
   pages by instance id, not height, so it has no checkpoint: it starts its
   range over, and rows already at the version drop out; an applied run saves
   its counts per batch and can hand off, a dry run (whose rows stay below the
@@ -43,13 +50,55 @@ defmodule Bitblocks.BackfillChains do
   sets `Bitblocks.Shutdown` before the supervision tree stops; the flag is a
   `:persistent_term`, free to read after every batch, and up for the whole of
   Oban's 60 s `shutdown_grace_period` (`Bitblocks.Shutdown` says why there).
-  At the next batch boundary the job stops (the run reads `halted`), clears
+  The batch in flight reads it too (`interrupt?:`), and ends after the page
+  it is on. At that boundary the job stops (the run reads `halted`), clears
   the heartbeat, stamps `handed_off_at` and returns `{:snooze, 5}`, so it is
   never left `executing` for Lifeline, and the other node (or the new one)
   takes the range within seconds, from the checkpoint. A job that starts on
-  a stopping node snoozes the same way. A batch that can't finish inside the
-  grace period dies with the node: only that batch is lost, the checkpoint
-  is behind it, and the stale heartbeat hands the range on as before.
+  a stopping node snoozes the same way.
+
+  ## The watchdog: a batch that won't stop in time
+
+  A single page, statement or streamed block can still outlast the window.
+  So the backfill runs in a runner process the job spawns and links, and
+  the job process waits for it, checking every half second how long the
+  node has been stopping (`Bitblocks.Shutdown.stopping_for_ms/0`). Once that
+  passes `config :bitblocks, :backfill_watchdog_ms` (45 s, well inside the
+  60 s grace period), the job stops the batch itself:
+
+    1. It reads the bounded transaction the runner has open, if any (its
+       backend pid and `xact_start`, noted by `Derivations.bounded/2` under
+       `watched: true`), unlinks the runner and kills it (`:kill`, which
+       can't be caught), then waits for it to be gone, so no write of its
+       lands after the hand-off.
+    2. The transaction rolls back. A COMMIT is only ever sent by the
+       runner, which is dead, so nothing of the batch in flight commits.
+       DBConnection's pool owns the connection, and on its holder's death
+       it disconnects it rather than checking it back in; Postgres aborts a
+       transaction whose client is gone. A statement still running on the
+       server would only notice at its end, holding its row locks until
+       then, so the job also cancels it (`pg_cancel_backend`), only while
+       that backend is still in that same transaction: a connection already
+       back in the pool has another `xact_start`, and is left alone.
+    3. It hands off at the last committed checkpoint, as above: the run
+       left `running` reads `halted`, the heartbeat is cleared, and the job
+       returns `{:snooze, 5}`. Oban records the snooze as `scheduled` five
+       seconds out, not an error, so no attempt is spent (Oban takes the
+       attempt back with each snooze) and the row is never left
+       `executing`. The other node's job claims the range with the same
+       conditional UPDATE as ever, on a heartbeat now nil, so two copies
+       never work one range; the dead runner can't beat it again.
+
+  What the killed batch committed before its last checkpoint is kept and
+  not redone; what it committed after (earlier pages of the same batch)
+  stays applied, and the resume selects by version or missing rows, so it
+  reads those rows again but writes nothing for them; its counts for them
+  are lost, so a range stopped this way may count a few rows short.
+
+  A node that dies outright (no SIGTERM, or past the grace period) takes the
+  runner with it through the link; the heartbeat goes stale and the range
+  passes on through Lifeline and the stale claim, from the checkpoint, as
+  before.
   """
 
   import Ecto.Query
@@ -77,7 +126,7 @@ defmodule Bitblocks.BackfillChains do
 
   # What a job passes on to the backfill. Named here because opts come back
   # from JSON, and arbitrary strings must never become atoms.
-  @backfill_opts ~w(force revisit_unknown pause_ms statement_timeout_ms block_batch tx_batch min_tx_batch batch_size id_window max_failures large_blocks)a
+  @backfill_opts ~w(force revisit_unknown pause_ms statement_timeout_ms block_batch tx_batch min_tx_batch batch_size id_window max_failures large_blocks batch_ms page_ms)a
 
   @height_step 10_000
   @id_step 1_000_000
@@ -96,6 +145,16 @@ defmodule Bitblocks.BackfillChains do
 
   # How long a job handing off waits before a node takes the range again.
   @hand_off_snooze_s 5
+
+  # How long after the node starts to stop the watchdog stops a batch still
+  # running: well inside Oban's 60 s shutdown_grace_period (config/config.exs),
+  # leaving time to wait for the beater (up to 5 s) and hand off.
+  # `config :bitblocks, :backfill_watchdog_ms` overrides it.
+  @watchdog_ms :timer.seconds(45)
+
+  # How often the waiting job checks the watchdog.
+  # `config :bitblocks, :backfill_watchdog_poll_ms` overrides it.
+  @watchdog_poll_ms 500
 
   # Runs whose counts a status sums: all but one still running. A run's counts
   # cover the batches up to its chain's checkpoint, which the next run of the
@@ -252,7 +311,7 @@ defmodule Bitblocks.BackfillChains do
     close_dead_runs(chain)
 
     to = min(from + chain.range_step - 1, chain.range_to)
-    start = resume_at(chain.checkpoint_height, from, to)
+    {start, after_tx} = resume_at(chain, from, to)
 
     if start > to do
       # The checkpoint already reached the end: a job stopped after the last batch.
@@ -260,38 +319,188 @@ defmodule Bitblocks.BackfillChains do
       advance(chain, from, to)
     else
       every = Application.get_env(:bitblocks, :backfill_beat_every_ms, @beat_every_ms)
-      report = with_heartbeat(chain.id, every, fn -> run_backfill(chain, start, to) end)
 
-      case report.outcome do
-        "halted" ->
+      result =
+        with_heartbeat(chain.id, every, fn ->
+          run_watched(fn -> run_backfill(chain, start, to, after_tx) end)
+        end)
+
+      case result do
+        :watchdog ->
+          watchdog_hand_off(chain)
+
+        %{outcome: "halted"} = report ->
           hand_off(chain, report)
 
-        "ok" ->
+        %{outcome: "ok"} ->
           clear_heartbeat(chain.id)
           advance(chain, from, to)
 
-        _ ->
+        report ->
           clear_heartbeat(chain.id)
           retry_or_fail(chain, report.error, last_attempt?)
       end
     end
   end
 
-  # Where a job takes the range up: after a checkpoint inside it, else its start.
-  defp resume_at(checkpoint, from, to)
-       when is_integer(checkpoint) and checkpoint >= from and checkpoint <= to,
-       do: checkpoint + 1
+  # Where a job takes the range up, as {height, after_tx_id}: inside the
+  # checkpoint's block when the batch stopped inside it, after the checkpoint
+  # when that block is done whole, else at the range's start.
+  defp resume_at(%{checkpoint_height: h, checkpoint_tx_id: tx}, from, to)
+       when is_integer(h) and h >= from and h <= to and is_integer(tx),
+       do: {h, tx}
 
-  defp resume_at(_checkpoint, from, _to), do: from
+  defp resume_at(%{checkpoint_height: h}, from, to)
+       when is_integer(h) and h >= from and h <= to,
+       do: {h + 1, nil}
+
+  defp resume_at(_chain, from, _to), do: {from, nil}
+
+  @doc false
+  # Runs `fun` (a range's backfill) in a runner process linked to this one,
+  # and waits for its result, which it returns (an exception in it is raised
+  # here, as if `fun` ran here). While it waits it checks the watchdog: once
+  # the node has been stopping for `:backfill_watchdog_ms`, it kills the
+  # runner, cancels the statement it left open, and returns `:watchdog`.
+  # The moduledoc says why the batch's transaction rolls back.
+  def run_watched(fun) do
+    parent = self()
+    ref = make_ref()
+    callers = [parent | Process.get(:"$callers", [])]
+    metadata = Logger.metadata()
+
+    runner =
+      spawn_link(fn ->
+        # The sandbox in tests, and log lines, follow the job.
+        Process.put(:"$callers", callers)
+        Logger.metadata(metadata)
+
+        result =
+          try do
+            {:ok, fun.()}
+          catch
+            kind, reason -> {:raised, kind, reason, __STACKTRACE__}
+          end
+
+        send(parent, {ref, result})
+      end)
+
+    case await_runner(runner, ref) do
+      {:ok, result} -> result
+      {:raised, kind, reason, stacktrace} -> :erlang.raise(kind, reason, stacktrace)
+      :watchdog -> :watchdog
+    end
+  end
+
+  defp await_runner(runner, ref) do
+    receive do
+      {^ref, result} -> result
+    after
+      watchdog_poll_ms() ->
+        if watchdog_due?(),
+          do: stop_runner(runner, ref),
+          else: await_runner(runner, ref)
+    end
+  end
+
+  # Kills the runner and waits until it is gone. A result it sent first wins:
+  # the batch finished after all.
+  defp stop_runner(runner, ref) do
+    open = Derivations.open_transaction(runner)
+    monitor = Process.monitor(runner)
+    Process.unlink(runner)
+    Process.exit(runner, :kill)
+
+    receive do
+      {:DOWN, ^monitor, :process, _, _} -> :ok
+    end
+
+    receive do
+      {^ref, result} -> result
+    after
+      0 ->
+        cancelled? = cancel_open(open)
+
+        Logger.warning(
+          "Backfill: shutdown watchdog stopped the batch in flight" <>
+            if(cancelled?, do: "; its statement cancelled", else: "")
+        )
+
+        :watchdog
+    end
+  end
+
+  # Cancelling is only to free the dead transaction's locks sooner; it never
+  # decides whether the batch committed, so a failure here is only logged.
+  defp cancel_open(open) do
+    Derivations.cancel_transaction(open)
+  rescue
+    error ->
+      Logger.warning("Backfill: statement not cancelled: " <> Exception.message(error))
+      false
+  end
+
+  defp watchdog_due? do
+    case Bitblocks.Shutdown.stopping_for_ms() do
+      nil -> false
+      ms -> ms >= Application.get_env(:bitblocks, :backfill_watchdog_ms, @watchdog_ms)
+    end
+  end
+
+  defp watchdog_poll_ms,
+    do: Application.get_env(:bitblocks, :backfill_watchdog_poll_ms, @watchdog_poll_ms)
+
+  # The watchdog stopped the batch: the runner is dead, its transaction
+  # rolled back, and the beater has stopped (with_heartbeat waits for it).
+  # Hand off at the last committed checkpoint, as at a batch boundary.
+  defp watchdog_hand_off(chain) do
+    {1, [{checkpoint, tx}]} =
+      Repo.update_all(
+        from(c in BackfillChain,
+          where: c.id == ^chain.id,
+          select: {c.checkpoint_height, c.checkpoint_tx_id}
+        ),
+        set: [heartbeat_at: nil, handed_off_at: DateTime.utc_now()]
+      )
+
+    running = from(r in Run, where: r.chain_id == ^chain.id and r.outcome == "running")
+
+    if checkpoint do
+      Repo.update_all(where(running, [r], not is_nil(r.to_height)), set: [to_height: checkpoint])
+    end
+
+    # Its counts are those saved with its last checkpoint.
+    Repo.update_all(running,
+      set: [
+        outcome: "halted",
+        error: "stopped by the shutdown watchdog mid-batch; resumes from the checkpoint",
+        finished_at: DateTime.utc_now(),
+        updated_at: NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second)
+      ]
+    )
+
+    Logger.info(
+      "Backfill chain ##{chain.id}: node stopping, batch stopped by the watchdog; " <>
+        "handed off at checkpoint #{describe_checkpoint(checkpoint, tx)}"
+    )
+
+    {:snooze, @hand_off_snooze_s}
+  end
+
+  defp describe_checkpoint(checkpoint, nil), do: inspect(checkpoint)
+  defp describe_checkpoint(checkpoint, tx), do: "#{checkpoint} (inside, after tx id #{tx})"
 
   # The node is stopping and the run halted at a batch boundary, its
   # checkpoint and counts saved with that batch. The beater has stopped
   # (with_heartbeat waits for it), so no beat lands after this clear, and the
   # next job finds the range free at once.
   defp hand_off(chain, report) do
-    {1, [checkpoint]} =
+    {1, [{checkpoint, tx}]} =
       Repo.update_all(
-        from(c in BackfillChain, where: c.id == ^chain.id, select: c.checkpoint_height),
+        from(c in BackfillChain,
+          where: c.id == ^chain.id,
+          select: {c.checkpoint_height, c.checkpoint_tx_id}
+        ),
         set: [heartbeat_at: nil, handed_off_at: DateTime.utc_now()]
       )
 
@@ -302,7 +511,8 @@ defmodule Bitblocks.BackfillChains do
     end
 
     Logger.info(
-      "Backfill chain ##{chain.id}: node stopping; handed off at checkpoint #{inspect(checkpoint)}"
+      "Backfill chain ##{chain.id}: node stopping; handed off at checkpoint " <>
+        describe_checkpoint(checkpoint, tx)
     )
 
     {:snooze, @hand_off_snooze_s}
@@ -319,16 +529,24 @@ defmodule Bitblocks.BackfillChains do
     if ids != [], do: Derivations.close_abandoned([ids: ids], apply: true)
   end
 
-  defp run_backfill(chain, from, to) do
+  defp run_backfill(chain, from, to, after_tx) do
+    resume = if after_tx, do: [resume_after_tx: after_tx], else: []
+    inside = if after_tx, do: " (after tx id #{after_tx})", else: ""
+
     opts =
       for {key, value} <- chain.opts, atom = allowed(key), atom != nil do
         {atom, value}
       end ++
+        resume ++
         [
           apply: chain.applied,
           chain_id: chain.id,
-          command: "chain ##{chain.id} #{chain.derivation} #{from}..#{to}",
-          after_batch: &after_batch(chain, &1, &2)
+          command: "chain ##{chain.id} #{chain.derivation} #{from}..#{to}#{inside}",
+          after_batch: &after_batch(chain, &1, &2),
+          # The batch in flight ends at its next page once the node is stopping.
+          interrupt?: &stopping?/0,
+          # Its open transaction is noted, for the watchdog.
+          watched: true
         ]
 
     backfill(chain.derivation, from, to, opts)
@@ -361,11 +579,18 @@ defmodule Bitblocks.BackfillChains do
   # a height (token_recipients pages by instance id).
   defp checkpoint("tx_size", id) when is_integer(id), do: {:at, id}
   defp checkpoint("token_recipients", _cursor), do: :none
+
+  # Inside a dense block: done below it, and in it through that tx id.
+  defp checkpoint(_derivation, {:within, height, tx_id})
+       when is_integer(height) and is_integer(tx_id),
+       do: {:within, height, tx_id}
+
   defp checkpoint(_derivation, {height, _id}) when is_integer(height), do: {:at, height}
   defp checkpoint(_derivation, {height, _id, _}) when is_integer(height), do: {:at, height}
   defp checkpoint(_derivation, _cursor), do: :none
 
   defp hand_off?(_chain, {:at, _}), do: true
+  defp hand_off?(_chain, {:within, _, _}), do: true
   defp hand_off?(chain, :none), do: chain.applied
 
   defp save_batch(chain, checkpoint, report) do
@@ -373,8 +598,14 @@ defmodule Bitblocks.BackfillChains do
 
     {set, counts?} =
       case checkpoint do
-        {:at, height} -> {[heartbeat_at: now, checkpoint_height: height], true}
-        :none -> {[heartbeat_at: now], chain.applied}
+        {:at, height} ->
+          {[heartbeat_at: now, checkpoint_height: height, checkpoint_tx_id: nil], true}
+
+        {:within, height, tx_id} ->
+          {[heartbeat_at: now, checkpoint_height: height, checkpoint_tx_id: tx_id], true}
+
+        :none ->
+          {[heartbeat_at: now], chain.applied}
       end
 
     Repo.transaction(
@@ -430,7 +661,7 @@ defmodule Bitblocks.BackfillChains do
     {moved, _} =
       Repo.update_all(
         from(c in BackfillChain, where: c.id == ^chain.id and c.next_from == ^from),
-        set: [next_from: to + 1, checkpoint_height: nil]
+        set: [next_from: to + 1, checkpoint_height: nil, checkpoint_tx_id: nil]
       )
 
     if moved == 1 do
@@ -555,6 +786,7 @@ defmodule Bitblocks.BackfillChains do
       alive: alive,
       ranges_done: Enum.count(runs, &(&1.outcome == "ok")),
       checkpoint_height: chain.checkpoint_height,
+      checkpoint_tx_id: chain.checkpoint_tx_id,
       handed_off_at: chain.handed_off_at,
       hand_offs: Enum.count(runs, &(&1.outcome == "halted")),
       ranges_total: ranges_total(chain),

@@ -20,6 +20,10 @@ defmodule Bitblocks.Chain.TxPipeline.TimelocksBackfill do
   already stored at the current version is not written again, so a rerun
   after a full apply writes nothing. Dry run by default.
   Entry point: `Bitblocks.Release.backfill_timelocks/3`.
+
+  Paced (`Bitblocks.Derivations`): both sizes adapt, and a batch ends once
+  its time is up, between blocks or after any page, inside a block as
+  `{:within, height, tx_id}`, which a resume (`resume_after_tx:`) takes up.
   """
 
   import Ecto.Query
@@ -57,7 +61,7 @@ defmodule Bitblocks.Chain.TxPipeline.TimelocksBackfill do
         version: ctx.version,
         from_height: from_height,
         to_height: to_height,
-        cursor: {from_height - 1, 0},
+        cursor: Derivations.start_cursor(from_height, opts),
         details: %{
           locks_found: 0,
           one_sat_lock: 0,
@@ -73,33 +77,35 @@ defmodule Bitblocks.Chain.TxPipeline.TimelocksBackfill do
     )
   end
 
-  defp next({after_height, after_id}, report, ctx) do
+  # One batch of stored blocks after the cursor, keyset on (height, id), or
+  # from inside the block a batch stopped in (`{:within, height, tx_id}`).
+  defp next(cursor, report, ctx) do
     blocks =
-      Repo.all(
-        from(b in Block,
-          where: b.height >= ^ctx.from_height and b.height <= ^ctx.to_height,
-          where: b.height > ^after_height or (b.height == ^after_height and b.id > ^after_id),
-          order_by: [asc: b.height, asc: b.id],
-          limit: ^ctx.block_batch
-        )
+      from(b in Block,
+        where: b.height >= ^ctx.from_height and b.height <= ^ctx.to_height,
+        order_by: [asc: b.height, asc: b.id],
+        limit: ^Derivations.batch_limit(ctx.block_batch)
       )
+      |> Derivations.blocks_after(cursor)
+      |> Repo.all()
 
     case blocks do
-      [] ->
-        :done
-
-      blocks ->
-        report = Enum.reduce(blocks, report, &block(&1, &2, ctx))
-        last = List.last(blocks)
-        {:cont, {last.height, last.id}, report}
+      [] -> :done
+      blocks -> Derivations.walk_blocks(blocks, cursor, report, &block(&1, &2, &3, ctx))
     end
   end
 
-  defp block(block, report, ctx) do
-    pages(block, %{report | blocks_examined: report.blocks_examined + 1}, 0, ctx)
-  end
+  # A block resumed inside was counted when it was first started.
+  defp block(block, 0, report, ctx),
+    do: pages(block, %{report | blocks_examined: report.blocks_examined + 1}, 0, ctx)
 
+  defp block(block, after_id, report, ctx), do: pages(block, report, after_id, ctx)
+
+  # Each page commits on its own, so once the batch's time is up it stops
+  # after any page, and the resume picks up after that page's last tx.
   defp pages(block, report, after_id, ctx) do
+    started = Derivations.now()
+
     result =
       Derivations.bounded(ctx.opts, fn ->
         case page(block, after_id, ctx) do
@@ -110,15 +116,20 @@ defmodule Bitblocks.Chain.TxPipeline.TimelocksBackfill do
 
     case result do
       :done ->
-        report
+        {:done, report}
 
       {txs, outcomes} ->
+        Derivations.page_took(length(txs), started)
         if ctx.applied, do: Derivations.pause(ctx.opts)
 
         report =
           Enum.reduce(outcomes, bump(report, :rows_examined, length(txs)), &tally(&1, &2, ctx))
 
-        pages(block, report, List.last(txs).id, ctx)
+        last_id = List.last(txs).id
+
+        if Derivations.time_up?(),
+          do: {:within, last_id, report},
+          else: pages(block, report, last_id, ctx)
     end
   end
 
@@ -129,7 +140,7 @@ defmodule Bitblocks.Chain.TxPipeline.TimelocksBackfill do
       where: is_nil(t.output_types) or fragment("jsonb_exists(?, 'unknown')", t.output_types),
       # `id + 0`, not `id`: see Bitblocks.Chain.TxPipeline.Backfill.page/3.
       order_by: fragment("? + 0", t.id),
-      limit: ^ctx.tx_batch,
+      limit: ^Derivations.page_limit(ctx.tx_batch),
       select: %{id: t.id, txid: t.txid, raw: t.raw}
     )
     |> Repo.all()

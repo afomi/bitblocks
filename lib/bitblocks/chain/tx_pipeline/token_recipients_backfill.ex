@@ -99,7 +99,7 @@ defmodule Bitblocks.Chain.TxPipeline.TokenRecipientsBackfill do
       where: i.protocol_id == ^ctx.protocol.id and i.id > ^after_id,
       where: is_nil(i.recipient_version) or i.recipient_version < ^ctx.version,
       order_by: i.id,
-      limit: ^ctx.tx_batch
+      limit: ^Derivations.batch_limit(ctx.tx_batch)
     )
     |> in_range(ctx)
     |> Repo.all()

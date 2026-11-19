@@ -113,7 +113,13 @@ defmodule Bitblocks.Chain.TxPipeline.Backfill do
   end
 
   # One batch of completed blocks after the cursor, keyset on (height, id).
-  defp next({after_height, after_id}, report, ctx) do
+  # Paced (`Bitblocks.Derivations`): the batch ends between blocks once its
+  # time is up. A block's totals need its rows' sums, so a block is never
+  # split; a block that alone outlasts a chain's shutdown window is stopped
+  # by the chain's watchdog and taken again whole, which redoes no writes:
+  # its committed pages are stamped, so they are read for the sums and not
+  # picked again.
+  defp next({after_height, after_id} = cursor, report, ctx) do
     blocks =
       Repo.all(
         from(b in Block,
@@ -121,7 +127,7 @@ defmodule Bitblocks.Chain.TxPipeline.Backfill do
           where: b.height >= ^ctx.from_height and b.height <= ^ctx.to_height,
           where: b.height > ^after_height or (b.height == ^after_height and b.id > ^after_id),
           order_by: [asc: b.height, asc: b.id],
-          limit: ^ctx.block_batch
+          limit: ^Derivations.batch_limit(ctx.block_batch)
         )
       )
 
@@ -130,13 +136,17 @@ defmodule Bitblocks.Chain.TxPipeline.Backfill do
         :done
 
       blocks ->
-        report = Enum.reduce(blocks, report, &block(&1, &2, ctx))
-        last = List.last(blocks)
+        {:cont, last, report} =
+          Derivations.walk_blocks(blocks, cursor, report, fn b, _after_tx, report ->
+            {:done, block(b, report, ctx)}
+          end)
+
+        walked = Enum.take_while(blocks, &({&1.height, &1.id} <= last))
         # Bounded like the pages: over a batch of dense blocks this count can
         # pass the repo's 60 s client timeout, which cancels it "due to user
         # request" (https://github.com/afomi/bitblocks/issues/102).
-        report = Derivations.bounded(ctx.opts, fn -> remaining(blocks, report, ctx) end)
-        {:cont, {last.height, last.id}, report}
+        report = Derivations.bounded(ctx.opts, fn -> remaining(walked, report, ctx) end)
+        {:cont, last, report}
     end
   end
 

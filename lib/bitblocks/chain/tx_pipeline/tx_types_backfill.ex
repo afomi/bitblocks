@@ -112,7 +112,13 @@ defmodule Bitblocks.Chain.TxPipeline.TxTypesBackfill do
   end
 
   # One batch of completed blocks after the cursor, keyset on (height, id).
-  defp next({after_height, after_id}, report, ctx) do
+  # Paced (`Bitblocks.Derivations`): the batch ends between blocks once its
+  # time is up. A block is stamped only once all its txs have decoded, so a
+  # block is never split; one that alone outlasts a chain's shutdown window
+  # is stopped by the chain's watchdog and taken again whole. Its committed
+  # writes stay (each changed row carries its own stamp, so it is not picked
+  # again); its unchanged rows are classified again.
+  defp next({after_height, after_id} = cursor, report, ctx) do
     blocks =
       Repo.all(
         from(b in Block,
@@ -120,7 +126,7 @@ defmodule Bitblocks.Chain.TxPipeline.TxTypesBackfill do
           where: b.height >= ^ctx.from_height and b.height <= ^ctx.to_height,
           where: b.height > ^after_height or (b.height == ^after_height and b.id > ^after_id),
           order_by: [asc: b.height, asc: b.id],
-          limit: ^ctx.block_batch,
+          limit: ^Derivations.batch_limit(ctx.block_batch),
           select: %{
             id: b.id,
             hash: b.hash,
@@ -137,13 +143,17 @@ defmodule Bitblocks.Chain.TxPipeline.TxTypesBackfill do
         :done
 
       blocks ->
-        report = Enum.reduce(blocks, report, &block(&1, &2, ctx))
-        last = List.last(blocks)
+        {:cont, last, report} =
+          Derivations.walk_blocks(blocks, cursor, report, fn b, _after_tx, report ->
+            {:done, block(b, report, ctx)}
+          end)
+
+        walked = Enum.take_while(blocks, &({&1.height, &1.id} <= last))
         # Bounded like the pages: over a batch of dense blocks this count can
         # pass the repo's 60 s client timeout, which cancels it "due to user
         # request" (https://github.com/afomi/bitblocks/issues/102).
-        report = Derivations.bounded(ctx.opts, fn -> remaining(blocks, report, ctx) end)
-        {:cont, {last.height, last.id}, report}
+        report = Derivations.bounded(ctx.opts, fn -> remaining(walked, report, ctx) end)
+        {:cont, last, report}
     end
   end
 

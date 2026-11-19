@@ -21,6 +21,35 @@ defmodule Bitblocks.Derivations do
   transaction under a `statement_timeout`) and calls `pause/1` after each
   write, so autovacuum keeps up with the non-HOT updates on `transactions`.
 
+  ## A batch's wall time (https://github.com/afomi/bitblocks/issues/115)
+
+  A batch is the unit a chain checkpoints and hands off at, so its length is
+  how long a deploy waits for it. `run/2` keeps each one near `:batch_ms`
+  (default `config :bitblocks, :derivation_batch_ms`, 20,000) two ways:
+
+    * **A deadline.** Before each batch it sets one, and the batch function
+      asks `time_up?/0` between blocks and between the committed pages of a
+      block; once it is true (or `:interrupt?` is: the node is stopping),
+      the batch ends there and returns its cursor. A block backfill walks
+      its blocks with `walk_blocks/4`, which stops between blocks; a
+      backfill whose pages are independent also stops inside a block and
+      returns `{:within, height, after_tx_id}`, so a dense block is split
+      into sub-batches, each committed and each a checkpoint the resume
+      starts from (`start_cursor/2`, `blocks_after/2`, `within_block/2`).
+    * **Adaptive sizes.** How many blocks a batch reads (`batch_limit/1`)
+      and how many txs a page takes (`page_limit/1`, timed by `page_took/2`
+      against `:page_ms`, default `:derivation_page_ms`, 2,000) are sized
+      from the last one by `resize/5`: over the target, at least halve, to
+      what would fit in half of it; under half the target, grow by a
+      quarter; in between, hold. Shrink fast, grow slowly, and never above
+      the configured `block_batch` or `tx_batch`.
+
+  The deadline bounds the time; the sizes keep a batch from reading far
+  more than it will use, and a page's transaction short. A batch always
+  makes progress: its first block, and a block's first page, run whatever
+  the clock says. `:clock` (a 0-arity fun returning milliseconds) stands in
+  for the monotonic clock in tests.
+
   Options every backfill takes: `apply:` (default false), `pause_ms:`
   (default `config :bitblocks, :derivation_pause_ms`, 50),
   `statement_timeout_ms:` (default `:derivation_statement_timeout_ms`,
@@ -28,7 +57,9 @@ defmodule Bitblocks.Derivations do
   (given the report after each batch), `chain_id:` (the
   `Bitblocks.BackfillChains` chain running this range) and `record:` (default
   true; false skips the `derivation_runs` row, for the one-block runs of
-  `TxPipeline.CatchUp`, which would bury the operators' runs).
+  `TxPipeline.CatchUp`, which would bury the operators' runs), and the
+  pacing ones above: `batch_ms:`, `page_ms:`, `clock:` and `interrupt?:` (a
+  0-arity fun; true ends the batch at the next block or page).
   """
 
   import Ecto.Query
@@ -112,7 +143,8 @@ defmodule Bitblocks.Derivations do
       error: nil
     }
 
-    {report, batches, ending} = loop(spec, spec.cursor, report, 0, opts)
+    {report, batches, ending} =
+      with_pace(opts, fn -> loop(spec, spec.cursor, report, 0, opts) end)
 
     report =
       case {ending, report.error} do
@@ -142,11 +174,16 @@ defmodule Bitblocks.Derivations do
 
   # Tail-recursive; only one batch at a time sits inside the rescue.
   defp loop(spec, cursor, report, batches, opts) do
+    started = start_batch()
+
     case attempt(spec, cursor, report) do
       {:ok, :done} ->
         {report, batches, :done}
 
-      {:ok, {:cont, cursor, report}} ->
+      {:ok, {:cont, cursor, next}} ->
+        finish_batch(started, next.blocks_examined - report.blocks_examined)
+        report = next
+
         if on_batch = opts[:on_batch], do: on_batch.(report)
 
         case after_batch(opts, cursor, report) do
@@ -215,11 +252,240 @@ defmodule Bitblocks.Derivations do
     end
   end
 
+  ## Pacing (see the moduledoc)
+
+  @pace {__MODULE__, :pace}
+  @open_tx {__MODULE__, :open_tx}
+
+  # The pace lives in the process dictionary of the process running the
+  # batches, for the length of run/2, so a backfill asks time_up?/0 without
+  # threading a deadline through every function. Outside run/2 there is no
+  # pace: time is never up and the limits are the configured ones.
+  defp with_pace(opts, fun) do
+    outer = Process.get(@pace)
+
+    Process.put(@pace, %{
+      clock: Keyword.get(opts, :clock, &monotonic_ms/0),
+      interrupt?: Keyword.get(opts, :interrupt?, fn -> false end),
+      batch_ms: pace_ms(opts, :batch_ms, :derivation_batch_ms, 20_000),
+      page_ms: pace_ms(opts, :page_ms, :derivation_page_ms, 2_000),
+      deadline: nil,
+      blocks: nil,
+      blocks_max: nil,
+      page: nil,
+      page_max: nil
+    })
+
+    try do
+      fun.()
+    after
+      if outer, do: Process.put(@pace, outer), else: Process.delete(@pace)
+    end
+  end
+
+  defp pace_ms(opts, key, env, default) do
+    Keyword.get_lazy(opts, key, fn -> Application.get_env(:bitblocks, env, default) end)
+  end
+
+  defp monotonic_ms, do: System.monotonic_time(:millisecond)
+
+  defp start_batch do
+    pace = Process.get(@pace)
+    now = pace.clock.()
+    Process.put(@pace, %{pace | deadline: now + pace.batch_ms})
+    now
+  end
+
+  # Sizes the next batch from this one, when the backfill reads its blocks by
+  # batch_limit/1: by the blocks it examined, or, when it examined none (a
+  # batch of blocks it skipped), by the limit it took.
+  defp finish_batch(started, blocks) do
+    pace = Process.get(@pace)
+
+    if pace.blocks do
+      took = pace.clock.() - started
+      units = if blocks > 0, do: blocks, else: pace.blocks
+
+      Process.put(@pace, %{
+        pace
+        | blocks: resize(pace.blocks, took, units, pace.batch_ms, pace.blocks_max)
+      })
+    end
+
+    :ok
+  end
+
+  @doc """
+  The next size of a batch or page, from the last: it held `size` and took
+  `took_ms` over `units` of work, against `target_ms`. Over the target it at
+  least halves, to what would fit in half the target; at or under half the
+  target it grows by a quarter (at least one); in between it holds. Always
+  within 1..`max`.
+  """
+  @spec resize(pos_integer(), number(), non_neg_integer(), pos_integer(), pos_integer()) ::
+          pos_integer()
+  def resize(size, took_ms, units, target_ms, max) do
+    next =
+      cond do
+        took_ms > target_ms ->
+          fit = if units > 0, do: trunc(target_ms * units / (2 * took_ms)), else: 0
+          min(div(size, 2), fit)
+
+        took_ms * 2 <= target_ms ->
+          size + max(1, div(size, 4))
+
+        true ->
+          size
+      end
+
+    next |> max(1) |> min(max)
+  end
+
+  @doc """
+  True once the batch in flight has passed its deadline, or the run's
+  `:interrupt?` says to stop (the node is stopping). Never true outside
+  `run/2`.
+  """
+  @spec time_up?() :: boolean()
+  def time_up? do
+    case Process.get(@pace) do
+      %{deadline: deadline, clock: clock, interrupt?: interrupt?} when is_integer(deadline) ->
+        clock.() >= deadline or interrupt?.()
+
+      _ ->
+        false
+    end
+  end
+
+  @doc "Now by the run's clock, in milliseconds: a page's start, for `page_took/2`."
+  @spec now() :: integer()
+  def now do
+    case Process.get(@pace) do
+      %{clock: clock} -> clock.()
+      nil -> monotonic_ms()
+    end
+  end
+
+  @doc "How many blocks this batch reads: at most `max` (the `block_batch` option)."
+  @spec batch_limit(pos_integer()) :: pos_integer()
+  def batch_limit(max), do: paced_size(:blocks, :blocks_max, max)
+
+  @doc "How many txs this page takes: at most `max` (the `tx_batch` option)."
+  @spec page_limit(pos_integer()) :: pos_integer()
+  def page_limit(max), do: paced_size(:page, :page_max, max)
+
+  defp paced_size(key, max_key, max) do
+    case Process.get(@pace) do
+      nil ->
+        max
+
+      pace ->
+        size = min(Map.get(pace, key) || max, max)
+        Process.put(@pace, pace |> Map.put(key, size) |> Map.put(max_key, max))
+        size
+    end
+  end
+
+  @doc """
+  Records that a page of `rows`, taken at `page_limit/1`, started at
+  `started` (`now/0`), and sizes the next page from it.
+  """
+  @spec page_took(non_neg_integer(), integer()) :: :ok
+  def page_took(rows, started) do
+    case Process.get(@pace) do
+      %{page: size} = pace when is_integer(size) ->
+        took = pace.clock.() - started
+        Process.put(@pace, %{pace | page: resize(size, took, rows, pace.page_ms, pace.page_max)})
+
+      _ ->
+        :ok
+    end
+
+    :ok
+  end
+
+  @doc """
+  Walks one batch of `blocks` from `cursor`, calling `fun.(block,
+  after_tx_id, report)` per block and stopping between blocks once
+  `time_up?/0`. The first block always runs, from the tx the cursor names
+  when it is `{:within, height, after_tx_id}` at that block, else from the
+  start (0). `fun` returns `{:done, report}`, or `{:within, after_tx_id,
+  report}` when it stopped inside the block with its txs through that id
+  committed. Returns the batch's `{:cont, cursor, report}`, the cursor
+  `{height, id}` of the last block done whole, or `{:within, height,
+  after_tx_id}`.
+  """
+  @spec walk_blocks(
+          [map()],
+          term(),
+          report(),
+          (map(), non_neg_integer(), report() ->
+             {:done, report()} | {:within, integer(), report()})
+        ) :: {:cont, term(), report()}
+  def walk_blocks([first | _] = blocks, cursor, report, fun) do
+    Enum.reduce_while(blocks, {:cont, cursor, report}, fn block, {:cont, at, report} ->
+      if block != first and time_up?() do
+        {:halt, {:cont, at, report}}
+      else
+        case fun.(block, within_block(cursor, block), report) do
+          {:done, report} ->
+            {:cont, {:cont, {block.height, block.id}, report}}
+
+          {:within, after_tx_id, report} ->
+            {:halt, {:cont, {:within, block.height, after_tx_id}, report}}
+        end
+      end
+    end)
+  end
+
+  @doc """
+  The tx id a block's walk starts after: the cursor's, when it stopped
+  inside this block (`{:within, height, after_tx_id}`), else 0.
+  """
+  @spec within_block(term(), %{height: integer()}) :: non_neg_integer()
+  def within_block({:within, height, after_tx_id}, %{height: height}), do: after_tx_id
+  def within_block(_cursor, _block), do: 0
+
+  @doc """
+  Narrows a blocks query to the blocks after `cursor`, keyset on (height,
+  id): `{after_height, after_id}`, or `{:within, height, _}`, which takes the
+  block at `height` again (`blocks.height` is unique) to finish it.
+  """
+  @spec blocks_after(Ecto.Queryable.t(), term()) :: Ecto.Query.t()
+  def blocks_after(query, {:within, height, _after_tx_id}),
+    do: where(query, [b], b.height >= ^height)
+
+  def blocks_after(query, {after_height, after_id}),
+    do:
+      where(
+        query,
+        [b],
+        b.height > ^after_height or (b.height == ^after_height and b.id > ^after_id)
+      )
+
+  @doc """
+  The cursor a block backfill starts from: before the range's first block,
+  or, with `resume_after_tx:` (a chain's checkpoint inside a block), inside
+  the block at `from_height`, after that tx.
+  """
+  @spec start_cursor(integer(), keyword()) :: term()
+  def start_cursor(from_height, opts) do
+    case opts[:resume_after_tx] do
+      id when is_integer(id) and id > 0 -> {:within, from_height, id}
+      _ -> {from_height - 1, 0}
+    end
+  end
+
   @doc """
   Runs `fun` in one short transaction under a `statement_timeout`
   (`:statement_timeout_ms`), so no statement of a backfill holds locks or
   runs unbounded. Returns `fun`'s result; raises on a timeout or error,
   which `run/2` records.
+
+  With `watched: true` (a `Bitblocks.BackfillChains` job), it also notes the
+  transaction's backend pid and start time in the process, for
+  `open_transaction/1`, so a watchdog that kills this process can cancel
+  the statement it left running.
   """
   @spec bounded(keyword(), (-> result)) :: result when result: term()
   def bounded(opts, fun) do
@@ -233,12 +499,58 @@ defmodule Bitblocks.Derivations do
           # writer's row lock fails as 55P03 (lock timeout), not as a slow
           # statement (57014), and the recorded error says which it was.
           Repo.query!("SET LOCAL lock_timeout = #{div(ms, 2)}")
-          fun.()
+          if opts[:watched], do: note_transaction()
+
+          try do
+            fun.()
+          after
+            Process.delete(@open_tx)
+          end
         end,
         timeout: ms + 5_000
       )
 
     result
+  end
+
+  # now() is the transaction's start, the same value pg_stat_activity shows
+  # as xact_start, so the pair names this transaction and no later one on
+  # the same connection.
+  defp note_transaction do
+    %{rows: [[pid, started]]} = Repo.query!("SELECT pg_backend_pid(), now()")
+    Process.put(@open_tx, {pid, started})
+  end
+
+  @doc """
+  The bounded transaction `pid` has open, as `{backend_pid, xact_start}`,
+  or nil: read from its process dictionary, so only while it is alive.
+  """
+  @spec open_transaction(pid()) :: {integer(), DateTime.t()} | nil
+  def open_transaction(pid) do
+    case Process.info(pid, :dictionary) do
+      {:dictionary, dict} -> List.keyfind(dict, @open_tx, 0) |> then(&(&1 && elem(&1, 1)))
+      nil -> nil
+    end
+  end
+
+  @doc """
+  Cancels the statement of a transaction a killed process left open, named
+  by `open_transaction/1`, only while that backend is still in that same
+  transaction: a connection already back in the pool has another
+  `xact_start`, or none, and is left alone. Returns whether one was
+  cancelled.
+  """
+  @spec cancel_transaction({integer(), DateTime.t()} | nil) :: boolean()
+  def cancel_transaction(nil), do: false
+
+  def cancel_transaction({backend_pid, started}) do
+    %{rows: rows} =
+      Repo.query!(
+        "SELECT pg_cancel_backend(pid) FROM pg_stat_activity WHERE pid = $1 AND xact_start = $2",
+        [backend_pid, started]
+      )
+
+    rows == [[true]]
   end
 
   defp statement_timeout_ms(opts) do

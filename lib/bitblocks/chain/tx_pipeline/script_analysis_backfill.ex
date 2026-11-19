@@ -21,6 +21,10 @@ defmodule Bitblocks.Chain.TxPipeline.ScriptAnalysisBackfill do
   under a statement timeout, with a pause after each write
   (`Bitblocks.Derivations`). Dry run by default. It never sets `updated_at`,
   which dates the tallies.
+
+  Paced (`Bitblocks.Derivations`): both sizes adapt, and a batch ends once
+  its time is up, between blocks or after any page, inside a block as
+  `{:within, height, tx_id}`, which a resume (`resume_after_tx:`) takes up.
   """
 
   import Ecto.Query
@@ -56,7 +60,7 @@ defmodule Bitblocks.Chain.TxPipeline.ScriptAnalysisBackfill do
         version: ctx.version,
         from_height: from_height,
         to_height: to_height,
-        cursor: if(from_height, do: {from_height - 1, 0}, else: {nil, 0}),
+        cursor: if(from_height, do: Derivations.start_cursor(from_height, opts), else: {nil, 0}),
         details: %{undecodable: 0},
         next: &next(&1, &2, ctx)
       },
@@ -65,45 +69,57 @@ defmodule Bitblocks.Chain.TxPipeline.ScriptAnalysisBackfill do
   end
 
   defp next({nil, after_id}, report, ctx) do
+    started = Derivations.now()
+
     case page(nil, after_id, ctx) do
-      [] -> :done
-      rows -> {:cont, {nil, List.last(rows).id}, process(rows, report, ctx)}
-    end
-  end
-
-  # One batch of stored blocks after the cursor, keyset on (height, id).
-  defp next({after_height, after_id}, report, ctx) do
-    blocks =
-      Repo.all(
-        from(b in Block,
-          where: b.height >= ^ctx.from_height and b.height <= ^ctx.to_height,
-          where: b.height > ^after_height or (b.height == ^after_height and b.id > ^after_id),
-          order_by: [asc: b.height, asc: b.id],
-          limit: ^ctx.block_batch,
-          select: %{id: b.id, hash: b.hash, height: b.height}
-        )
-      )
-
-    case blocks do
       [] ->
         :done
 
-      blocks ->
-        report = Enum.reduce(blocks, report, &block(&1, &2, 0, ctx))
-        last = List.last(blocks)
-        {:cont, {last.height, last.id}, report}
+      rows ->
+        report = process(rows, report, ctx)
+        Derivations.page_took(length(rows), started)
+        {:cont, {nil, List.last(rows).id}, report}
     end
   end
 
+  # One batch of stored blocks after the cursor, keyset on (height, id), or
+  # from inside the block a batch stopped in (`{:within, height, tx_id}`).
+  defp next(cursor, report, ctx) do
+    blocks =
+      from(b in Block,
+        where: b.height >= ^ctx.from_height and b.height <= ^ctx.to_height,
+        order_by: [asc: b.height, asc: b.id],
+        limit: ^Derivations.batch_limit(ctx.block_batch),
+        select: %{id: b.id, hash: b.hash, height: b.height}
+      )
+      |> Derivations.blocks_after(cursor)
+      |> Repo.all()
+
+    case blocks do
+      [] -> :done
+      blocks -> Derivations.walk_blocks(blocks, cursor, report, &block(&1, &3, &2, ctx))
+    end
+  end
+
+  # The block's pages from `after_id`. Each page is written before the next
+  # is read, so once the batch's time is up it can stop after any page:
+  # `{:within, last_id, report}`, and the resume picks up after that id.
   defp block(block, report, after_id, ctx) do
+    started = Derivations.now()
+
     case page(block, after_id, ctx) do
       [] ->
-        report
+        {:done, report}
 
       rows ->
         last_id = List.last(rows).id
         rows = Enum.map(rows, &%{&1 | block_height: &1.block_height || block.height})
-        block(block, process(rows, report, ctx), last_id, ctx)
+        report = process(rows, report, ctx)
+        Derivations.page_took(length(rows), started)
+
+        if Derivations.time_up?(),
+          do: {:within, last_id, report},
+          else: block(block, report, last_id, ctx)
     end
   end
 
@@ -111,7 +127,7 @@ defmodule Bitblocks.Chain.TxPipeline.ScriptAnalysisBackfill do
     query =
       from(t in Transaction,
         where: t.id > ^after_id and not is_nil(t.raw),
-        limit: ^ctx.batch_size,
+        limit: ^Derivations.page_limit(ctx.batch_size),
         select: [:id, :txid, :raw, :block_height, :block_hash]
       )
 

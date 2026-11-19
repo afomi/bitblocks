@@ -992,8 +992,19 @@ defmodule Bitblocks.Release do
 
     IO.puts("  #{s.ranges_done} of #{s.ranges_total} range(s) finished" <> chain_progress(s))
 
-    if s.checkpoint_height,
-      do: IO.puts("  checkpoint #{s.checkpoint_height}: the range in flight resumes after it")
+    cond do
+      s.checkpoint_height && s.checkpoint_tx_id ->
+        IO.puts(
+          "  checkpoint #{s.checkpoint_height}, inside the block after tx id #{s.checkpoint_tx_id}:" <>
+            " the range in flight resumes there"
+        )
+
+      s.checkpoint_height ->
+        IO.puts("  checkpoint #{s.checkpoint_height}: the range in flight resumes after it")
+
+      true ->
+        :ok
+    end
 
     if s.handed_off_at,
       do:

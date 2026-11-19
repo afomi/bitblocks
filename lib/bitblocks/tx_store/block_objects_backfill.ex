@@ -89,12 +89,22 @@ defmodule Bitblocks.TxStore.BlockObjectsBackfill do
 
       blocks ->
         # A streamed block can take minutes, so the batch ends after one and
-        # the next batch (and heartbeat) follows.
+        # the next batch (and heartbeat) follows. Paced (`Bitblocks.Derivations`):
+        # it also ends between blocks once its time is up. One block can't be
+        # split; a chain's watchdog stops one that outlasts the shutdown
+        # window, and the store's writes are idempotent, so the next run
+        # takes it again.
+        [first | _] = blocks
+
         {report, in_a_row, last} =
-          Enum.reduce_while(blocks, {report, in_a_row, nil}, fn b, {report, in_a_row, _} ->
-            {report, in_a_row, streamed?} = block(b, {report, in_a_row}, ctx)
-            step = if streamed?, do: :halt, else: :cont
-            {step, {report, in_a_row, b}}
+          Enum.reduce_while(blocks, {report, in_a_row, nil}, fn b, {report, in_a_row, prev} ->
+            if b != first and Derivations.time_up?() do
+              {:halt, {report, in_a_row, prev}}
+            else
+              {report, in_a_row, streamed?} = block(b, {report, in_a_row}, ctx)
+              step = if streamed?, do: :halt, else: :cont
+              {step, {report, in_a_row, b}}
+            end
           end)
 
         if ctx.applied, do: Derivations.pause(ctx.opts)
@@ -116,7 +126,7 @@ defmodule Bitblocks.TxStore.BlockObjectsBackfill do
         where: b.sync_state == "completed" and is_nil(b.raw_object_stored_at),
         where: b.height > ^after_height or (b.height == ^after_height and b.id > ^after_id),
         order_by: [asc: b.height, asc: b.id],
-        limit: ^ctx.block_batch
+        limit: ^Derivations.batch_limit(ctx.block_batch)
       )
     )
   end
