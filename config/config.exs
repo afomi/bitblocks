@@ -158,11 +158,16 @@ config :bitblocks, Oban,
        # while x402 is off, light on the default lane otherwise.
        {"*/10 * * * *", Bitblocks.Workers.X402ReconcileWorker},
        # A new Bitcom registry snapshot, if the registry changed (#21).
-       {"17 4 * * *", Bitblocks.Workers.BitcomSnapshotWorker}
+       {"17 4 * * *", Bitblocks.Workers.BitcomSnapshotWorker},
+       # GIN pending lists on transactions merged here, not inside a sync
+       # insert that crosses gin_pending_list_limit (#87, DB.GinPending).
+       {"* * * * *", Bitblocks.Workers.GinPendingWorker}
      ]}
   ],
   queues: [
     default: 10,
+    # Database upkeep off the request and sync paths (DB.GinPending, #87).
+    maintenance: 1,
     # The sync loop: the coordinator's keep-alive cron, and block jobs (one
     # block each, never two jobs on one block). Sync.Coordinator scales
     # sync_blocks to the chosen concurrency at runtime.
