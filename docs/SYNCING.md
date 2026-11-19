@@ -116,7 +116,7 @@ While paused the coordinator dispatches no new block jobs; header sync keeps run
 ### Stop height
 
 The sync can also stop at a planned height: `config :bitblocks, :sync_stop_at_height` (`Sync.stop_height/0`), nil in dev and test.
-Prod stops at 400,000 since 2026-11-13, until the storage plan lands ([STORAGE_PLAN.md](STORAGE_PLAN.md)); `SYNC_STOP_AT_HEIGHT` overrides it at runtime, and `SYNC_STOP_AT_HEIGHT=none` clears it.
+Prod stops at 600,000 since 2026-11-19, raised from 400,000 with the database's storage max at 2 TB ([STORAGE_PLAN.md](STORAGE_PLAN.md)); `SYNC_STOP_AT_HEIGHT` overrides it at runtime, and `SYNC_STOP_AT_HEIGHT=none` clears it.
 Dispatch never queues a block above it, and header sync carries on to the tip.
 Once `complete_through` reaches it, `Sync.stopped?/0` is true, `/api/v1/status` gives `index.stopped: true` and `index.stop_height` with no `index_stalled`, and the health line on /syncing and /status says the sync has stopped there as planned.
 A headers stall still counts as a stall.
