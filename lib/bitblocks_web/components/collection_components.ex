@@ -58,6 +58,39 @@ defmodule BitblocksWeb.CollectionComponents do
   end
 
   @doc """
+  How far our own index reaches, for owners traced through it
+  (docs/WOC_USE.md): nothing while it is complete through our tip, else a
+  line naming the block it reaches. `coverage` is `Chain.Utxos.coverage/0`.
+  Nothing either when no block 0 is complete: there is no block to name.
+  """
+  attr :coverage, :map, required: true
+  attr :id, :string, default: "trace-coverage"
+  attr :class, :string, default: "text-sm text-gray-600"
+
+  def trace_coverage(assigns) do
+    ~H"""
+    <p
+      :if={show_coverage?(@coverage)}
+      id={@id}
+      class={@class}
+    >
+      Owners are traced through our own spend index, which is complete through block <%= format_height(
+        @coverage.indexed_through_height
+      ) %> of <%= format_height(@coverage.tip_height) %>.
+      An item that may have moved after block <%= format_height(@coverage.indexed_through_height) %> reads "Owner unknown" until our sync reaches it.
+      Bitblocks shows only what its own index can prove.
+    </p>
+    """
+  end
+
+  # Said only when there is a block to name: an empty index has no story yet.
+  defp show_coverage?(%{complete?: complete?, indexed_through_height: through, tip_height: tip}),
+    do: not complete? and is_integer(tip) and is_integer(through) and through >= 0
+
+  defp format_height(height),
+    do: height |> Integer.to_string() |> String.replace(~r/\B(?=(\d{3})+$)/, ",")
+
+  @doc """
   An item's picture: its layers stacked bottom first, or its one image. The
   parent sizes the frame; `layers` comes from `OrdinalCollections.layers/1`.
   """

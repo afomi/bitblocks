@@ -102,8 +102,11 @@ defmodule Bitblocks.OrdinalFixtures do
     {BSV.Tx.get_txid(tx), BSV.Tx.to_binary(tx, encoding: :hex)}
   end
 
-  @doc "Makes `{txid, hex}` fetchable from the WoC stub at `height`; returns the txid."
-  def publish({txid, hex}, height \\ 840_000) do
+  @doc """
+  Makes `{txid, hex}` fetchable from the WoC stub at `height`, in block
+  `"blockhash-<height>"` (a block `index_through/2` stores); returns the txid.
+  """
+  def publish({txid, hex}, height \\ 120) do
     tx = %{
       "txid" => txid,
       "hex" => hex,
@@ -118,9 +121,75 @@ defmodule Bitblocks.OrdinalFixtures do
     txid
   end
 
-  @doc "Records in the WoC stub that `outpoint` is spent by input `vin` of `spender`."
-  def spend(outpoint, spender, vin),
+  @doc """
+  Records in our index that `outpoint` is spent by input `vin` of `spender`,
+  as the sync does: a `spender` published to the WoC stub is stored in its
+  block, which writes its `spend_index` rows; one that isn't leaves a spend
+  row naming a tx we don't hold.
+  """
+  def spend(outpoint, spender, vin) do
+    case Process.get(:woc_txs, %{})[spender] do
+      %{"hex" => hex} = tx ->
+        block = %Bitblocks.Chain.Block{hash: tx["blockhash"], height: tx["blockheight"]}
+        json = Bitblocks.Chain.RawBlock.tx_json(spender, Base.decode16!(hex, case: :mixed))
+        :ok = Bitblocks.Chain.TxIngest.store(json, block)
+
+      nil ->
+        [txid, vout] = String.split(outpoint, "_")
+
+        Bitblocks.Repo.insert_all(
+          Bitblocks.Chain.Spend,
+          [
+            %{
+              txid: txid,
+              vout: String.to_integer(vout),
+              spending_txid: spender,
+              spending_vin: vin,
+              inserted_at: NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second)
+            }
+          ],
+          on_conflict: :nothing
+        )
+    end
+
+    :ok
+  end
+
+  @doc "Records in the WoC stub (`/spent`) that `outpoint` is spent by input `vin` of `spender`."
+  def woc_spend(outpoint, spender, vin),
     do: Process.put(:woc_spent, Map.put(Process.get(:woc_spent, %{}), outpoint, {spender, vin}))
+
+  @doc """
+  Our index as `Chain.Utxos` reads it: blocks 0..`through` stored and
+  `completed`, and `through + 1..tip` stored as headers only (not synced), so
+  `Sync.complete_through/0` is `through` and our tip is `tip`. Hashes are
+  `"blockhash-<height>"`, the blocks `publish/2` places txs in.
+  """
+  def index_through(through, tip \\ nil) do
+    tip = tip || through
+    now = NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second)
+
+    for height <- 0..tip//1 do
+      %{
+        hash: "blockhash-#{height}",
+        height: height,
+        num_tx: 1,
+        tx: [],
+        sync_state: if(height <= through, do: "completed", else: "header_only"),
+        inserted_at: now,
+        updated_at: now
+      }
+    end
+    |> Enum.chunk_every(1_000)
+    |> Enum.each(
+      &Bitblocks.Repo.insert_all(Bitblocks.Chain.Block, &1,
+        on_conflict: {:replace, [:sync_state]},
+        conflict_target: :height
+      )
+    )
+
+    :ok
+  end
 
   @doc """
   A tx's hex, for one that spends a single input with no script. `BSV.Tx`

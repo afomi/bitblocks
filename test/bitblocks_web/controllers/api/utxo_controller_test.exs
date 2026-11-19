@@ -91,7 +91,7 @@ defmodule BitblocksWeb.Api.UtxoControllerTest do
     end
 
     test "asks WhatsOnChain and says so", %{conn: conn} do
-      OrdinalFixtures.spend("#{FS.coinbase_9()}_0", FS.first_spend(), 0)
+      OrdinalFixtures.woc_spend("#{FS.coinbase_9()}_0", FS.first_spend(), 0)
 
       body = json_response(get(conn, ~p"/api/v1/utxo/#{FS.coinbase_9()}/0/owner"), 200)
 

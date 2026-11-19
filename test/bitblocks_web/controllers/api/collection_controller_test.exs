@@ -1,5 +1,5 @@
 defmodule BitblocksWeb.Api.CollectionControllerTest do
-  use BitblocksWeb.ConnCase, async: true
+  use BitblocksWeb.ConnCase, async: false
 
   import Bitblocks.OrdinalFixtures
 
@@ -7,11 +7,15 @@ defmodule BitblocksWeb.Api.CollectionControllerTest do
 
   # Endpoints take a slug or a collection id; tests use an ad-hoc collection
   # id, so they pass it as the id. Known slugs are covered in resolve tests.
+  # Our index is complete through its tip; WhatsOnChain serves raw txs only.
   setup do
-    collection_txid = tx([funding_outpoint()], [contract("collection")]) |> publish(839_715)
+    Process.put(:woc_raw_tx_only, true)
+    index_through(120)
+
+    collection_txid = tx([funding_outpoint()], [contract("collection")]) |> publish(115)
     cid = "#{collection_txid}_0"
     minter = address()
-    mint = tx([cid], [contract(), item(cid, "Tardinian 1", minter)]) |> publish(839_716)
+    mint = tx([cid], [contract(), item(cid, "Tardinian 1", minter)]) |> publish(116)
 
     OrdinalCollections.sync(cid, [mint], follow: false)
     %{cid: cid, minter: minter, mint: mint, origin: "#{mint}_1"}
@@ -44,7 +48,7 @@ defmodule BitblocksWeb.Api.CollectionControllerTest do
     assert data["trace_state"] == "current"
     assert data["owner"] == ctx.minter
     assert data["spent"] == false
-    assert data["trace_source"] == "whatsonchain"
+    assert data["trace_source"] == "index"
   end
 
   test "a moved item: its origin is spent, and the current outpoint is reported", ctx do
@@ -57,6 +61,27 @@ defmodule BitblocksWeb.Api.CollectionControllerTest do
     assert data["spent"] == true
     assert data["current_outpoint"] == "#{transfer}_0"
     assert data["owner"] == buyer
+  end
+
+  test "past our index, a trace is unsettled with a reason naming the block, never WhatsOnChain's answer",
+       ctx do
+    # Blocks 119 to 121 are headers only: a spend of the origin may sit there.
+    index_through(118, 121)
+
+    data = get_json("/api/v1/collections/#{ctx.cid}/items/#{ctx.origin}?refresh=1")["data"]
+
+    assert data["trace_state"] == "untraced"
+    assert data["owner"] == nil
+    assert data["spent"] == nil
+    assert data["trace_source"] == "index"
+    assert data["ownership"]["reason"] =~ "complete through block 118 of 121"
+
+    # Only raw txs were asked of WhatsOnChain (the stub raises on anything else).
+    assert Enum.all?(Process.get(:woc_calls, []), &match?({:txs, _}, &1))
+
+    meta = get_json("/api/v1/collections/#{ctx.cid}/items")["meta"]
+    assert meta["indexed_through_height"] == 118
+    assert meta["tip_height"] == 121
   end
 
   test "unknown outpoints are a 404 with member unknown; unknown collections a 404", ctx do
@@ -77,7 +102,7 @@ defmodule BitblocksWeb.Api.CollectionControllerTest do
     assert data["verification"]["list_hash"] == expected_hash
     assert data["verification"]["by"] == "bitblocks"
     assert data["verification"]["basis"] == "mint_contract_chain"
-    assert data["verification"]["verified_through_height"] == 839_716
+    assert data["verification"]["verified_through_height"] == 116
   end
 
   test "items carry who verified membership and on what basis", ctx do
@@ -96,7 +121,8 @@ defmodule BitblocksWeb.Api.CollectionControllerTest do
 
   describe "membership and ownership are separate claims (#37)" do
     test "an unknown trail keeps membership and has no owner", ctx do
-      Process.put(:woc_spent, %{ctx.origin => {:error, :timeout}})
+      merged = tx([ctx.origin], [p2pkh(address(), 2)]) |> publish()
+      spend(ctx.origin, merged, 0)
       get_json("/api/v1/collections/#{ctx.cid}/items/#{ctx.origin}?refresh=1")
 
       data = get_json("/api/v1/collections/#{ctx.cid}/items/#{ctx.origin}")["data"]
@@ -107,16 +133,15 @@ defmodule BitblocksWeb.Api.CollectionControllerTest do
       assert data["owner"] == nil
     end
 
-    test "the source is WhatsOnChain only when it answered", ctx do
+    test "the source is our index once a trace answers, and nil before", ctx do
       item = OrdinalCollections.get_item(ctx.cid, ctx.origin)
+      assert item.trace_source == nil
 
-      Process.put(:woc_spent, %{ctx.origin => {:error, :timeout}})
-      {:ok, failed} = OrdinalCollections.trace(item)
-      assert failed.trace_source == nil
+      {:ok, answered} = OrdinalCollections.trace(item)
+      assert answered.trace_source == "index"
 
-      Process.delete(:woc_spent)
-      {:ok, answered} = OrdinalCollections.trace(failed)
-      assert answered.trace_source == "whatsonchain"
+      data = get_json("/api/v1/collections/#{ctx.cid}/items/#{ctx.origin}")["data"]
+      assert data["trace_source"] == "index"
     end
 
     test "an untraced item's minter is not presented as its owner", ctx do
@@ -144,7 +169,9 @@ defmodule BitblocksWeb.Api.CollectionControllerTest do
 
       OrdinalCollections.sync(ctx.cid, [ctx.mint])
       OrdinalCollections.trace_all(ctx.cid)
-      Process.put(:woc_spent, %{"#{ctx.mint}_0" => {:error, :timeout}})
+      # Blocks past the mint (116) are headers only: the walk can't say the
+      # chain ended there.
+      index_through(116, 120)
 
       assert %{complete: false} = OrdinalCollections.sync(ctx.cid, [ctx.mint])
 

@@ -3,7 +3,7 @@ defmodule Bitblocks.OrdinalCollections.RunJigTest do
   #30 part 2: Run (RelayX) collections, Rexxies first. Mints and moves are
   read from Run's payload, not guessed from dust outputs.
   """
-  use Bitblocks.DataCase, async: true
+  use Bitblocks.DataCase, async: false
 
   import Bitblocks.OrdinalFixtures
 
@@ -148,12 +148,18 @@ defmodule Bitblocks.OrdinalCollections.RunJigTest do
   end
 
   describe "the Rexxies collection" do
+    # Our index complete through its tip; WhatsOnChain for raw txs only.
+    setup do
+      Process.put(:woc_raw_tx_only, true)
+      index_through(120)
+    end
+
     test "proves mints along the class chain, through non-mint calls, rejecting fakes" do
       minter = address()
-      mint1 = mint(@rexxies, minter) |> publish(771_246)
-      update = mint("#{mint1}_2", minter, method: "setPrice") |> publish(771_247)
-      mint2 = mint("#{update}_2", minter) |> publish(771_248)
-      fake = mint(funding_outpoint(), minter) |> publish(771_249)
+      mint1 = mint(@rexxies, minter) |> publish(101)
+      update = mint("#{mint1}_2", minter, method: "setPrice") |> publish(102)
+      mint2 = mint("#{update}_2", minter) |> publish(103)
+      fake = mint(funding_outpoint(), minter) |> publish(104)
 
       # The hint has mint 1 and the fake; the update and mint 2 are found by
       # following the class's chain.
@@ -168,7 +174,7 @@ defmodule Bitblocks.OrdinalCollections.RunJigTest do
 
     test "traces a Rexxie through a batch send to its holder" do
       minter = address()
-      mint1 = mint(@rexxies, minter) |> publish(771_246)
+      mint1 = mint(@rexxies, minter) |> publish(101)
       OrdinalCollections.sync(@rexxies, [mint1], follow: false)
       item = Repo.get_by!(Item, origin: "#{mint1}_3")
 
@@ -195,7 +201,7 @@ defmodule Bitblocks.OrdinalCollections.RunJigTest do
     end
 
     test "a Rexxie consolidated out of Run reads ended, settled, and stays ended" do
-      mint1 = mint(@rexxies, address()) |> publish(771_246)
+      mint1 = mint(@rexxies, address()) |> publish(101)
       OrdinalCollections.sync(@rexxies, [mint1], follow: false)
       item = Repo.get_by!(Item, origin: "#{mint1}_3")
 
@@ -214,16 +220,16 @@ defmodule Bitblocks.OrdinalCollections.RunJigTest do
       assert %{traced: 1, ended: 1} = OrdinalCollections.get_collection("rexxies")
       assert OrdinalCollections.ownership_sentence(ended) =~ "No holder"
 
-      # A re-check ends the same way; a failed one keeps it ended.
+      # A re-check ends the same way, from our index, with WhatsOnChain down.
       assert {:ok, %{trace_state: "ended", trail: [^consolidation]}} =
                OrdinalCollections.trace(ended)
 
-      Process.put(:woc_spent, %{item.origin => {:error, :timeout}})
+      Process.put(:woc_txs_error, :timeout)
       assert {:ok, %{trace_state: "ended"}} = OrdinalCollections.trace(ended)
     end
 
     test "a stranger is false once every Rexxie is current or ended" do
-      mint1 = mint(@rexxies, address()) |> publish(771_246)
+      mint1 = mint(@rexxies, address()) |> publish(101)
       OrdinalCollections.sync(@rexxies, [mint1])
       item = Repo.get_by!(Item, origin: "#{mint1}_3")
       stranger = "#{String.duplicate("c", 64)}_0"

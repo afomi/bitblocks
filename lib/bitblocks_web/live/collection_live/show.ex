@@ -37,6 +37,7 @@ defmodule BitblocksWeb.CollectionLive.Show do
          |> assign(:collection, collection)
          |> assign(:standard_type, Bitblocks.TxTypes.id_for_standard(collection.standard))
          |> assign(:stats, OrdinalCollections.stats(collection.id))
+         |> assign(:coverage, Bitblocks.Chain.Utxos.coverage())
          |> assign(:per_page, @per_page)
          |> assign(:selected, nil)}
     end

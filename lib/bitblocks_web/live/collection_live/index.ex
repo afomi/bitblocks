@@ -27,6 +27,7 @@ defmodule BitblocksWeb.CollectionLive.Index do
      |> assign(seo)
      |> assign(:collections, collections)
      |> assign(:sources, OrdinalCollections.sources())
+     |> assign(:coverage, Bitblocks.Chain.Utxos.coverage())
      |> assign(
        :filter_sources,
        collections |> Enum.map(& &1.source) |> Enum.uniq() |> Enum.sort()

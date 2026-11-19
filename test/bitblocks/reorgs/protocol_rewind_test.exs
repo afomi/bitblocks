@@ -7,7 +7,7 @@ defmodule Bitblocks.Reorgs.ProtocolRewindTest do
   import Bitblocks.ChainFixtures
 
   import Bitblocks.OrdinalFixtures,
-    only: [address: 0, funding_outpoint: 0, p2pkh: 2, publish: 1, tx: 2]
+    only: [address: 0, funding_outpoint: 0, p2pkh: 2, publish: 1, publish: 2, tx: 2]
 
   alias Bitblocks.{OrderBook, OrdinalCollections, ProtocolRegistry, Tokens}
   alias Bitblocks.Chain.{Block, RawBlock, Spend, TxIngest}
@@ -528,9 +528,13 @@ defmodule Bitblocks.Reorgs.ProtocolRewindTest do
       assert %{mint_height: 900_502, trace_state: "current"} = reload(minted)
     end
 
-    test "the queued re-trace puts the item back at its canonical owner" do
+    # The trace reads our index, which here holds a few blocks near 900,501
+    # and nothing from genesis: it can place the item back at its origin, but
+    # can't say it is unspent there, and says so rather than name an owner.
+    test "the queued re-trace puts the item back at its origin, saying what our index can't answer yet" do
       owner = address()
-      origin_txid = tx([funding_outpoint()], [p2pkh(owner, 1)]) |> publish()
+      block_fixture(%{height: @height + 5, hash: "blockhash-#{@height + 5}", merkleroot: nil})
+      origin_txid = tx([funding_outpoint()], [p2pkh(owner, 1)]) |> publish(@height + 5)
       OrdinalCollections.import_txs([origin_txid])
 
       tx_in_orphan("hop_gone")
@@ -544,8 +548,11 @@ defmodule Bitblocks.Reorgs.ProtocolRewindTest do
 
       origin = "#{origin_txid}_0"
 
-      assert %{trace_state: "current", current_outpoint: ^origin, owner: ^owner, trail: []} =
-               reload(crossing)
+      assert %{trace_state: "untraced", current_outpoint: ^origin, owner: nil, trail: []} =
+               traced = reload(crossing)
+
+      assert traced.trace_reason =~ "no spend of #{origin} in our spend index"
+      refute traced.owner == owner
     end
   end
 
@@ -567,9 +574,15 @@ defmodule Bitblocks.Reorgs.ProtocolRewindTest do
       assert {:ok, %{trace_state: "untraced", trail: []}} = OrdinalCollections.trace(read)
       assert_marked(read, origin)
 
-      # The re-trace the mark queued answers from the row as it now is.
-      assert {:ok, %{trace_state: "current", owner: ^owner, trail: []}} =
+      # The re-trace the mark queued answers from the row as it now is: from
+      # the origin. Our index here holds no blocks from genesis, so it says
+      # what it can't answer rather than name an owner.
+      assert {:ok, %{trace_state: "untraced", current_outpoint: ^origin, trail: []} = retraced} =
                OrdinalCollections.trace(reload(read))
+
+      assert retraced.traced_at
+      assert retraced.trace_reason =~ "isn't in a block we store"
+      refute retraced.owner == owner
     end
 
     test "a trace of an item the reorg removed says so" do
