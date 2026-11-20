@@ -140,6 +140,19 @@ defmodule Bitblocks.Chain.BlockTxidsBoundedTest do
     assert plan.(old) =~ "transactions_pkey"
     refute plan.(BlockTxids.stored_page_query(absent, :block, 1, 50)) =~ "transactions_pkey"
     refute plan.(BlockTxids.stored_page_query(absent, :txid, 1, 50)) =~ "transactions_pkey"
+
+    # The big-block page walks the (block_height, txid) index in order and
+    # stops after the page, as load/5 runs it: no sort of the block's rows.
+    # On prod a filter on block_hash as well misestimated 97,100 rows as 46
+    # and sorted them all from a bitmap scan.
+    Repo.query!("SET LOCAL enable_sort = off")
+    Repo.query!("SET LOCAL enable_bitmapscan = off")
+    txid_plan = plan.(BlockTxids.stored_page_query(absent, :txid, 1, 50))
+    Repo.query!("SET LOCAL enable_sort TO DEFAULT")
+    Repo.query!("SET LOCAL enable_bitmapscan TO DEFAULT")
+    assert txid_plan =~ "transactions_block_height_txid_index"
+    refute txid_plan =~ "Sort"
+    refute txid_plan =~ "block_hash"
   end
 
   describe "Repo.with_statement_timeout/2" do
