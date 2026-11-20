@@ -21,6 +21,15 @@ defmodule BitblocksWeb.ContentController do
   served, under the same headers. An address the index doesn't hold is a
   404 that says how far the index reaches, never a bare not found.
 
+  A BCat file's address is the sha256 of the whole file
+  (https://github.com/afomi/bitblocks/issues/155). `/c/` serves it itself,
+  assembled again from its chunks and hashed before a byte is sent, rather
+  than redirecting to `/content/bcat/:txid`: a redirect would hand the
+  client bytes nobody had checked against the address it asked for, and
+  streaming chunks as they arrive would send bytes before the hash could
+  be checked. One file is at most 32 MB (`Bitblocks.Bcat`), so holding it
+  until it is checked is bounded.
+
   `GET /content/bcat/:txid` serves the file a BCat head names, its chunks
   joined in order (`Bitblocks.Bcat`), under the same headers; `?download=1`
   asks for a download. A file with any chunk short is an error that names the
@@ -93,7 +102,7 @@ defmodule BitblocksWeb.ContentController do
          {:ok, location, content} <- CFiles.resolve(sha256) do
       conn
       |> put_resp_header("etag", ~s("#{String.downcase(raw)}"))
-      |> serve(location.media_type, content)
+      |> serve(c_type(location), content)
     else
       :error ->
         error(
@@ -106,7 +115,11 @@ defmodule BitblocksWeb.ContentController do
         conn |> put_status(404) |> json(CFileController.not_indexed(String.downcase(raw)))
 
       {:error, :unavailable} ->
-        error(conn, 502, "could not fetch the transaction that holds this file; try again")
+        error(
+          conn,
+          502,
+          "could not fetch the transaction, or a chunk, that holds this file; try again"
+        )
 
       {:error, :mismatch} ->
         Logger.error("C:// #{raw}: no stored copy hashes to its address")
@@ -118,6 +131,13 @@ defmodule BitblocksWeb.ContentController do
         )
     end
   end
+
+  # A BCat head states a charset beside its type, as /content/bcat/ serves it.
+  defp c_type(%{kind: "bcat", media_type: mime, encoding: charset})
+       when is_binary(mime) and is_binary(charset),
+       do: "#{mime}; charset=#{charset}"
+
+  defp c_type(location), do: location.media_type
 
   defp serve(conn, type, content) do
     conn

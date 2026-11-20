@@ -4,6 +4,11 @@ defmodule Bitblocks.Chain.TxPipeline.Steps.IndexCFiles do
   sha256 of its bytes, its C:// address
   (https://github.com/afomi/bitblocks/issues/147). Read only from a tx
   tagged `B://`, so it costs nothing on any other tx.
+
+  v2 (https://github.com/afomi/bitblocks/issues/155): a tx tagged BCat, a
+  head naming a file's chunks, enqueues `Workers.CFileBcatWorker`, which
+  assembles the file off the insert and indexes it by the sha256 of the
+  whole file. Nothing is assembled inline.
   """
 
   @behaviour Bitblocks.Chain.TxPipeline.Step
@@ -18,7 +23,9 @@ defmodule Bitblocks.Chain.TxPipeline.Steps.IndexCFiles do
 
   @impl true
   def description,
-    do: "Indexes each B:// file by the sha256 of its bytes, its C:// address."
+    do:
+      "Indexes each B:// file by the sha256 of its bytes, its C:// address, " <>
+        "and queues each BCat head's file to be assembled and indexed by the sha256 of the whole file."
 
   @impl true
   def stage, do: :tx

@@ -179,4 +179,67 @@ defmodule BitblocksWeb.ContentControllerTest do
       assert error =~ "nothing is served"
     end
   end
+
+  describe "GET /c/:sha256 for a BCat file (https://github.com/afomi/bitblocks/issues/155)" do
+    import Bitblocks.BcatFixtures
+
+    defp bcat_indexed(parts) do
+      chunks = Enum.map(parts, &chunk/1)
+      {txid, hex} = head(chunks)
+
+      Bitblocks.ChainFixtures.transaction_fixture(%{
+        txid: txid,
+        raw: hex,
+        protocols: ["BCat"],
+        block_height: 650_000
+      })
+
+      Enum.each(chunks, &publish/1)
+      {:ok, row} = Bitblocks.CFiles.index_bcat(txid, 650_000)
+      Base.encode16(row.sha256, case: :lower)
+    end
+
+    test "serves the assembled file, hashed again, under the same headers as /b/" do
+      sha = bcat_indexed(["hello ", "from ", "the chain"])
+
+      conn = build_conn() |> get("/c/#{sha}")
+
+      assert response(conn, 200) == "hello from the chain"
+      assert :crypto.hash(:sha256, conn.resp_body) |> Base.encode16(case: :lower) == sha
+      assert get_resp_header(conn, "content-type") == ["text/plain; charset=utf-8"]
+      assert get_resp_header(conn, "x-content-type-options") == ["nosniff"]
+      assert get_resp_header(conn, "content-security-policy") |> hd() =~ "sandbox"
+      assert get_resp_header(conn, "cache-control") |> hd() =~ "immutable"
+      assert get_resp_header(conn, "etag") == [~s("#{sha}")]
+    end
+
+    test "a chunk that can't be fetched just now is a 502 that says to try again" do
+      # Indexed earlier; its chunk is held nowhere now, and WhatsOnChain can't answer.
+      {txid, hex} = head([chunk("not held")])
+
+      Bitblocks.ChainFixtures.transaction_fixture(%{
+        txid: txid,
+        raw: hex,
+        protocols: ["BCat"],
+        block_height: 650_000
+      })
+
+      file = %{
+        data: "not held",
+        vout: 0,
+        chunks: 1,
+        mime: "text/plain",
+        charset: nil,
+        filename: nil
+      }
+
+      row = Bitblocks.CFiles.bcat_row(txid, 650_000, file)
+      Bitblocks.CFiles.write([row])
+      sha = Base.encode16(row.sha256, case: :lower)
+      Process.put(:woc_txs_error, :rate_limited)
+
+      assert %{"error" => error} = build_conn() |> get("/c/#{sha}") |> json_response(502)
+      assert error =~ "try again"
+    end
+  end
 end

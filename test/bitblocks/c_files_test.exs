@@ -52,7 +52,9 @@ defmodule Bitblocks.CFilesTest do
              encoding: "text",
              filename: "twetch_twtext_1565131423556.txt",
              size: 8,
-             version: 1
+             kind: "b",
+             chunks: nil,
+             version: 2
            } = row
 
     assert is_integer(row.vout)
