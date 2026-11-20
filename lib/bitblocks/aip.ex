@@ -35,7 +35,7 @@ defmodule Bitblocks.Aip do
 
   require Logger
 
-  alias BSV.{Address, Message}
+  alias BSV.Address
 
   @prefix "15PciHG22SNLQJXMoSUaWVi7WSqc7hCfva"
   @algorithm "BITCOIN_ECDSA"
@@ -186,10 +186,19 @@ defmodule Bitblocks.Aip do
   # Opcodes inside the signed region can't be represented as field bytes.
   defp binaries(cells), do: Enum.map(cells, fn c -> if is_binary(c), do: c, else: "" end)
 
+  # The signature holds when the key it recovers to, compressed or not as its
+  # header byte says, hashes to the address. Two digests are tried, since
+  # they differ for a message of exactly 253 bytes: Bitcoin's (the length as
+  # fd fd 00, as wallets write it) and bsv-ex's (the length as one byte, as
+  # BSV.Message signs it). BSV.Message.verify alone takes only the second,
+  # and only a compressed key.
   defp valid_signature?(message, address, signature) do
-    with {:ok, address} <- parse_address(address),
-         {:ok, encoding} <- signature_encoding(signature) do
-      Message.verify(signature, message, address, encoding: encoding) == true
+    with {:ok, %Address{pubkey_hash: pubkey_hash}} <- parse_address(address),
+         {:ok, encoding} <- signature_encoding(signature),
+         {:ok, raw} <- raw_signature(signature, encoding) do
+      message
+      |> bsm_digests()
+      |> Enum.any?(&signed_by?(raw, &1, pubkey_hash))
     else
       _ -> false
     end
@@ -198,6 +207,37 @@ defmodule Bitblocks.Aip do
       Logger.debug("Aip: signature check raised #{inspect(e.__struct__)}")
       false
   end
+
+  defp raw_signature(signature, :raw), do: {:ok, signature}
+  defp raw_signature(signature, :base64), do: Base.decode64(signature)
+
+  defp signed_by?(raw, digest, pubkey_hash) do
+    with %Curvy.Key{} = key <- Curvy.recover_key(raw, digest, hash: false) do
+      BSV.Hash.sha256_ripemd160(Curvy.Key.to_pubkey(key)) == pubkey_hash and
+        Curvy.verify(raw, digest, key, hash: false) == true
+    else
+      _ -> false
+    end
+  rescue
+    _ -> false
+  end
+
+  @bsm_prefix "Bitcoin Signed Message:\n"
+
+  defp bsm_digests(message) do
+    size = byte_size(message)
+    framed = fn length -> BSV.VarInt.encode(byte_size(@bsm_prefix)) <> @bsm_prefix <> length end
+
+    Enum.uniq([
+      BSV.Hash.sha256_sha256(framed.(bitcoin_varint(size)) <> message),
+      BSV.Hash.sha256_sha256(framed.(BSV.VarInt.encode(size)) <> message)
+    ])
+  end
+
+  defp bitcoin_varint(n) when n < 0xFD, do: <<n>>
+  defp bitcoin_varint(n) when n <= 0xFFFF, do: <<0xFD, n::little-16>>
+  defp bitcoin_varint(n) when n <= 0xFFFFFFFF, do: <<0xFE, n::little-32>>
+  defp bitcoin_varint(n), do: <<0xFF, n::little-64>>
 
   # A 65-byte binary is a raw compact signature (@1sat/templates); anything
   # else must be base64 text (the spec).

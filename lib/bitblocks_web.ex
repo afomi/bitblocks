@@ -17,7 +17,8 @@ defmodule BitblocksWeb do
   those modules here.
   """
 
-  def static_paths, do: ~w(assets fonts images favicon.ico robots.txt world_outlines.json)
+  def static_paths,
+    do: ~w(assets elections fonts images favicon.ico robots.txt world_outlines.json)
 
   def router do
     quote do

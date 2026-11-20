@@ -68,6 +68,62 @@ defmodule Bitblocks.AipTest do
     end
   end
 
+  describe "as wallets sign (Bitcoin Signed Message), not only as bsv-ex does" do
+    # Bitcoin frames the message's length as a varint: 253 is fd fd 00.
+    # bsv-ex writes 253 as one byte, so its digest differs at that length.
+    defp bitcoin_signed(fields, privkey) do
+      message = <<0x6A>> <> Enum.join(fields) <> "|"
+      prefix = "Bitcoin Signed Message:\n"
+
+      length =
+        if byte_size(message) < 0xFD,
+          do: <<byte_size(message)>>,
+          else: <<0xFD, byte_size(message)::little-16>>
+
+      digest = BSV.Hash.sha256_sha256(<<byte_size(prefix)>> <> prefix <> length <> message)
+
+      sig =
+        Curvy.sign(digest, privkey.d, compact: true, compressed: privkey.compressed, hash: false)
+
+      address = privkey |> BSV.PubKey.from_privkey() |> BSV.Address.from_pubkey()
+
+      {fields ++ ["|", Aip.prefix(), "BITCOIN_ECDSA", BSV.Address.to_string(address), sig],
+       BSV.Address.to_string(address)}
+    end
+
+    # 0x6a, the field and "|": 253 bytes.
+    @field_253 String.duplicate("x", 251)
+
+    test "a 253-byte message signed as a wallet signs it verifies" do
+      {signed, address} = bitcoin_signed([@field_253], BSV.PrivKey.new())
+      assert {:ok, ^address} = Aip.verify([:OP_FALSE, :OP_RETURN | signed])
+    end
+
+    test "a 253-byte message signed by BSV.Message still verifies" do
+      privkey = BSV.PrivKey.new()
+      signed = sign([@field_253], privkey)
+      address = privkey |> BSV.PubKey.from_privkey() |> BSV.Address.from_pubkey()
+      assert {:ok, signer} = Aip.verify([:OP_FALSE, :OP_RETURN | signed])
+      assert signer == BSV.Address.to_string(address)
+    end
+
+    test "an uncompressed key's signature verifies against its own address" do
+      privkey = %{BSV.PrivKey.new() | compressed: false}
+
+      for fields <- [["short"], [@field_253]] do
+        {signed, address} = bitcoin_signed(fields, privkey)
+        assert {:ok, ^address} = Aip.verify([:OP_FALSE, :OP_RETURN | signed])
+      end
+    end
+
+    test "either digest, someone else's address is still refused" do
+      {signed, _address} = bitcoin_signed([@field_253], BSV.PrivKey.new())
+      other = BSV.PrivKey.new() |> BSV.PubKey.from_privkey() |> BSV.Address.from_pubkey()
+      forged = List.replace_at(signed, -2, BSV.Address.to_string(other))
+      assert {:error, :invalid_signature} = Aip.verify([:OP_FALSE, :OP_RETURN | forged])
+    end
+  end
+
   describe "AIP handler parse/1" do
     test "parses OpReturn chunk maps and reports the verified signer" do
       script = BSV.Script.from_binary!(@one_sat_signed_script, encoding: :hex)

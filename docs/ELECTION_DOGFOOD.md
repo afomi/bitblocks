@@ -170,7 +170,7 @@ Until then it is refused, naming how many blocks remain (`{:too_shallow, %{block
 
 | File | What it holds |
 |---|---|
-| `archive.json` | The index: the election's outpoint, `app`, the administrator's address, the roll's outpoint and sha256, the window, `close_block_hash`, the headers' range, and every record in chain order (`kind`, `txid`, `vout`, `height`, `position`, `block_hash`, `signer`, and its `tx` and `proof` files) |
+| `archive.json` | The index: the election's outpoint, `app`, the administrator's address, the roll's outpoint and sha256, the window, `close_block_hash`, the headers' range, the recount tool and its guide (`recount`), and every record in chain order (`kind`, `txid`, `vout`, `height`, `position`, `block_hash`, `signer`, and its `tx` and `proof` files) |
 | `count.json` | `input`, exactly what `count/4` was given (`election`, `roll`, `ballots`, `close_block_hash`), and `result`, what it returned |
 | `roll.json` | The roll file, its exact bytes on chain |
 | `headers.bin` | One 80-byte block header per height, from the roll's block (at or below the election's) to `closes_at_height + 6`, in height order |
@@ -182,7 +182,7 @@ Until then it is refused, naming how many blocks remain (`{:too_shallow, %{block
 The same chain gives byte-identical files: nothing in the archive reads a clock, and every JSON file is written with its keys sorted, two-space indent and a closing newline (`Archive.json/1`).
 Every ballot gathered sits at or below `closes_at_height + 6`, so its header is in `headers.bin`.
 
-An observer recounts with the files alone, offline (https://github.com/afomi/bitblocks/issues/138, not built):
+An observer recounts with the files alone, offline (https://github.com/afomi/bitblocks/issues/138); the recount tool below does each step:
 
 1. `sha256sum -c MANIFEST.sha256`, and the manifest's own sha256 against the result record.
 2. Each header in `headers.bin` hashes below its own target and names the one before it.
@@ -197,6 +197,31 @@ bin/bitblocks rpc 'Bitblocks.Release.build_election_archive("<txid>.0", "/tmp/pb
 bin/bitblocks rpc 'Bitblocks.Release.build_election_archive("<txid>.0", "/tmp/pba-2026", apply: true) |> IO.inspect()'  # write, and read each file back
 ```
 
+## The recount
+
+Built: [`recount.py`](https://bitblocks.app/elections/recount.py), one Python 3 file with the standard library only (a small secp256k1 checks the AIP signatures), and its guide for a non-developer, [`/elections/recount.html`](https://bitblocks.app/elections/recount.html).
+Both are static files in `priv/static/elections/`, so an administrator can copy them beside the archive and they outlive our servers.
+Python, because it is already on every Mac and Linux machine and a free install on Windows, and a single readable file is something an observer can check before running.
+
+```bash
+python3 recount.py pba-2026 --archive-sha256 <archive_sha256 from the result record>
+python3 recount.py pba-2026 --result-tx result.hex      # the result record's tx, raw or hex: its signature, archive_sha256 and close_block_hash too
+python3 recount.py --self-test election_count_v0.json   # the counting rule's vectors
+```
+
+It makes no network calls, and runs the five steps above in order, then compares the tally and winners with `count.json` and the result record.
+The records are re-read from the tx bytes, with the same parsing and AIP rules as `Bitblocks.Elections.Records`, and the count's input is rebuilt from them, never taken from `count.json`.
+A signature checks as a wallet makes it: the key recovered from it, compressed or not as its header byte says, must hash to the signer's address, over the Bitcoin Signed Message digest.
+For a message of exactly 253 bytes both tools also take bsv-ex's digest, which frames that length as one byte rather than `fd fd 00`, so a record signed with `BSV.Message` still counts (`Bitblocks.Aip`, `test/bitblocks/aip_test.exs`).
+It prints every ballot as counted or with the rule it failed, the tally and the winners, then "Matches the published result", and exits 0.
+When a check fails it names each file or tx, prints no tally and exits 1; a usage mistake exits 2.
+It prints the hash of the closing block and of the archive's last block, so the observer can tie the headers to the real chain on any explorer or node, and it says so when the headers' targets are easier than mainnet allows (a test chain).
+
+What a recount can't show: a ballot left out of the archive (anyone with the chain can look for more), or who holds a key on the roll.
+
+`test/bitblocks/elections/recount_test.exs` builds an archive from the fixtures and runs the tool on it: a good archive matches, and a changed byte, a missing proof, a broken header chain and a changed tally each fail with the file or tx named.
+It also runs `--self-test` on `election_count_v0.json`, so the tool and `Count` can't drift; CI installs Python for it, and it is skipped where `python3` isn't on PATH.
+
 ## What exists, and what doesn't
 
 Exists:
@@ -207,10 +232,10 @@ Exists:
 - **Current data**, built and dormant: our index stops near block 389,000, and an election happens at the tip, so a tip lane keeps the election projection's slice current, each new block read once and only the matching txs (and spends of their outputs) kept (https://github.com/afomi/bitblocks/issues/139, `Bitblocks.TipLane`, `docs/SYNCING.md`).
   It runs once an operator starts it with `Release.start_tip_lane/2`.
 - The record parsers, gathering from our index, the live count and the archive writer, CLI and context only (above).
+- The recount tool and its guide, static files at `/elections/recount.py` and `/elections/recount.html` (above).
 
 Not built:
 - The live election page and its API.
-- A recount tool that reads only the archive.
 - Ballot composing in qart.
 
 Needs real hands:
@@ -223,6 +248,6 @@ Needs real hands:
 2. The scoped tip lane, so the election's txs arrive as they confirm (built, dormant).
 3. The record parsers, the live count and the archive, from the CLI (built).
 4. The live page and API.
-5. The recount.
+5. The recount (built).
 6. PBA's election, end to end, with real keys.
 7. Modular City's election, published on its site.
