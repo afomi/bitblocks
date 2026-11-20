@@ -1,0 +1,3230 @@
+{
+  "name": "bitblocks-election-count-vectors",
+  "version": "0.1.0",
+  "status": "draft",
+  "published": "2026-11-20",
+  "url": "https://bitblocks.app/interop/elections/count/v0.json",
+  "description": "Test vectors for the counting rule of an open-ballot election recorded on BSV: who may vote, which ballots count, the tally and the winners. Each vector gives the input and the outcome to match, so anyone can recount an election archive with their own code and check it against ours.",
+  "spec": "https://github.com/afomi/bitblocks/blob/develop/docs/ELECTION_DOGFOOD.md",
+  "implementation": "https://github.com/afomi/bitblocks/blob/develop/lib/bitblocks/elections/count.ex",
+  "claim": "These vectors cover the count only. They take as given that each ballot's signer is the address whose AIP signature checked; that the signature covers every MAP field of its record, since an AIP over chosen field indexes that leaves a MAP field out counts for nothing (as for BAP); that roll.members are the members in the roll file at election.roll, whose exact bytes hash to election.roll_sha256; and that each height is on the chain the headers agree on. Checking signatures, tx bytes, the roll file, merkle proofs and headers comes before the count.",
+  "not_checked": [
+    "signatures",
+    "tx_bytes",
+    "roll_bytes",
+    "merkle_proofs",
+    "headers",
+    "who_holds_a_key"
+  ],
+  "draft_fields": "The record field names follow Open Civic Data and NIST SP 1500-100 where they overlap (name, number_elected, votes_allowed). They, the vector ids and the outcomes here may still change in v0, until the first election record is published on chain.",
+  "versioning": "v0 is a draft: nothing consumes it yet, and a vector may change. Once the first election record is published, a v1 file freezes the inputs: within v1 a vector's id, input and expected outcome stay as they are, except to correct a mistake; new vectors raise the minor version; and a change to the rule gets a new file.",
+  "licence": "MIT",
+  "licence_url": "https://github.com/afomi/bitblocks/blob/develop/LICENSE",
+  "how_to_use": [
+    "For each vector, run your counter on input.election, input.roll and input.ballots, with input.close_block_hash when it is present.",
+    "Compare your answer with expected. Ballots are listed in chain order: by height, then position, with unconfirmed ballots last by txid.",
+    "A ballot is listed against the first rule it fails, in rule_order. Only a ballot that passes every rule before replaced can replace another.",
+    "Where expected has error, a counter refuses the whole input. error_detail is the wording Bitblocks uses, so yours may differ.",
+    "Signers, txids and candidate ids are compared as exact strings. In real records a signer is a P2PKH address and a txid is 64 hex characters; the vectors use short signers to stay readable."
+  ],
+  "records": {
+    "encoding": "Each record is a MAP SET signed with AIP over every MAP field. A list (choices, candidates) is one JSON array in a single MAP value, since a repeated MAP key keeps only its last value. An integer (number_elected, votes_allowed, a height) is decimal ASCII with no leading zeros.",
+    "types": [
+      "roll_v1",
+      "election_v1",
+      "ballot_v1",
+      "result_v1"
+    ],
+    "ids": "An election is named by its record's outpoint, <txid>.<vout>, the txid as lowercase hex in display order. Ballots and the result name that outpoint in election.",
+    "roll": "Published first, as a JSON B:// file {\"members\": [...]}, sorted and unique, naming no election. The election record names it by outpoint in roll, with roll_sha256 over its exact bytes on chain. Both must confirm below opens_at_height.",
+    "result": "election, archive_sha256, closes_at_height and close_block_hash."
+  },
+  "fields": {
+    "election": "The election record: election (its outpoint), name, number_elected (how many win), votes_allowed (how many a ballot may name; defaults to number_elected), candidates (each id, of a-z, 0-9 and -, and name), the window opens_at_height to closes_at_height (both ends included), roll (the roll file's outpoint), roll_sha256, and height (the block it confirmed in, below opens_at_height; optional).",
+    "roll": "members: the P2PKH addresses allowed to vote, exactly as the AIP signature writes them, sorted by UTF-8 bytes and each once. A compressed and an uncompressed key give different addresses, so the roll lists the one the member's wallet signs with. height: the block the roll confirmed in, below opens_at_height (optional).",
+    "ballot": "txid; election (the outpoint it names); height (null while unconfirmed or after a reorg removed its block); position (the tx's index in its block, coinbase 0, the same as its BUMP leaf offset); signer (the address whose AIP signature checked, or null); choices (candidate ids).",
+    "close_block_hash": "The hash of the block at closes_at_height, as lowercase hex in RPC and display order (as getblockhash and explorers show it), the reverse of the header's internal byte order. Known only after close, it settles a tie for the last seats.",
+    "expected.ballots": "Each ballot's txid, counted, rule (the first rule it failed, or null) and replaced_by (the txid that replaced it, or null).",
+    "expected.tally": "Votes per candidate, in the election's order, zeros included. A ballot gives one vote to each candidate it names.",
+    "expected.winners": "Candidates with at least one vote, most votes first, up to number_elected. Candidates tied above the boundary all win, in the election's order. A tie for the last seats goes by lot (see tie_rule), listed in lot order.",
+    "expected.undecided": "null, or the seats still open and the tied candidates for them, when a tie for the last seats has no close_block_hash to settle it."
+  },
+  "rules": {
+    "other_election": "It names a different election.",
+    "no_signature": "No AIP signature checked (signer is null).",
+    "not_on_roll": "Its signer isn't in roll.members.",
+    "unconfirmed": "It isn't in a block (height is null).",
+    "before_open": "Its block is below opens_at_height.",
+    "after_close": "Its block is above closes_at_height.",
+    "malformed_choices": "choices isn't a list of strings.",
+    "too_many_choices": "It names more than votes_allowed candidates.",
+    "duplicate_choice": "It names one candidate twice.",
+    "unknown_candidate": "It names an id not in candidates.",
+    "replaced": "The same signer has a later ballot, in chain order, that passed every rule before this one; replaced_by is its txid."
+  },
+  "rule_order": [
+    "other_election",
+    "no_signature",
+    "not_on_roll",
+    "unconfirmed",
+    "before_open",
+    "after_close",
+    "malformed_choices",
+    "too_many_choices",
+    "duplicate_choice",
+    "unknown_candidate",
+    "replaced"
+  ],
+  "tie_rule": "When candidates tie for the last seats, order them by sha256 of the UTF-8 string \"<close_block_hash>:<candidate id>\", as lowercase hex, lowest first, and fill the seats left. close_block_hash is lowercase hex in RPC and display order, the reverse of the header's internal byte order. The block at closes_at_height isn't known while voting is open, so no one can steer the lot, and anyone can check it from the headers.",
+  "vectors": [
+    {
+      "id": "all-counted",
+      "description": "Four members vote inside the window. Every ballot counts; Ada and Ben take the two seats.",
+      "input": {
+        "election": {
+          "election": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1.0",
+          "name": "Test board election",
+          "number_elected": 2,
+          "candidates": [
+            {
+              "id": "ada",
+              "name": "Ada"
+            },
+            {
+              "id": "ben",
+              "name": "Ben"
+            },
+            {
+              "id": "cy",
+              "name": "Cy"
+            },
+            {
+              "id": "di",
+              "name": "Di"
+            }
+          ],
+          "opens_at_height": 1000,
+          "closes_at_height": 1010,
+          "roll": "c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0.1",
+          "roll_sha256": "7147ed8f98d8ec6f51e0a228e0429bffd539815449e59434eac4b603818cbbe8",
+          "height": 990
+        },
+        "roll": {
+          "members": [
+            "m1",
+            "m2",
+            "m3",
+            "m4",
+            "m5"
+          ],
+          "height": 989
+        },
+        "ballots": [
+          {
+            "txid": "1111111111111111111111111111111111111111111111111111111111111111",
+            "election": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1.0",
+            "height": 1000,
+            "position": 2,
+            "signer": "m1",
+            "choices": [
+              "ada",
+              "ben"
+            ]
+          },
+          {
+            "txid": "2222222222222222222222222222222222222222222222222222222222222222",
+            "election": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1.0",
+            "height": 1003,
+            "position": 5,
+            "signer": "m2",
+            "choices": [
+              "ada"
+            ]
+          },
+          {
+            "txid": "3333333333333333333333333333333333333333333333333333333333333333",
+            "election": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1.0",
+            "height": 1005,
+            "position": 3,
+            "signer": "m3",
+            "choices": [
+              "ben",
+              "cy"
+            ]
+          },
+          {
+            "txid": "4444444444444444444444444444444444444444444444444444444444444444",
+            "election": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1.0",
+            "height": 1010,
+            "position": 8,
+            "signer": "m4",
+            "choices": [
+              "ada",
+              "di"
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "ballots": [
+          {
+            "txid": "1111111111111111111111111111111111111111111111111111111111111111",
+            "counted": true,
+            "rule": null,
+            "replaced_by": null
+          },
+          {
+            "txid": "2222222222222222222222222222222222222222222222222222222222222222",
+            "counted": true,
+            "rule": null,
+            "replaced_by": null
+          },
+          {
+            "txid": "3333333333333333333333333333333333333333333333333333333333333333",
+            "counted": true,
+            "rule": null,
+            "replaced_by": null
+          },
+          {
+            "txid": "4444444444444444444444444444444444444444444444444444444444444444",
+            "counted": true,
+            "rule": null,
+            "replaced_by": null
+          }
+        ],
+        "counted": 4,
+        "not_counted": 0,
+        "tally": [
+          {
+            "candidate": "ada",
+            "votes": 3
+          },
+          {
+            "candidate": "ben",
+            "votes": 2
+          },
+          {
+            "candidate": "cy",
+            "votes": 1
+          },
+          {
+            "candidate": "di",
+            "votes": 1
+          }
+        ],
+        "winners": [
+          "ada",
+          "ben"
+        ],
+        "undecided": null
+      }
+    },
+    {
+      "id": "window-edges",
+      "description": "The window includes both ends: a ballot at opens_at_height and one at closes_at_height count, one a block before or after doesn't.",
+      "input": {
+        "election": {
+          "election": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1.0",
+          "name": "Test board election",
+          "number_elected": 2,
+          "candidates": [
+            {
+              "id": "ada",
+              "name": "Ada"
+            },
+            {
+              "id": "ben",
+              "name": "Ben"
+            },
+            {
+              "id": "cy",
+              "name": "Cy"
+            },
+            {
+              "id": "di",
+              "name": "Di"
+            }
+          ],
+          "opens_at_height": 1000,
+          "closes_at_height": 1010,
+          "roll": "c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0.1",
+          "roll_sha256": "7147ed8f98d8ec6f51e0a228e0429bffd539815449e59434eac4b603818cbbe8",
+          "height": 990
+        },
+        "roll": {
+          "members": [
+            "m1",
+            "m2",
+            "m3",
+            "m4",
+            "m5"
+          ],
+          "height": 989
+        },
+        "ballots": [
+          {
+            "txid": "1111111111111111111111111111111111111111111111111111111111111111",
+            "election": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1.0",
+            "height": 999,
+            "position": 1,
+            "signer": "m1",
+            "choices": [
+              "ada"
+            ]
+          },
+          {
+            "txid": "2222222222222222222222222222222222222222222222222222222222222222",
+            "election": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1.0",
+            "height": 1000,
+            "position": 1,
+            "signer": "m2",
+            "choices": [
+              "ben"
+            ]
+          },
+          {
+            "txid": "3333333333333333333333333333333333333333333333333333333333333333",
+            "election": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1.0",
+            "height": 1010,
+            "position": 1,
+            "signer": "m3",
+            "choices": [
+              "cy"
+            ]
+          },
+          {
+            "txid": "4444444444444444444444444444444444444444444444444444444444444444",
+            "election": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1.0",
+            "height": 1011,
+            "position": 1,
+            "signer": "m4",
+            "choices": [
+              "di"
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "ballots": [
+          {
+            "txid": "1111111111111111111111111111111111111111111111111111111111111111",
+            "counted": false,
+            "rule": "before_open",
+            "replaced_by": null
+          },
+          {
+            "txid": "2222222222222222222222222222222222222222222222222222222222222222",
+            "counted": true,
+            "rule": null,
+            "replaced_by": null
+          },
+          {
+            "txid": "3333333333333333333333333333333333333333333333333333333333333333",
+            "counted": true,
+            "rule": null,
+            "replaced_by": null
+          },
+          {
+            "txid": "4444444444444444444444444444444444444444444444444444444444444444",
+            "counted": false,
+            "rule": "after_close",
+            "replaced_by": null
+          }
+        ],
+        "counted": 2,
+        "not_counted": 2,
+        "tally": [
+          {
+            "candidate": "ada",
+            "votes": 0
+          },
+          {
+            "candidate": "ben",
+            "votes": 1
+          },
+          {
+            "candidate": "cy",
+            "votes": 1
+          },
+          {
+            "candidate": "di",
+            "votes": 0
+          }
+        ],
+        "winners": [
+          "ben",
+          "cy"
+        ],
+        "undecided": null
+      }
+    },
+    {
+      "id": "not-on-roll",
+      "description": "A ballot signed by a key that isn't on the roll is listed and not counted.",
+      "input": {
+        "election": {
+          "election": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1.0",
+          "name": "Test board election",
+          "number_elected": 2,
+          "candidates": [
+            {
+              "id": "ada",
+              "name": "Ada"
+            },
+            {
+              "id": "ben",
+              "name": "Ben"
+            },
+            {
+              "id": "cy",
+              "name": "Cy"
+            },
+            {
+              "id": "di",
+              "name": "Di"
+            }
+          ],
+          "opens_at_height": 1000,
+          "closes_at_height": 1010,
+          "roll": "c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0.1",
+          "roll_sha256": "7147ed8f98d8ec6f51e0a228e0429bffd539815449e59434eac4b603818cbbe8",
+          "height": 990
+        },
+        "roll": {
+          "members": [
+            "m1",
+            "m2",
+            "m3",
+            "m4",
+            "m5"
+          ],
+          "height": 989
+        },
+        "ballots": [
+          {
+            "txid": "1111111111111111111111111111111111111111111111111111111111111111",
+            "election": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1.0",
+            "height": 1001,
+            "position": 1,
+            "signer": "m1",
+            "choices": [
+              "ada"
+            ]
+          },
+          {
+            "txid": "2222222222222222222222222222222222222222222222222222222222222222",
+            "election": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1.0",
+            "height": 1002,
+            "position": 1,
+            "signer": "outsider",
+            "choices": [
+              "ben",
+              "cy"
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "ballots": [
+          {
+            "txid": "1111111111111111111111111111111111111111111111111111111111111111",
+            "counted": true,
+            "rule": null,
+            "replaced_by": null
+          },
+          {
+            "txid": "2222222222222222222222222222222222222222222222222222222222222222",
+            "counted": false,
+            "rule": "not_on_roll",
+            "replaced_by": null
+          }
+        ],
+        "counted": 1,
+        "not_counted": 1,
+        "tally": [
+          {
+            "candidate": "ada",
+            "votes": 1
+          },
+          {
+            "candidate": "ben",
+            "votes": 0
+          },
+          {
+            "candidate": "cy",
+            "votes": 0
+          },
+          {
+            "candidate": "di",
+            "votes": 0
+          }
+        ],
+        "winners": [
+          "ada"
+        ],
+        "undecided": null
+      }
+    },
+    {
+      "id": "no-signature",
+      "description": "A ballot whose AIP signature didn't check has signer null and doesn't count.",
+      "input": {
+        "election": {
+          "election": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1.0",
+          "name": "Test board election",
+          "number_elected": 2,
+          "candidates": [
+            {
+              "id": "ada",
+              "name": "Ada"
+            },
+            {
+              "id": "ben",
+              "name": "Ben"
+            },
+            {
+              "id": "cy",
+              "name": "Cy"
+            },
+            {
+              "id": "di",
+              "name": "Di"
+            }
+          ],
+          "opens_at_height": 1000,
+          "closes_at_height": 1010,
+          "roll": "c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0.1",
+          "roll_sha256": "7147ed8f98d8ec6f51e0a228e0429bffd539815449e59434eac4b603818cbbe8",
+          "height": 990
+        },
+        "roll": {
+          "members": [
+            "m1",
+            "m2",
+            "m3",
+            "m4",
+            "m5"
+          ],
+          "height": 989
+        },
+        "ballots": [
+          {
+            "txid": "1111111111111111111111111111111111111111111111111111111111111111",
+            "election": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1.0",
+            "height": 1001,
+            "position": 1,
+            "signer": null,
+            "choices": [
+              "ada"
+            ]
+          },
+          {
+            "txid": "2222222222222222222222222222222222222222222222222222222222222222",
+            "election": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1.0",
+            "height": 1001,
+            "position": 2,
+            "signer": "m2",
+            "choices": [
+              "ben"
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "ballots": [
+          {
+            "txid": "1111111111111111111111111111111111111111111111111111111111111111",
+            "counted": false,
+            "rule": "no_signature",
+            "replaced_by": null
+          },
+          {
+            "txid": "2222222222222222222222222222222222222222222222222222222222222222",
+            "counted": true,
+            "rule": null,
+            "replaced_by": null
+          }
+        ],
+        "counted": 1,
+        "not_counted": 1,
+        "tally": [
+          {
+            "candidate": "ada",
+            "votes": 0
+          },
+          {
+            "candidate": "ben",
+            "votes": 1
+          },
+          {
+            "candidate": "cy",
+            "votes": 0
+          },
+          {
+            "candidate": "di",
+            "votes": 0
+          }
+        ],
+        "winners": [
+          "ben"
+        ],
+        "undecided": null
+      }
+    },
+    {
+      "id": "other-election",
+      "description": "A ballot for another election is listed against the rule it fails first, and not counted.",
+      "input": {
+        "election": {
+          "election": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1.0",
+          "name": "Test board election",
+          "number_elected": 2,
+          "candidates": [
+            {
+              "id": "ada",
+              "name": "Ada"
+            },
+            {
+              "id": "ben",
+              "name": "Ben"
+            },
+            {
+              "id": "cy",
+              "name": "Cy"
+            },
+            {
+              "id": "di",
+              "name": "Di"
+            }
+          ],
+          "opens_at_height": 1000,
+          "closes_at_height": 1010,
+          "roll": "c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0.1",
+          "roll_sha256": "7147ed8f98d8ec6f51e0a228e0429bffd539815449e59434eac4b603818cbbe8",
+          "height": 990
+        },
+        "roll": {
+          "members": [
+            "m1",
+            "m2",
+            "m3",
+            "m4",
+            "m5"
+          ],
+          "height": 989
+        },
+        "ballots": [
+          {
+            "txid": "1111111111111111111111111111111111111111111111111111111111111111",
+            "election": "e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2.0",
+            "height": 1001,
+            "position": 1,
+            "signer": "m1",
+            "choices": [
+              "ada"
+            ]
+          },
+          {
+            "txid": "2222222222222222222222222222222222222222222222222222222222222222",
+            "election": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1.0",
+            "height": 1001,
+            "position": 2,
+            "signer": "m2",
+            "choices": [
+              "ada"
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "ballots": [
+          {
+            "txid": "1111111111111111111111111111111111111111111111111111111111111111",
+            "counted": false,
+            "rule": "other_election",
+            "replaced_by": null
+          },
+          {
+            "txid": "2222222222222222222222222222222222222222222222222222222222222222",
+            "counted": true,
+            "rule": null,
+            "replaced_by": null
+          }
+        ],
+        "counted": 1,
+        "not_counted": 1,
+        "tally": [
+          {
+            "candidate": "ada",
+            "votes": 1
+          },
+          {
+            "candidate": "ben",
+            "votes": 0
+          },
+          {
+            "candidate": "cy",
+            "votes": 0
+          },
+          {
+            "candidate": "di",
+            "votes": 0
+          }
+        ],
+        "winners": [
+          "ada"
+        ],
+        "undecided": null
+      }
+    },
+    {
+      "id": "unconfirmed",
+      "description": "A ballot not yet in a block (height null), or whose block a reorg removed, waits: it doesn't count until it confirms.",
+      "input": {
+        "election": {
+          "election": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1.0",
+          "name": "Test board election",
+          "number_elected": 2,
+          "candidates": [
+            {
+              "id": "ada",
+              "name": "Ada"
+            },
+            {
+              "id": "ben",
+              "name": "Ben"
+            },
+            {
+              "id": "cy",
+              "name": "Cy"
+            },
+            {
+              "id": "di",
+              "name": "Di"
+            }
+          ],
+          "opens_at_height": 1000,
+          "closes_at_height": 1010,
+          "roll": "c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0.1",
+          "roll_sha256": "7147ed8f98d8ec6f51e0a228e0429bffd539815449e59434eac4b603818cbbe8",
+          "height": 990
+        },
+        "roll": {
+          "members": [
+            "m1",
+            "m2",
+            "m3",
+            "m4",
+            "m5"
+          ],
+          "height": 989
+        },
+        "ballots": [
+          {
+            "txid": "1111111111111111111111111111111111111111111111111111111111111111",
+            "election": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1.0",
+            "height": null,
+            "position": null,
+            "signer": "m1",
+            "choices": [
+              "ada"
+            ]
+          },
+          {
+            "txid": "2222222222222222222222222222222222222222222222222222222222222222",
+            "election": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1.0",
+            "height": 1004,
+            "position": 1,
+            "signer": "m2",
+            "choices": [
+              "ben"
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "ballots": [
+          {
+            "txid": "2222222222222222222222222222222222222222222222222222222222222222",
+            "counted": true,
+            "rule": null,
+            "replaced_by": null
+          },
+          {
+            "txid": "1111111111111111111111111111111111111111111111111111111111111111",
+            "counted": false,
+            "rule": "unconfirmed",
+            "replaced_by": null
+          }
+        ],
+        "counted": 1,
+        "not_counted": 1,
+        "tally": [
+          {
+            "candidate": "ada",
+            "votes": 0
+          },
+          {
+            "candidate": "ben",
+            "votes": 1
+          },
+          {
+            "candidate": "cy",
+            "votes": 0
+          },
+          {
+            "candidate": "di",
+            "votes": 0
+          }
+        ],
+        "winners": [
+          "ben"
+        ],
+        "undecided": null
+      }
+    },
+    {
+      "id": "choice-rules",
+      "description": "With two to elect and votes_allowed left to default to number_elected: three names is too many, one name twice is a duplicate, an id not on the list is unknown, and a string where a list belongs is malformed. None of them counts.",
+      "input": {
+        "election": {
+          "election": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1.0",
+          "name": "Test board election",
+          "number_elected": 2,
+          "candidates": [
+            {
+              "id": "ada",
+              "name": "Ada"
+            },
+            {
+              "id": "ben",
+              "name": "Ben"
+            },
+            {
+              "id": "cy",
+              "name": "Cy"
+            },
+            {
+              "id": "di",
+              "name": "Di"
+            }
+          ],
+          "opens_at_height": 1000,
+          "closes_at_height": 1010,
+          "roll": "c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0.1",
+          "roll_sha256": "7147ed8f98d8ec6f51e0a228e0429bffd539815449e59434eac4b603818cbbe8",
+          "height": 990
+        },
+        "roll": {
+          "members": [
+            "m1",
+            "m2",
+            "m3",
+            "m4",
+            "m5"
+          ],
+          "height": 989
+        },
+        "ballots": [
+          {
+            "txid": "1111111111111111111111111111111111111111111111111111111111111111",
+            "election": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1.0",
+            "height": 1001,
+            "position": 1,
+            "signer": "m1",
+            "choices": [
+              "ada",
+              "ben",
+              "cy"
+            ]
+          },
+          {
+            "txid": "2222222222222222222222222222222222222222222222222222222222222222",
+            "election": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1.0",
+            "height": 1001,
+            "position": 2,
+            "signer": "m2",
+            "choices": [
+              "ada",
+              "ada"
+            ]
+          },
+          {
+            "txid": "3333333333333333333333333333333333333333333333333333333333333333",
+            "election": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1.0",
+            "height": 1001,
+            "position": 3,
+            "signer": "m3",
+            "choices": [
+              "ada",
+              "zed"
+            ]
+          },
+          {
+            "txid": "4444444444444444444444444444444444444444444444444444444444444444",
+            "election": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1.0",
+            "height": 1001,
+            "position": 4,
+            "signer": "m4",
+            "choices": "ada"
+          },
+          {
+            "txid": "5555555555555555555555555555555555555555555555555555555555555555",
+            "election": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1.0",
+            "height": 1001,
+            "position": 5,
+            "signer": "m5",
+            "choices": [
+              "di"
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "ballots": [
+          {
+            "txid": "1111111111111111111111111111111111111111111111111111111111111111",
+            "counted": false,
+            "rule": "too_many_choices",
+            "replaced_by": null
+          },
+          {
+            "txid": "2222222222222222222222222222222222222222222222222222222222222222",
+            "counted": false,
+            "rule": "duplicate_choice",
+            "replaced_by": null
+          },
+          {
+            "txid": "3333333333333333333333333333333333333333333333333333333333333333",
+            "counted": false,
+            "rule": "unknown_candidate",
+            "replaced_by": null
+          },
+          {
+            "txid": "4444444444444444444444444444444444444444444444444444444444444444",
+            "counted": false,
+            "rule": "malformed_choices",
+            "replaced_by": null
+          },
+          {
+            "txid": "5555555555555555555555555555555555555555555555555555555555555555",
+            "counted": true,
+            "rule": null,
+            "replaced_by": null
+          }
+        ],
+        "counted": 1,
+        "not_counted": 4,
+        "tally": [
+          {
+            "candidate": "ada",
+            "votes": 0
+          },
+          {
+            "candidate": "ben",
+            "votes": 0
+          },
+          {
+            "candidate": "cy",
+            "votes": 0
+          },
+          {
+            "candidate": "di",
+            "votes": 1
+          }
+        ],
+        "winners": [
+          "di"
+        ],
+        "undecided": null
+      }
+    },
+    {
+      "id": "changed-vote",
+      "description": "A member votes twice. The later one in chain order counts, and the earlier one is replaced by it.",
+      "input": {
+        "election": {
+          "election": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1.0",
+          "name": "Test board election",
+          "number_elected": 2,
+          "candidates": [
+            {
+              "id": "ada",
+              "name": "Ada"
+            },
+            {
+              "id": "ben",
+              "name": "Ben"
+            },
+            {
+              "id": "cy",
+              "name": "Cy"
+            },
+            {
+              "id": "di",
+              "name": "Di"
+            }
+          ],
+          "opens_at_height": 1000,
+          "closes_at_height": 1010,
+          "roll": "c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0.1",
+          "roll_sha256": "7147ed8f98d8ec6f51e0a228e0429bffd539815449e59434eac4b603818cbbe8",
+          "height": 990
+        },
+        "roll": {
+          "members": [
+            "m1",
+            "m2",
+            "m3",
+            "m4",
+            "m5"
+          ],
+          "height": 989
+        },
+        "ballots": [
+          {
+            "txid": "1111111111111111111111111111111111111111111111111111111111111111",
+            "election": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1.0",
+            "height": 1001,
+            "position": 4,
+            "signer": "m1",
+            "choices": [
+              "ada"
+            ]
+          },
+          {
+            "txid": "2222222222222222222222222222222222222222222222222222222222222222",
+            "election": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1.0",
+            "height": 1006,
+            "position": 1,
+            "signer": "m1",
+            "choices": [
+              "ben"
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "ballots": [
+          {
+            "txid": "1111111111111111111111111111111111111111111111111111111111111111",
+            "counted": false,
+            "rule": "replaced",
+            "replaced_by": "2222222222222222222222222222222222222222222222222222222222222222"
+          },
+          {
+            "txid": "2222222222222222222222222222222222222222222222222222222222222222",
+            "counted": true,
+            "rule": null,
+            "replaced_by": null
+          }
+        ],
+        "counted": 1,
+        "not_counted": 1,
+        "tally": [
+          {
+            "candidate": "ada",
+            "votes": 0
+          },
+          {
+            "candidate": "ben",
+            "votes": 1
+          },
+          {
+            "candidate": "cy",
+            "votes": 0
+          },
+          {
+            "candidate": "di",
+            "votes": 0
+          }
+        ],
+        "winners": [
+          "ben"
+        ],
+        "undecided": null
+      }
+    },
+    {
+      "id": "same-block-position",
+      "description": "Two ballots from one member in the same block: the higher position (the tx's index in the block) is later and counts. Input order doesn't matter; the ballots are given here in reverse.",
+      "input": {
+        "election": {
+          "election": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1.0",
+          "name": "Test board election",
+          "number_elected": 2,
+          "candidates": [
+            {
+              "id": "ada",
+              "name": "Ada"
+            },
+            {
+              "id": "ben",
+              "name": "Ben"
+            },
+            {
+              "id": "cy",
+              "name": "Cy"
+            },
+            {
+              "id": "di",
+              "name": "Di"
+            }
+          ],
+          "opens_at_height": 1000,
+          "closes_at_height": 1010,
+          "roll": "c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0.1",
+          "roll_sha256": "7147ed8f98d8ec6f51e0a228e0429bffd539815449e59434eac4b603818cbbe8",
+          "height": 990
+        },
+        "roll": {
+          "members": [
+            "m1",
+            "m2",
+            "m3",
+            "m4",
+            "m5"
+          ],
+          "height": 989
+        },
+        "ballots": [
+          {
+            "txid": "2222222222222222222222222222222222222222222222222222222222222222",
+            "election": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1.0",
+            "height": 1002,
+            "position": 10,
+            "signer": "m1",
+            "choices": [
+              "cy"
+            ]
+          },
+          {
+            "txid": "1111111111111111111111111111111111111111111111111111111111111111",
+            "election": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1.0",
+            "height": 1002,
+            "position": 5,
+            "signer": "m1",
+            "choices": [
+              "ada"
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "ballots": [
+          {
+            "txid": "1111111111111111111111111111111111111111111111111111111111111111",
+            "counted": false,
+            "rule": "replaced",
+            "replaced_by": "2222222222222222222222222222222222222222222222222222222222222222"
+          },
+          {
+            "txid": "2222222222222222222222222222222222222222222222222222222222222222",
+            "counted": true,
+            "rule": null,
+            "replaced_by": null
+          }
+        ],
+        "counted": 1,
+        "not_counted": 1,
+        "tally": [
+          {
+            "candidate": "ada",
+            "votes": 0
+          },
+          {
+            "candidate": "ben",
+            "votes": 0
+          },
+          {
+            "candidate": "cy",
+            "votes": 1
+          },
+          {
+            "candidate": "di",
+            "votes": 0
+          }
+        ],
+        "winners": [
+          "cy"
+        ],
+        "undecided": null
+      }
+    },
+    {
+      "id": "failed-ballot-never-replaces",
+      "description": "A later ballot that fails a rule (here an unknown candidate, and one after close) doesn't replace the member's earlier counted ballot.",
+      "input": {
+        "election": {
+          "election": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1.0",
+          "name": "Test board election",
+          "number_elected": 2,
+          "candidates": [
+            {
+              "id": "ada",
+              "name": "Ada"
+            },
+            {
+              "id": "ben",
+              "name": "Ben"
+            },
+            {
+              "id": "cy",
+              "name": "Cy"
+            },
+            {
+              "id": "di",
+              "name": "Di"
+            }
+          ],
+          "opens_at_height": 1000,
+          "closes_at_height": 1010,
+          "roll": "c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0.1",
+          "roll_sha256": "7147ed8f98d8ec6f51e0a228e0429bffd539815449e59434eac4b603818cbbe8",
+          "height": 990
+        },
+        "roll": {
+          "members": [
+            "m1",
+            "m2",
+            "m3",
+            "m4",
+            "m5"
+          ],
+          "height": 989
+        },
+        "ballots": [
+          {
+            "txid": "1111111111111111111111111111111111111111111111111111111111111111",
+            "election": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1.0",
+            "height": 1001,
+            "position": 1,
+            "signer": "m1",
+            "choices": [
+              "ada"
+            ]
+          },
+          {
+            "txid": "2222222222222222222222222222222222222222222222222222222222222222",
+            "election": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1.0",
+            "height": 1004,
+            "position": 1,
+            "signer": "m1",
+            "choices": [
+              "zed"
+            ]
+          },
+          {
+            "txid": "3333333333333333333333333333333333333333333333333333333333333333",
+            "election": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1.0",
+            "height": 1012,
+            "position": 1,
+            "signer": "m1",
+            "choices": [
+              "ben"
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "ballots": [
+          {
+            "txid": "1111111111111111111111111111111111111111111111111111111111111111",
+            "counted": true,
+            "rule": null,
+            "replaced_by": null
+          },
+          {
+            "txid": "2222222222222222222222222222222222222222222222222222222222222222",
+            "counted": false,
+            "rule": "unknown_candidate",
+            "replaced_by": null
+          },
+          {
+            "txid": "3333333333333333333333333333333333333333333333333333333333333333",
+            "counted": false,
+            "rule": "after_close",
+            "replaced_by": null
+          }
+        ],
+        "counted": 1,
+        "not_counted": 2,
+        "tally": [
+          {
+            "candidate": "ada",
+            "votes": 1
+          },
+          {
+            "candidate": "ben",
+            "votes": 0
+          },
+          {
+            "candidate": "cy",
+            "votes": 0
+          },
+          {
+            "candidate": "di",
+            "votes": 0
+          }
+        ],
+        "winners": [
+          "ada"
+        ],
+        "undecided": null
+      }
+    },
+    {
+      "id": "empty-ballot-withdraws",
+      "description": "An empty ballot is valid and votes for no one, so a later empty ballot withdraws the member's earlier votes.",
+      "input": {
+        "election": {
+          "election": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1.0",
+          "name": "Test board election",
+          "number_elected": 2,
+          "candidates": [
+            {
+              "id": "ada",
+              "name": "Ada"
+            },
+            {
+              "id": "ben",
+              "name": "Ben"
+            },
+            {
+              "id": "cy",
+              "name": "Cy"
+            },
+            {
+              "id": "di",
+              "name": "Di"
+            }
+          ],
+          "opens_at_height": 1000,
+          "closes_at_height": 1010,
+          "roll": "c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0.1",
+          "roll_sha256": "7147ed8f98d8ec6f51e0a228e0429bffd539815449e59434eac4b603818cbbe8",
+          "height": 990
+        },
+        "roll": {
+          "members": [
+            "m1",
+            "m2",
+            "m3",
+            "m4",
+            "m5"
+          ],
+          "height": 989
+        },
+        "ballots": [
+          {
+            "txid": "1111111111111111111111111111111111111111111111111111111111111111",
+            "election": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1.0",
+            "height": 1001,
+            "position": 1,
+            "signer": "m1",
+            "choices": [
+              "ada",
+              "ben"
+            ]
+          },
+          {
+            "txid": "2222222222222222222222222222222222222222222222222222222222222222",
+            "election": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1.0",
+            "height": 1003,
+            "position": 1,
+            "signer": "m1",
+            "choices": []
+          },
+          {
+            "txid": "3333333333333333333333333333333333333333333333333333333333333333",
+            "election": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1.0",
+            "height": 1003,
+            "position": 2,
+            "signer": "m2",
+            "choices": [
+              "cy"
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "ballots": [
+          {
+            "txid": "1111111111111111111111111111111111111111111111111111111111111111",
+            "counted": false,
+            "rule": "replaced",
+            "replaced_by": "2222222222222222222222222222222222222222222222222222222222222222"
+          },
+          {
+            "txid": "2222222222222222222222222222222222222222222222222222222222222222",
+            "counted": true,
+            "rule": null,
+            "replaced_by": null
+          },
+          {
+            "txid": "3333333333333333333333333333333333333333333333333333333333333333",
+            "counted": true,
+            "rule": null,
+            "replaced_by": null
+          }
+        ],
+        "counted": 2,
+        "not_counted": 1,
+        "tally": [
+          {
+            "candidate": "ada",
+            "votes": 0
+          },
+          {
+            "candidate": "ben",
+            "votes": 0
+          },
+          {
+            "candidate": "cy",
+            "votes": 1
+          },
+          {
+            "candidate": "di",
+            "votes": 0
+          }
+        ],
+        "winners": [
+          "cy"
+        ],
+        "undecided": null
+      }
+    },
+    {
+      "id": "tie-within-seats",
+      "description": "Ada and Ben tie for first with two seats to fill. Both win, listed in the election's order; no lot is needed.",
+      "input": {
+        "election": {
+          "election": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1.0",
+          "name": "Test board election",
+          "number_elected": 2,
+          "candidates": [
+            {
+              "id": "ada",
+              "name": "Ada"
+            },
+            {
+              "id": "ben",
+              "name": "Ben"
+            },
+            {
+              "id": "cy",
+              "name": "Cy"
+            },
+            {
+              "id": "di",
+              "name": "Di"
+            }
+          ],
+          "opens_at_height": 1000,
+          "closes_at_height": 1010,
+          "roll": "c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0.1",
+          "roll_sha256": "7147ed8f98d8ec6f51e0a228e0429bffd539815449e59434eac4b603818cbbe8",
+          "height": 990
+        },
+        "roll": {
+          "members": [
+            "m1",
+            "m2",
+            "m3",
+            "m4",
+            "m5"
+          ],
+          "height": 989
+        },
+        "ballots": [
+          {
+            "txid": "1111111111111111111111111111111111111111111111111111111111111111",
+            "election": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1.0",
+            "height": 1001,
+            "position": 1,
+            "signer": "m1",
+            "choices": [
+              "ben",
+              "ada"
+            ]
+          },
+          {
+            "txid": "2222222222222222222222222222222222222222222222222222222222222222",
+            "election": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1.0",
+            "height": 1001,
+            "position": 2,
+            "signer": "m2",
+            "choices": [
+              "ada",
+              "ben"
+            ]
+          },
+          {
+            "txid": "3333333333333333333333333333333333333333333333333333333333333333",
+            "election": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1.0",
+            "height": 1001,
+            "position": 3,
+            "signer": "m3",
+            "choices": [
+              "cy"
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "ballots": [
+          {
+            "txid": "1111111111111111111111111111111111111111111111111111111111111111",
+            "counted": true,
+            "rule": null,
+            "replaced_by": null
+          },
+          {
+            "txid": "2222222222222222222222222222222222222222222222222222222222222222",
+            "counted": true,
+            "rule": null,
+            "replaced_by": null
+          },
+          {
+            "txid": "3333333333333333333333333333333333333333333333333333333333333333",
+            "counted": true,
+            "rule": null,
+            "replaced_by": null
+          }
+        ],
+        "counted": 3,
+        "not_counted": 0,
+        "tally": [
+          {
+            "candidate": "ada",
+            "votes": 2
+          },
+          {
+            "candidate": "ben",
+            "votes": 2
+          },
+          {
+            "candidate": "cy",
+            "votes": 1
+          },
+          {
+            "candidate": "di",
+            "votes": 0
+          }
+        ],
+        "winners": [
+          "ada",
+          "ben"
+        ],
+        "undecided": null
+      }
+    },
+    {
+      "id": "tie-undecided",
+      "description": "Ada leads; Ben, Cy and Di tie for the last seat. Without close_block_hash (voting still open) that seat is undecided.",
+      "input": {
+        "election": {
+          "election": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1.0",
+          "name": "Test board election",
+          "number_elected": 2,
+          "candidates": [
+            {
+              "id": "ada",
+              "name": "Ada"
+            },
+            {
+              "id": "ben",
+              "name": "Ben"
+            },
+            {
+              "id": "cy",
+              "name": "Cy"
+            },
+            {
+              "id": "di",
+              "name": "Di"
+            }
+          ],
+          "opens_at_height": 1000,
+          "closes_at_height": 1010,
+          "roll": "c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0.1",
+          "roll_sha256": "7147ed8f98d8ec6f51e0a228e0429bffd539815449e59434eac4b603818cbbe8",
+          "height": 990
+        },
+        "roll": {
+          "members": [
+            "m1",
+            "m2",
+            "m3",
+            "m4",
+            "m5"
+          ],
+          "height": 989
+        },
+        "ballots": [
+          {
+            "txid": "1111111111111111111111111111111111111111111111111111111111111111",
+            "election": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1.0",
+            "height": 1001,
+            "position": 1,
+            "signer": "m1",
+            "choices": [
+              "ada",
+              "ben"
+            ]
+          },
+          {
+            "txid": "2222222222222222222222222222222222222222222222222222222222222222",
+            "election": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1.0",
+            "height": 1001,
+            "position": 2,
+            "signer": "m2",
+            "choices": [
+              "ada",
+              "cy"
+            ]
+          },
+          {
+            "txid": "3333333333333333333333333333333333333333333333333333333333333333",
+            "election": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1.0",
+            "height": 1001,
+            "position": 3,
+            "signer": "m3",
+            "choices": [
+              "di"
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "ballots": [
+          {
+            "txid": "1111111111111111111111111111111111111111111111111111111111111111",
+            "counted": true,
+            "rule": null,
+            "replaced_by": null
+          },
+          {
+            "txid": "2222222222222222222222222222222222222222222222222222222222222222",
+            "counted": true,
+            "rule": null,
+            "replaced_by": null
+          },
+          {
+            "txid": "3333333333333333333333333333333333333333333333333333333333333333",
+            "counted": true,
+            "rule": null,
+            "replaced_by": null
+          }
+        ],
+        "counted": 3,
+        "not_counted": 0,
+        "tally": [
+          {
+            "candidate": "ada",
+            "votes": 2
+          },
+          {
+            "candidate": "ben",
+            "votes": 1
+          },
+          {
+            "candidate": "cy",
+            "votes": 1
+          },
+          {
+            "candidate": "di",
+            "votes": 1
+          }
+        ],
+        "winners": [
+          "ada"
+        ],
+        "undecided": {
+          "seats": 1,
+          "tied": [
+            "ben",
+            "cy",
+            "di"
+          ]
+        }
+      }
+    },
+    {
+      "id": "tie-by-lot",
+      "description": "The same ballots, with the hash of the block at closes_at_height. Each tied candidate's lot is sha256 of \"<close_block_hash>:<id>\" as lowercase hex: ben cdb52145fbc5619e76482acef5bdcd3306932587ba8b9a287b5b7a62417a1ebe, cy 2f609dcdfe47fafe4383bfbb445a5e0075adafa2d44ec953a402c0d1455141a6, di ca5e18ad2c5c8d844210c10363f960bae6a19f5a718eb7fab7d47dfcec6cdfa3. The lowest, cy, takes the seat.",
+      "input": {
+        "election": {
+          "election": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1.0",
+          "name": "Test board election",
+          "number_elected": 2,
+          "candidates": [
+            {
+              "id": "ada",
+              "name": "Ada"
+            },
+            {
+              "id": "ben",
+              "name": "Ben"
+            },
+            {
+              "id": "cy",
+              "name": "Cy"
+            },
+            {
+              "id": "di",
+              "name": "Di"
+            }
+          ],
+          "opens_at_height": 1000,
+          "closes_at_height": 1010,
+          "roll": "c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0.1",
+          "roll_sha256": "7147ed8f98d8ec6f51e0a228e0429bffd539815449e59434eac4b603818cbbe8",
+          "height": 990
+        },
+        "roll": {
+          "members": [
+            "m1",
+            "m2",
+            "m3",
+            "m4",
+            "m5"
+          ],
+          "height": 989
+        },
+        "ballots": [
+          {
+            "txid": "1111111111111111111111111111111111111111111111111111111111111111",
+            "election": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1.0",
+            "height": 1001,
+            "position": 1,
+            "signer": "m1",
+            "choices": [
+              "ada",
+              "ben"
+            ]
+          },
+          {
+            "txid": "2222222222222222222222222222222222222222222222222222222222222222",
+            "election": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1.0",
+            "height": 1001,
+            "position": 2,
+            "signer": "m2",
+            "choices": [
+              "ada",
+              "cy"
+            ]
+          },
+          {
+            "txid": "3333333333333333333333333333333333333333333333333333333333333333",
+            "election": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1.0",
+            "height": 1001,
+            "position": 3,
+            "signer": "m3",
+            "choices": [
+              "di"
+            ]
+          }
+        ],
+        "close_block_hash": "00000000000000000a1b2c3d4e5f60718293a4b5c6d7e8f90112233445566778"
+      },
+      "expected": {
+        "ballots": [
+          {
+            "txid": "1111111111111111111111111111111111111111111111111111111111111111",
+            "counted": true,
+            "rule": null,
+            "replaced_by": null
+          },
+          {
+            "txid": "2222222222222222222222222222222222222222222222222222222222222222",
+            "counted": true,
+            "rule": null,
+            "replaced_by": null
+          },
+          {
+            "txid": "3333333333333333333333333333333333333333333333333333333333333333",
+            "counted": true,
+            "rule": null,
+            "replaced_by": null
+          }
+        ],
+        "counted": 3,
+        "not_counted": 0,
+        "tally": [
+          {
+            "candidate": "ada",
+            "votes": 2
+          },
+          {
+            "candidate": "ben",
+            "votes": 1
+          },
+          {
+            "candidate": "cy",
+            "votes": 1
+          },
+          {
+            "candidate": "di",
+            "votes": 1
+          }
+        ],
+        "winners": [
+          "ada",
+          "cy"
+        ],
+        "undecided": null
+      }
+    },
+    {
+      "id": "no-votes-no-seat",
+      "description": "A candidate needs at least one vote to win, so with three seats and two candidates voted for, one seat stays empty.",
+      "input": {
+        "election": {
+          "election": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1.0",
+          "name": "Test board election",
+          "number_elected": 3,
+          "candidates": [
+            {
+              "id": "ada",
+              "name": "Ada"
+            },
+            {
+              "id": "ben",
+              "name": "Ben"
+            },
+            {
+              "id": "cy",
+              "name": "Cy"
+            },
+            {
+              "id": "di",
+              "name": "Di"
+            }
+          ],
+          "opens_at_height": 1000,
+          "closes_at_height": 1010,
+          "roll": "c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0.1",
+          "roll_sha256": "7147ed8f98d8ec6f51e0a228e0429bffd539815449e59434eac4b603818cbbe8",
+          "height": 990
+        },
+        "roll": {
+          "members": [
+            "m1",
+            "m2",
+            "m3",
+            "m4",
+            "m5"
+          ],
+          "height": 989
+        },
+        "ballots": [
+          {
+            "txid": "1111111111111111111111111111111111111111111111111111111111111111",
+            "election": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1.0",
+            "height": 1001,
+            "position": 1,
+            "signer": "m1",
+            "choices": [
+              "ada"
+            ]
+          },
+          {
+            "txid": "2222222222222222222222222222222222222222222222222222222222222222",
+            "election": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1.0",
+            "height": 1001,
+            "position": 2,
+            "signer": "m2",
+            "choices": [
+              "ben"
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "ballots": [
+          {
+            "txid": "1111111111111111111111111111111111111111111111111111111111111111",
+            "counted": true,
+            "rule": null,
+            "replaced_by": null
+          },
+          {
+            "txid": "2222222222222222222222222222222222222222222222222222222222222222",
+            "counted": true,
+            "rule": null,
+            "replaced_by": null
+          }
+        ],
+        "counted": 2,
+        "not_counted": 0,
+        "tally": [
+          {
+            "candidate": "ada",
+            "votes": 1
+          },
+          {
+            "candidate": "ben",
+            "votes": 1
+          },
+          {
+            "candidate": "cy",
+            "votes": 0
+          },
+          {
+            "candidate": "di",
+            "votes": 0
+          }
+        ],
+        "winners": [
+          "ada",
+          "ben"
+        ],
+        "undecided": null
+      }
+    },
+    {
+      "id": "rule-order",
+      "description": "A ballot that fails several rules is listed against the first, in rule_order: here an outsider's late ballot with too many names is not_on_roll.",
+      "input": {
+        "election": {
+          "election": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1.0",
+          "name": "Test board election",
+          "number_elected": 2,
+          "candidates": [
+            {
+              "id": "ada",
+              "name": "Ada"
+            },
+            {
+              "id": "ben",
+              "name": "Ben"
+            },
+            {
+              "id": "cy",
+              "name": "Cy"
+            },
+            {
+              "id": "di",
+              "name": "Di"
+            }
+          ],
+          "opens_at_height": 1000,
+          "closes_at_height": 1010,
+          "roll": "c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0.1",
+          "roll_sha256": "7147ed8f98d8ec6f51e0a228e0429bffd539815449e59434eac4b603818cbbe8",
+          "height": 990
+        },
+        "roll": {
+          "members": [
+            "m1",
+            "m2",
+            "m3",
+            "m4",
+            "m5"
+          ],
+          "height": 989
+        },
+        "ballots": [
+          {
+            "txid": "1111111111111111111111111111111111111111111111111111111111111111",
+            "election": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1.0",
+            "height": 1020,
+            "position": 1,
+            "signer": "outsider",
+            "choices": [
+              "ada",
+              "ben",
+              "cy"
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "ballots": [
+          {
+            "txid": "1111111111111111111111111111111111111111111111111111111111111111",
+            "counted": false,
+            "rule": "not_on_roll",
+            "replaced_by": null
+          }
+        ],
+        "counted": 0,
+        "not_counted": 1,
+        "tally": [
+          {
+            "candidate": "ada",
+            "votes": 0
+          },
+          {
+            "candidate": "ben",
+            "votes": 0
+          },
+          {
+            "candidate": "cy",
+            "votes": 0
+          },
+          {
+            "candidate": "di",
+            "votes": 0
+          }
+        ],
+        "winners": [],
+        "undecided": null
+      }
+    },
+    {
+      "id": "votes-allowed",
+      "description": "One to elect, and each ballot may name up to two (votes_allowed 2). Two names count; three is too many. Ada has two votes to Ben's one and takes the seat.",
+      "input": {
+        "election": {
+          "election": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1.0",
+          "name": "Test board election",
+          "number_elected": 1,
+          "candidates": [
+            {
+              "id": "ada",
+              "name": "Ada"
+            },
+            {
+              "id": "ben",
+              "name": "Ben"
+            },
+            {
+              "id": "cy",
+              "name": "Cy"
+            },
+            {
+              "id": "di",
+              "name": "Di"
+            }
+          ],
+          "opens_at_height": 1000,
+          "closes_at_height": 1010,
+          "roll": "c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0.1",
+          "roll_sha256": "7147ed8f98d8ec6f51e0a228e0429bffd539815449e59434eac4b603818cbbe8",
+          "height": 990,
+          "votes_allowed": 2
+        },
+        "roll": {
+          "members": [
+            "m1",
+            "m2",
+            "m3",
+            "m4",
+            "m5"
+          ],
+          "height": 989
+        },
+        "ballots": [
+          {
+            "txid": "1111111111111111111111111111111111111111111111111111111111111111",
+            "election": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1.0",
+            "height": 1001,
+            "position": 1,
+            "signer": "m1",
+            "choices": [
+              "ada",
+              "ben"
+            ]
+          },
+          {
+            "txid": "2222222222222222222222222222222222222222222222222222222222222222",
+            "election": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1.0",
+            "height": 1001,
+            "position": 2,
+            "signer": "m2",
+            "choices": [
+              "ben",
+              "cy",
+              "di"
+            ]
+          },
+          {
+            "txid": "3333333333333333333333333333333333333333333333333333333333333333",
+            "election": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1.0",
+            "height": 1001,
+            "position": 3,
+            "signer": "m3",
+            "choices": [
+              "ada"
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "ballots": [
+          {
+            "txid": "1111111111111111111111111111111111111111111111111111111111111111",
+            "counted": true,
+            "rule": null,
+            "replaced_by": null
+          },
+          {
+            "txid": "2222222222222222222222222222222222222222222222222222222222222222",
+            "counted": false,
+            "rule": "too_many_choices",
+            "replaced_by": null
+          },
+          {
+            "txid": "3333333333333333333333333333333333333333333333333333333333333333",
+            "counted": true,
+            "rule": null,
+            "replaced_by": null
+          }
+        ],
+        "counted": 2,
+        "not_counted": 1,
+        "tally": [
+          {
+            "candidate": "ada",
+            "votes": 2
+          },
+          {
+            "candidate": "ben",
+            "votes": 1
+          },
+          {
+            "candidate": "cy",
+            "votes": 0
+          },
+          {
+            "candidate": "di",
+            "votes": 0
+          }
+        ],
+        "winners": [
+          "ada"
+        ],
+        "undecided": null
+      }
+    },
+    {
+      "id": "error-election-not-a-map",
+      "description": "The election must be a map (a JSON object).",
+      "input": {
+        "election": [
+          "not",
+          "an",
+          "election"
+        ],
+        "roll": {
+          "members": [
+            "m1",
+            "m2",
+            "m3",
+            "m4",
+            "m5"
+          ],
+          "height": 989
+        },
+        "ballots": []
+      },
+      "expected": {
+        "error": "invalid_election",
+        "error_detail": "election must be a map"
+      }
+    },
+    {
+      "id": "error-election-id-not-outpoint",
+      "description": "The election's id is the election record's outpoint, <txid>.<vout>; a free-form name isn't one.",
+      "input": {
+        "election": {
+          "election": "test-board-1",
+          "name": "Test board election",
+          "number_elected": 2,
+          "candidates": [
+            {
+              "id": "ada",
+              "name": "Ada"
+            },
+            {
+              "id": "ben",
+              "name": "Ben"
+            },
+            {
+              "id": "cy",
+              "name": "Cy"
+            },
+            {
+              "id": "di",
+              "name": "Di"
+            }
+          ],
+          "opens_at_height": 1000,
+          "closes_at_height": 1010,
+          "roll": "c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0.1",
+          "roll_sha256": "7147ed8f98d8ec6f51e0a228e0429bffd539815449e59434eac4b603818cbbe8",
+          "height": 990
+        },
+        "roll": {
+          "members": [
+            "m1",
+            "m2",
+            "m3",
+            "m4",
+            "m5"
+          ],
+          "height": 989
+        },
+        "ballots": []
+      },
+      "expected": {
+        "error": "invalid_election",
+        "error_detail": "election must be an outpoint: <txid>.<vout>, lowercase hex and a decimal vout"
+      }
+    },
+    {
+      "id": "error-number-elected-zero",
+      "description": "number_elected below 1 elects no one, so the election can't be counted.",
+      "input": {
+        "election": {
+          "election": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1.0",
+          "name": "Test board election",
+          "number_elected": 0,
+          "candidates": [
+            {
+              "id": "ada",
+              "name": "Ada"
+            },
+            {
+              "id": "ben",
+              "name": "Ben"
+            },
+            {
+              "id": "cy",
+              "name": "Cy"
+            },
+            {
+              "id": "di",
+              "name": "Di"
+            }
+          ],
+          "opens_at_height": 1000,
+          "closes_at_height": 1010,
+          "roll": "c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0.1",
+          "roll_sha256": "7147ed8f98d8ec6f51e0a228e0429bffd539815449e59434eac4b603818cbbe8",
+          "height": 990
+        },
+        "roll": {
+          "members": [
+            "m1",
+            "m2",
+            "m3",
+            "m4",
+            "m5"
+          ],
+          "height": 989
+        },
+        "ballots": []
+      },
+      "expected": {
+        "error": "invalid_election",
+        "error_detail": "number_elected must be a positive integer"
+      }
+    },
+    {
+      "id": "error-votes-allowed-zero",
+      "description": "votes_allowed, when given, must be at least 1.",
+      "input": {
+        "election": {
+          "election": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1.0",
+          "name": "Test board election",
+          "number_elected": 2,
+          "candidates": [
+            {
+              "id": "ada",
+              "name": "Ada"
+            },
+            {
+              "id": "ben",
+              "name": "Ben"
+            },
+            {
+              "id": "cy",
+              "name": "Cy"
+            },
+            {
+              "id": "di",
+              "name": "Di"
+            }
+          ],
+          "opens_at_height": 1000,
+          "closes_at_height": 1010,
+          "roll": "c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0.1",
+          "roll_sha256": "7147ed8f98d8ec6f51e0a228e0429bffd539815449e59434eac4b603818cbbe8",
+          "height": 990,
+          "votes_allowed": 0
+        },
+        "roll": {
+          "members": [
+            "m1",
+            "m2",
+            "m3",
+            "m4",
+            "m5"
+          ],
+          "height": 989
+        },
+        "ballots": []
+      },
+      "expected": {
+        "error": "invalid_election",
+        "error_detail": "votes_allowed, when given, must be a positive integer"
+      }
+    },
+    {
+      "id": "error-candidates-not-a-list",
+      "description": "candidates is one JSON array of objects, each with an id; a comma-separated string isn't.",
+      "input": {
+        "election": {
+          "election": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1.0",
+          "name": "Test board election",
+          "number_elected": 2,
+          "candidates": "ada,ben",
+          "opens_at_height": 1000,
+          "closes_at_height": 1010,
+          "roll": "c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0.1",
+          "roll_sha256": "7147ed8f98d8ec6f51e0a228e0429bffd539815449e59434eac4b603818cbbe8",
+          "height": 990
+        },
+        "roll": {
+          "members": [
+            "m1",
+            "m2",
+            "m3",
+            "m4",
+            "m5"
+          ],
+          "height": 989
+        },
+        "ballots": []
+      },
+      "expected": {
+        "error": "invalid_election",
+        "error_detail": "candidates must be a list, each with a string id"
+      }
+    },
+    {
+      "id": "error-candidate-id-charset",
+      "description": "Candidate ids use only lowercase a-z, 0-9 and -, so they read the same in a ballot, a URL and the lot.",
+      "input": {
+        "election": {
+          "election": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1.0",
+          "name": "Test board election",
+          "number_elected": 2,
+          "candidates": [
+            {
+              "id": "Ada",
+              "name": "Ada"
+            },
+            {
+              "id": "ben",
+              "name": "Ben"
+            }
+          ],
+          "opens_at_height": 1000,
+          "closes_at_height": 1010,
+          "roll": "c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0.1",
+          "roll_sha256": "7147ed8f98d8ec6f51e0a228e0429bffd539815449e59434eac4b603818cbbe8",
+          "height": 990
+        },
+        "roll": {
+          "members": [
+            "m1",
+            "m2",
+            "m3",
+            "m4",
+            "m5"
+          ],
+          "height": 989
+        },
+        "ballots": []
+      },
+      "expected": {
+        "error": "invalid_election",
+        "error_detail": "candidate ids must be one or more of a-z, 0-9 and -"
+      }
+    },
+    {
+      "id": "error-duplicate-candidate-id",
+      "description": "Two candidates with one id can't be told apart on a ballot.",
+      "input": {
+        "election": {
+          "election": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1.0",
+          "name": "Test board election",
+          "number_elected": 2,
+          "candidates": [
+            {
+              "id": "ada",
+              "name": "Ada"
+            },
+            {
+              "id": "ada",
+              "name": "Ada Two"
+            }
+          ],
+          "opens_at_height": 1000,
+          "closes_at_height": 1010,
+          "roll": "c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0.1",
+          "roll_sha256": "7147ed8f98d8ec6f51e0a228e0429bffd539815449e59434eac4b603818cbbe8",
+          "height": 990
+        },
+        "roll": {
+          "members": [
+            "m1",
+            "m2",
+            "m3",
+            "m4",
+            "m5"
+          ],
+          "height": 989
+        },
+        "ballots": []
+      },
+      "expected": {
+        "error": "invalid_election",
+        "error_detail": "candidate ids must be unique"
+      }
+    },
+    {
+      "id": "error-roll-not-outpoint",
+      "description": "The election names its roll by the roll file's outpoint, <txid>.<vout>.",
+      "input": {
+        "election": {
+          "election": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1.0",
+          "name": "Test board election",
+          "number_elected": 2,
+          "candidates": [
+            {
+              "id": "ada",
+              "name": "Ada"
+            },
+            {
+              "id": "ben",
+              "name": "Ben"
+            },
+            {
+              "id": "cy",
+              "name": "Cy"
+            },
+            {
+              "id": "di",
+              "name": "Di"
+            }
+          ],
+          "opens_at_height": 1000,
+          "closes_at_height": 1010,
+          "roll": "test-roll",
+          "roll_sha256": "7147ed8f98d8ec6f51e0a228e0429bffd539815449e59434eac4b603818cbbe8",
+          "height": 990
+        },
+        "roll": {
+          "members": [
+            "m1",
+            "m2",
+            "m3",
+            "m4",
+            "m5"
+          ],
+          "height": 989
+        },
+        "ballots": []
+      },
+      "expected": {
+        "error": "invalid_election",
+        "error_detail": "roll must be the roll file's outpoint: <txid>.<vout>"
+      }
+    },
+    {
+      "id": "error-roll-sha256",
+      "description": "roll_sha256 is the sha256 of the roll file's exact bytes, as 64 lowercase hex characters.",
+      "input": {
+        "election": {
+          "election": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1.0",
+          "name": "Test board election",
+          "number_elected": 2,
+          "candidates": [
+            {
+              "id": "ada",
+              "name": "Ada"
+            },
+            {
+              "id": "ben",
+              "name": "Ben"
+            },
+            {
+              "id": "cy",
+              "name": "Cy"
+            },
+            {
+              "id": "di",
+              "name": "Di"
+            }
+          ],
+          "opens_at_height": 1000,
+          "closes_at_height": 1010,
+          "roll": "c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0.1",
+          "roll_sha256": "7147ED8F98D8EC6F51E0A228E0429BFFD539815449E59434EAC4B603818CBBE8",
+          "height": 990
+        },
+        "roll": {
+          "members": [
+            "m1",
+            "m2",
+            "m3",
+            "m4",
+            "m5"
+          ],
+          "height": 989
+        },
+        "ballots": []
+      },
+      "expected": {
+        "error": "invalid_election",
+        "error_detail": "roll_sha256 must be 64 lowercase hex characters"
+      }
+    },
+    {
+      "id": "error-heights-not-integers",
+      "description": "Heights are integers. In MAP they are decimal ASCII with no leading zeros, read as integers before the count; the string \"1000\" here was never read.",
+      "input": {
+        "election": {
+          "election": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1.0",
+          "name": "Test board election",
+          "number_elected": 2,
+          "candidates": [
+            {
+              "id": "ada",
+              "name": "Ada"
+            },
+            {
+              "id": "ben",
+              "name": "Ben"
+            },
+            {
+              "id": "cy",
+              "name": "Cy"
+            },
+            {
+              "id": "di",
+              "name": "Di"
+            }
+          ],
+          "opens_at_height": "1000",
+          "closes_at_height": 1010,
+          "roll": "c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0.1",
+          "roll_sha256": "7147ed8f98d8ec6f51e0a228e0429bffd539815449e59434eac4b603818cbbe8",
+          "height": 990
+        },
+        "roll": {
+          "members": [
+            "m1",
+            "m2",
+            "m3",
+            "m4",
+            "m5"
+          ],
+          "height": 989
+        },
+        "ballots": []
+      },
+      "expected": {
+        "error": "invalid_election",
+        "error_detail": "opens_at_height and closes_at_height must be non-negative integers"
+      }
+    },
+    {
+      "id": "error-window-backwards",
+      "description": "An election that closes before it opens can't be counted.",
+      "input": {
+        "election": {
+          "election": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1.0",
+          "name": "Test board election",
+          "number_elected": 2,
+          "candidates": [
+            {
+              "id": "ada",
+              "name": "Ada"
+            },
+            {
+              "id": "ben",
+              "name": "Ben"
+            },
+            {
+              "id": "cy",
+              "name": "Cy"
+            },
+            {
+              "id": "di",
+              "name": "Di"
+            }
+          ],
+          "opens_at_height": 1010,
+          "closes_at_height": 1000,
+          "roll": "c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0.1",
+          "roll_sha256": "7147ed8f98d8ec6f51e0a228e0429bffd539815449e59434eac4b603818cbbe8"
+        },
+        "roll": {
+          "members": [
+            "m1",
+            "m2",
+            "m3",
+            "m4",
+            "m5"
+          ]
+        },
+        "ballots": []
+      },
+      "expected": {
+        "error": "invalid_election",
+        "error_detail": "closes_at_height is before opens_at_height"
+      }
+    },
+    {
+      "id": "error-election-confirms-late",
+      "description": "The election record must confirm below opens_at_height; here it confirmed at it.",
+      "input": {
+        "election": {
+          "election": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1.0",
+          "name": "Test board election",
+          "number_elected": 2,
+          "candidates": [
+            {
+              "id": "ada",
+              "name": "Ada"
+            },
+            {
+              "id": "ben",
+              "name": "Ben"
+            },
+            {
+              "id": "cy",
+              "name": "Cy"
+            },
+            {
+              "id": "di",
+              "name": "Di"
+            }
+          ],
+          "opens_at_height": 1000,
+          "closes_at_height": 1010,
+          "roll": "c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0.1",
+          "roll_sha256": "7147ed8f98d8ec6f51e0a228e0429bffd539815449e59434eac4b603818cbbe8",
+          "height": 1000
+        },
+        "roll": {
+          "members": [
+            "m1",
+            "m2",
+            "m3",
+            "m4",
+            "m5"
+          ],
+          "height": 989
+        },
+        "ballots": []
+      },
+      "expected": {
+        "error": "invalid_election",
+        "error_detail": "the election record must confirm below opens_at_height"
+      }
+    },
+    {
+      "id": "error-roll-not-a-map",
+      "description": "The roll must be a map with members.",
+      "input": {
+        "election": {
+          "election": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1.0",
+          "name": "Test board election",
+          "number_elected": 2,
+          "candidates": [
+            {
+              "id": "ada",
+              "name": "Ada"
+            },
+            {
+              "id": "ben",
+              "name": "Ben"
+            },
+            {
+              "id": "cy",
+              "name": "Cy"
+            },
+            {
+              "id": "di",
+              "name": "Di"
+            }
+          ],
+          "opens_at_height": 1000,
+          "closes_at_height": 1010,
+          "roll": "c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0.1",
+          "roll_sha256": "7147ed8f98d8ec6f51e0a228e0429bffd539815449e59434eac4b603818cbbe8",
+          "height": 990
+        },
+        "roll": null,
+        "ballots": []
+      },
+      "expected": {
+        "error": "invalid_roll",
+        "error_detail": "roll must be a map with members"
+      }
+    },
+    {
+      "id": "error-roll-members-not-strings",
+      "description": "Members are addresses, so strings.",
+      "input": {
+        "election": {
+          "election": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1.0",
+          "name": "Test board election",
+          "number_elected": 2,
+          "candidates": [
+            {
+              "id": "ada",
+              "name": "Ada"
+            },
+            {
+              "id": "ben",
+              "name": "Ben"
+            },
+            {
+              "id": "cy",
+              "name": "Cy"
+            },
+            {
+              "id": "di",
+              "name": "Di"
+            }
+          ],
+          "opens_at_height": 1000,
+          "closes_at_height": 1010,
+          "roll": "c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0.1",
+          "roll_sha256": "7147ed8f98d8ec6f51e0a228e0429bffd539815449e59434eac4b603818cbbe8",
+          "height": 990
+        },
+        "roll": {
+          "members": [
+            1,
+            2
+          ],
+          "height": 989
+        },
+        "ballots": []
+      },
+      "expected": {
+        "error": "invalid_roll",
+        "error_detail": "members must be strings"
+      }
+    },
+    {
+      "id": "error-roll-members-duplicate",
+      "description": "Each member is listed once.",
+      "input": {
+        "election": {
+          "election": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1.0",
+          "name": "Test board election",
+          "number_elected": 2,
+          "candidates": [
+            {
+              "id": "ada",
+              "name": "Ada"
+            },
+            {
+              "id": "ben",
+              "name": "Ben"
+            },
+            {
+              "id": "cy",
+              "name": "Cy"
+            },
+            {
+              "id": "di",
+              "name": "Di"
+            }
+          ],
+          "opens_at_height": 1000,
+          "closes_at_height": 1010,
+          "roll": "c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0.1",
+          "roll_sha256": "7147ed8f98d8ec6f51e0a228e0429bffd539815449e59434eac4b603818cbbe8",
+          "height": 990
+        },
+        "roll": {
+          "members": [
+            "m1",
+            "m1",
+            "m2"
+          ],
+          "height": 989
+        },
+        "ballots": []
+      },
+      "expected": {
+        "error": "invalid_roll",
+        "error_detail": "members must be unique"
+      }
+    },
+    {
+      "id": "error-roll-members-unsorted",
+      "description": "Members are sorted by their UTF-8 bytes, so a roll has one exact form.",
+      "input": {
+        "election": {
+          "election": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1.0",
+          "name": "Test board election",
+          "number_elected": 2,
+          "candidates": [
+            {
+              "id": "ada",
+              "name": "Ada"
+            },
+            {
+              "id": "ben",
+              "name": "Ben"
+            },
+            {
+              "id": "cy",
+              "name": "Cy"
+            },
+            {
+              "id": "di",
+              "name": "Di"
+            }
+          ],
+          "opens_at_height": 1000,
+          "closes_at_height": 1010,
+          "roll": "c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0.1",
+          "roll_sha256": "7147ed8f98d8ec6f51e0a228e0429bffd539815449e59434eac4b603818cbbe8",
+          "height": 990
+        },
+        "roll": {
+          "members": [
+            "m2",
+            "m1"
+          ],
+          "height": 989
+        },
+        "ballots": []
+      },
+      "expected": {
+        "error": "invalid_roll",
+        "error_detail": "members must be sorted"
+      }
+    },
+    {
+      "id": "error-roll-confirms-late",
+      "description": "The roll must confirm below opens_at_height; here it confirmed after voting opened.",
+      "input": {
+        "election": {
+          "election": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1.0",
+          "name": "Test board election",
+          "number_elected": 2,
+          "candidates": [
+            {
+              "id": "ada",
+              "name": "Ada"
+            },
+            {
+              "id": "ben",
+              "name": "Ben"
+            },
+            {
+              "id": "cy",
+              "name": "Cy"
+            },
+            {
+              "id": "di",
+              "name": "Di"
+            }
+          ],
+          "opens_at_height": 1000,
+          "closes_at_height": 1010,
+          "roll": "c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0.1",
+          "roll_sha256": "7147ed8f98d8ec6f51e0a228e0429bffd539815449e59434eac4b603818cbbe8",
+          "height": 990
+        },
+        "roll": {
+          "members": [
+            "m1",
+            "m2",
+            "m3",
+            "m4",
+            "m5"
+          ],
+          "height": 1002
+        },
+        "ballots": []
+      },
+      "expected": {
+        "error": "invalid_roll",
+        "error_detail": "the roll must confirm below opens_at_height"
+      }
+    },
+    {
+      "id": "error-ballots-not-a-list",
+      "description": "The ballots are a list.",
+      "input": {
+        "election": {
+          "election": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1.0",
+          "name": "Test board election",
+          "number_elected": 2,
+          "candidates": [
+            {
+              "id": "ada",
+              "name": "Ada"
+            },
+            {
+              "id": "ben",
+              "name": "Ben"
+            },
+            {
+              "id": "cy",
+              "name": "Cy"
+            },
+            {
+              "id": "di",
+              "name": "Di"
+            }
+          ],
+          "opens_at_height": 1000,
+          "closes_at_height": 1010,
+          "roll": "c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0.1",
+          "roll_sha256": "7147ed8f98d8ec6f51e0a228e0429bffd539815449e59434eac4b603818cbbe8",
+          "height": 990
+        },
+        "roll": {
+          "members": [
+            "m1",
+            "m2",
+            "m3",
+            "m4",
+            "m5"
+          ],
+          "height": 989
+        },
+        "ballots": null
+      },
+      "expected": {
+        "error": "invalid_ballot",
+        "error_detail": "ballots must be a list"
+      }
+    },
+    {
+      "id": "error-ballot-no-txid",
+      "description": "Every ballot has its txid.",
+      "input": {
+        "election": {
+          "election": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1.0",
+          "name": "Test board election",
+          "number_elected": 2,
+          "candidates": [
+            {
+              "id": "ada",
+              "name": "Ada"
+            },
+            {
+              "id": "ben",
+              "name": "Ben"
+            },
+            {
+              "id": "cy",
+              "name": "Cy"
+            },
+            {
+              "id": "di",
+              "name": "Di"
+            }
+          ],
+          "opens_at_height": 1000,
+          "closes_at_height": 1010,
+          "roll": "c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0.1",
+          "roll_sha256": "7147ed8f98d8ec6f51e0a228e0429bffd539815449e59434eac4b603818cbbe8",
+          "height": 990
+        },
+        "roll": {
+          "members": [
+            "m1",
+            "m2",
+            "m3",
+            "m4",
+            "m5"
+          ],
+          "height": 989
+        },
+        "ballots": [
+          {
+            "election": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1.0",
+            "height": 1001,
+            "position": 1,
+            "signer": "m1",
+            "choices": [
+              "ada"
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "error": "invalid_ballot",
+        "error_detail": "each ballot needs a string txid"
+      }
+    },
+    {
+      "id": "error-ballot-negative-height",
+      "description": "A height is a non-negative integer, or null while unconfirmed.",
+      "input": {
+        "election": {
+          "election": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1.0",
+          "name": "Test board election",
+          "number_elected": 2,
+          "candidates": [
+            {
+              "id": "ada",
+              "name": "Ada"
+            },
+            {
+              "id": "ben",
+              "name": "Ben"
+            },
+            {
+              "id": "cy",
+              "name": "Cy"
+            },
+            {
+              "id": "di",
+              "name": "Di"
+            }
+          ],
+          "opens_at_height": 1000,
+          "closes_at_height": 1010,
+          "roll": "c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0.1",
+          "roll_sha256": "7147ed8f98d8ec6f51e0a228e0429bffd539815449e59434eac4b603818cbbe8",
+          "height": 990
+        },
+        "roll": {
+          "members": [
+            "m1",
+            "m2",
+            "m3",
+            "m4",
+            "m5"
+          ],
+          "height": 989
+        },
+        "ballots": [
+          {
+            "txid": "1111111111111111111111111111111111111111111111111111111111111111",
+            "election": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1.0",
+            "height": -1,
+            "position": 1,
+            "signer": "m1",
+            "choices": [
+              "ada"
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "error": "invalid_ballot",
+        "error_detail": "height must be a non-negative integer or null"
+      }
+    },
+    {
+      "id": "error-ballot-no-position",
+      "description": "A confirmed ballot has its position, the tx's index in its block.",
+      "input": {
+        "election": {
+          "election": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1.0",
+          "name": "Test board election",
+          "number_elected": 2,
+          "candidates": [
+            {
+              "id": "ada",
+              "name": "Ada"
+            },
+            {
+              "id": "ben",
+              "name": "Ben"
+            },
+            {
+              "id": "cy",
+              "name": "Cy"
+            },
+            {
+              "id": "di",
+              "name": "Di"
+            }
+          ],
+          "opens_at_height": 1000,
+          "closes_at_height": 1010,
+          "roll": "c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0.1",
+          "roll_sha256": "7147ed8f98d8ec6f51e0a228e0429bffd539815449e59434eac4b603818cbbe8",
+          "height": 990
+        },
+        "roll": {
+          "members": [
+            "m1",
+            "m2",
+            "m3",
+            "m4",
+            "m5"
+          ],
+          "height": 989
+        },
+        "ballots": [
+          {
+            "txid": "1111111111111111111111111111111111111111111111111111111111111111",
+            "election": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1.0",
+            "height": 1001,
+            "position": null,
+            "signer": "m1",
+            "choices": [
+              "ada"
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "error": "invalid_ballot",
+        "error_detail": "a confirmed ballot needs a non-negative position"
+      }
+    },
+    {
+      "id": "error-duplicate-txid",
+      "description": "The same txid twice is a broken input, not a ballot to judge. A counter refuses the whole input.",
+      "input": {
+        "election": {
+          "election": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1.0",
+          "name": "Test board election",
+          "number_elected": 2,
+          "candidates": [
+            {
+              "id": "ada",
+              "name": "Ada"
+            },
+            {
+              "id": "ben",
+              "name": "Ben"
+            },
+            {
+              "id": "cy",
+              "name": "Cy"
+            },
+            {
+              "id": "di",
+              "name": "Di"
+            }
+          ],
+          "opens_at_height": 1000,
+          "closes_at_height": 1010,
+          "roll": "c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0.1",
+          "roll_sha256": "7147ed8f98d8ec6f51e0a228e0429bffd539815449e59434eac4b603818cbbe8",
+          "height": 990
+        },
+        "roll": {
+          "members": [
+            "m1",
+            "m2",
+            "m3",
+            "m4",
+            "m5"
+          ],
+          "height": 989
+        },
+        "ballots": [
+          {
+            "txid": "1111111111111111111111111111111111111111111111111111111111111111",
+            "election": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1.0",
+            "height": 1001,
+            "position": 1,
+            "signer": "m1",
+            "choices": [
+              "ada"
+            ]
+          },
+          {
+            "txid": "1111111111111111111111111111111111111111111111111111111111111111",
+            "election": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1.0",
+            "height": 1001,
+            "position": 1,
+            "signer": "m1",
+            "choices": [
+              "ada"
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "error": "invalid_ballot",
+        "error_detail": "txid appears twice"
+      }
+    },
+    {
+      "id": "error-same-slot",
+      "description": "Two different txids at the same height and position can't both be in the chain.",
+      "input": {
+        "election": {
+          "election": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1.0",
+          "name": "Test board election",
+          "number_elected": 2,
+          "candidates": [
+            {
+              "id": "ada",
+              "name": "Ada"
+            },
+            {
+              "id": "ben",
+              "name": "Ben"
+            },
+            {
+              "id": "cy",
+              "name": "Cy"
+            },
+            {
+              "id": "di",
+              "name": "Di"
+            }
+          ],
+          "opens_at_height": 1000,
+          "closes_at_height": 1010,
+          "roll": "c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0.1",
+          "roll_sha256": "7147ed8f98d8ec6f51e0a228e0429bffd539815449e59434eac4b603818cbbe8",
+          "height": 990
+        },
+        "roll": {
+          "members": [
+            "m1",
+            "m2",
+            "m3",
+            "m4",
+            "m5"
+          ],
+          "height": 989
+        },
+        "ballots": [
+          {
+            "txid": "1111111111111111111111111111111111111111111111111111111111111111",
+            "election": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1.0",
+            "height": 1001,
+            "position": 1,
+            "signer": "m1",
+            "choices": [
+              "ada"
+            ]
+          },
+          {
+            "txid": "2222222222222222222222222222222222222222222222222222222222222222",
+            "election": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1.0",
+            "height": 1001,
+            "position": 1,
+            "signer": "m2",
+            "choices": [
+              "ben"
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "error": "invalid_ballot",
+        "error_detail": "another ballot has this height and position"
+      }
+    }
+  ]
+}

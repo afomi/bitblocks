@@ -23,17 +23,48 @@ Writing a tx is qart's job (the wallet), so a ballot is composed and signed ther
 ## What goes on chain
 
 Every record is a MAP `SET` signed with AIP, the same shapes `Bitblocks.Aip` already checks and the pipeline already indexes.
-`app` is `pba-election` (or `modular-city-election`), so one projection filter finds them all.
-The field names below are a draft, to check with the standards steward before the first record is published.
+The AIP signature must cover every MAP field of the record, as `docs/BAP.md` already requires for BAP: an AIP that signs chosen field indexes and leaves a MAP field out counts for nothing.
+
+`app` is `pba-election` (or `modular-city-election`) for now, pending Ryan's choice of one app name for the format.
+The aim is one `app` for the format, with the tenant told apart by the administrator's key and the election's outpoint, so one projection filter finds every election.
+
+The field names follow Open Civic Data and NIST SP 1500-100 where they overlap: `name`, `number_elected` and `votes_allowed`.
+They stay a draft until the first record is published.
+
+### Encoding
+
+- A list (`choices`, `candidates`) is one JSON array in a single MAP value.
+  MAP can't carry a list by repeating a key: `Bitblocks.MapParser` keeps only the last value of a repeated key.
+- An integer (`number_elected`, `votes_allowed`, every `*_at_height`) is decimal ASCII with no leading zeros, so `1000`, never `01000` or `1e3`.
+- A candidate id is one or more of `a-z`, `0-9` and `-`, so it reads the same in a ballot, a URL and the lot.
+- An election is named by its record's outpoint, `<txid>.<vout>`, the txid as lowercase hex in display order.
+  The election record carries no id of its own; a reader takes it from where the record sits, and hands it to the count as `election`.
+  Ballots and the result name that outpoint in `election`.
+- A block hash is lowercase hex in RPC and display order (as `getblockhash` and explorers show it), the reverse of the header's internal byte order.
+
+### Records
+
+Each record's `type` carries its version, so a later format can sit beside this one.
 
 | Record | Signed by | Fields |
 |---|---|---|
-| Election | the administrator's key | `type=election`, `election` (an id), `title`, `seats`, `candidates` (ids and names), `opens_at_height`, `closes_at_height`, `roll` (the roll record's txid) |
-| Roll | the administrator's key | `type=roll`, `election`, and the members as a B:// file (JSON: each member's address or BAP id), with its sha256 |
-| Ballot | the member's key | `type=ballot`, `election`, `choices` (candidate ids, at most `seats`) |
-| Result | the administrator's key | `type=result`, `election`, `archive_sha256`, `closes_at_height` |
+| Roll | the administrator's key | a JSON B:// file, `{"members": [...]}`, sorted and unique, with `type=roll_v1` in the same output; it names no election |
+| Election | the administrator's key | `type=election_v1`, `name`, `number_elected`, `votes_allowed` (optional, defaults to `number_elected`), `candidates` (a JSON array of `{"id", "name"}`), `opens_at_height`, `closes_at_height`, `roll` (the roll's outpoint), `roll_sha256` (over the roll's exact bytes on chain) |
+| Ballot | the member's key | `type=ballot_v1`, `election` (the election's outpoint), `choices` (a JSON array of candidate ids, at most `votes_allowed`) |
+| Result | the administrator's key | `type=result_v1`, `election`, `archive_sha256`, `closes_at_height`, `close_block_hash` |
+
+The roll comes first, so the election can name it by outpoint and hash, and the roll never needs to name the election.
+`roll` is the outpoint of the output that holds the B:// file, and `roll_sha256` is the sha256 of the file's bytes exactly as they are on chain.
+The election record and the roll must both confirm below `opens_at_height`, so the rules are fixed before the first ballot can count.
 
 The window is in block heights, not wall-clock time, so anyone can tell from headers alone whether a ballot was in time.
+
+### Who is on the roll
+
+A member is a P2PKH address, written exactly as the AIP section writes it, and compared as an exact string.
+A compressed and an uncompressed public key give different addresses for the same private key, so the roll lists the form the member's wallet signs with.
+A BAP id is not on the counting path.
+Where a member is known by a BAP id, the administrator resolves it to the address when the roll is published, and keeps the BAP id only as a note beside the roll.
 
 ## The counting rule
 
@@ -43,8 +74,9 @@ The live page, the archive writer and a third-party recount all call it, or matc
 
 Each ballot comes to it as `txid`, `election`, `height`, `position`, `signer` and `choices`.
 `height` is null while the ballot is unconfirmed, or after a reorg removes its block.
-`position` is its index in the block.
-`signer` is the key whose AIP signature checked, or null when none did; checking the signature, the tx bytes and the proofs happens before the count.
+`position` is the tx's index in its block, with the coinbase at 0, the same as its leaf offset in the BUMP.
+`signer` is the address whose AIP signature checked, or null when none did; checking the signature, the tx bytes, the roll file against `roll_sha256` and the proofs happens before the count.
+The election and the roll may carry `height`, the block each confirmed in; when they do, the count holds it below `opens_at_height`.
 
 A ballot counts when it passes every rule below.
 When it doesn't, it is listed against the first rule it fails, in this order:
@@ -55,50 +87,58 @@ When it doesn't, it is listed against the first rule it fails, in this order:
 | 2 | `no_signature` | no AIP signature checked |
 | 3 | `not_on_roll` | its signer isn't on the roll |
 | 4 | `unconfirmed` | it isn't in a block |
-| 5 | `before_open`, `after_close` | its block is outside `opens_at_height` to `closes_at_height`; both ends count |
-| 6 | `malformed_choices` | `choices` isn't a list of strings |
-| 7 | `too_many_choices` | it names more than `seats` candidates |
-| 8 | `duplicate_choice` | it names one candidate twice |
-| 9 | `unknown_candidate` | it names an id not on the election's list |
-| 10 | `replaced` | the same signer has a later ballot, in chain order, that passed rules 1 to 9 |
+| 5 | `before_open` | its block is below `opens_at_height` |
+| 6 | `after_close` | its block is above `closes_at_height`; both ends of the window count |
+| 7 | `malformed_choices` | `choices` isn't a list of strings |
+| 8 | `too_many_choices` | it names more than `votes_allowed` candidates |
+| 9 | `duplicate_choice` | it names one candidate twice |
+| 10 | `unknown_candidate` | it names an id not on the election's list |
+| 11 | `replaced` | the same signer has a later ballot, in chain order, that passed rules 1 to 10 |
 
 Chain order is height, then position in the block.
-A member may change their vote until close, and their latest ballot that passes rules 1 to 9 is the one that counts.
+A member may change their vote until close, and their latest ballot that passes rules 1 to 10 is the one that counts.
 A ballot that fails a rule never replaces an earlier one, so a late or mistaken ballot can't undo a good one.
 An empty ballot passes, votes for no one, and so withdraws a member's earlier votes.
 
 The tally gives one vote to each candidate a counted ballot names, listed in the election's order with zeros included.
-The winners are the candidates with at least one vote, most votes first, up to `seats`; a seat no one has a vote for stays empty.
+The winners are the candidates with at least one vote, most votes first, up to `number_elected`; a seat no one has a vote for stays empty.
 Candidates tied above the last seat all win, listed in the election's order.
 
 **Ties for the last seats go by lot from the closing block.**
-The tied candidates are ordered by `sha256("<close_block_hash>:<candidate id>")` as lowercase hex, lowest first, where `close_block_hash` is the hash of the block at `closes_at_height` in lowercase hex, as explorers show it.
+The tied candidates are ordered by `sha256("<close_block_hash>:<candidate id>")` as lowercase hex, lowest first.
+`close_block_hash` is the hash of the block at `closes_at_height`, as lowercase hex in RPC and display order, the reverse of the header's internal byte order.
 No one knows that hash while voting is open, so no one can steer the lot, and anyone can check it from the headers.
 Until that block exists, the count reports those seats as `undecided`, with the tied candidates.
+The result record carries `close_block_hash`, so a reader sees the lot's input without looking it up.
 
 This is an open ballot: who voted for whom is public, which suits a membership board vote.
 A secret ballot is out of scope for the dogfood.
 
-The count refuses an input that can't be a real election, rather than judging it: seats below one, duplicate candidate ids, a window that closes before it opens, the same txid twice, or two ballots at one height and position.
+The count refuses an input that can't be a real election, rather than judging it (`Count.refusals/0` lists each refusal):
+an election id or roll that isn't an outpoint, a `roll_sha256` that isn't 64 lowercase hex characters, `number_elected` or `votes_allowed` below one, a candidate id outside `a-z`, `0-9` and `-`, duplicate candidate ids, heights that aren't integers, a window that closes before it opens, an election or roll that confirmed at or above `opens_at_height`, a roll whose members aren't strings, sorted and each once, a ballot without a txid or with a bad height or position, the same txid twice, or two ballots at one height and position.
 
 ### The test vectors
 
-The rule's vectors are published at [`GET /interop/elections/count/v1.json`](https://bitblocks.app/interop/elections/count/v1.json), open to anyone with no key, alongside the interop vectors (`docs/INTEROP_KIT.md`).
-The file is `priv/data/interop/election_count_v1.json`, with its expected outcomes written by hand.
-`test/bitblocks/elections/count_test.exs` runs every vector through `Count`, and checks that the file names every rule the code applies and that each rule has a vector, so the file can't drift from the code.
+The rule's vectors are published at [`GET /interop/elections/count/v0.json`](https://bitblocks.app/interop/elections/count/v0.json), open to anyone with no key, alongside the interop vectors (`docs/INTEROP_KIT.md`).
+The file is `priv/data/interop/election_count_v0.json`, with its expected outcomes written by hand.
+`test/bitblocks/elections/count_test.exs` runs every vector through `Count`, and checks that the file names every rule the code applies, in the code's order (`rule_order`), that each rule has a vector, and that each refusal has a vector, so the file can't drift from the code.
 
 Each vector gives `id`, `description`, `input` (`election`, `roll`, `ballots`, and `close_block_hash` when the vector needs it) and `expected`.
-`expected` is each ballot's `txid`, `counted`, `rule` and `replaced_by`, then `counted`, `not_counted`, `tally`, `winners` and `undecided`; or, for an input to refuse, `error`.
-The file's header explains every field and rule, so a recount (https://github.com/afomi/bitblocks/issues/138) can be written against it without reading our code.
-Within v1, a vector's id, input and expected outcome stay as they are, except to correct a mistake; new vectors raise the minor version, and a change to the rule gets a new file.
+`expected` is each ballot's `txid`, `counted`, `rule` and `replaced_by`, then `counted`, `not_counted`, `tally`, `winners` and `undecided`; or, for an input to refuse, `error` and `error_detail`.
+The file's header explains every field, rule and record, so a recount (https://github.com/afomi/bitblocks/issues/138) can be written against it without reading our code.
+Its `claim` says what the count takes as given: that each signer's AIP signature checked and covers every MAP field, that the roll matches its hash, and that each height is on the chain the headers agree on.
 
-The record field names the vectors use are the same draft as the table above.
+The file is v0, a draft, until the first election record is published on chain: nothing consumes it yet, so a vector may still change.
+Then a v1 file freezes the inputs: within v1 a vector's id, input and expected outcome stay as they are, except to correct a mistake; new vectors raise the minor version; and a change to the rule gets a new file.
+
+The licence is given as an SPDX id with its URL, as the other vector files give theirs: `MIT`, as the repository.
+MIT or CC0 for the vectors is pending Ryan.
 
 ## The archive
 
 When the window closes, the administrator publishes one archive, a directory of static files:
 
-- `election.json`: the election and roll records, with their txids.
+- `election.json`: the election record and the roll file, with their outpoints.
 - `ballots.json`: every ballot seen, each with its txid, height, signer, choices, and whether it counted (and if not, which rule it failed).
 - `tally.json`: the counts per candidate and the winners.
 - `proofs/`: a BUMP (merkle proof) for every record's tx, and the block headers from the election record's block to `closes_at_height`.

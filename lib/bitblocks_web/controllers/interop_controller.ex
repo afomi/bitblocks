@@ -1,6 +1,6 @@
 defmodule BitblocksWeb.InteropController do
   @moduledoc """
-  `GET /interop/vectors/v1.json` and `GET /interop/elections/count/v1.json`:
+  `GET /interop/vectors/v1.json` and `GET /interop/elections/count/v0.json`:
   the published test vectors, open to anyone with no key, since a kit that
   needs our key isn't neutral. The bytes are held
   in modules (`Bitblocks.Interop.Vectors`, `Bitblocks.Elections.CountVectors`),
@@ -23,7 +23,7 @@ defmodule BitblocksWeb.InteropController do
   @doc "GET /interop/vectors/v1.json"
   def vectors(conn, _params), do: send_vectors(conn, Vectors.body(), Vectors.sha256())
 
-  @doc "GET /interop/elections/count/v1.json, the election counting rule's vectors."
+  @doc "GET /interop/elections/count/v0.json, the election counting rule's vectors."
   def election_count(conn, _params),
     do: send_vectors(conn, CountVectors.body(), CountVectors.sha256())
 
