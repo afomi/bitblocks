@@ -33,6 +33,7 @@ defmodule Bitblocks.ApiKeys do
   @cache :api_key_cache
   @cache_ttl_ms 60_000
   @trial_requests_per_minute 60
+  @challenge_max_age_s 300
 
   @doc """
   Creates a key. Returns `{:ok, %ApiKey{}, token}`; the token isn't stored.
@@ -104,9 +105,23 @@ defmodule Bitblocks.ApiKeys do
     issue_trial(user)
   end
 
+  @doc "How long a signing challenge is good for, in seconds."
+  @spec challenge_max_age_s() :: pos_integer()
+  def challenge_max_age_s, do: @challenge_max_age_s
+
+  @doc "When a challenge issued at `issued_at` expires."
+  @spec challenge_expires_at(DateTime.t()) :: DateTime.t()
+  def challenge_expires_at(%DateTime{} = issued_at),
+    do: DateTime.add(issued_at, @challenge_max_age_s)
+
   @doc """
-  The text a wallet signs for a key: the site, a one-time nonce and when it
-  was issued, one per line, no trailing newline. The caller signs it exactly.
+  The text a wallet signs for a key: the site, a one-time nonce, when it was
+  issued and when it expires, one per line, no trailing newline, plain UTF-8.
+  The caller signs it exactly.
+
+  `Expires:` is there so a wallet can show the deadline before signing. It is
+  derived from `Issued:`, so the server rebuilds the same text from the
+  challenge token, and still enforces the expiry from the token itself.
   """
   @spec challenge_message(String.t(), String.t(), DateTime.t()) :: String.t()
   def challenge_message(site, nonce, %DateTime{} = issued_at) do
@@ -115,7 +130,8 @@ defmodule Bitblocks.ApiKeys do
         "Sign this to get a bitblocks API key bound to your key.",
         "Site: #{site}",
         "Nonce: #{nonce}",
-        "Issued: #{DateTime.to_iso8601(issued_at)}"
+        "Issued: #{DateTime.to_iso8601(issued_at)}",
+        "Expires: #{issued_at |> challenge_expires_at() |> DateTime.to_iso8601()}"
       ],
       "\n"
     )

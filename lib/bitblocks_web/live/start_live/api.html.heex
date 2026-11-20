@@ -114,6 +114,8 @@
         It gets a message from <code class="font-mono text-xs">GET /api/v1/keys/challenge</code> and signs it with its own key, as a Bitcoin Signed Message.
         Then it sends the <code class="font-mono text-xs">challenge</code>, the <code class="font-mono text-xs">signature</code> and its <code class="font-mono text-xs">address</code> to <code class="font-mono text-xs">POST /api/v1/keys</code>, and the key comes back once.
         The key is bound to that address, and signing again replaces it.
+        The message ends with an <code class="font-mono text-xs">Expires:</code> line, so a wallet can show how long the challenge is good for, five minutes.
+        Both calls work straight from a browser page on any site, with no server of your own: they answer the CORS preflight, send no cookies, and let the page read <code class="font-mono text-xs">Retry-After</code> on a 429.
       </p>
       <p>
         <.text_link href="/pricing">Pricing</.text_link> covers what comes after the free tier.

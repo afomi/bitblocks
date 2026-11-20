@@ -86,7 +86,6 @@ defmodule Bitblocks.MixProject do
       {:ex_aws, "~> 2.7"},
       {:ex_aws_s3, "~> 2.5"},
       {:sweet_xml, "~> 0.7"},
-      {:cors_plug, "~> 3.0"},
       {:ueberauth, "~> 0.10"},
       {:ueberauth_github, "~> 0.8"},
       # x402 payments for the AI crawler 402 (docs/STRIPE.md).
