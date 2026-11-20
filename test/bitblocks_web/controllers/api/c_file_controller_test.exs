@@ -39,10 +39,50 @@ defmodule BitblocksWeb.Api.CFileControllerTest do
                  }
                ]
              },
-             "meta" => %{"indexed_through_height" => nil, "source" => "c_files", "version" => 1}
+             "meta" => %{"indexed_through_height" => nil, "source" => "c_files", "version" => 2}
            } = body
 
     assert is_integer(vout)
+    assert [%{"kind" => "b", "chunks" => nil, "bcat_url" => nil}] = body["data"]["locations"]
+  end
+
+  test "lists a BCat file with its kind, head, chunks and where it is served", %{conn: conn} do
+    import Bitblocks.BcatFixtures
+
+    chunks = [chunk("big "), chunk("file")]
+    {txid, hex} = head(chunks)
+    transaction_fixture(%{txid: txid, raw: hex, protocols: ["BCat"], block_height: 650_000})
+    Enum.each(chunks, &Bitblocks.OrdinalFixtures.publish/1)
+    {:ok, _row} = CFiles.index_bcat(txid, 650_000)
+
+    sha = "big file" |> then(&:crypto.hash(:sha256, &1)) |> Base.encode16(case: :lower)
+    body = conn |> get(~p"/api/v1/c/#{sha}") |> json_response(200)
+
+    assert %{
+             "locations" => [
+               %{
+                 "kind" => "bcat",
+                 "txid" => ^txid,
+                 "chunks" => 2,
+                 "size" => 8,
+                 "b_url" => nil,
+                 "bcat_url" => "/content/bcat/" <> ^txid
+               }
+             ]
+           } = body["data"]
+  end
+
+  test "a miss counts the BCat heads that couldn't be assembled", %{conn: conn} do
+    Bitblocks.Repo.insert!(%Bitblocks.CFiles.Miss{
+      txid: String.duplicate("cd", 32),
+      reason: "missing_chunks",
+      version: 2
+    })
+
+    body = conn |> get(~p"/api/v1/c/#{String.duplicate("0", 64)}") |> json_response(404)
+
+    assert body["meta"]["bcat_unassembled"] == 1
+    assert body["message"] =~ "One BCat file we know of couldn't be assembled"
   end
 
   test "an address not in the index is a 404 that says how far the index reaches", %{conn: conn} do

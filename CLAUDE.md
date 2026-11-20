@@ -109,7 +109,7 @@ mix assets.deploy           # Build and minify for production
 
 - `Bitblocks.Chain.TxPipeline.steps/0` is the ordered list of what happens to every stored tx, and the one place to add a step (one module plus one line).
 - Chunk steps run before the insert, in `Chain.TxIngest.store_chunk/2`: `script_analysis`, `sats_out`, `burned`, `sats_in` (previous outputs from stored txs, one query per chunk; nil when one isn't stored), `fee`, `classify_outputs` (every output typed against `priv/data/tx_types/types.json` by `Bitblocks.TxTypes.Classifier`, unmatched as `custom`; the tx's set of types in `transactions.tx_types`, #49).
-- Tx steps run after it: `record_spends`, `index_tokens`, `index_bitcom`, `index_bap` (BAP records with a valid AIP signature, `docs/BAP.md`), `index_timelocks` (one `timelocks` row per script time lock: 1Sat Lock, CLTV, CSV, with whether it binds and whether only on one branch, #76), `index_c_files` (one `c_files` row per B:// file, keyed by the sha256 of its bytes, its C:// address, #147).
+- Tx steps run after it: `record_spends`, `index_tokens`, `index_bitcom`, `index_bap` (BAP records with a valid AIP signature, `docs/BAP.md`), `index_timelocks` (one `timelocks` row per script time lock: 1Sat Lock, CLTV, CSV, with whether it binds and whether only on one branch, #76), `index_c_files` (one `c_files` row per B:// file, keyed by the sha256 of its bytes, its C:// address, #147; a BCat head enqueues `Workers.CFileBcatWorker` on `:derived`, which assembles the file from chunks checked against their txids and indexes it by the sha256 of the whole file, kind `bcat`, or records why not in `c_file_misses`, #155).
 - A tx already stored when its block is fetched is skipped, so it meets no step; `Chain.TxPipeline.CatchUp` (`CatchUpBlockWorker`, queue `:derived`) brings such a block's rows up to version after it completes.
 - The block steps run once the block is `completed`: `block_totals` (`sats_out`, `fees`, `miner_reward`, `subsidy`, `burned`, and `fees_verified`: `miner_reward <= subsidy + fees`), then `type_counts` (`blocks.type_counts`, txs per type, which `/types` sums through `Bitblocks.TxTypes.Counts`).
 - A failing step is logged and reported (telemetry `[:bitblocks, :tx_pipeline, :step_failed]`) and never loses the stored tx.
@@ -303,8 +303,11 @@ bin/bitblocks rpc 'Bitblocks.Release.import_bap(["<txid>"]) |> IO.inspect()'
 bin/bitblocks rpc 'Bitblocks.Release.backfill_timelocks(0, 980_000)'
 bin/bitblocks rpc 'Bitblocks.Release.start_backfill("timelocks", 0, 980_000, apply: true)'
 
-# The C:// index of B:// files into c_files (#147): walks the B:// partial index, inserts only; dry run first, then add apply: true
+# The C:// index of B:// and BCat files into c_files (#147, #155): the B:// partial index, then a block walk for BCat heads,
+# each assembled from verified chunks; writes only rows that change; dry run first (assembles nothing), then add apply: true
 bin/bitblocks rpc 'Bitblocks.Release.backfill_c_files(0, 400_000)'
+# Rows by kind, how far the index reaches, and the BCat heads not indexed, by reason (read-only)
+bin/bitblocks rpc 'Bitblocks.Release.c_files_status()'
 
 # Chain-scrubber tiles (#48): full build once, then the cron keeps them current
 bin/bitblocks rpc 'Bitblocks.Release.build_chain_tiles()'
@@ -415,8 +418,8 @@ GET /api/v1/bitcom/snapshots    — versioned registry snapshots, newest first, 
 GET /api/v1/bitcom/snapshots/:version — one snapshot's exact bytes (or latest); sha256sum of the body matches the listed hash
 GET /api/v1/bit/:address/*path  — resolves bit://<address>/<path> to providers' endpoints; returned, never fetched
 GET /b/:txid                    — a B:// file parsed from its tx on the fly (immutable, nosniff, sandbox CSP)
-GET /c/:sha256                  — public: a B:// file by its C:// address (sha256 of its bytes), from the c_files index (#147), hashed again before it is served (same headers as /b); a hash not indexed is a 404 with indexed_through_height (null until the backfill covers block 0) and complete_through
-GET /api/v1/c/:sha256           — every stored output carrying that file (txid, vout, block_height, media_type, size, filename), oldest first, file_url; 404 not_indexed with the same meta
+GET /c/:sha256                  — public: a B:// or BCat file by its C:// address (sha256 of its bytes; for BCat, of the whole file), from the c_files index (#147, #155), hashed again before it is served (a BCat file assembled again, never redirected or streamed unchecked; same headers as /b); a hash not indexed is a 404 with indexed_through_height (null until the backfill covers block 0), complete_through and bcat_unassembled
+GET /api/v1/c/:sha256           — every stored copy of that file, oldest first: kind (b | bcat), txid, vout, block_height, media_type, size, filename, chunks, b_url or bcat_url; file_url; 404 not_indexed with the same meta
 GET /api/v1/projections/:id     — managed projection (#29): tenant, source (transactions | bitcom_commands), filter, definition hash, hydrate_url (/txs or /commands)
 GET /api/v1/projections/:id/txs — hydrate: matching confirmed txs on the stored chain, oldest first, frozen at a snapshot (?cursor=, ?limit=); meta.complete is true while a page lies within meta.stable_through_height; when it turns false, hold the cursor and come back
 GET /api/v1/projections/:id/commands — hydrate for a bitcom_commands projection (#29 Tenant 3): the Bitcom command log, valid and invalid, each command with txid, output_index, block_height, block_hash, actor, namespace, command, args, valid and reason, ordered by (block_height, txid, output_index), with the same cursor, snapshot and meta; served only while its tx stands under the stored block at that height; /txs and /commands answer a 400 naming each other for the wrong source

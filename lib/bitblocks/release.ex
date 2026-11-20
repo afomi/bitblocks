@@ -792,15 +792,20 @@ defmodule Bitblocks.Release do
   end
 
   @doc """
-  Fills `c_files`, the C:// index, with the B:// files of stored txs mined
-  at heights `from_height` to `to_height`
-  (https://github.com/afomi/bitblocks/issues/147): each file's sha256, its
-  output, media type and size. Reads only the txs tagged B://, through
-  their partial index, and writes only to `c_files`. Records the run in
-  `derivation_runs`; a run from block 0 is what lets `/c/:sha256` say how
-  far the index reaches. See `Bitblocks.Chain.TxPipeline.CFilesBackfill`.
+  Fills `c_files`, the C:// index, with the B:// files and BCat files of
+  stored txs mined at heights `from_height` to `to_height`
+  (https://github.com/afomi/bitblocks/issues/147,
+  https://github.com/afomi/bitblocks/issues/155): each file's sha256, where
+  it is, media type and size. B:// txs are read through their partial
+  index; BCat heads by walking the range's blocks, each head's file
+  assembled from chunks checked against their txids (WhatsOnChain only for
+  raw txs we don't hold). Writes only to `c_files` and `c_file_misses`,
+  and only rows that change. Records the run in `derivation_runs`; a run
+  from block 0 is what lets `/c/:sha256` say how far the index reaches.
+  See `Bitblocks.Chain.TxPipeline.CFilesBackfill`.
 
-  **Dry run by default**; `apply: true` writes.
+  **Dry run by default**, and a dry run assembles nothing; `apply: true`
+  writes.
 
       bin/bitblocks rpc 'Bitblocks.Release.backfill_c_files(0, 400_000)'
       bin/bitblocks rpc 'Bitblocks.Release.backfill_c_files(0, 400_000, apply: true)'
@@ -825,11 +830,18 @@ defmodule Bitblocks.Release do
   end
 
   defp print_c_files_backfill(r) do
-    print_run_header(r, "C:// index of B:// files")
+    print_run_header(r, "C:// index of B:// and BCat files")
     d = r.details
-    IO.puts("  #{r.rows_examined} B:// tx(s) read, #{d.files_found} file(s) found")
+    # BCat heads counted in rows_changed: assembled now, or (dry) to assemble.
+    bcat_changed =
+      if r.applied, do: d.bcat_indexed, else: d.bcat_heads - d.bcat_already - d.bcat_unindexed
 
-    IO.puts("  #{r.rows_changed} file row(s) #{if r.applied, do: "written", else: "to write"}")
+    IO.puts("  #{r.rows_examined - d.bcat_heads} B:// tx(s) read, #{d.files_found} file(s) found")
+
+    IO.puts(
+      "  #{r.rows_changed - bcat_changed} B:// file row(s) " <>
+        if(r.applied, do: "written", else: "to write")
+    )
 
     if d.no_file > 0, do: IO.puts("  #{d.no_file} tagged tx(s) hold no B:// file of their own")
 
@@ -837,8 +849,72 @@ defmodule Bitblocks.Release do
       IO.puts("  #{d.no_raw} B:// tx(s) NOT READ: no bytes in the database or the tx store")
     end
 
-    IO.puts("  #{r.rows_below_version} file row(s) missing or below the version in the range")
+    IO.puts(
+      "  #{r.blocks_examined} block(s) walked, #{d.bcat_heads} BCat head(s) read, " <>
+        "#{d.bcat_already} already indexed, #{bcat_changed} " <>
+        if(r.applied, do: "assembled and indexed", else: "to assemble")
+    )
+
+    if d.bcat_unindexed > 0 do
+      reasons = Enum.map_join(d.bcat_reasons, ", ", fn {reason, n} -> "#{n} #{reason}" end)
+
+      IO.puts(
+        "  #{d.bcat_unindexed} BCat head(s) NOT INDEXED (chunks not all found and verified): #{reasons}"
+      )
+    end
+
+    IO.puts("  #{r.rows_below_version} row(s) missing or changed in the range")
     print_run_footer(r)
+  end
+
+  @doc """
+  Where the C:// index stands (https://github.com/afomi/bitblocks/issues/155):
+  rows by kind, how far the index reaches, and the BCat heads that couldn't
+  be assembled, by reason, with the newest few. Read-only.
+
+      bin/bitblocks rpc 'Bitblocks.Release.c_files_status()'
+  """
+  def c_files_status do
+    import Ecto.Query
+
+    with_running_repo(fn ->
+      kinds =
+        from(c in Bitblocks.CFiles.CFile, group_by: c.kind, select: {c.kind, count()})
+        |> Bitblocks.Repo.all()
+        |> Map.new()
+
+      coverage = Bitblocks.CFiles.coverage()
+      reasons = Bitblocks.CFiles.misses_by_reason()
+      misses = Bitblocks.CFiles.misses(10)
+
+      IO.puts(
+        "C:// index v#{Bitblocks.CFiles.version()}: #{Map.get(kinds, "b", 0)} B:// row(s), " <>
+          "#{Map.get(kinds, "bcat", 0)} BCat row(s)"
+      )
+
+      IO.puts(
+        "  indexed through: #{inspect(coverage.indexed_through_height)}; " <>
+          "complete through: #{inspect(coverage.complete_through)}"
+      )
+
+      if reasons != %{} do
+        IO.puts(
+          "  BCat heads not indexed: " <>
+            Enum.map_join(reasons, ", ", fn {reason, n} -> "#{n} #{reason}" end)
+        )
+
+        Enum.each(misses, fn m ->
+          chunks =
+            if m.missing_chunks == [],
+              do: "",
+              else: ", #{length(m.missing_chunks)} chunk(s) missing"
+
+          IO.puts("    #{m.txid} at #{inspect(m.block_height)}: #{m.reason}#{chunks}")
+        end)
+      end
+
+      %{kinds: kinds, coverage: coverage, misses_by_reason: reasons}
+    end)
   end
 
   defp print_timelocks_backfill(r) do

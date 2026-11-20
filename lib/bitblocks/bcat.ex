@@ -36,11 +36,13 @@ defmodule Bitblocks.Bcat do
           charset: String.t() | nil,
           filename: String.t() | nil,
           flag: String.t() | nil,
+          vout: non_neg_integer(),
           chunk_txids: [String.t()]
         }
 
   @doc """
-  The assembled file: `{:ok, %{data:, mime:, charset:, filename:, chunks:}}`.
+  The assembled file: `{:ok, %{data:, mime:, charset:, filename:, chunks:,
+  vout:}}`, `vout` being the head's output.
 
   Errors: `:not_found` (no such tx), `:not_bcat`, `:no_chunks`, `:too_large`,
   `{:missing, txids}` (no source has them), `{:unavailable, txids}` (a source
@@ -59,7 +61,8 @@ defmodule Bitblocks.Bcat do
          mime: head.mime,
          charset: head.charset,
          filename: head.filename,
-         chunks: length(head.chunk_txids)
+         chunks: length(head.chunk_txids),
+         vout: head.vout
        }}
     else
       {:ok, %{chunk_txids: []}} -> {:error, :no_chunks}
@@ -71,8 +74,8 @@ defmodule Bitblocks.Bcat do
   @spec parse_head(binary()) :: {:ok, head()} | {:error, :not_bcat}
   def parse_head(bytes) do
     with {:ok, tx} <- bytes |> Base.encode16() |> RawTx.parse(),
-         [info, mime, charset, filename, flag | pushes] <-
-           Enum.find_value(tx.outputs, &head_fields/1) do
+         {vout, [info, mime, charset, filename, flag | pushes]} <-
+           tx.outputs |> Enum.with_index() |> Enum.find_value(&head_fields/1) do
       {:ok,
        %{
          info: text(info),
@@ -80,6 +83,7 @@ defmodule Bitblocks.Bcat do
          charset: text(charset),
          filename: text(filename),
          flag: text(flag),
+         vout: vout,
          chunk_txids:
            for(
              <<push::binary-size(32)>> <- Enum.take_while(pushes, &(&1 != "|")),
@@ -91,10 +95,10 @@ defmodule Bitblocks.Bcat do
     end
   end
 
-  defp head_fields(output) do
+  defp head_fields({output, vout}) do
     case OpReturn.raw_chunks(output.script) do
       [@head_prefix, "c" | _] -> nil
-      [@head_prefix | fields] -> fields
+      [@head_prefix | fields] -> {vout, fields}
       _ -> nil
     end
   end

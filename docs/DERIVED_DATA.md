@@ -48,7 +48,7 @@ Removing a step would lower it, so a removal also bumps a remaining step of the 
 | `index_bitcom` | tx | 1 | none | `bitcom_commands` |
 | `index_bap` | tx | 1 | none | `bap_records` |
 | `index_timelocks` | tx | 1 | `timelocks` | `timelocks` rows |
-| `index_c_files` | tx | 1 | `c_files` | `c_files` rows |
+| `index_c_files` | tx | 2 | `c_files` | `c_files` rows; for a BCat head, a `CFileBcatWorker` job |
 | `block_totals` | block | 2 | `block_totals` | `blocks.sats_out`, `fees`, `miner_reward`, `subsidy`, `burned`, `fees_verified` |
 | `type_counts` | block | 1 | `type_counts` | `blocks.type_counts` |
 
@@ -79,6 +79,15 @@ Its backfill walks the txs tagged `B://` through their partial index (`transacti
 Bytes come from the row, else the tx store, never WhatsOnChain; a tagged tx with bytes in neither counts under `no_raw`.
 It writes only the file rows missing at the version, so a rerun after a full apply writes nothing.
 Applied runs from block 0 set `CFiles.indexed_through/1`, which `/c/:sha256` and `GET /api/v1/c/:sha256` report as `indexed_through_height`; until one has run it is null, and a miss says the index hasn't been backfilled.
+`index_c_files` v2 (https://github.com/afomi/bitblocks/issues/155) adds BCat files: `c_files.kind` is `b` or `bcat`, and a BCat row sits at its head's txid and output, with `chunks` and the assembled `size`.
+A BCat file's address is the sha256 of the whole file, so it is indexed only once every chunk was found (our database or tx store, else WhatsOnChain as a raw tx) and checked against the txid its head names.
+Assembling reads up to 256 chunks and 32 MB, so the step only enqueues `Workers.CFileBcatWorker` on the `:derived` queue, unique on the head; the job does the work.
+A head that doesn't assemble gets no row; its reason (`missing_chunks`, with the chunk txids, `unavailable`, `too_large`, `no_chunks`) goes in `c_file_misses`, and the job retries only `unavailable`.
+The backfill adds a second pass for BCat: there is no index for the BCat tag, and none is added to `transactions`, so it walks the range's blocks and reads each block's BCat heads on the `block_hash` index, as `backfill_bap` does.
+It writes only rows that change: a B:// row v1 wrote is the row v2 would write (same output, address and kind), so it keeps its stamp of 1, and a BCat head already indexed is not assembled again.
+The applied run at v2 is what vouches for the range: `CFiles.indexed_through/1` counts only runs at the current version, so the v1 runs no longer count.
+A dry run assembles and fetches nothing; it counts the heads to assemble under `rows_below_version`, and the heads already tried and missed under `details.bcat_unindexed`.
+Its acceptance check is a dry run with `rows_below_version` 0 and `no_raw` 0; `Release.c_files_status()` lists what stayed unindexed and why.
 
 ### Derivations
 
@@ -91,9 +100,9 @@ Applied runs from block 0 set `CFiles.indexed_through/1`, which `/c/:sha256` and
 | `type_counts` | `classify_outputs`, `type_counts` | 7 | `blocks.type_counts_version` | `Release.backfill_tx_types/3` |
 | `token_recipients` | `index_tokens` | 3 | `protocol_instances.recipient_version` | `Release.backfill_token_recipients/3` |
 | `timelocks` | `index_timelocks` | 1 | `timelocks.version` | `Release.backfill_timelocks/3` |
-| `c_files` | `index_c_files` | 1 | `c_files.version` | `Release.backfill_c_files/3` |
+| `c_files` | `index_c_files` | 2 | `c_files.version` | `Release.backfill_c_files/3` |
 
-Stage versions today: chunk 17, tx 8, block 3.
+Stage versions today: chunk 17, tx 9, block 3.
 `GET /api/v1/status/derivations` answers all of these live.
 
 `type_counts` sums the classifier's version with its own, because a block's counts change when the classifier does: a classifier bump marks every block's counts below the version too, and the one backfill re-types the txs and rewrites the counts.
@@ -165,7 +174,7 @@ A backfill run is dated exactly, in `derivation_runs`.
 | `bitcom_commands` | `index_bitcom` | Bitcom `$` commands | none yet | none for untagged txs | re-indexed by `Release.backfill_script_analysis/3` |
 | `bap_records` | `index_bap` | BAP records with a valid AIP signature | `version` | none for a tx with no AIP signer | `Release.backfill_bap/3` |
 | `timelocks` | `index_timelocks` | output scripts: 1Sat Lock, CLTV, CSV (`Bitblocks.ScriptLocks`) | `version` | none for a tx whose outputs script analysis typed; a decode for one with an `unknown` output | `Release.backfill_timelocks/3` |
-| `c_files` | `index_c_files` | B:// file outputs (`Bitcom.BFile`), their bytes hashed | `version` | none for a tx not tagged `B://`; a decode and a sha256 for one that is | `Release.backfill_c_files/3` |
+| `c_files` | `index_c_files` | B:// file outputs (`Bitcom.BFile`), their bytes hashed; BCat files assembled from their chunks (`Bitblocks.Bcat`), the whole file hashed | `version` | none for a tx tagged neither `B://` nor BCat; a decode and a sha256 for a B:// tx; one job insert for a BCat head, whose job reads up to 256 chunks and 32 MB on `:derived` | `Release.backfill_c_files/3` |
 
 The tx steps write rows in other tables keyed by txid, so most have versions but no per-row stamp yet.
 When one of them changes its output, it gains a stamp column and a backfill in the same change.
@@ -214,9 +223,10 @@ bin/bitblocks rpc 'Bitblocks.Release.backfill_token_recipients(0, 980_000, apply
 bin/bitblocks rpc 'Bitblocks.Release.backfill_timelocks(0, 980_000)'
 bin/bitblocks rpc 'Bitblocks.Release.start_backfill("timelocks", 0, 980_000, apply: true)'
 
-# The C:// index of B:// files (#147), dry run, then apply; inserts into c_files only
+# The C:// index of B:// and BCat files (#147, #155), dry run, then apply; writes c_files and c_file_misses only
 bin/bitblocks rpc 'Bitblocks.Release.backfill_c_files(0, 400_000)'
 bin/bitblocks rpc 'Bitblocks.Release.backfill_c_files(0, 400_000, apply: true)'
+bin/bitblocks rpc 'Bitblocks.Release.c_files_status()'
 
 # The runs, newest first
 bin/bitblocks rpc 'Bitblocks.Release.derivation_runs()'
