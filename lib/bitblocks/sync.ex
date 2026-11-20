@@ -453,6 +453,10 @@ defmodule Bitblocks.Sync do
   run's time is bounded by `:tx_fetch_run_ms` like any job, and its blocks are
   worked one at a time, so the limits keep runs short, not memory low.
   Near height 157,000 the median block has 31 txs and the largest 379.
+
+  While a tip lane runs (`Bitblocks.TipLane`, #139), it is one slot of the
+  RPC budget: the sync fills at most `concurrency_limit/0` minus one slots,
+  never fewer than one.
   """
   @spec dispatch(pos_integer() | nil) :: non_neg_integer()
   def dispatch(requested \\ nil) do
@@ -463,6 +467,8 @@ defmodule Bitblocks.Sync do
       serialize_dispatch(fn ->
         chosen = concurrency()
         slots = if is_integer(requested), do: min(max(requested, 1), chosen), else: chosen
+        # A running tip lane (#139) is one slot of the RPC budget.
+        slots = Bitblocks.TipLane.sync_slots(slots)
         if paused?(), do: 0, else: dispatch_window(slots)
       end)
 

@@ -150,6 +150,8 @@ defmodule BitblocksWeb.Api.StreamController do
     # Subscribe before the catch-up query, so a block completing between the
     # two is sent (twice at worst), never missed.
     Phoenix.PubSub.subscribe(@pubsub, "blocks")
+    # Blocks this projection's tip lane reads (#139), ahead of the sync.
+    Phoenix.PubSub.subscribe(@pubsub, Bitblocks.TipLane.topic(projection.id))
 
     case Bitblocks.Projections.follow_since(projection, after_height) do
       {:ok, catch_up} ->
@@ -164,6 +166,7 @@ defmodule BitblocksWeb.Api.StreamController do
 
       {:error, :too_far_behind} ->
         Phoenix.PubSub.unsubscribe(@pubsub, "blocks")
+        Phoenix.PubSub.unsubscribe(@pubsub, Bitblocks.TipLane.topic(projection.id))
 
         conn
         |> put_status(409)
@@ -200,14 +203,12 @@ defmodule BitblocksWeb.Api.StreamController do
     receive do
       {:block_updated, %{sync_state: "completed", height: h, hash: hash}}
       when is_integer(h) and h > position and h >= projection.from_height ->
-        txs = Bitblocks.Projections.block_matches(projection, hash)
+        send_block(conn, projection, position, deadline, {h, hash})
 
-        with {:ok, conn} <- send_txs(conn, txs),
-             {:ok, conn} <- checkpoint(conn, projection, position, {h, hash}) do
-          projection_loop(conn, projection, position, deadline)
-        else
-          {:error, _} -> conn
-        end
+      {:tip_lane_block, %{projection_id: id, height: h, hash: hash}}
+      when id == projection.id and is_integer(h) and h > position and
+             h >= projection.from_height ->
+        send_block(conn, projection, position, deadline, {h, hash})
 
       {:reorg, %{fork_point: fork_point}} when is_integer(fork_point) ->
         case sse(conn, "reorg", %{projection_id: projection.id, rewind_height: fork_point}, nil) do
@@ -227,6 +228,17 @@ defmodule BitblocksWeb.Api.StreamController do
             {:error, _} -> conn
           end
         end
+    end
+  end
+
+  defp send_block(conn, projection, position, deadline, {_h, hash} = block) do
+    txs = Bitblocks.Projections.block_matches(projection, hash)
+
+    with {:ok, conn} <- send_txs(conn, txs),
+         {:ok, conn} <- checkpoint(conn, projection, position, block) do
+      projection_loop(conn, projection, position, deadline)
+    else
+      {:error, _} -> conn
     end
   end
 

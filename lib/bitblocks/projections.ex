@@ -138,21 +138,41 @@ defmodule Bitblocks.Projections do
   enqueued (a repeat call for the same block enqueues none).
   """
   @spec notify_block(Bitblocks.Chain.Block.t()) :: non_neg_integer()
-  def notify_block(%Bitblocks.Chain.Block{height: height, hash: hash}) do
-    jobs =
-      for projection <- webhook_projections(),
-          projection.from_height <= height,
-          txid <- matching_txids(projection, hash) do
-        ProjectionWebhookWorker.new(%{
+  def notify_block(%Bitblocks.Chain.Block{} = block) do
+    webhook_projections() |> Enum.map(&notify_projection_block(&1, block)) |> Enum.sum()
+  end
+
+  @doc """
+  Follow for one projection: enqueues a webhook delivery per tx in `block`
+  matching it, when it is active, has a webhook and covers the block's
+  height. Called by `notify_block/1`, and by a tip lane (`Bitblocks.TipLane`)
+  for the block it has just read. Deliveries are unique per `{projection,
+  txid, block_hash}`, so the sync completing the same block later enqueues
+  none again while the first is kept. Returns the count newly enqueued.
+  """
+  @spec notify_projection_block(Projection.t(), Bitblocks.Chain.Block.t()) :: non_neg_integer()
+  def notify_projection_block(%Projection{} = projection, %Bitblocks.Chain.Block{} = block) do
+    %{height: height, hash: hash} = block
+
+    if projection.status == "active" and is_binary(projection.webhook_url) and
+         projection.source == "transactions" and projection.from_height <= height do
+      projection
+      |> matching_txids(hash)
+      |> Enum.map(fn txid ->
+        %{
           projection_id: projection.id,
           event: "tx",
           txid: txid,
           block_height: height,
           block_hash: hash
-        })
-      end
-
-    jobs |> Enum.map(&Oban.insert!/1) |> Enum.count(&(not &1.conflict?))
+        }
+        |> ProjectionWebhookWorker.new()
+        |> Oban.insert!()
+      end)
+      |> Enum.count(&(not &1.conflict?))
+    else
+      0
+    end
   end
 
   @doc """
@@ -244,8 +264,8 @@ defmodule Bitblocks.Projections do
   `start`, which follow keeps within #{@follow_max_blocks} blocks.
   """
   @spec follow_resume(Projection.t(), integer()) :: integer()
-  def follow_resume(%Projection{from_height: from}, start) do
-    max(indexed_through(max(from, start + 1), tip_height()), start)
+  def follow_resume(%Projection{from_height: from} = projection, start) do
+    max(covered_through(projection, max(from, start + 1), tip_height()), start)
   end
 
   # Matching rows under a stored, completed block at the row's own height, from
@@ -258,11 +278,26 @@ defmodule Bitblocks.Projections do
     |> order_by([c], asc: c.block_height, asc: c.txid, asc: c.output_index)
   end
 
+  # A tx projection's block counts once it is completed, or once this
+  # projection's tip lane has read it under the hash it has now (#139): the
+  # lane stored every tx in it that matches.
   defp follow_query(projection) do
+    lane_read =
+      from(l in Bitblocks.TipLane.LaneBlock,
+        where:
+          l.projection_id == ^projection.id and l.status == "read" and
+            l.height == parent_as(:block).height and l.block_hash == parent_as(:block).hash,
+        select: 1
+      )
+
     projection
     |> query()
-    |> join(:inner, [t], b in Block, on: b.hash == t.block_hash and b.height == t.block_height)
-    |> where([t, b], b.sync_state == "completed" and t.block_height >= ^projection.from_height)
+    |> join(:inner, [t], b in Block,
+      as: :block,
+      on: b.hash == t.block_hash and b.height == t.block_height
+    )
+    |> where([t, b], t.block_height >= ^projection.from_height)
+    |> where([t, b], b.sync_state == "completed" or exists(lane_read))
     |> order_by([t], asc: t.block_height, asc: t.txid)
   end
 
@@ -454,6 +489,12 @@ defmodule Bitblocks.Projections do
   know it. `index_state` is `"ready"` when the stable prefix has reached both,
   else `"backfilling"`; `lag_blocks` is the distance to the further of them.
 
+  A projection with a tip lane (#139, `Bitblocks.TipLane`) counts a block its
+  lane has read, under the hash the block has now, as indexed too: the lane
+  stored every tx in it that matches. `tip_lane_through_height` is how far
+  the lane reaches (nil without a lane), and `tip_lane` says whether it runs,
+  where it started, how far behind it is and why it stopped.
+
   Block-level: a `completed` block with a tx-count deficit is caught by
   `Release.audit_completeness/1`, which is too heavy to run per request.
   """
@@ -465,12 +506,15 @@ defmodule Bitblocks.Projections do
           indexed_through_height: integer(),
           stable_through_height: integer(),
           lag_blocks: non_neg_integer(),
-          index_state: String.t()
+          index_state: String.t(),
+          tip_lane_through_height: integer() | nil,
+          tip_lane: map() | nil
         }
   def status(%Projection{} = projection) do
     tip = tip_height()
     node_tip = Bitblocks.SyncProgress.snapshot().overview[:node_tip]
-    through = indexed_through(projection.from_height, tip)
+    through = covered_through(projection, projection.from_height, tip)
+    lane = Bitblocks.TipLane.status(projection, tip: tip, node_tip: node_tip)
     head = [tip, node_tip] |> Enum.filter(&is_integer/1) |> Enum.max(fn -> nil end)
     lag = if head, do: max(head - through, 0), else: 0
 
@@ -482,12 +526,25 @@ defmodule Bitblocks.Projections do
       indexed_through_height: through,
       stable_through_height: through,
       lag_blocks: lag,
-      index_state: if(head && through >= head, do: "ready", else: "backfilling")
+      index_state: if(head && through >= head, do: "ready", else: "backfilling"),
+      tip_lane_through_height: lane && lane.through_height,
+      tip_lane: lane
     }
   end
 
   defp stable_through(_projection, nil), do: nil
-  defp stable_through(projection, snapshot), do: indexed_through(projection.from_height, snapshot)
+
+  defp stable_through(projection, snapshot),
+    do: covered_through(projection, projection.from_height, snapshot)
+
+  # indexed_through/2, plus the blocks this projection's tip lane has read.
+  defp covered_through(projection, from, to) do
+    Bitblocks.TipLane.covered_through(projection.id, from, to, indexed_through(from, to))
+  end
+
+  @doc false
+  # Last height h in [from, to] with every block from..h completed (see below).
+  def completed_through(from, to), do: indexed_through(from, to)
 
   # Last height h in [from, to] with every block from..h completed; from - 1
   # when the first block is already incomplete. The count is an index-only
