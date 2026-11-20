@@ -85,6 +85,31 @@ defmodule Bitblocks.Chain.BlockTxidsBoundedTest do
     assert Enum.any?(queries, &(&1 =~ ~s(ORDER BY t0."block_height", t0."txid")))
   end
 
+  test "a big block's next page starts after the last txid, with no offset" do
+    block =
+      block_fixture(%{
+        height: 635_142,
+        hash: "big635142",
+        sync_state: "completed",
+        num_tx: 3_000_000,
+        tx: []
+      })
+
+    for txid <- ~w(k_e k_b k_d k_a k_c),
+        do: transaction_fixture(%{txid: txid, block_hash: "big635142", block_height: 635_142})
+
+    assert {:ok, %{txids: ["k_a", "k_b"]}} = BlockTxids.load(block, 0, 1, 2)
+
+    {{:ok, second}, queries} =
+      capture_transactions_queries(fn -> BlockTxids.load(block, 0, 2, 2, after: "k_b") end)
+
+    assert second.txids == ["k_c", "k_d"]
+    refute Enum.any?(queries, &(&1 =~ "OFFSET"))
+    # The same page by offset, the fallback for a page not reached by Next.
+    assert {:ok, %{txids: ["k_c", "k_d"]}} = BlockTxids.load(block, 0, 2, 2)
+    assert {:ok, %{txids: ["k_e"]}} = BlockTxids.load(block, 0, 3, 2, after: "k_d")
+  end
+
   test "a block not yet complete counts at most 100,000 stored txs" do
     block = block_fixture(%{hash: "partial1", sync_state: "txs_syncing", num_tx: 2, tx: []})
 
@@ -148,11 +173,14 @@ defmodule Bitblocks.Chain.BlockTxidsBoundedTest do
     Repo.query!("SET LOCAL enable_sort = off")
     Repo.query!("SET LOCAL enable_bitmapscan = off")
     txid_plan = plan.(BlockTxids.stored_page_query(absent, :txid, 1, 50))
+    keyset_plan = plan.(BlockTxids.stored_page_query(absent, :txid, 90, 50, "ffff"))
     Repo.query!("SET LOCAL enable_sort TO DEFAULT")
     Repo.query!("SET LOCAL enable_bitmapscan TO DEFAULT")
     assert txid_plan =~ "transactions_block_height_txid_index"
     refute txid_plan =~ "Sort"
     refute txid_plan =~ "block_hash"
+    assert keyset_plan =~ "transactions_block_height_txid_index"
+    refute keyset_plan =~ "Sort"
   end
 
   describe "Repo.with_statement_timeout/2" do
