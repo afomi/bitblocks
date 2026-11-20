@@ -55,4 +55,22 @@ defmodule BitblocksWeb.InteropControllerTest do
     assert conn |> get(@path) |> response(200)
     refute_received {:query, _}
   end
+
+  describe "the election count vectors" do
+    @count_path "/interop/elections/count/v1.json"
+
+    test "open to anyone, cached and exactly the published file", %{conn: conn} do
+      with_gate(fn ->
+        conn = get(conn, @count_path)
+
+        assert response(conn, 200) == Bitblocks.Elections.CountVectors.body()
+        assert response_content_type(conn, :json)
+        assert %{"name" => "bitblocks-election-count-vectors"} = json_response(conn, 200)
+        assert get_resp_header(conn, "cache-control") == ["public, max-age=3600"]
+
+        assert get_resp_header(conn, "etag") ==
+                 [~s("#{Bitblocks.Elections.CountVectors.sha256()}")]
+      end)
+    end
+  end
 end

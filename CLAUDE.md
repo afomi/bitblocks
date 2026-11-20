@@ -345,6 +345,7 @@ POST /api/v1/keys               — open: {challenge, signature, address?} → 2
 GET /api/v1/headers/:height     — open: one header: raw 80 bytes as hex, hash, height, merkleroot, verified, canonical; rely on it only when both are true
 GET /api/v1/headers             — open: ?from=&limit= up to 2,000 headers by the height index; meta.tip_height says what they cover, meta.missing what we lack below it
 GET /interop/vectors/v1.json    — open test vectors for BEEF and BUMP, each with its expected outcome (docs/INTEROP_KIT.md); licence at /interop/vectors/LICENSE.txt
+GET /interop/elections/count/v1.json — open test vectors for the election counting rule (`Bitblocks.Elections.Count`, a pure function): input, each ballot counted or the rule it failed, tally, winners; ties for the last seats by lot from the closing block's hash (docs/ELECTION_DOGFOOD.md)
 GET /api/v1/txs/:txid/bob       — the tx as BOB (unwriter's tapes and cells, as BPU splits them: OP_RETURN closes a tape, a `|` stands alone), read from its bytes or WhatsOnChain's; blk once we store its chained block (`Bitblocks.Bob`)
 GET /api/v1/txs/:txid/raw       — the tx's exact bytes (octet-stream), or ?format=hex for lowercase hex, verified against the txid, immutable; the CDN origin (docs/TX_STORAGE.md)
 GET /content/:outpoint          — inscription body parsed from the raw tx on the fly (1Sat convention; immutable, nosniff, sandbox CSP)

@@ -1,11 +1,14 @@
 defmodule BitblocksWeb.InteropController do
   @moduledoc """
-  `GET /interop/vectors/v1.json`: the published test vectors, open to anyone
-  with no key, since a kit that needs our key isn't neutral. The bytes are held
-  in the module (`Bitblocks.Interop.Vectors`), so this reads no database.
+  `GET /interop/vectors/v1.json` and `GET /interop/elections/count/v1.json`:
+  the published test vectors, open to anyone with no key, since a kit that
+  needs our key isn't neutral. The bytes are held
+  in modules (`Bitblocks.Interop.Vectors`, `Bitblocks.Elections.CountVectors`),
+  so this reads no database.
   """
   use BitblocksWeb, :controller
 
+  alias Bitblocks.Elections.CountVectors
   alias Bitblocks.Interop.Vectors
 
   @doc "GET /interop/vectors/LICENSE.txt, the licence the file's notice names."
@@ -18,8 +21,14 @@ defmodule BitblocksWeb.InteropController do
   end
 
   @doc "GET /interop/vectors/v1.json"
-  def vectors(conn, _params) do
-    etag = ~s("#{Vectors.sha256()}")
+  def vectors(conn, _params), do: send_vectors(conn, Vectors.body(), Vectors.sha256())
+
+  @doc "GET /interop/elections/count/v1.json, the election counting rule's vectors."
+  def election_count(conn, _params),
+    do: send_vectors(conn, CountVectors.body(), CountVectors.sha256())
+
+  defp send_vectors(conn, body, sha256) do
+    etag = ~s("#{sha256}")
 
     conn =
       conn
@@ -32,7 +41,7 @@ defmodule BitblocksWeb.InteropController do
     else
       conn
       |> put_resp_content_type("application/json")
-      |> send_resp(200, Vectors.body())
+      |> send_resp(200, body)
     end
   end
 end
