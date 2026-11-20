@@ -250,6 +250,10 @@ config :bitblocks, :support,
   # block 971,500 is a few days before that, so the scan covers its whole life.
   scan_from_height: 971_500
 
+# The `app` value election records carry (docs/ELECTION_DOGFOOD.md,
+# Bitblocks.Elections.Records). Pending one name for the format: this line.
+config :bitblocks, :election_app, "pba-election"
+
 # Import environment specific config. This must remain at the bottom
 # of this file so it overrides the configuration defined above.
 import_config "#{config_env()}.exs"

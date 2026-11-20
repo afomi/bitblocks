@@ -270,6 +270,13 @@ bin/bitblocks rpc 'Bitblocks.Release.tip_lane_status(1) |> IO.inspect()'
 # Stop it; its rows stay
 bin/bitblocks rpc 'Bitblocks.Release.stop_tip_lane(1) |> IO.inspect()'
 
+# An election (#136, docs/ELECTION_DOGFOOD.md): the live count, read only, current to the block it names; projection: counts a tip lane
+bin/bitblocks rpc 'Bitblocks.Release.election_count("<txid>.0") |> IO.inspect(limit: :infinity)'
+bin/bitblocks rpc 'Bitblocks.Release.election_count("<txid>.0", projection: 1) |> IO.inspect(limit: :infinity)'
+# Its archive once closes_at_height is 6 deep (refused before, naming the blocks left): dry run first, then apply: true writes the files
+bin/bitblocks rpc 'Bitblocks.Release.build_election_archive("<txid>.0", "/tmp/pba-2026") |> IO.inspect()'
+bin/bitblocks rpc 'Bitblocks.Release.build_election_archive("<txid>.0", "/tmp/pba-2026", apply: true) |> IO.inspect()'
+
 # Bitcom registry snapshot (#21): writes a new version if the registry changed; a daily cron does the same
 bin/bitblocks rpc 'Bitblocks.Release.bitcom_snapshot()'
 

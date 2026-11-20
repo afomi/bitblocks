@@ -1741,6 +1741,62 @@ defmodule Bitblocks.Release do
     Bitblocks.TipLane.status(projection, node_tip: node_tip)
   end
 
+  @doc """
+  The live count of the election at `outpoint` (`<txid>.<vout>`,
+  `docs/ELECTION_DOGFOOD.md`): its records gathered from our index, then the
+  counting rule. Read only. Says the block the count is current to, and
+  whether it is final (our index covers closes_at_height + 6).
+  `projection: id` searches by that projection's filter and counts its tip
+  lane in the coverage.
+
+      bin/bitblocks rpc 'Bitblocks.Release.election_count("<txid>.0") |> IO.inspect(limit: :infinity)'
+      bin/bitblocks rpc 'Bitblocks.Release.election_count("<txid>.0", projection: 1) |> IO.inspect(limit: :infinity)'
+  """
+  def election_count(outpoint, opts \\ []), do: Bitblocks.Elections.count_now(outpoint, opts)
+
+  @doc """
+  Builds the static archive of the election at `outpoint` in `dir`
+  (`Bitblocks.Elections.Archive`): each record's tx bytes and BUMP, the
+  headers from the roll's block to closes_at_height + 6, the roll file,
+  count.json and MANIFEST.sha256. Refused until closes_at_height is 6 blocks
+  deep, naming how many remain.
+
+  Dry run by default: every file's path, size and sha256, and the
+  archive_sha256, with nothing written. `apply: true` writes them and reads
+  each back. The same chain gives the same bytes, so a rebuild is a check.
+
+      bin/bitblocks rpc 'Bitblocks.Release.build_election_archive("<txid>.0", "/tmp/pba-2026") |> IO.inspect()'
+      bin/bitblocks rpc 'Bitblocks.Release.build_election_archive("<txid>.0", "/tmp/pba-2026", apply: true) |> IO.inspect()'
+  """
+  def build_election_archive(outpoint, dir, opts \\ []) do
+    {apply?, opts} = Keyword.pop(opts, :apply, false)
+
+    result =
+      if apply?,
+        do: Bitblocks.Elections.Archive.build(outpoint, dir, opts),
+        else: Bitblocks.Elections.Archive.plan(outpoint, opts)
+
+    with {:ok, archive} <- result do
+      if apply?, do: Logger.info("build_election_archive: #{outpoint} -> #{dir}")
+
+      {:ok,
+       %{
+         election: archive.election,
+         dir: dir,
+         dry_run: not apply?,
+         archive_sha256: archive.archive_sha256,
+         close_block_hash: archive.close_block_hash,
+         winners: archive.count.winners,
+         undecided: archive.count.undecided,
+         files:
+           Enum.map(
+             archive.files,
+             &%{path: &1.path, size: byte_size(&1.bytes), sha256: &1.sha256}
+           )
+       }}
+    end
+  end
+
   defp update_projection(id, attrs) do
     case Bitblocks.Projections.update_settings(Bitblocks.Projections.get!(id), attrs) do
       {:ok, p} ->
