@@ -8,11 +8,28 @@ defmodule BitblocksWeb.BlockLive.Show do
   @tx_page_size 50
 
   # Assigns hold the block WITHOUT its txid array (`block.tx` is nil) plus
-  # one page of txids (`:txids`) and the array length (`:tx_total`). Large
-  # blocks list millions of txids; a socket must never carry them all.
+  # one page of txids (`:txids`) and the total to page through
+  # (`:tx_total`). Large blocks list millions of txids; a socket must never
+  # carry them all.
+  #
+  # The block row renders at once (one lookup on a unique index). The
+  # transactions panel loads after connect, under a statement timeout
+  # (`Chain.BlockTxids.load/5`): `:tx_load` is `:loading`, `:ok`, or
+  # `{:error, reason}`, which says it couldn't load in time instead of the
+  # page failing.
   @impl true
   def mount(_params, _session, socket) do
-    {:ok, assign(socket, tx_page: 1, txids: [], tx_total: 0)}
+    {:ok,
+     assign(socket,
+       tx_page: 1,
+       txids: [],
+       tx_summaries: %{},
+       tx_total: 0,
+       tx_total_capped: false,
+       tx_order: :block,
+       tx_list_total: 0,
+       tx_load: :loading
+     )}
   end
 
   @impl true
@@ -23,7 +40,7 @@ defmodule BitblocksWeb.BlockLive.Show do
     end
 
     # A missing block raises Ecto.NoResultsError, which renders a 404.
-    {block, tx_total} = Chain.get_block_for_display!(id)
+    {block, list_total} = Chain.get_block_for_display!(id)
 
     if connected?(socket) do
       Phoenix.PubSub.subscribe(Bitblocks.PubSub, "block:#{block.hash}")
@@ -32,8 +49,8 @@ defmodule BitblocksWeb.BlockLive.Show do
     {:noreply,
      socket
      |> assign(:page_title, page_title(socket.assigns.live_action))
-     |> assign_block(block, tx_total)
-     |> assign_tx_page(1)}
+     |> assign(block: block, tx_list_total: list_total, txids: [], tx_summaries: %{})
+     |> load_tx_page(1)}
   end
 
   @impl true
@@ -44,37 +61,59 @@ defmodule BitblocksWeb.BlockLive.Show do
         _ -> 1
       end
 
-    {:noreply, assign_tx_page(socket, page)}
+    {:noreply, load_tx_page(socket, page)}
   end
 
   @impl true
   def handle_info({:block_updated, updated_block}, socket) do
     # The broadcast carries the full row; reload without the txid array.
-    {block, tx_total} = Chain.get_block_for_display!(updated_block.hash)
+    {block, list_total} = Chain.get_block_for_display!(updated_block.hash)
 
     {:noreply,
      socket
-     |> assign_block(block, tx_total)
-     |> assign_tx_page(socket.assigns.tx_page)}
+     |> assign(block: block, tx_list_total: list_total)
+     |> load_tx_page(socket.assigns.tx_page)}
   end
 
-  defp assign_block(socket, block, tx_total) do
-    # No txid list on the row (raw-block path, big blocks): page the stored
-    # transactions instead (Chain.BlockTxids), and count those.
-    tx_total = if tx_total > 0, do: tx_total, else: Bitblocks.Chain.BlockTxids.count(block)
-
-    socket
-    |> assign(:block, block)
-    |> assign(:tx_total, tx_total)
+  @impl true
+  def handle_async(:txs, {:ok, {:ok, loaded}}, socket) do
+    # A late answer for a block navigated away from is dropped.
+    if loaded.hash == socket.assigns.block.hash do
+      {:noreply,
+       assign(socket,
+         tx_load: :ok,
+         tx_page: loaded.page,
+         tx_total: loaded.total,
+         tx_total_capped: loaded.total_capped,
+         tx_order: loaded.order,
+         txids: loaded.txids,
+         tx_summaries: loaded.summaries
+       )}
+    else
+      {:noreply, socket}
+    end
   end
 
-  defp assign_tx_page(socket, page) do
-    txids = Bitblocks.Chain.BlockTxids.page(socket.assigns.block, page, @tx_page_size)
+  def handle_async(:txs, {:ok, {:error, reason}}, socket),
+    do: {:noreply, assign(socket, :tx_load, {:error, reason})}
+
+  def handle_async(:txs, {:exit, reason}, socket),
+    do: {:noreply, assign(socket, :tx_load, {:error, reason})}
+
+  # Before connect start_async runs nothing, so the first paint is the block
+  # row alone and the panel says it is loading.
+  defp load_tx_page(socket, page) do
+    block = socket.assigns.block
+    list_total = socket.assigns.tx_list_total
 
     socket
-    |> assign(:tx_page, page)
-    |> assign(:txids, txids)
-    |> assign(:tx_summaries, Bitblocks.Chain.BlockTxids.summaries(socket.assigns.block, txids))
+    |> assign(tx_load: :loading, tx_page: page)
+    |> start_async(:txs, fn ->
+      with {:ok, loaded} <-
+             Bitblocks.Chain.BlockTxids.load(block, list_total, page, @tx_page_size) do
+        {:ok, Map.put(loaded, :hash, block.hash)}
+      end
+    end)
   end
 
   defp total_pages(0), do: 1

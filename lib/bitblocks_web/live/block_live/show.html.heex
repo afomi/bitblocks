@@ -295,8 +295,49 @@
         <p class="text-2xl font-semibold text-neutral-50 tabular-nums mb-6">
           <%= @block.num_tx %>
         </p>
-        <div :if={@tx_total > 0}>
+        <p
+          :if={@tx_load == :loading and @txids == []}
+          id="block-txs-loading"
+          class="text-sm text-neutral-500"
+        >
+          Loading this block's transactions…
+        </p>
+        <div
+          :if={match?({:error, _}, @tx_load)}
+          id="block-txs-unavailable"
+          class="rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-900/30 dark:text-amber-200"
+        >
+          <p>
+            We couldn't load this block's transactions in time.
+          </p>
+          <p>
+            Everything above is current; the list may load on another try.
+          </p>
+          <button
+            type="button"
+            phx-click="tx_page"
+            phx-value-page={@tx_page}
+            class="mt-2 font-semibold underline"
+          >
+            Try again
+          </button>
+        </div>
+        <div :if={@tx_total > 0 and (@tx_load == :ok or @txids != [])}>
           <% total_pages = BitblocksWeb.BlockLive.Show.tx_total_pages(@tx_total) %>
+          <p
+            :if={@tx_order == :txid}
+            id="block-txs-order"
+            class="mb-3 text-xs text-neutral-500"
+          >
+            Listed by txid: this block is too large to list in block order.
+          </p>
+          <p
+            :if={@txids == []}
+            id="block-txs-page-empty"
+            class="mb-3 text-sm text-neutral-500"
+          >
+            No stored transactions on this page yet.
+          </p>
           <div
             id="block-txids"
             class="border-t border-neutral-800"
@@ -351,7 +392,7 @@
               ← prev
             </button>
             <span class="font-mono text-xs text-neutral-500">
-              <%= @tx_page %> / <%= total_pages %>
+              <%= @tx_page %> / <%= total_pages %><%= if @tx_total_capped, do: "+" %>
             </span>
             <button
               phx-click="tx_page"
@@ -364,7 +405,8 @@
           </div>
         </div>
         <p
-          :if={@tx_total == 0}
+          :if={@tx_load == :ok and @tx_total == 0}
+          id="block-txs-none"
           class="text-sm text-neutral-500"
         >
           <%= if @block.sync_state == "failed" do %>
