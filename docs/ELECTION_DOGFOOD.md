@@ -25,7 +25,8 @@ Writing a tx is qart's job (the wallet), so a ballot is composed and signed ther
 Every record is a MAP `SET` signed with AIP, the same shapes `Bitblocks.Aip` already checks and the pipeline already indexes.
 The AIP signature must cover every MAP field of the record, as `docs/BAP.md` already requires for BAP: an AIP that signs chosen field indexes and leaves a MAP field out counts for nothing.
 
-`app` is `pba-election` (or `modular-city-election`) for now, pending Ryan's choice of one app name for the format.
+`app` is `pba-election` for now, pending Ryan's choice of one app name for the format.
+It is one line to change: `config :bitblocks, :election_app` in `config/config.exs`, which `Bitblocks.Elections.Records.app/0` reads.
 The aim is one `app` for the format, with the tenant told apart by the administrator's key and the election's outpoint, so one projection filter finds every election.
 
 The field names follow Open Civic Data and NIST SP 1500-100 where they overlap: `name`, `number_elected` and `votes_allowed`.
@@ -134,18 +135,67 @@ Then a v1 file freezes the inputs: within v1 a vector's id, input and expected o
 The licence is given as an SPDX id with its URL, as the other vector files give theirs: `MIT`, as the repository.
 MIT or CC0 for the vectors is pending Ryan.
 
+## Reading the records
+
+Built: `Bitblocks.Elections.Records` reads a record from a tx's raw bytes into the shape `count/4` takes, and `Bitblocks.Elections` gathers and counts an election from our index.
+Bitblocks reads only: nothing here signs or sends.
+
+- **One output, one record.**
+  A data output carries an optional B:// file, then the MAP `SET`, then the AIP section, apart by `|`.
+  The signature counts only when it checks and covers every field of the B and MAP segments; for the roll, that includes the file.
+  Parsing is strict about the encoding (a key given twice, a leading zero or a list that isn't one JSON array is refused, with the field named) and leaves the election's own rules to the count, which refuses those with its reasons.
+  An election, roll or result without a signature that counts is no record; a ballot without one is still a ballot, with `signer` null, so the count lists it as `no_signature`.
+- **Gathering.**
+  `Elections.gather/2` reads the election by its outpoint, the roll by the outpoint the election names, and the ballots among the stored txs tagged `MAP` (the `protocols` GIN column), or matching a projection's filter when one is given, from the election's block to `closes_at_height + 6`.
+  Every query is bounded: by txid, or by tag and height in keyset pages, up to `:election_max_scanned` rows (50,000), past which it refuses rather than count part of the chain.
+  It checks each tx's bytes against its txid, the roll's bytes against `roll_sha256`, and that the roll is signed by the election's key.
+  A record's height is its block's when our headers hold that block at that height, and null otherwise (a reorg moved it); its `position` is its index in the block, read from its merkle proof.
+- **Coverage.**
+  What a count can see is what our index holds, so every answer says how far that reaches: `complete_through`, and, with `projection:`, how far its tip lane has read (`tip_lane_through_height`).
+  Ballots are read only from blocks the index covers.
+- **The live count.**
+  `Elections.count_now/2` is `gather/2`, then `count/4`, with `current_to` (the block the count is current to) and `final` (the index covers `closes_at_height + 6`).
+  Once we hold the block at `closes_at_height`, its hash goes to the count as `close_block_hash`, for a tie by lot.
+
+```bash
+bin/bitblocks rpc 'Bitblocks.Release.election_count("<txid>.0") |> IO.inspect(limit: :infinity)'
+bin/bitblocks rpc 'Bitblocks.Release.election_count("<txid>.0", projection: 1) |> IO.inspect(limit: :infinity)'
+```
+
 ## The archive
 
-When the window closes, the administrator publishes one archive, a directory of static files:
+Built: `Bitblocks.Elections.Archive`.
+When `closes_at_height` is 6 blocks deep and our index covers every block through it, the administrator builds one archive, a directory of static files.
+Until then it is refused, naming how many blocks remain (`{:too_shallow, %{blocks_remaining: n}}`), or how far the index reaches (`{:not_covered, …}`).
 
-- `election.json`: the election record and the roll file, with their outpoints.
-- `ballots.json`: every ballot seen, each with its txid, height, signer, choices, and whether it counted (and if not, which rule it failed).
-- `tally.json`: the counts per candidate and the winners.
-- `proofs/`: a BUMP (merkle proof) for every record's tx, and the block headers from the election record's block to `closes_at_height`.
-- `MANIFEST.sha256`: the sha256 of every file above, whose own sha256 is the `archive_sha256` in the result record.
+| File | What it holds |
+|---|---|
+| `archive.json` | The index: the election's outpoint, `app`, the administrator's address, the roll's outpoint and sha256, the window, `close_block_hash`, the headers' range, and every record in chain order (`kind`, `txid`, `vout`, `height`, `position`, `block_hash`, `signer`, and its `tx` and `proof` files) |
+| `count.json` | `input`, exactly what `count/4` was given (`election`, `roll`, `ballots`, `close_block_hash`), and `result`, what it returned |
+| `roll.json` | The roll file, its exact bytes on chain |
+| `headers.bin` | One 80-byte block header per height, from the roll's block (at or below the election's) to `closes_at_height + 6`, in height order |
+| `txs/<txid>.bin` | Each record tx's raw bytes: the roll, the election and every ballot gathered |
+| `proofs/<txid>.bump` | Each confirmed record's BUMP (BRC-74); a ballot a reorg left unconfirmed has none |
+| `MANIFEST.sha256` | `sha256sum` lines (`<hex>  <path>`) for every file above, sorted by path |
 
-An observer recounts with the files alone: each tx's bytes against its txid, each BUMP against its header, the headers against each other, and then the counting rule over the ballots.
+`archive_sha256`, which the result record carries, is the sha256 of `MANIFEST.sha256`.
+The same chain gives byte-identical files: nothing in the archive reads a clock, and every JSON file is written with its keys sorted, two-space indent and a closing newline (`Archive.json/1`).
+Every ballot gathered sits at or below `closes_at_height + 6`, so its header is in `headers.bin`.
+
+An observer recounts with the files alone, offline (https://github.com/afomi/bitblocks/issues/138, not built):
+
+1. `sha256sum -c MANIFEST.sha256`, and the manifest's own sha256 against the result record.
+2. Each header in `headers.bin` hashes below its own target and names the one before it.
+3. Each `txs/<txid>.bin` hashes to its txid, and its BUMP climbs from that txid, at the offset given as its `position`, to the merkle root of the header at the BUMP's height.
+4. Each record re-read from its tx's output `vout`, with its AIP signature over every field, gives the `input` in `count.json`, and `roll.json` hashes to `roll_sha256`.
+5. The counting rule over that input gives `result`.
+
 The archive is published on a static site (for PBA, a page of its own; for Modular City, its GitHub Pages site), so it needs no Bitblocks server to stay up.
+
+```bash
+bin/bitblocks rpc 'Bitblocks.Release.build_election_archive("<txid>.0", "/tmp/pba-2026") |> IO.inspect()'               # dry run: each file's path, size and sha256, and archive_sha256
+bin/bitblocks rpc 'Bitblocks.Release.build_election_archive("<txid>.0", "/tmp/pba-2026", apply: true) |> IO.inspect()'  # write, and read each file back
+```
 
 ## What exists, and what doesn't
 
@@ -156,11 +206,11 @@ Exists:
 - Verifiable snapshots with a published sha256 (the Bitcom registry, `docs/BITCOM.md`).
 - **Current data**, built and dormant: our index stops near block 389,000, and an election happens at the tip, so a tip lane keeps the election projection's slice current, each new block read once and only the matching txs (and spends of their outputs) kept (https://github.com/afomi/bitblocks/issues/139, `Bitblocks.TipLane`, `docs/SYNCING.md`).
   It runs once an operator starts it with `Release.start_tip_lane/2`.
+- The record parsers, gathering from our index, the live count and the archive writer, CLI and context only (above).
 
 Not built:
-- The election, roll and ballot parsers (the counting rule and its vectors are built, above).
 - The live election page and its API.
-- The archive writer, and a recount tool that reads only the archive.
+- A recount tool that reads only the archive.
 - Ballot composing in qart.
 
 Needs real hands:
@@ -170,8 +220,9 @@ Needs real hands:
 ## Order
 
 1. The counting rule and its vectors, offline (built).
-2. The scoped tip lane, so the election's txs arrive as they confirm.
-3. The live page and API.
-4. The archive and the recount.
-5. PBA's election, end to end, with real keys.
-6. Modular City's election, published on its site.
+2. The scoped tip lane, so the election's txs arrive as they confirm (built, dormant).
+3. The record parsers, the live count and the archive, from the CLI (built).
+4. The live page and API.
+5. The recount.
+6. PBA's election, end to end, with real keys.
+7. Modular City's election, published on its site.
