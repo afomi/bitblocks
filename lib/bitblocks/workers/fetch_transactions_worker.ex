@@ -61,9 +61,7 @@ defmodule Bitblocks.Workers.FetchTransactionsWorker do
   import Ecto.Query
 
   alias Bitblocks.{Chain, Repo, Sync}
-  alias Bitblocks.Chain.{Block, BlockStream, RawBlock, Spend, TxIngest, TxidSource, TxSources}
-  alias Bitblocks.Reorgs.ProtocolRewind
-  alias Bitblocks.Timelocks.Lock
+  alias Bitblocks.Chain.{Block, BlockStream, RawBlock, TxIngest, TxidSource, TxSources}
   alias Bitblocks.SyncProgress.Tracker
   alias Bitblocks.TxStore.BlockObject
 
@@ -651,24 +649,7 @@ defmodule Bitblocks.Workers.FetchTransactionsWorker do
     if txids == [] do
       removed
     else
-      {:ok, n} =
-        Repo.transaction(fn ->
-          Repo.delete_all(from(s in Spend, where: s.spending_txid in ^txids))
-
-          {n, gone} =
-            Repo.delete_all(
-              from(t in Chain.Transaction,
-                where: t.txid in ^txids and t.block_hash == ^hash,
-                select: t.txid
-              )
-            )
-
-          # After the rows and spend edges: what the protocols recompute reads them.
-          ProtocolRewind.removed(gone)
-          Repo.delete_all(from(l in Lock, where: l.txid in ^gone))
-          Bitblocks.CFiles.delete_txids(gone)
-          n
-        end)
+      n = TxIngest.remove(txids, hash)
 
       if n == 0, do: removed, else: discard_batches(hash, removed + n)
     end

@@ -114,10 +114,10 @@ Exists:
 - Projections with hydrate and follow (`docs/MANAGED_SERVICES.md`).
 - BEEF and BUMP proofs, BEEF checking, and open headers (`docs/MERKLE_PROOFS.md`, `docs/INTEROP_KIT.md`).
 - Verifiable snapshots with a published sha256 (the Bitcom registry, `docs/BITCOM.md`).
+- **Current data**, built and dormant: our index stops near block 389,000, and an election happens at the tip, so a tip lane keeps the election projection's slice current, each new block read once and only the matching txs (and spends of their outputs) kept (https://github.com/afomi/bitblocks/issues/139, `Bitblocks.TipLane`, `docs/SYNCING.md`).
+  It runs once an operator starts it with `Release.start_tip_lane/2`.
 
 Not built:
-- **Current data.** Our index stops near block 389,000, and an election happens at the tip.
-  The election needs its slice of the chain kept current: each new block read once, keeping only the txs that match its filter (https://github.com/afomi/bitblocks/issues/81, scoped to one projection).
 - The election, roll and ballot parsers (the counting rule and its vectors are built, above).
 - The live election page and its API.
 - The archive writer, and a recount tool that reads only the archive.

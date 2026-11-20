@@ -154,6 +154,9 @@ config :bitblocks, Oban,
        # Gifts to the donation address in blocks above the sync, read by us
        # (#74, Support.Scan): a no-op until scan_from_height is set.
        {"*/2 * * * *", Bitblocks.Workers.SupportScanWorker},
+       # A projection's slice at the tip (#139, Bitblocks.TipLane): a no-op
+       # until Release.start_tip_lane/2 starts a lane.
+       {"* * * * *", Bitblocks.Workers.TipLaneWorker},
        # Settled x402 payments not yet in Stripe (docs/STRIPE.md): a no-op
        # while x402 is off, light on the default lane otherwise.
        {"*/10 * * * *", Bitblocks.Workers.X402ReconcileWorker},
@@ -188,7 +191,10 @@ config :bitblocks, Oban,
     # contends with sync.
     chain_tiles: 1,
     # The donation address's newest blocks (#74): one block at a time.
-    support_scan: 1
+    support_scan: 1,
+    # A projection's slice at the tip (#139, Bitblocks.TipLane): one block
+    # at a time, one slot of the sync's RPC budget.
+    tip_lane: 1
   ]
 
 # Blocks the sync loop works at once, cluster-wide, until an admin picks a

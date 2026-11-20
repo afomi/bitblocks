@@ -136,6 +136,52 @@ defmodule Bitblocks.Chain.TxIngest do
   end
 
   @doc """
+  Removes the rows of `txids` still stored under `block_hash`, with what they
+  recorded: their spend edges, time locks, C:// file rows and protocol rows
+  (`Reorgs.ProtocolRewind`, as a reorg removes a tx no block holds), in one
+  database transaction. A row that has moved to another block is left alone.
+  Bitcom and BAP rows aren't rewound, as in `Reorgs.Reconcile`.
+
+  Used for a streamed block whose bytes failed a check
+  (`FetchTransactionsWorker`) and for a tip lane's rows under an orphaned
+  block (`Bitblocks.TipLane`). Returns the number of rows removed.
+  """
+  @spec remove([String.t()], String.t()) :: non_neg_integer()
+  def remove([], _block_hash), do: 0
+
+  def remove(txids, block_hash) when is_list(txids) and is_binary(block_hash) do
+    {:ok, n} =
+      Repo.transaction(fn ->
+        # Only the spends of rows that are really under this hash.
+        under =
+          Repo.all(
+            from(t in Chain.Transaction,
+              where: t.txid in ^txids and t.block_hash == ^block_hash,
+              select: t.txid
+            )
+          )
+
+        Repo.delete_all(from(s in Bitblocks.Chain.Spend, where: s.spending_txid in ^under))
+
+        {n, gone} =
+          Repo.delete_all(
+            from(t in Chain.Transaction,
+              where: t.txid in ^under and t.block_hash == ^block_hash,
+              select: t.txid
+            )
+          )
+
+        # After the rows and spend edges: what the protocols recompute reads them.
+        ProtocolRewind.removed(gone)
+        Repo.delete_all(from(l in Bitblocks.Timelocks.Lock, where: l.txid in ^gone))
+        Bitblocks.CFiles.delete_txids(gone)
+        n
+      end)
+
+    n
+  end
+
+  @doc """
   Stores one transaction (a `getrawtransaction` verbosity-1 map) for `block`.
   The one-tx case of `store_chunk/2`.
 

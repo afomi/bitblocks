@@ -41,6 +41,15 @@ defmodule Bitblocks.SyntheticBlock do
         length(txs)
       )
 
+    from_txs(txs)
+  end
+
+  @doc """
+  A block of exactly `txs` (serialized txs, the coinbase first; see `tx/2`,
+  `coinbase/0`), in the same shape as `build/2`.
+  """
+  @spec from_txs([binary()]) :: map()
+  def from_txs(txs) do
     hashes = Enum.map(txs, &sha256d/1)
     root = merkle_root(hashes)
 
@@ -70,7 +79,8 @@ defmodule Bitblocks.SyntheticBlock do
     fill([tx | txs], size + byte_size(tx), target, big_every, n + 1)
   end
 
-  defp coinbase do
+  @doc "A coinbase tx paying a random key."
+  def coinbase do
     script = "synthetic coinbase " <> :crypto.strong_rand_bytes(8)
 
     tx(
@@ -96,7 +106,11 @@ defmodule Bitblocks.SyntheticBlock do
   defp input(script_bytes),
     do: {:crypto.strong_rand_bytes(32), 0, :crypto.strong_rand_bytes(script_bytes)}
 
-  defp tx(inputs, outputs) do
+  @doc """
+  A serialized tx: `inputs` as `{prev_txid_internal_order, vout, script_sig}`,
+  `outputs` as `{sats, locking_script}`.
+  """
+  def tx(inputs, outputs) do
     IO.iodata_to_binary([
       <<1::little-32>>,
       varint(length(inputs)),
@@ -119,7 +133,8 @@ defmodule Bitblocks.SyntheticBlock do
     ])
   end
 
-  defp p2pkh(<<_::binary-20>> = pkh), do: <<0x76, 0xA9, 0x14, pkh::binary, 0x88, 0xAC>>
+  @doc "A P2PKH locking script for a 20-byte pubkey hash."
+  def p2pkh(<<_::binary-20>> = pkh), do: <<0x76, 0xA9, 0x14, pkh::binary, 0x88, 0xAC>>
   defp op_return(n), do: <<0x00, 0x6A>> <> :binary.copy(<<0x42>>, n)
 
   @doc "Bitcoin's varint."

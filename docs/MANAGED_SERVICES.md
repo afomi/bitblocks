@@ -247,3 +247,6 @@ Asking for one: `/pricing#cloud` (https://github.com/afomi/bitblocks/issues/113)
 There is no price yet: "Request a quote" mails the spec and the estimate to us.
 
 Operating a projection from the CLI: `Release.create_projection/1`, `list_projections/0`, `set_projection_from_height/2`, `pause_projection/1`, `resume_projection/1`, `set_projection_webhook/2`.
+
+A projection's slice can be kept current at the tip, ahead of the sync, by a tip lane (https://github.com/afomi/bitblocks/issues/139, `Release.start_tip_lane/2`, `stop_tip_lane/1`, `tip_lane_status/1`; see `docs/SYNCING.md`).
+For that projection, a block its lane has read counts as indexed in status, hydrate and follow, and status adds `tip_lane_through_height` and `tip_lane`.

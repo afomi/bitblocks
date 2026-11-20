@@ -1680,6 +1680,67 @@ defmodule Bitblocks.Release do
   @doc "Resumes a paused projection. Matches from while it was paused are not replayed; hydrate them."
   def resume_projection(id), do: update_projection(id, %{status: "active"})
 
+  @doc """
+  Starts a tip lane for projection `id` (#139, `Bitblocks.TipLane`): each
+  block from `from_height:` up is read once from our node, and only the txs
+  matching the projection, plus the txs spending their outputs, are stored.
+  It never marks a block completed or moves complete_through. While it runs
+  it is one slot of the sync's RPC budget.
+
+  Dry run by default: how many blocks it would read (and how many stream),
+  what it stores, and the sync's slots while it runs; reads nothing from the
+  node. `apply: true` starts it, and the lane's first run is queued.
+  `from_height:` defaults to the projection's own `from_height`.
+
+      bin/bitblocks rpc 'Bitblocks.Release.start_tip_lane(1, from_height: 975_000) |> IO.inspect()'
+      bin/bitblocks rpc 'Bitblocks.Release.start_tip_lane(1, from_height: 975_000, apply: true) |> IO.inspect()'
+  """
+  def start_tip_lane(id, opts \\ []) do
+    projection = Bitblocks.Projections.get!(id)
+    from = Keyword.get(opts, :from_height, projection.from_height)
+
+    if Keyword.get(opts, :apply, false) do
+      case Bitblocks.TipLane.start(projection, from) do
+        {:ok, lane} ->
+          Logger.info("start_tip_lane: projection ##{id} from #{from}")
+          {:ok, Bitblocks.TipLane.status(projection) |> Map.put(:started_from, lane.from_height)}
+
+        error ->
+          error
+      end
+    else
+      with {:ok, plan} <- Bitblocks.TipLane.plan(projection, from),
+           do: {:ok, Map.put(plan, :dry_run, true)}
+    end
+  end
+
+  @doc """
+  Stops projection `id`'s tip lane. The txs it stored, and its record of the
+  blocks it read, stay; `start_tip_lane/2` carries on from where it stopped.
+
+      bin/bitblocks rpc 'Bitblocks.Release.stop_tip_lane(1) |> IO.inspect()'
+  """
+  def stop_tip_lane(id) do
+    projection = Bitblocks.Projections.get!(id)
+
+    with {:ok, _lane} <- Bitblocks.TipLane.stop(projection) do
+      Logger.info("stop_tip_lane: projection ##{id}")
+      {:ok, Bitblocks.TipLane.status(projection)}
+    end
+  end
+
+  @doc """
+  Where projection `id`'s tip lane stands: running or stopped, through which
+  block, how far behind, and what it is waiting on.
+
+      bin/bitblocks rpc 'Bitblocks.Release.tip_lane_status(1) |> IO.inspect()'
+  """
+  def tip_lane_status(id) do
+    projection = Bitblocks.Projections.get!(id)
+    node_tip = Bitblocks.SyncProgress.snapshot().overview[:node_tip]
+    Bitblocks.TipLane.status(projection, node_tip: node_tip)
+  end
+
   defp update_projection(id, attrs) do
     case Bitblocks.Projections.update_settings(Bitblocks.Projections.get!(id), attrs) do
       {:ok, p} ->

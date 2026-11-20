@@ -140,6 +140,37 @@ defmodule BitblocksWeb.Api.ProjectionFollowTest do
            ] = events(conn.resp_body)
   end
 
+  test "a block the projection's tip lane read arrives before the sync completes it (#139)", %{
+    conn: conn,
+    projection: p
+  } do
+    publish = fn ->
+      block_fixture(%{height: 13, hash: "block_13", sync_state: "header_only"})
+      tx(13, "4", ["MAP"], [@qart])
+
+      Bitblocks.Repo.insert!(%Bitblocks.TipLane.LaneBlock{
+        projection_id: p.id,
+        height: 13,
+        block_hash: "block_13",
+        status: "read"
+      })
+
+      Phoenix.PubSub.broadcast(
+        Bitblocks.PubSub,
+        Bitblocks.TipLane.topic(p.id),
+        {:tip_lane_block, %{projection_id: p.id, height: 13, hash: "block_13"}}
+      )
+    end
+
+    conn = follow(conn, ~p"/api/v1/projections/#{p.id}/follow", publish)
+
+    assert [
+             {"checkpoint", "12", _},
+             {"tx", nil, %{"block_height" => 13, "block_hash" => "block_13"}},
+             {"checkpoint", "13", %{"resume_height" => 13, "block_height" => 13}}
+           ] = events(conn.resp_body)
+  end
+
   test "a reorg arrives with its rewind height", %{conn: conn, projection: p} do
     publish = fn -> Chain.broadcast_reorg(%{fork_point: 11, fork_height: 12, orphans: ["x"]}) end
     conn = follow(conn, ~p"/api/v1/projections/#{p.id}/follow", publish)

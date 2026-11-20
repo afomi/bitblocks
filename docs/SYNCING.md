@@ -182,6 +182,56 @@ It was down from 2026-07 to 2026-11, so public sources can stand in for it, and 
 
 ---
 
+## A tip lane for one projection (#139)
+
+The contiguous sync is far behind the tip, and an election (or any filtered service) needs its txs as they confirm.
+A tip lane keeps one managed projection's slice of the chain current at the tip, ahead of the sync, without indexing the whole chain (`Bitblocks.TipLane`; design in [ELECTION_DOGFOOD.md](ELECTION_DOGFOOD.md), background in https://github.com/afomi/bitblocks/issues/81).
+It ships dormant: nothing runs until an operator starts a lane.
+
+- **What it reads.**
+  Each block from the lane's `from_height` up, once, from our node, by the paths the sync uses: whole up to the raw-block cap (`Chain.RawBlock`), streamed above it (`Chain.BlockStream`), with the same checks (header hash, tx count, merkleroot) before anything is kept.
+  A streamed block needs REST; there is no per-tx fallback, since that would mean a `getrawtransaction` for every tx in the block.
+  A block already `completed` is skipped: the sync stored all of it.
+- **What it keeps.**
+  Only the txs matching the projection's filter, by the same rule as its query (`column @> values`), plus the txs that spend an output of the slice (a match from `from_height` on, or earlier in the same block).
+  They go through the one ingest path (`TxIngest.store_chunk/2`, the whole tx pipeline), so its storage is the size of the slice.
+  A filter matching more than 200,000 stored txs from `from_height` isn't a slice, and the lane refuses to run (`:slice_too_large`).
+- **What it leaves the sync.**
+  It never marks a block `completed` and never moves `complete_through`.
+  When the sync reaches a block the lane read, `TxIngest.existing_txids/2` finds those txs stored and skips them, as it does any stored tx.
+  Their rows read `unverified` on `/api/v1/txs` until then (`Chain.confirmations/1` reads the block's state), though the lane checked the block's merkleroot.
+- **Coverage is computed.**
+  `TipLane.through/2` is the last height with every block from the lane's `from_height` `completed`, or read by this lane under the hash its header has now (`tip_lane_blocks`, one row per block).
+  For that projection, such a block counts as indexed: `GET /api/v1/projections/:id/status` (`indexed_through_height`, `stable_through_height`, `index_state`), hydrate's `complete`, and follow's catch-up and `resume_height` include it.
+  The status also carries `tip_lane_through_height` and `tip_lane` (`state`, `from_height`, `behind_blocks`, `next_height`, `waiting_on`, blocks read, txs kept).
+- **Follow and webhooks.**
+  Each block read is announced on `TipLane.topic/1`, and the projection's follow stream sends its txs and a checkpoint as for a completed block; a webhook projection gets its deliveries.
+  When the sync later completes the block, both fire again: at least once, deduped on `{txid, block_hash}` as before.
+- **Reorgs.**
+  Header sync resolves the reorg and sends `reorg` to follow streams and webhooks, as it always has.
+  The lane's row for that height now names the orphan's hash, so the block is no longer covered: the lane removes the rows it kept from the orphan and still under its hash (`TxIngest.remove/2`: spend edges, time locks, C:// file rows and protocol rows with them), then reads the block that replaced it.
+- **Falling behind.**
+  A block that can't be read (node unreachable, a check failing, REST off for a streamed block) stops the lane there, with the reason in `waiting_on`, and is tried again after 1, 2, 4 … minutes, capped at an hour.
+  It is never skipped; the next run carries on from the first block not covered.
+- **The RPC budget.**
+  The lane is one slot's worth of `Sync.concurrency_limit/0` and never more RPC streams: while a lane runs, `Sync.dispatch/1` fills at most the limit minus one slots (never fewer than one), and the lane reads a block only while the sync's live jobs leave a slot free.
+  On prod today the limit is 2, so a running lane leaves the sync one slot.
+  A block the sync holds a live job for is left to the sync.
+- **Where it runs.**
+  `TipLaneWorker`, every minute on its own queue (`:tip_lane`, concurrency 1), unique across nodes, for up to 50 s a run, one block at a time; a streamed block is read to its end.
+  Only on a writer: a reader node runs no queues and no cron (`Bitblocks.NodeRole`), and `TipLane.run/1` does nothing there.
+
+```bash
+bin/bitblocks rpc 'Bitblocks.Release.start_tip_lane(1, from_height: 975_000) |> IO.inspect()'              # dry run: blocks to read, streamed, what it keeps, the sync's slots
+bin/bitblocks rpc 'Bitblocks.Release.start_tip_lane(1, from_height: 975_000, apply: true) |> IO.inspect()' # start
+bin/bitblocks rpc 'Bitblocks.Release.tip_lane_status(1) |> IO.inspect()'                                   # through, behind, waiting on
+bin/bitblocks rpc 'Bitblocks.Release.stop_tip_lane(1) |> IO.inspect()'                                     # stop; its rows stay
+```
+
+A whole-chain tip lane is out of scope: that is the storage plan's question ([STORAGE_PLAN.md](STORAGE_PLAN.md)).
+
+---
+
 ## One writer, and read-only nodes (#39)
 
 One node at a time leads the sync: `Sync.Coordinator` acts only on the Oban leader, and leadership lives in the database, so it needs no Erlang cluster.
