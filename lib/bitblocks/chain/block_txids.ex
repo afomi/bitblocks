@@ -26,6 +26,9 @@ defmodule Bitblocks.Chain.BlockTxids do
       instead, about one cold heap page per row on a half-stored block of
       97,100. Rows at the height but under another hash (an orphan not yet
       reconciled) drop out, since `summaries/2` checks the hash.
+      Given `after:` (the last txid of the page before), it pages by keyset,
+      `txid > after`, so every page costs what the first does; an OFFSET
+      walks every entry before it (8.5 s for the deepest page of that block).
 
   Ordering by the bare `id` let Postgres walk `transactions_pkey` and filter
   on `block_hash`, expecting to find a page early; for a block with few or
@@ -65,13 +68,15 @@ defmodule Bitblocks.Chain.BlockTxids do
   as `Chain.get_block_for_display!/1` returns it.
 
   Options: `timeout_ms:` (default the `:block_page_read_timeout_ms` config,
-  else #{@timeout_ms}).
+  else #{@timeout_ms}); `after:`, the last txid of the page before, which a
+  block listed in txid order pages from instead of an offset.
   """
   @spec load(Block.t(), non_neg_integer(), pos_integer(), pos_integer(), keyword()) ::
           {:ok, loaded()} | {:error, :timeout | :unavailable}
   def load(%Block{} = block, list_total, page, size, opts \\ [])
       when page >= 1 and size >= 1 do
     timeout_ms = Keyword.get_lazy(opts, :timeout_ms, &timeout_ms/0)
+    after_txid = Keyword.get(opts, :after)
 
     Repo.with_statement_timeout(timeout_ms, fn ->
       {total, capped} = total(block, list_total)
@@ -83,7 +88,7 @@ defmodule Bitblocks.Chain.BlockTxids do
         cond do
           total == 0 -> []
           list_total > 0 -> Chain.block_txids_page(block.id, page, size)
-          true -> stored_page(block, order, page, size)
+          true -> stored_page(block, order, page, size, after_txid)
         end
 
       summaries = summaries(block, txids)
@@ -128,7 +133,9 @@ defmodule Bitblocks.Chain.BlockTxids do
   end
 
   @doc false
-  def stored_page_query(%Block{hash: hash}, :block, page, size) do
+  def stored_page_query(block, order, page, size, after_txid \\ nil)
+
+  def stored_page_query(%Block{hash: hash}, :block, page, size, _after) do
     # `id + 0`: sort the block's own rows; the primary key can't serve this
     # order, so the planner can't walk it and filter (see the moduledoc).
     from(t in Transaction,
@@ -140,7 +147,17 @@ defmodule Bitblocks.Chain.BlockTxids do
     )
   end
 
-  def stored_page_query(%Block{height: height}, :txid, page, size) do
+  def stored_page_query(%Block{height: height}, :txid, _page, size, after_txid)
+      when is_binary(after_txid) do
+    from(t in Transaction,
+      where: t.block_height == ^height and t.txid > ^after_txid,
+      order_by: [asc: t.block_height, asc: t.txid],
+      limit: ^size,
+      select: t.txid
+    )
+  end
+
+  def stored_page_query(%Block{height: height}, :txid, page, size, _after) do
     # The height alone: see the moduledoc on why not the hash as well.
     from(t in Transaction,
       where: t.block_height == ^height,
@@ -151,18 +168,20 @@ defmodule Bitblocks.Chain.BlockTxids do
     )
   end
 
-  defp stored_page(block, :txid, page, size) do
+  defp stored_page(block, order, page, size, after_txid \\ nil)
+
+  defp stored_page(block, :txid, page, size, after_txid) do
     # Inside load/5's transaction: walk the (block_height, txid) index in
     # order and stop after the page, never sort the block's rows.
     Repo.query!("SET LOCAL enable_sort = off")
     Repo.query!("SET LOCAL enable_bitmapscan = off")
-    txids = block |> stored_page_query(:txid, page, size) |> Repo.all()
+    txids = block |> stored_page_query(:txid, page, size, after_txid) |> Repo.all()
     Repo.query!("SET LOCAL enable_sort TO DEFAULT")
     Repo.query!("SET LOCAL enable_bitmapscan TO DEFAULT")
     txids
   end
 
-  defp stored_page(block, order, page, size),
+  defp stored_page(block, order, page, size, _after),
     do: block |> stored_page_query(order, page, size) |> Repo.all()
 
   @doc """

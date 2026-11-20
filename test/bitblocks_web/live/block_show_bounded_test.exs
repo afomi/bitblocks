@@ -37,6 +37,53 @@ defmodule BitblocksWeb.BlockShowBoundedTest do
     refute has_element?(view, "#block-txs-unavailable")
   end
 
+  test "a big block listed by txid pages next and back by keyset", %{conn: conn} do
+    block_fixture(%{
+      height: 635_143,
+      hash: "big635143",
+      sync_state: "completed",
+      num_tx: 3_000_000,
+      tx: []
+    })
+
+    now = NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second)
+
+    rows =
+      for n <- 0..119 do
+        %{
+          txid: "kp" <> String.pad_leading(Integer.to_string(n), 3, "0"),
+          block_hash: "big635143",
+          block_height: 635_143,
+          inserted_at: now,
+          updated_at: now
+        }
+      end
+
+    Bitblocks.Repo.insert_all(Bitblocks.Chain.Transaction, rows)
+
+    {:ok, view, _html} = live(conn, "/blocks/635143")
+    html = render_async(view)
+    assert html =~ "Listed by txid"
+    assert html =~ "kp000"
+    refute html =~ "kp050"
+
+    view |> element("button", "next →") |> render_click()
+    html = render_async(view)
+    assert html =~ "kp050"
+    assert html =~ "kp099"
+    refute html =~ "kp049"
+
+    view |> element("button", "next →") |> render_click()
+    html = render_async(view)
+    assert html =~ "kp100"
+    assert html =~ "kp119"
+
+    view |> element("button", "← prev") |> render_click()
+    html = render_async(view)
+    assert html =~ "kp050"
+    refute html =~ "kp100"
+  end
+
   test "a slow read gives the block and an honest note, then loads on another try",
        %{conn: conn} do
     far_tip_block(957_600)

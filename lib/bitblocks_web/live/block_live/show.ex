@@ -28,6 +28,7 @@ defmodule BitblocksWeb.BlockLive.Show do
        tx_total_capped: false,
        tx_order: :block,
        tx_list_total: 0,
+       tx_cursors: %{},
        tx_load: :loading
      )}
   end
@@ -49,7 +50,13 @@ defmodule BitblocksWeb.BlockLive.Show do
     {:noreply,
      socket
      |> assign(:page_title, page_title(socket.assigns.live_action))
-     |> assign(block: block, tx_list_total: list_total, txids: [], tx_summaries: %{})
+     |> assign(
+       block: block,
+       tx_list_total: list_total,
+       txids: [],
+       tx_summaries: %{},
+       tx_cursors: %{}
+     )
      |> load_tx_page(1)}
   end
 
@@ -81,6 +88,7 @@ defmodule BitblocksWeb.BlockLive.Show do
     if loaded.hash == socket.assigns.block.hash do
       {:noreply,
        assign(socket,
+         tx_cursors: remember_cursor(socket.assigns.tx_cursors, loaded),
          tx_load: :ok,
          tx_page: loaded.page,
          tx_total: loaded.total,
@@ -100,17 +108,27 @@ defmodule BitblocksWeb.BlockLive.Show do
   def handle_async(:txs, {:exit, reason}, socket),
     do: {:noreply, assign(socket, :tx_load, {:error, reason})}
 
+  # A block listed in txid order pages by keyset: the last txid of each page
+  # loaded is where the next page starts, so Next and Previous never walk an
+  # offset (`Chain.BlockTxids`). A page reached any other way falls back to
+  # the offset, under the same timeout.
+  defp remember_cursor(cursors, %{order: :txid, page: page, txids: [_ | _] = txids}),
+    do: Map.put(cursors, page + 1, List.last(txids))
+
+  defp remember_cursor(cursors, _loaded), do: cursors
+
   # Before connect start_async runs nothing, so the first paint is the block
   # row alone and the panel says it is loading.
   defp load_tx_page(socket, page) do
     block = socket.assigns.block
     list_total = socket.assigns.tx_list_total
+    opts = if cursor = socket.assigns.tx_cursors[page], do: [after: cursor], else: []
 
     socket
     |> assign(tx_load: :loading, tx_page: page)
     |> start_async(:txs, fn ->
       with {:ok, loaded} <-
-             Bitblocks.Chain.BlockTxids.load(block, list_total, page, @tx_page_size) do
+             Bitblocks.Chain.BlockTxids.load(block, list_total, page, @tx_page_size, opts) do
         {:ok, Map.put(loaded, :hash, block.hash)}
       end
     end)
