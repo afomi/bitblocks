@@ -19,6 +19,13 @@ defmodule Bitblocks.Chain.BlockTxids do
       many rows;
     * a bigger block pages in txid order off
       `transactions_block_height_txid_index`, which stops after the page.
+      It filters on `block_height` alone, with sorts and bitmap scans off
+      for that one query: with `block_hash` in the filter too, the planner
+      multiplies the two columns' selectivities (one determines the other),
+      expects a few dozen rows, and sorts every stored row of the block
+      instead, about one cold heap page per row on a half-stored block of
+      97,100. Rows at the height but under another hash (an orphan not yet
+      reconciled) drop out, since `summaries/2` checks the hash.
 
   Ordering by the bare `id` let Postgres walk `transactions_pkey` and filter
   on `block_hash`, expecting to find a page early; for a block with few or
@@ -79,13 +86,16 @@ defmodule Bitblocks.Chain.BlockTxids do
           true -> stored_page(block, order, page, size)
         end
 
+      summaries = summaries(block, txids)
+      txids = if order == :txid, do: Enum.filter(txids, &Map.has_key?(summaries, &1)), else: txids
+
       %{
         total: total,
         total_capped: capped,
         order: order,
         page: page,
         txids: txids,
-        summaries: summaries(block, txids)
+        summaries: summaries
       }
     end)
   end
@@ -130,14 +140,26 @@ defmodule Bitblocks.Chain.BlockTxids do
     )
   end
 
-  def stored_page_query(%Block{hash: hash, height: height}, :txid, page, size) do
+  def stored_page_query(%Block{height: height}, :txid, page, size) do
+    # The height alone: see the moduledoc on why not the hash as well.
     from(t in Transaction,
-      where: t.block_height == ^height and t.block_hash == ^hash,
+      where: t.block_height == ^height,
       order_by: [asc: t.block_height, asc: t.txid],
       offset: ^((page - 1) * size),
       limit: ^size,
       select: t.txid
     )
+  end
+
+  defp stored_page(block, :txid, page, size) do
+    # Inside load/5's transaction: walk the (block_height, txid) index in
+    # order and stop after the page, never sort the block's rows.
+    Repo.query!("SET LOCAL enable_sort = off")
+    Repo.query!("SET LOCAL enable_bitmapscan = off")
+    txids = block |> stored_page_query(:txid, page, size) |> Repo.all()
+    Repo.query!("SET LOCAL enable_sort TO DEFAULT")
+    Repo.query!("SET LOCAL enable_bitmapscan TO DEFAULT")
+    txids
   end
 
   defp stored_page(block, order, page, size),

@@ -158,7 +158,13 @@ defmodule Bitblocks.UsageTest do
       assert read.requests >= 2
       assert raw.requests >= 1
 
-      keyed = Enum.find(report.by_caller, &(&1.caller_id == to_string(key.id)))
+      # Match the kind too: a user and a key can share a numeric id.
+      keyed =
+        Enum.find(
+          report.by_caller,
+          &(&1.caller_id == to_string(key.id) and &1.caller_kind == "key")
+        )
+
       assert keyed.label == "usage-test (#{key.prefix})"
       assert keyed.totals.requests == 2
 
