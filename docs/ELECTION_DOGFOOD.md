@@ -211,6 +211,8 @@ python3 recount.py --self-test election_count_v0.json   # the counting rule's ve
 
 It makes no network calls, and runs the five steps above in order, then compares the tally and winners with `count.json` and the result record.
 The records are re-read from the tx bytes, with the same parsing and AIP rules as `Bitblocks.Elections.Records`, and the count's input is rebuilt from them, never taken from `count.json`.
+A signature checks as a wallet makes it: the key recovered from it, compressed or not as its header byte says, must hash to the signer's address, over the Bitcoin Signed Message digest.
+For a message of exactly 253 bytes both tools also take bsv-ex's digest, which frames that length as one byte rather than `fd fd 00`, so a record signed with `BSV.Message` still counts (`Bitblocks.Aip`, `test/bitblocks/aip_test.exs`).
 It prints every ballot as counted or with the rule it failed, the tally and the winners, then "Matches the published result", and exits 0.
 When a check fails it names each file or tx, prints no tally and exits 1; a usage mistake exits 2.
 It prints the hash of the closing block and of the archive's last block, so the observer can tie the headers to the real chain on any explorer or node, and it says so when the headers' targets are easier than mainnet allows (a test chain).

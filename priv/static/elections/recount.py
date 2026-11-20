@@ -212,14 +212,24 @@ def _varint(n):
     return b"\xff" + struct.pack("<Q", n)
 
 
-def bsm_digest(message):
-    prefix = b"Bitcoin Signed Message:\n"
-    return sha256d(_varint(len(prefix)) + prefix + _varint(len(message)) + message)
+BSM_PREFIX = b"Bitcoin Signed Message:\n"
 
 
-def recover_pubkey(message, signature):
+def bsm_digests(message):
+    """The digests a Bitcoin Signed Message over `message` may be made with.
+    They differ only for a message of exactly 253 bytes: Bitcoin frames that
+    length as fd fd 00 (as wallets sign), and bsv-ex as the one byte fd (as
+    its BSV.Message signs). Bitblocks takes either, so this does too."""
+    framed = _varint(len(BSM_PREFIX)) + BSM_PREFIX
+    digests = [sha256d(framed + _varint(len(message)) + message)]
+    if len(message) == 253:
+        digests.append(sha256d(framed + b"\xfd" + message))
+    return digests
+
+
+def recover_pubkey(digest, signature):
     """The public key (bytes, compressed or not as the signature says) that
-    made a 65-byte compact Bitcoin Signed Message signature, or None."""
+    made a 65-byte compact signature over `digest`, or None."""
     if len(signature) != 65:
         return None
     header = signature[0]
@@ -239,7 +249,7 @@ def recover_pubkey(message, signature):
     if beta * beta % P != alpha:
         return None
     y = beta if beta % 2 == (recid & 1) else P - beta
-    e = int.from_bytes(bsm_digest(message), "big")
+    e = int.from_bytes(digest, "big")
     r_inv = pow(r, -1, N)
     q = _point_add(_point_mul(s * r_inv % N, (x, y)), _point_mul((-e * r_inv) % N, G))
     if q is None:
@@ -269,8 +279,11 @@ def signature_checks(message, address, signature):
             return False
         if len(raw) != 65:
             return False
-    pubkey = recover_pubkey(message, raw)
-    return pubkey is not None and hash160(pubkey) == decoded[1]
+    for digest in bsm_digests(message):
+        pubkey = recover_pubkey(digest, raw)
+        if pubkey is not None and hash160(pubkey) == decoded[1]:
+            return True
+    return False
 
 
 # ---------------------------------------------------------------------------

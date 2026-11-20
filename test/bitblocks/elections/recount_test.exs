@@ -198,6 +198,82 @@ defmodule Bitblocks.Elections.RecountTest do
     assert out =~ "Give --archive-sha256"
   end
 
+  test "checks a signature as Bitblocks.Aip does, at the edges", %{tmp_dir: tmp} do
+    prefix = "Bitcoin Signed Message:\n"
+
+    # Bitcoin's framing of the length (253 is fd fd 00), as a wallet signs.
+    wallet_sign = fn message, privkey ->
+      size = byte_size(message)
+      length = if size < 0xFD, do: <<size>>, else: <<0xFD, size::little-16>>
+      digest = BSV.Hash.sha256_sha256(<<byte_size(prefix)>> <> prefix <> length <> message)
+      Curvy.sign(digest, privkey.d, compact: true, compressed: privkey.compressed, hash: false)
+    end
+
+    address = fn privkey ->
+      privkey |> BSV.PubKey.from_privkey() |> BSV.Address.from_pubkey() |> BSV.Address.to_string()
+    end
+
+    compressed = BSV.PrivKey.new()
+    uncompressed = %{BSV.PrivKey.new() | compressed: false}
+    # bsv-ex's framing (253 as the one byte fd).
+    bsv_sign = fn message, privkey -> BSV.Message.sign(message, privkey, encoding: :raw) end
+
+    # AIP signs 0x6a, the field and "|": a 251-byte field makes 253 bytes.
+    long = String.duplicate("x", 251)
+
+    cases =
+      for {field, signer, sign, claimed} <- [
+            {"short", compressed, wallet_sign, compressed},
+            {long, compressed, wallet_sign, compressed},
+            {long, compressed, bsv_sign, compressed},
+            {long, uncompressed, wallet_sign, uncompressed},
+            {"short", uncompressed, wallet_sign, uncompressed},
+            {long, compressed, wallet_sign, uncompressed}
+          ] do
+        message = <<0x6A>> <> field <> "|"
+        sig = sign.(message, signer)
+
+        data = [
+          :OP_RETURN,
+          field,
+          "|",
+          Bitblocks.Aip.prefix(),
+          "BITCOIN_ECDSA",
+          address.(claimed),
+          sig
+        ]
+
+        %{
+          message: Base.encode16(message, case: :lower),
+          address: address.(claimed),
+          signature: Base.encode16(sig, case: :lower),
+          expected: match?({:ok, _}, Bitblocks.Aip.verify(data))
+        }
+      end
+
+    # Bitblocks takes the first five and refuses the last: a claimed address
+    # the key isn't behind.
+    assert Enum.map(cases, & &1.expected) == [true, true, true, true, true, false]
+
+    path = Path.join(tmp, "cases.json")
+    File.write!(path, Jason.encode!(cases))
+
+    script = """
+    import importlib.util, json, sys
+    spec = importlib.util.spec_from_file_location("recount", sys.argv[1])
+    recount = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(recount)
+    for row in json.load(open(sys.argv[2])):
+        got = recount.signature_checks(bytes.fromhex(row["message"]), row["address"].encode(), bytes.fromhex(row["signature"]))
+        print("ok" if got == row["expected"] else "DIFFERS", got, row["expected"])
+    """
+
+    {out, 0} = System.cmd(@python || "python3", ["-I", "-c", script, tool(), path])
+    lines = String.split(out, "\n", trim: true)
+    assert length(lines) == length(cases)
+    assert Enum.all?(lines, &String.starts_with?(&1, "ok")), out
+  end
+
   test "agrees with Count on every published vector" do
     {out, status} = recount(["--self-test", vectors()])
     assert status == 0, out
