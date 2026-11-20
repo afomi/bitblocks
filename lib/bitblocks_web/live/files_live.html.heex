@@ -11,7 +11,10 @@
     A file's C:// address is the sha256 of its bytes, so every copy of the same file shares it.
     Files open at
     <code class="font-mono">/b/&lt;txid&gt;</code>
-    as untrusted content, with scripts switched off.
+    by transaction, or at
+    <code class="font-mono">/c/&lt;sha256&gt;</code>
+    by C:// address, as untrusted content, with scripts switched off.
+    A file opened by its C:// address is hashed again before it is served.
   </p>
 
   <div
@@ -94,11 +97,15 @@
           <td class="px-4 py-2 text-right font-mono tabular-nums text-gray-700 dark:text-gray-300">
             {if file.block_height, do: delimit(file.block_height), else: "unconfirmed"}
           </td>
-          <td
-            class="px-4 py-2 font-mono text-xs text-gray-700 dark:text-gray-300"
-            title={file.sha256 && "c://#{file.sha256}"}
-          >
-            {file.sha256 && "c://#{short(file.sha256)}"}
+          <td class="px-4 py-2 font-mono text-xs">
+            <a
+              :if={file.sha256}
+              href={~p"/c/#{file.sha256}"}
+              title={"c://#{file.sha256}"}
+              class="text-blue-700 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
+            >
+              c://{short(file.sha256)}
+            </a>
           </td>
           <td class="px-4 py-2 font-mono text-xs">
             <.link

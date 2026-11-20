@@ -32,6 +32,29 @@ defmodule Bitblocks.Bitcom.BFile do
     end)
   end
 
+  @doc """
+  Every B:// file in the tx, one per data output that carries one, in
+  output order: what the C:// index (`Bitblocks.CFiles`) records, since a
+  tx may carry more than one file. `[]` when it has none.
+  """
+  @spec parse_all(BSV.Tx.t()) :: [t()]
+  def parse_all(%BSV.Tx{outputs: outputs}) do
+    for {output, vout} <- Enum.with_index(outputs),
+        [@b, content | rest] when is_binary(content) <- [segment(output.script.chunks)],
+        do: file(content, rest, vout)
+  end
+
+  @doc "The B:// file at output `vout`, or `:error` when that output holds none."
+  @spec parse_output(BSV.Tx.t(), non_neg_integer()) :: {:ok, t()} | :error
+  def parse_output(%BSV.Tx{outputs: outputs}, vout) do
+    with %BSV.TxOut{script: script} <- Enum.at(outputs, vout),
+         [@b, content | rest] when is_binary(content) <- segment(script.chunks) do
+      {:ok, file(content, rest, vout)}
+    else
+      _ -> :error
+    end
+  end
+
   defp segment([:OP_RETURN | rest]), do: Enum.take_while(rest, &(&1 != @pipe))
   defp segment([:OP_FALSE, :OP_RETURN | rest]), do: Enum.take_while(rest, &(&1 != @pipe))
   defp segment(_chunks), do: []

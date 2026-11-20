@@ -8,7 +8,7 @@ defmodule BitblocksWeb.FilesLiveTest do
   @txid "7e5011d81d01c67e81ab9a50ab3077bb62b340d1b50592931e4b52afa7198e65"
   @hex "test/fixtures/bob/#{@txid}.hex" |> File.read!() |> String.trim()
 
-  test "lists a stored B:// file, opening at /b/:txid", %{conn: conn} do
+  test "lists a stored B:// file, opening at /b/:txid and at its C:// address", %{conn: conn} do
     transaction_fixture(%{txid: @txid, raw: @hex, protocols: ["B://"], block_height: 594_000})
 
     {:ok, view, html} = live(conn, ~p"/files")
@@ -22,7 +22,8 @@ defmodule BitblocksWeb.FilesLiveTest do
            )
 
     assert has_element?(view, "#file-#{@txid}", "text/plain")
-    assert has_element?(view, "#file-#{@txid}", "c://")
+    sha = :crypto.hash(:sha256, "HAHAHAHA") |> Base.encode16(case: :lower)
+    assert has_element?(view, ~s(#file-#{@txid} a[href="/c/#{sha}"]), "c://")
     refute has_element?(view, "#files-older")
   end
 

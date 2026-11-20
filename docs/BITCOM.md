@@ -79,7 +79,9 @@ Usage is the count of indexed txs carrying the namespace's protocol tag, capped 
   Endpoints are returned and never fetched, so there is no server-side request to forge.
 - `GET /b/:txid`: a B:// file, parsed from its tx on the fly, with the same untrusted-content headers as `/content`.
 - `/files`: the B:// files in the stored chain, newest stored first, with each file's C:// address (the sha256 of its bytes); `Bitblocks.Bitcom.Files`.
-  Nothing is shown inline: a file opens at `/b/:txid`.
+  Nothing is shown inline: a file opens at `/b/:txid`, or by its C:// address at `/c/:sha256`.
+- `GET /c/:sha256`: a B:// file by its C:// address, found in the `c_files` index (`Bitblocks.CFiles`, #147) and hashed again before it is served, under the same headers as `/b/:txid`.
+  An address the index doesn't hold is a 404 with `indexed_through_height` and `complete_through`; `GET /api/v1/c/:sha256` lists every stored copy of a file.
 
 ## Snapshots
 

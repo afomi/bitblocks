@@ -156,6 +156,9 @@ defmodule Bitblocks.Reorgs.Reconcile do
               moved
             end)
 
+          # The C:// index names each file's block height (CFiles).
+          Bitblocks.CFiles.moved(moved, height)
+
           {count, protocols} = acc
           step = ProtocolRewind.moved(moved, hash, height)
           {count + length(moved), ProtocolRewind.add(protocols, step)}
@@ -178,6 +181,7 @@ defmodule Bitblocks.Reorgs.Reconcile do
         end
 
       removed = length(gone)
+      Bitblocks.CFiles.delete_txids(gone)
       protocols = ProtocolRewind.add(moved_protocols, ProtocolRewind.removed(gone))
 
       remaining =

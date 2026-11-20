@@ -52,6 +52,7 @@ So sats in costs no node call.
 | 9 | `index_bitcom` | Bitcom `$` commands, only on txs tagged `Bitcom` | `bitcom_commands`, with ownership proofs | none for untagged txs |
 | 10 | `index_bap` | BAP records, only on txs with a valid AIP signer (`aip_signers`) | `bap_records`: each record whose signature checks; what they mean is worked out when read ([BAP.md](BAP.md)) | none for txs with no AIP signer |
 | 11 | `index_timelocks` | output scripts, only on txs with an output script analysis left `unknown` (or none analysed) | `timelocks`, one row per script time lock: 1Sat Lock, CLTV or CSV, its unlock height or time, whether it binds, and whether only on one branch (`Bitblocks.ScriptLocks`) | none for txs whose outputs are all a known shape |
+| 12 | `index_c_files` | B:// files, only on txs tagged `B://` | `c_files`, one row per B:// file output: the sha256 of its bytes (its C:// address), the output, media type, size and name; what `/c/:sha256` resolves (https://github.com/afomi/bitblocks/issues/147) | none for untagged txs |
 
 A tx already stored when its block is fetched is skipped, so neither kind of step runs for it.
 `Chain.TxPipeline.CatchUp` brings such a block's rows up to version after it completes, every stage included ([DERIVED_DATA.md](DERIVED_DATA.md)).
@@ -60,8 +61,8 @@ A tx already stored when its block is fetched is skipped, so neither kind of ste
 
 | # | Step | Reads | Writes | Cost |
 | --- | --- | --- | --- | --- |
-| 12 | `block_totals` | the block's tx rows | `blocks.sats_out`, `fees`, `miner_reward`, `subsidy`, `burned`, `fees_verified` | one aggregate on the `block_hash` index, one row update |
-| 13 | `type_counts` | the block's tx rows | `blocks.type_counts`: type id => txs of that type; `type_counts_version` and `tx_types_version`, only when every tx is typed at the current version (by its own stamp or the block's) | one aggregate on the `block_hash` index, one row update |
+| 13 | `block_totals` | the block's tx rows | `blocks.sats_out`, `fees`, `miner_reward`, `subsidy`, `burned`, `fees_verified` | one aggregate on the `block_hash` index, one row update |
+| 14 | `type_counts` | the block's tx rows | `blocks.type_counts`: type id => txs of that type; `type_counts_version` and `tx_types_version`, only when every tx is typed at the current version (by its own stamp or the block's) | one aggregate on the `block_hash` index, one row update |
 
 `block_totals`:
 
@@ -111,14 +112,14 @@ flowchart TD
   s6 --> insert[("Insert the rows into transactions")]
   insert --> s7
   subgraph tx["Tx steps, per stored tx"]
-    s7["7 record_spends"] --> s8["8 index_tokens"] --> s9["9 index_bitcom"] --> s10["10 index_bap"] --> s11["11 index_timelocks"]
+    s7["7 record_spends"] --> s8["8 index_tokens"] --> s9["9 index_bitcom"] --> s10["10 index_bap"] --> s11["11 index_timelocks"] --> s12["12 index_c_files"]
   end
-  s11 --> check{"Every tx stored and merkleroot rebuilt?"}
+  s12 --> check{"Every tx stored and merkleroot rebuilt?"}
   check -- no --> retry["Block retries with backoff"]
   check -- yes --> done["Block is completed"]
-  done --> s12
+  done --> s13
   subgraph block["Block steps, at completion"]
-    s12["12 block_totals"] --> s13["13 type_counts"]
+    s13["13 block_totals"] --> s14["14 type_counts"]
   end
 ```
 
