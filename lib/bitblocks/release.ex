@@ -791,6 +791,56 @@ defmodule Bitblocks.Release do
     end)
   end
 
+  @doc """
+  Fills `c_files`, the C:// index, with the B:// files of stored txs mined
+  at heights `from_height` to `to_height`
+  (https://github.com/afomi/bitblocks/issues/147): each file's sha256, its
+  output, media type and size. Reads only the txs tagged B://, through
+  their partial index, and writes only to `c_files`. Records the run in
+  `derivation_runs`; a run from block 0 is what lets `/c/:sha256` say how
+  far the index reaches. See `Bitblocks.Chain.TxPipeline.CFilesBackfill`.
+
+  **Dry run by default**; `apply: true` writes.
+
+      bin/bitblocks rpc 'Bitblocks.Release.backfill_c_files(0, 400_000)'
+      bin/bitblocks rpc 'Bitblocks.Release.backfill_c_files(0, 400_000, apply: true)'
+  """
+  def backfill_c_files(from_height, to_height, opts \\ [])
+      when is_integer(from_height) and is_integer(to_height) do
+    command = command("backfill_c_files", [from_height, to_height], opts)
+
+    with_running_repo(fn ->
+      report =
+        Bitblocks.Chain.TxPipeline.CFilesBackfill.run(
+          from_height,
+          to_height,
+          opts
+          |> Keyword.put_new(:on_batch, &print_progress/1)
+          |> Keyword.put(:command, command)
+        )
+
+      print_c_files_backfill(report)
+      report
+    end)
+  end
+
+  defp print_c_files_backfill(r) do
+    print_run_header(r, "C:// index of B:// files")
+    d = r.details
+    IO.puts("  #{r.rows_examined} B:// tx(s) read, #{d.files_found} file(s) found")
+
+    IO.puts("  #{r.rows_changed} file row(s) #{if r.applied, do: "written", else: "to write"}")
+
+    if d.no_file > 0, do: IO.puts("  #{d.no_file} tagged tx(s) hold no B:// file of their own")
+
+    if d.no_raw > 0 do
+      IO.puts("  #{d.no_raw} B:// tx(s) NOT READ: no bytes in the database or the tx store")
+    end
+
+    IO.puts("  #{r.rows_below_version} file row(s) missing or below the version in the range")
+    print_run_footer(r)
+  end
+
   defp print_timelocks_backfill(r) do
     print_run_header(r, "script time locks")
     d = r.details

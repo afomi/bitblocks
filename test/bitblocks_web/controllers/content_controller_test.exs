@@ -113,4 +113,70 @@ defmodule BitblocksWeb.ContentControllerTest do
     assert build_conn() |> get("/content/nope") |> json_response(400)
     assert build_conn() |> get("/content/#{String.duplicate("e", 64)}_0") |> json_response(404)
   end
+
+  describe "GET /c/:sha256" do
+    # A real mainnet B:// + MAP tx (Twetch, 2019); see test/bitblocks/bob_test.exs.
+    @twetch "7e5011d81d01c67e81ab9a50ab3077bb62b340d1b50592931e4b52afa7198e65"
+    @twetch_hex "test/fixtures/bob/#{@twetch}.hex" |> File.read!() |> String.trim()
+    @sha "HAHAHAHA" |> then(&:crypto.hash(:sha256, &1)) |> Base.encode16(case: :lower)
+
+    defp indexed do
+      tx =
+        Bitblocks.ChainFixtures.transaction_fixture(%{
+          txid: @twetch,
+          raw: @twetch_hex,
+          protocols: ["B://", "MAP"],
+          block_height: 594_000
+        })
+
+      Bitblocks.CFiles.index(tx, %Bitblocks.Chain.Block{height: 594_000})
+    end
+
+    test "serves the file by its sha256, hashed again, with untrusted-content headers" do
+      indexed()
+
+      conn = build_conn() |> get("/c/#{String.upcase(@sha)}")
+
+      assert conn.status == 200
+      assert conn.resp_body == "HAHAHAHA"
+      assert :crypto.hash(:sha256, conn.resp_body) |> Base.encode16(case: :lower) == @sha
+      assert get_resp_header(conn, "content-type") |> hd() =~ "text/plain"
+      assert get_resp_header(conn, "x-content-type-options") == ["nosniff"]
+      assert get_resp_header(conn, "content-security-policy") |> hd() =~ "sandbox"
+      assert get_resp_header(conn, "cache-control") |> hd() =~ "immutable"
+      assert get_resp_header(conn, "etag") == [~s("#{@sha}")]
+    end
+
+    test "an address the index doesn't hold says how far the index reaches" do
+      unknown = String.duplicate("ab", 32)
+
+      body = build_conn() |> get("/c/#{unknown}") |> json_response(404)
+
+      assert %{
+               "error" => "not_indexed",
+               "sha256" => ^unknown,
+               "message" => message,
+               "meta" => %{"indexed_through_height" => nil, "source" => "c_files"} = meta
+             } = body
+
+      assert Map.has_key?(meta, "complete_through")
+      assert message =~ "hasn't been backfilled from block 0"
+    end
+
+    test "a malformed address is a 400 naming the shape" do
+      assert %{"error" => error} = build_conn() |> get("/c/nope") |> json_response(400)
+      assert error =~ "64 hex characters"
+    end
+
+    test "bytes that don't hash to the address are never served" do
+      indexed()
+      wrong = :crypto.hash(:sha256, "other")
+
+      Bitblocks.Repo.update_all(Bitblocks.CFiles.CFile, set: [sha256: wrong])
+
+      conn = build_conn() |> get("/c/#{Base.encode16(wrong, case: :lower)}")
+      assert %{"error" => error} = json_response(conn, 500)
+      assert error =~ "nothing is served"
+    end
+  end
 end

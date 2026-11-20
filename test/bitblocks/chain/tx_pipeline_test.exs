@@ -71,6 +71,7 @@ defmodule Bitblocks.Chain.TxPipelineTest do
                {:tx, "index_bitcom"},
                {:tx, "index_bap"},
                {:tx, "index_timelocks"},
+               {:tx, "index_c_files"},
                {:block, "block_totals"},
                {:block, "type_counts"}
              ]
@@ -319,7 +320,8 @@ defmodule Bitblocks.Chain.TxPipelineTest do
                {"index_tokens", :ok},
                {"index_bitcom", :ok},
                {"index_bap", :ok},
-               {"index_timelocks", :ok}
+               {"index_timelocks", :ok},
+               {"index_c_files", :ok}
              ]
     end
 

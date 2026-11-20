@@ -104,6 +104,9 @@ defmodule BitblocksWeb.Router do
     # HodLocker (#76): what the indexed time locks back a post with
     get "/hodlocker/posts/:txid", HodlockerController, :post
 
+    # C:// (#147): the stored outputs that carry a file, by its sha256
+    get "/c/:sha256", CFileController, :show
+
     # Bulk downloads (#111): the free quote only, no checkout yet
     get "/downloads/quote", DownloadController, :quote
     get "/downloads/sizes", DownloadController, :sizes
@@ -267,6 +270,8 @@ defmodule BitblocksWeb.Router do
 
     # A B:// file parsed from its tx the same way (#22).
     get "/b/:txid", ContentController, :b
+    # A file by its C:// address, the sha256 of its bytes (#147).
+    get "/c/:sha256", ContentController, :c
     # A BCat file reassembled from its head tx (#15).
     get "/content/bcat/:txid", ContentController, :bcat
   end

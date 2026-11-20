@@ -39,7 +39,8 @@ defmodule Bitblocks.Chain.TxPipeline do
       when either is N);
     * `:type_counts` stamps `blocks.type_counts_version`;
     * `:token_recipients` stamps `protocol_instances.recipient_version`;
-    * `:timelocks` stamps `timelocks.version`.
+    * `:timelocks` stamps `timelocks.version`;
+    * `:c_files` stamps `c_files.version`.
 
   A sum, so it reads at a glance ("tallies v4: four steps at v1") and only
   goes up: a bump in any step, or a new step, raises it, and every row
@@ -68,6 +69,7 @@ defmodule Bitblocks.Chain.TxPipeline do
     Steps.IndexBitcom,
     Steps.IndexBap,
     Steps.IndexTimelocks,
+    Steps.IndexCFiles,
     # :block, at completion
     Steps.BlockTotals,
     Steps.TypeCounts
@@ -81,7 +83,8 @@ defmodule Bitblocks.Chain.TxPipeline do
   # block's type counts depend on the classifier too, so :type_counts sums
   # both steps: a classifier bump marks every block's counts below it.
   # Tokens stamps :token_recipients on each token row whose lock it read,
-  # and Steps.IndexTimelocks stamps :timelocks on each lock row it writes.
+  # Steps.IndexTimelocks stamps :timelocks on each lock row it writes, and
+  # Steps.IndexCFiles stamps :c_files on each file row.
   @derivations [
     script_analysis: %{
       steps: [Steps.ScriptAnalysis],
@@ -120,6 +123,11 @@ defmodule Bitblocks.Chain.TxPipeline do
       steps: [Steps.IndexTimelocks],
       stamp: "timelocks.version",
       backfill: "Release.backfill_timelocks/3"
+    },
+    c_files: %{
+      steps: [Steps.IndexCFiles],
+      stamp: "c_files.version",
+      backfill: "Release.backfill_c_files/3"
     }
   ]
 
@@ -143,7 +151,7 @@ defmodule Bitblocks.Chain.TxPipeline do
   @doc """
   The version of a stage (`:chunk`, `:tx`, `:block`) or a derivation
   (`:script_analysis`, `:tallies`, `:block_totals`, `:tx_types`,
-  `:type_counts`, `:token_recipients`, `:timelocks`): the sum of its steps' versions. See the moduledoc for why a sum.
+  `:type_counts`, `:token_recipients`, `:timelocks`, `:c_files`): the sum of its steps' versions. See the moduledoc for why a sum.
   """
   @spec version(atom()) :: pos_integer()
   def version(stage) when stage in [:chunk, :tx, :block] do

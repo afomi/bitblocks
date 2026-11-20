@@ -623,7 +623,7 @@ defmodule Bitblocks.Workers.FetchTransactionsWorker do
   @discard_batch 1_000
 
   # Every row under the block's hash, with what it recorded: spend edges,
-  # time locks and protocol rows (Reorgs.ProtocolRewind, as a reorg removes
+  # time locks, C:// file rows and protocol rows (Reorgs.ProtocolRewind, as a reorg removes
   # a tx no block holds). In batches, each its own database transaction.
   # Bitcom and BAP rows aren't rewound, as in Reorgs.Reconcile.
   defp discard_unproven_rows(block, reason) do
@@ -666,6 +666,7 @@ defmodule Bitblocks.Workers.FetchTransactionsWorker do
           # After the rows and spend edges: what the protocols recompute reads them.
           ProtocolRewind.removed(gone)
           Repo.delete_all(from(l in Lock, where: l.txid in ^gone))
+          Bitblocks.CFiles.delete_txids(gone)
           n
         end)
 
