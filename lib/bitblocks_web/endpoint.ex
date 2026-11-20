@@ -65,6 +65,9 @@ defmodule BitblocksWeb.Endpoint do
   # Requests, bytes, DB time and upstream calls by caller and class (#61).
   plug BitblocksWeb.Plugs.Meter
   plug BitblocksWeb.Plugs.IpBlocker
+  # Before the rate limiter: a preflight is answered here, uncounted, and the
+  # open routes' 429s carry their CORS headers.
+  plug BitblocksWeb.Plugs.OpenCors
   plug BitblocksWeb.Plugs.RateLimiter
   plug BitblocksWeb.Plugs.RequestLogger
   plug BitblocksWeb.Router

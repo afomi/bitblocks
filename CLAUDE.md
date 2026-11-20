@@ -173,6 +173,9 @@ GET /api/v1/status/derivations` shows the versions and latest runs.
 **Access (`BitblocksWeb.UserAuth`):**
 - Public: home, `/blocks`, block and transaction detail, the beta features, `/reorgs`, `/facts`, `/about`, `/content`, `/start`.
 - API key or signed in: all of `/api/v1` and `/bitcom.json` (`BitblocksWeb.Plugs.RequireCaller`, #12). Open with neither: `/api/v1/status`, `/api/v1/price/bsv` and `/api/v1/support`, which other sites' browsers and the deploy check read, `/api/v1/headers`, which a light client checks merkle roots against, and the Bitcom registry exports (`/bitcom.json`, `/api/v1/bitcom/snapshots`), meant to be checked without trusting us.
+- CORS (`BitblocksWeb.Plugs.OpenCors`, in the endpoint before the rate limiter): every route piped through `:open_api`, `:public_api` or `:public_csv` is open to all origins, the same way.
+  `OPTIONS` is a 204 naming the path's methods and the headers we read (`accept`, `authorization`, `content-type`, `x-api-key`), and costs no rate budget; every other response, a 429 included, exposes `Retry-After` and `x-ratelimit-*`; never `allow-credentials`, since these routes take no cookies from other sites.
+  Other routes get no CORS headers.
 - AI crawlers with no key or session (`RateLimiter.AiCrawlers`, by user agent; not Googlebot or Bingbot): one budget per crawler family across all its IPs, and past it a 402 pointing at `/pricing#crawlers` (#107).
 - Signed in with GitHub: `/status`, `/syncing`, and the raw tx download.
 - Admin: everything in the router's `:admin` scope, including the `/transactions` list, plus the chain-scrubber tiles.
@@ -339,6 +342,7 @@ A signed-in user can take one trial key from `/start`, 60 requests a minute and 
 A monthly plan (#112, `Bitblocks.Billing`, docs/STRIPE.md#monthly-plans) raises every key the user owns, and any they make later, to the plan's `requests_per_minute` without changing the key; only Stripe's signed webhooks move it, through the one dedupe (`Bitblocks.Payments.StripeEvents`), and it returns to the trial's 60 when Stripe ends the subscription or gives up on payment (past due keeps it).
 Plans are `BILLING_PLANS` in the secret, never in the repo; unset, `/pricing` shows no plans.
 A wallet or agent can take one with no account by signing a challenge (#121): `GET /api/v1/keys/challenge`, then `POST /api/v1/keys` with `challenge`, `signature` (Bitcoin Signed Message, base64) and, best, `address`; the key is bound to the signing address, one active key each (signing again replaces it), the trial budget, no scopes; redeeming is limited per IP and site-wide (`ApiKeys.issue_signed/4`, `BitblocksWeb.Api.KeyController`).
+The message's last line is `Expires: <ISO 8601>`, rebuilt from the challenge token, which still enforces the expiry; both routes work from a browser on any site (CORS under Access above).
 A key can hold scopes, none by default: `ops_read` opens `/api/v1/ops/*`, given with `scopes: ["ops_read"]` on either create function or `Release.grant_api_key_scope/2`. A key without it gets a 403.
 
 ```
@@ -351,7 +355,7 @@ GET /api/v1/txs/:txid/proof     — merkle proof for a transaction
 GET /api/v1/txs/:txid/beef      — BRC-62 BEEF as hex: the tx with its own BUMP, its parents first (up to 25; parents_missing, complete); same errors as /proof
 GET /api/v1/txs/:txid/beef      — BEEF (BRC-62) as hex, the tx last with its own BUMP, its parents ahead of it; ?format=atomic for Atomic BEEF (BRC-95), the tx and its BUMP alone; at most 16 MB, else a 413 naming /raw and /proof
 POST /api/v1/beef/verify        — checks a BEEF V1, V2 or Atomic BEEF from anyone against our headers (octet-stream, or {"beef": "<hex>"}; 4 MB): each tx proven | anchored | unknown | failed, at what height and root, with reasons. The claim is inclusion in a block; no script runs, and an unknown height is unknown (docs/MERKLE_PROOFS.md); data.statement offers the BRC-237 payment evidence statement it supports (made | refused | unavailable; canonical bytes and sha256), distance only; a made one carries signature, BRC-77 over the canonical bytes by our identity key, for anyone or for ?verifier= / "verifier" (an identity key), null while STATEMENT_SIGNING_KEY is unset (`Interop.StatementSignature`, docs/INTEROP_KIT.md)
-GET /api/v1/keys/challenge      — open: a message to sign and a challenge token, good five minutes (#121)
+GET /api/v1/keys/challenge      — open: a message to sign (ending `Expires: <ISO 8601>`) and a challenge token, good five minutes, plus expires_at (#121)
 POST /api/v1/keys               — open: {challenge, signature, address?} → 201 with a key bound to the signer, shown once; 401 bad, expired or wrong signer, 409 challenge used, 429 past the limit
 GET /api/v1/headers/:height     — open: one header: raw 80 bytes as hex, hash, height, merkleroot, verified, canonical; rely on it only when both are true
 GET /api/v1/headers             — open: ?from=&limit= up to 2,000 headers by the height index; meta.tip_height says what they cover, meta.missing what we lack below it

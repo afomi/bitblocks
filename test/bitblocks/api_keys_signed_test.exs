@@ -21,10 +21,11 @@ defmodule Bitblocks.ApiKeysSignedTest do
 
   defp sign(message, %{privkey: privkey}), do: BSV.Message.sign(message, privkey)
 
-  test "the message names the site, the nonce and when, one per line" do
+  test "the message names the site, the nonce, when and until when, one per line" do
     assert message("ab12") ==
              "Sign this to get a bitblocks API key bound to your key.\n" <>
-               "Site: https://bitblocks.test\nNonce: ab12\nIssued: 2026-11-18T12:00:00Z"
+               "Site: https://bitblocks.test\nNonce: ab12\nIssued: 2026-11-18T12:00:00Z\n" <>
+               "Expires: 2026-11-18T12:05:00Z"
   end
 
   test "binds the key to the address recovered from the signature" do

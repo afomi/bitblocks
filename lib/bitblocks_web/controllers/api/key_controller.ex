@@ -21,7 +21,6 @@ defmodule BitblocksWeb.Api.KeyController do
   alias BitblocksWeb.Utils.IpHelper
 
   @salt "api key challenge v1"
-  @max_age_s 300
 
   @doc "GET /api/v1/keys/challenge"
   def challenge(conn, _params) do
@@ -33,7 +32,7 @@ defmodule BitblocksWeb.Api.KeyController do
       data: %{
         message: ApiKeys.challenge_message(site(), nonce, issued_at),
         challenge: token,
-        expires_at: DateTime.add(issued_at, @max_age_s),
+        expires_at: ApiKeys.challenge_expires_at(issued_at),
         sign_as: "Bitcoin Signed Message, base64",
         redeem: "POST /api/v1/keys with challenge, signature and your address"
       }
@@ -44,7 +43,7 @@ defmodule BitblocksWeb.Api.KeyController do
   def create(conn, %{"challenge" => token, "signature" => signature})
       when is_binary(token) and is_binary(signature) do
     with {:ok, %{"n" => nonce, "t" => t}} <-
-           Phoenix.Token.verify(conn, @salt, token, max_age: @max_age_s),
+           Phoenix.Token.verify(conn, @salt, token, max_age: ApiKeys.challenge_max_age_s()),
          :ok <- within_limits(conn) do
       message = ApiKeys.challenge_message(site(), nonce, DateTime.from_unix!(t))
 

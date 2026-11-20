@@ -32,6 +32,10 @@ defmodule BitblocksWeb.Api.KeyControllerTest do
     assert data["message"] =~ "Site: https://"
     assert data["expires_at"]
 
+    # The deadline is in the signed text too, so a wallet can show it, and
+    # the redeem below still verifies over it.
+    assert data["message"] =~ "\nExpires: #{data["expires_at"]}"
+
     signature = BSV.Message.sign(data["message"], ctx.privkey)
 
     body =

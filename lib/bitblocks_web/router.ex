@@ -25,6 +25,11 @@ defmodule BitblocksWeb.Router do
 
   # The API takes an API key or a signed-in session (#12). The :open_api routes
   # are the only exceptions.
+  #
+  # CORS for :open_api, :public_api and :public_csv is set in the endpoint by
+  # BitblocksWeb.Plugs.OpenCors, which reads these pipeline names: it answers
+  # the preflight, and puts its headers on before the rate limiter, so a 429
+  # carries them too.
   pipeline :api do
     plug :accepts, ["json"]
     plug BitblocksWeb.Plugs.RequireCaller
@@ -32,7 +37,6 @@ defmodule BitblocksWeb.Router do
 
   pipeline :public_api do
     plug :accepts, ["json"]
-    plug CORSPlug, origin: "*"
     plug BitblocksWeb.Plugs.RequireCaller
   end
 
@@ -40,7 +44,6 @@ defmodule BitblocksWeb.Router do
   # kept, and by the deploy check.
   pipeline :open_api do
     plug :accepts, ["json"]
-    plug CORSPlug, origin: "*"
   end
 
   # Declared before the :api scope so "snapshots" isn't captured as an address.
@@ -225,7 +228,6 @@ defmodule BitblocksWeb.Router do
   # The research export as CSV (#51): :public_api only accepts json. Before
   # the :public_api scope, so "export.csv" isn't taken for a type id.
   pipeline :public_csv do
-    plug CORSPlug, origin: "*"
     plug BitblocksWeb.Plugs.RequireCaller
   end
 
