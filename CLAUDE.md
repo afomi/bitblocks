@@ -145,7 +145,7 @@ GET /api/v1/status/derivations` shows the versions and latest runs.
 - Routes (lib/bitblocks_web/router.ex):
   - `/` - home; `/status` - status page (sign-in required)
   - `/blocks` - List blocks
-  - `/blocks/:id` - Show block by height or hash (txids load 50 per page)
+  - `/blocks/:id` - Show block by height or hash; the row renders at once, and txids load 50 per page after connect, every read bounded and under a 5 s statement timeout, a slow one saying so (`Chain.BlockTxids.load/5`)
   - `/transactions` - List transactions (admin only)
   - `/transactions/:id` - Show transaction by txid; "Who had to agree" reads a bare multisig lock in plain words ("Locked to 2 of these 3 keys") and, on a spend, which keys signed, each signature checked against the input's sighash in key order (`Bitblocks.Multisig`, previous outputs from the same one-query `SatsIn.stored_outputs/1` as input values)
   - `/sign-in`, `/auth/github`, `/auth/github/callback`, `DELETE /auth/logout` - GitHub sign-in (`BitblocksWeb.UserAuth`, `BitblocksWeb.AuthController`)

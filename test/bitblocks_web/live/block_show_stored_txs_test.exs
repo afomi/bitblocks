@@ -17,7 +17,8 @@ defmodule BitblocksWeb.BlockShowStoredTxsTest do
     for txid <- ~w(t_a t_b),
         do: transaction_fixture(%{txid: txid, block_hash: "blk155025", block_height: 155_025})
 
-    {:ok, _view, html} = live(conn, "/blocks/155025")
+    {:ok, view, _html} = live(conn, "/blocks/155025")
+    html = render_async(view)
 
     assert html =~ "t_a"
     assert html =~ "t_b"
@@ -50,6 +51,7 @@ defmodule BitblocksWeb.BlockShowStoredTxsTest do
     })
 
     {:ok, view, _html} = live(conn, "/blocks/155026")
+    render_async(view)
 
     assert has_element?(view, "#block-tx-t_coinbase", "Coinbase")
     assert has_element?(view, "#block-tx-t_coinbase", "25 BSV")
@@ -75,7 +77,8 @@ defmodule BitblocksWeb.BlockShowStoredTxsTest do
     test "a failed block says failed, and no step claims it", %{conn: conn} do
       block = block_fixture(%{sync_state: "failed"})
 
-      {:ok, view, html} = live(conn, ~p"/blocks/#{block.height}")
+      {:ok, view, _html} = live(conn, ~p"/blocks/#{block.height}")
+      html = render_async(view)
 
       assert view |> element("#block-sync-failed") |> render() =~ "Failed."
       refute has_element?(view, "#block-sync-steps")

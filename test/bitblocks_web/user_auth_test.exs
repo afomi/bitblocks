@@ -71,7 +71,8 @@ defmodule BitblocksWeb.UserAuthTest do
 
   describe "an anonymous visitor" do
     test "opens a shared block link, read-only", %{conn: conn, block: block} do
-      {:ok, _view, html} = live(conn, "/blocks/#{block.height}")
+      {:ok, view, _html} = live(conn, "/blocks/#{block.height}")
+      html = render_async(view)
 
       assert html =~ ~s(href="/transactions/#{txid(1)}")
       refute html =~ "/show/edit"
@@ -183,7 +184,8 @@ defmodule BitblocksWeb.UserAuthTest do
     end
 
     test "can read block detail, one page of txids at a time", %{conn: conn, block: block} do
-      {:ok, view, html} = live(conn, "/blocks/#{block.height}")
+      {:ok, view, _html} = live(conn, "/blocks/#{block.height}")
+      html = render_async(view)
 
       assert html =~ ~s(href="/transactions/#{txid(1)}")
       assert html =~ ~s(href="/transactions/#{txid(50)}")
@@ -194,7 +196,8 @@ defmodule BitblocksWeb.UserAuthTest do
       assert length(socket.assigns.txids) == 50
       assert socket.assigns.tx_total == 120
 
-      html = render_click(view, "tx_page", %{"page" => "3"})
+      render_click(view, "tx_page", %{"page" => "3"})
+      html = render_async(view)
       assert html =~ txid(101)
       assert html =~ txid(120)
       refute html =~ ~s(href="/transactions/#{txid(1)}")
