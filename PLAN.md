@@ -24,7 +24,7 @@ Without funding, Bitblocks spins down by 2026-12-31, so an archive that restores
    Epic: https://github.com/afomi/bitblocks/issues/140; the counting rule and its v0 vectors are live (https://github.com/afomi/bitblocks/issues/136), and so is the tip lane, dormant until an election projection exists and Ryan starts it (https://github.com/afomi/bitblocks/issues/139).
    Left for Ryan: one `app` name for the record format, and MIT or CC0 for the vectors.
 
-The live Bitcom registry (https://github.com/afomi/bitblocks/issues/18, [docs/BITCOM.md](docs/BITCOM.md)) has every step done but the funded address, https://github.com/afomi/bitblocks/issues/58, and is proposed for closing.
+The live Bitcom registry ([docs/BITCOM.md](docs/BITCOM.md)) is done but for the funded address, https://github.com/afomi/bitblocks/issues/58.
 
 ## Ops, each one prod step from done
 
@@ -80,8 +80,6 @@ The live Bitcom registry (https://github.com/afomi/bitblocks/issues/18, [docs/BI
   - Keys and the sandbox run: [docs/STRIPE.md](docs/STRIPE.md).
   - Live mode waits on Ryan: Stripe's crypto approval, CDP keys, a price (proposed 0.01 USDC a request) and his go.
     Then infra lifts the ALB Meta rule.
-- Large blocks, the stream's remaining edges: https://github.com/afomi/bitblocks/issues/86
-- Transaction types, phase 2 done and proposed for closing: https://github.com/afomi/bitblocks/issues/49
 - Interop, a BRC-237 statement and one live payment: https://github.com/afomi/bitblocks/issues/64
 - REVIVE unwriter's stack: https://github.com/afomi/bitblocks/issues/25
 - Managed projections: https://github.com/afomi/bitblocks/issues/29
@@ -90,10 +88,10 @@ The live Bitcom registry (https://github.com/afomi/bitblocks/issues/18, [docs/BI
 
 ## Deferred
 
-https://github.com/afomi/bitblocks/issues/57 · https://github.com/afomi/bitblocks/issues/62 · https://github.com/afomi/bitblocks/issues/81 · https://github.com/afomi/bitblocks/issues/84
+https://github.com/afomi/bitblocks/issues/81 · https://github.com/afomi/bitblocks/issues/84
 
 ## Closed since 2026-11-07
 
-https://github.com/afomi/bitblocks/issues/56 · https://github.com/afomi/bitblocks/issues/59 · https://github.com/afomi/bitblocks/issues/70 · https://github.com/afomi/bitblocks/issues/73 · https://github.com/afomi/bitblocks/issues/74 · https://github.com/afomi/bitblocks/issues/79 · https://github.com/afomi/bitblocks/issues/87 · https://github.com/afomi/bitblocks/issues/88 · https://github.com/afomi/bitblocks/issues/89 · https://github.com/afomi/bitblocks/issues/90 · https://github.com/afomi/bitblocks/issues/91 · https://github.com/afomi/bitblocks/issues/92 · https://github.com/afomi/bitblocks/issues/93 · https://github.com/afomi/bitblocks/issues/94 · https://github.com/afomi/bitblocks/issues/96
+https://github.com/afomi/bitblocks/issues/18 · https://github.com/afomi/bitblocks/issues/49 · https://github.com/afomi/bitblocks/issues/57 · https://github.com/afomi/bitblocks/issues/62 · https://github.com/afomi/bitblocks/issues/86 · https://github.com/afomi/bitblocks/issues/114 · https://github.com/afomi/bitblocks/issues/56 · https://github.com/afomi/bitblocks/issues/59 · https://github.com/afomi/bitblocks/issues/70 · https://github.com/afomi/bitblocks/issues/73 · https://github.com/afomi/bitblocks/issues/74 · https://github.com/afomi/bitblocks/issues/79 · https://github.com/afomi/bitblocks/issues/87 · https://github.com/afomi/bitblocks/issues/88 · https://github.com/afomi/bitblocks/issues/89 · https://github.com/afomi/bitblocks/issues/90 · https://github.com/afomi/bitblocks/issues/91 · https://github.com/afomi/bitblocks/issues/92 · https://github.com/afomi/bitblocks/issues/93 · https://github.com/afomi/bitblocks/issues/94 · https://github.com/afomi/bitblocks/issues/96
 https://github.com/afomi/bitblocks/issues/24 · https://github.com/afomi/bitblocks/issues/32 · https://github.com/afomi/bitblocks/issues/48 · https://github.com/afomi/bitblocks/issues/51 · https://github.com/afomi/bitblocks/issues/60 · https://github.com/afomi/bitblocks/issues/63 · https://github.com/afomi/bitblocks/issues/65 · https://github.com/afomi/bitblocks/issues/66 · https://github.com/afomi/bitblocks/issues/67 · https://github.com/afomi/bitblocks/issues/69 · https://github.com/afomi/bitblocks/issues/76 · https://github.com/afomi/bitblocks/issues/77 · https://github.com/afomi/bitblocks/issues/78 · https://github.com/afomi/bitblocks/issues/80 · https://github.com/afomi/bitblocks/issues/82 · https://github.com/afomi/bitblocks/issues/85
 Earlier closes are in the issue tracker's closed list.
