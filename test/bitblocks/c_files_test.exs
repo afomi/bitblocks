@@ -101,13 +101,25 @@ defmodule Bitblocks.CFilesTest do
     end
 
     test "a copy whose tx can't be fetched just now is unavailable, read from WhatsOnChain bytes only" do
+      # A tx of its own, held nowhere: another test's copy of the Twetch tx
+      # may sit in the shared tx store.
+      b = "19HxigV4QyBv3tHpQVcUEQyq1pzZVdoAut"
+      body = "unavailable #{System.unique_integer([:positive])}"
+      script = %BSV.Script{chunks: [:OP_FALSE, :OP_RETURN, b, body, "text/plain"]}
+
+      {txid, hex} =
+        Bitblocks.OrdinalFixtures.tx(
+          [Bitblocks.OrdinalFixtures.funding_outpoint()],
+          [%BSV.TxOut{satoshis: 0, script: script}]
+        )
+
       Process.put(:woc_raw_tx_only, true)
       Process.put(:woc_txs_error, :timeout)
-      [row] = CFiles.rows(@txid, @hex, 594_000)
+      [row] = CFiles.rows(txid, hex, 594_000)
       CFiles.write([row])
 
-      assert CFiles.resolve(@sha256) == {:error, :unavailable}
-      assert [{:txs, [[@txid]]}] = Process.get(:woc_calls)
+      assert CFiles.resolve(:crypto.hash(:sha256, body)) == {:error, :unavailable}
+      assert [{:txs, [[^txid]]}] = Process.get(:woc_calls)
     end
   end
 
