@@ -45,3 +45,5 @@ npm-debug.log
 # Project specific ignores
 .DS_Store
 /tmp/
+# The recount tool, if run in place
+__pycache__/

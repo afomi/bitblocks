@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1"
+    >
+    <title>Recount an election yourself</title>
+    <meta
+      name="description"
+      content="Recount a Bitblocks election from its archive, on your own computer, with no network calls."
+    >
+    <style>
+      :root {
+        --page: #ffffff;
+        --inset: #f9fafb;
+        --border: #e5e7eb;
+        --heading: #111827;
+        --text: #374151;
+        --secondary: #4b5563;
+        --link: #1d4ed8;
+        --link-hover: #1e3a8a;
+        --good: #15803d;
+        --bad: #991b1b;
+      }
+      body {
+        margin: 0;
+        background: var(--page);
+        color: var(--text);
+        font: 16px/1.6 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+      }
+      main {
+        max-width: 44rem;
+        margin: 0 auto;
+        padding: 2rem 1rem 4rem;
+      }
+      h1,
+      h2 {
+        color: var(--heading);
+        line-height: 1.25;
+      }
+      h1 {
+        font-size: 1.875rem;
+        margin: 0 0 0.5rem;
+      }
+      h2 {
+        font-size: 1.25rem;
+        margin: 2.25rem 0 0.5rem;
+      }
+      p,
+      li {
+        margin: 0.5rem 0;
+      }
+      a {
+        color: var(--link);
+        text-decoration: underline;
+      }
+      a:hover {
+        color: var(--link-hover);
+      }
+      .lede {
+        color: var(--secondary);
+        font-size: 1.125rem;
+      }
+      code,
+      pre {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-variant-numeric: tabular-nums;
+        font-size: 0.875rem;
+      }
+      code {
+        background: var(--inset);
+        border: 1px solid var(--border);
+        border-radius: 0.25rem;
+        padding: 0 0.25rem;
+        overflow-wrap: anywhere;
+      }
+      pre {
+        background: var(--inset);
+        border: 1px solid var(--border);
+        border-radius: 0.5rem;
+        padding: 0.75rem 1rem;
+        overflow-x: auto;
+        white-space: pre;
+      }
+      pre code {
+        background: none;
+        border: 0;
+        padding: 0;
+      }
+      .good {
+        color: var(--good);
+        font-weight: 600;
+      }
+      .bad {
+        color: var(--bad);
+        font-weight: 600;
+      }
+      .card {
+        border: 1px solid var(--border);
+        border-radius: 0.5rem;
+        padding: 0.25rem 1rem;
+        margin: 1rem 0;
+      }
+      footer {
+        color: var(--secondary);
+        font-size: 0.875rem;
+        margin-top: 3rem;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Recount an election yourself</h1>
+      <p class="lede">
+        You can check a Bitblocks election on your own computer, from its archive alone.
+        You don't have to trust Bitblocks, or whoever ran the election.
+        The recount makes no network calls, so it works offline and after our servers are gone.
+      </p>
+
+      <h2>What you need</h2>
+      <ul>
+        <li>
+          A computer with Python 3.8 or later.
+          A Mac or Linux machine already has it: open Terminal and type <code>python3 --version</code>.
+          On Windows, install it free from <a href="https://www.python.org/downloads/">python.org</a>, then use <code>py</code> where this page says <code>python3</code>.
+        </li>
+        <li>
+          The election's archive: a folder of files, linked from the election's page.
+        </li>
+        <li>
+          The election's <code>archive_sha256</code>: a 64-character code in the result record, shown on the election's page.
+        </li>
+        <li>
+          The recount tool, one file: <a href="/elections/recount.py">recount.py</a>.
+          Save it next to the archive folder.
+        </li>
+      </ul>
+
+      <h2>Run it</h2>
+      <ol>
+        <li>
+          Open Terminal (on Windows, Command Prompt), and go to the folder where you saved both, for example <code>cd Downloads</code>.
+        </li>
+        <li>
+          Type this, with the archive's folder name and the code from the result record:
+          <pre><code>python3 recount.py pba-2026 --archive-sha256 &lt;archive_sha256&gt;</code></pre>
+        </li>
+        <li>
+          Read the last line.
+          <span class="good">Matches the published result.</span>
+          means every check passed and the count is the one that was published.
+        </li>
+      </ol>
+      <p>
+        If you have the result record's transaction as a file, from any block explorer, give it instead of the code, and the tool checks the record's signature too:
+      </p>
+      <pre><code>python3 recount.py pba-2026 --result-tx result.hex</code></pre>
+
+      <h2>What it checks, in order</h2>
+      <ol>
+        <li>
+          Every file in the archive against <code>MANIFEST.sha256</code>, and the manifest itself against the result record's <code>archive_sha256</code>.
+        </li>
+        <li>
+          The block headers: each one names the block before it, and carries the proof of work its own target asks for.
+        </li>
+        <li>
+          Each transaction's bytes against its txid, and each merkle proof against the block header it claims.
+        </li>
+        <li>
+          Every record, read again from the transaction bytes: the election, the voter roll and each ballot, with the signature over every field and the address that signed it.
+        </li>
+        <li>
+          The counting rule, run again on what the transactions say.
+        </li>
+        <li>
+          The tally and winners, against the archive's <code>count.json</code> and the result record.
+        </li>
+      </ol>
+
+      <h2>What you see</h2>
+      <div class="card">
+        <p>
+          Every ballot, in the order the chain holds them, marked <code>counted</code> with the candidates it names, or <code>not counted</code> with the rule it failed.
+          Then the tally, the winners, and two block hashes you can look up anywhere.
+        </p>
+      </div>
+      <p>
+        A ballot can fail a rule and still be honest: a member may change their vote, and only their latest ballot counts (<code>replaced</code>).
+        Others arrive too early or too late (<code>before_open</code>, <code>after_close</code>), come from a key not on the roll (<code>not_on_roll</code>), or carry no valid signature (<code>no_signature</code>).
+      </p>
+
+      <h2>If it doesn't match</h2>
+      <p>
+        The tool ends with <span class="bad">Does not match.</span> and lists each check that failed, naming the file or the transaction.
+        It prints no tally, because a tally from a changed archive would mean nothing.
+        Common reasons: a file changed or went missing in the download, or the <code>archive_sha256</code> was copied wrong.
+        Download the archive again, check the code, and run it once more.
+        If it still fails, the archive isn't the one the result was published for, and that is worth telling the election's administrator and other members.
+      </p>
+
+      <h2>One check to make by hand</h2>
+      <p>
+        The tool proves the headers form a chain with real proof of work, but only you can tie that chain to the real one.
+        At the end it prints the hash of the closing block and of the last block in the archive.
+        Look up either height on any block explorer, or on your own node, and check the hash is the same.
+      </p>
+
+      <h2>What a recount can't tell you</h2>
+      <ul>
+        <li>
+          Whether a ballot was left out of the archive.
+          The archive holds every ballot Bitblocks found; anyone with their own copy of the chain can look for more.
+        </li>
+        <li>
+          Whether each address on the roll belongs to a real member.
+          That is the roll's job, published by the organisation that ran the election.
+        </li>
+      </ul>
+
+      <h2>For developers</h2>
+      <p>
+        <code>recount.py</code> is one file, Python's standard library only, with a small secp256k1 to check the signatures.
+        <code>python3 recount.py --self-test election_count_v0.json</code> runs the counting rule's published <a href="/interop/elections/count/v0.json">test vectors</a> and fails if any outcome differs.
+        The format and the rule are in <a href="https://github.com/afomi/bitblocks/blob/develop/docs/ELECTION_DOGFOOD.md">docs/ELECTION_DOGFOOD.md</a>.
+        Write your own recount against them; the vectors are there so yours and ours agree.
+      </p>
+
+      <footer>
+        <p>
+          This page and the tool are static files, so you can keep a copy beside the archive.
+          MIT licence, as <a href="https://github.com/afomi/bitblocks">the Bitblocks repository</a>.
+        </p>
+      </footer>
+    </main>
+  </body>
+</html>

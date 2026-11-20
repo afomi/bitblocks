@@ -29,6 +29,8 @@ defmodule Bitblocks.Elections.Archive do
   @manifest "MANIFEST.sha256"
   @spec_url "https://github.com/afomi/bitblocks/blob/develop/docs/ELECTION_DOGFOOD.md"
   @vectors_url "https://bitblocks.app/interop/elections/count/v0.json"
+  @recount_url "https://bitblocks.app/elections/recount.py"
+  @recount_guide_url "https://bitblocks.app/elections/recount.html"
 
   @doc """
   The archive's files without writing them: `{:ok, %{election,
@@ -173,6 +175,7 @@ defmodule Bitblocks.Elections.Archive do
       status: "draft",
       spec: @spec_url,
       vectors: @vectors_url,
+      recount: %{tool: @recount_url, guide: @recount_guide_url},
       election: gathered.election,
       app: gathered.app,
       administrator: gathered.administrator,
@@ -204,7 +207,8 @@ defmodule Bitblocks.Elections.Archive do
         "Each txs/<txid>.bin must hash (sha256d, reversed) to its txid, and each proofs/<txid>.bump (BRC-74) must climb from that txid to the merkle root of the header at the BUMP's height; the txid's leaf offset is its position.",
         "Each record is read from its tx's output vout: a MAP SET with an AIP signature over every MAP field (and the roll's B:// file), as the spec says.",
         "roll.json must hash to roll.sha256, the election's roll_sha256.",
-        "count.json holds the input given to the counting rule and its result: rebuild the input from the txs, run the rule (its vectors are at the vectors URL), and compare."
+        "count.json holds the input given to the counting rule and its result: rebuild the input from the txs, run the rule (its vectors are at the vectors URL), and compare.",
+        "recount.tool does every step above offline, from these files alone: python3 recount.py <this folder> --archive-sha256 <archive_sha256>."
       ]
     }
 
