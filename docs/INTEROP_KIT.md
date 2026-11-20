@@ -12,7 +12,8 @@ Status: first version, draft, built 2026-11-05.
 - **Vectors:** [`GET /interop/vectors/v1.json`](https://bitblocks.app/interop/vectors/v1.json), open to anyone with no key, and served from memory with no database.
 - **A check page:** `/start/interop`, admin only until published ([DEMOS_CAMPAIGN.md](DEMOS_CAMPAIGN.md)): paste hex or upload a file, and see each transaction's status.
 - **This pattern:** what a sender and a receiver each do, also on the page.
-- **Election count vectors:** [`GET /interop/elections/count/v1.json`](https://bitblocks.app/interop/elections/count/v1.json), the counting rule for an election anyone can recount, served the same way ([ELECTION_DOGFOOD.md](ELECTION_DOGFOOD.md)).
+- **Election count vectors:** [`GET /interop/elections/count/v0.json`](https://bitblocks.app/interop/elections/count/v0.json), the counting rule for an election anyone can recount, served the same way ([ELECTION_DOGFOOD.md](ELECTION_DOGFOOD.md)).
+  It is v0, a draft, until the first election record is published on chain; then a v1 freezes its inputs.
 
 ## What it claims
 

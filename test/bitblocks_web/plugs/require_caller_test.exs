@@ -81,7 +81,7 @@ defmodule BitblocksWeb.Plugs.RequireCallerTest do
           "/api/v1/headers?from=0",
           "/interop/vectors/v1.json",
           "/interop/vectors/LICENSE.txt",
-          "/interop/elections/count/v1.json"
+          "/interop/elections/count/v0.json"
         ] do
       refute get(conn, path).status == 401, "#{path} asked for a caller"
     end

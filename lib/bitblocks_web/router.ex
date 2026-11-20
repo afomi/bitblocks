@@ -289,7 +289,7 @@ defmodule BitblocksWeb.Router do
     pipe_through :open_api
 
     get "/interop/vectors/v1.json", InteropController, :vectors
-    get "/interop/elections/count/v1.json", InteropController, :election_count
+    get "/interop/elections/count/v0.json", InteropController, :election_count
   end
 
   # Own scope, no pipeline: :open_api only accepts json.

@@ -57,7 +57,7 @@ defmodule BitblocksWeb.InteropControllerTest do
   end
 
   describe "the election count vectors" do
-    @count_path "/interop/elections/count/v1.json"
+    @count_path "/interop/elections/count/v0.json"
 
     test "open to anyone, cached and exactly the published file", %{conn: conn} do
       with_gate(fn ->
@@ -70,6 +70,12 @@ defmodule BitblocksWeb.InteropControllerTest do
 
         assert get_resp_header(conn, "etag") ==
                  [~s("#{Bitblocks.Elections.CountVectors.sha256()}")]
+      end)
+    end
+
+    test "v0 is the only version served while it is a draft", %{conn: conn} do
+      with_gate(fn ->
+        assert conn |> get("/interop/elections/count/v1.json") |> response(404)
       end)
     end
   end
