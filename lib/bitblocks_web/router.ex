@@ -221,6 +221,8 @@ defmodule BitblocksWeb.Router do
     pipe_through :open_api
 
     get "/status", StatusController, :show
+    # The live election count, no key (#136, #137). Same gather and count as the page.
+    get "/elections/:outpoint", ElectionController, :show
     get "/price/bsv", PriceController, :show
     get "/support", SupportController, :show
   end
@@ -382,6 +384,10 @@ defmodule BitblocksWeb.Router do
       live "/reorgs", ReorgLive
       live "/facts", FactsLive
       live "/did", DIDLive
+
+      # Read-only count (#136, #137). Recount files stay in priv/static/elections.
+      live "/elections", ElectionLive.Index
+      live "/elections/:outpoint", ElectionLive.Show
 
       # Public block index. Detail pages need sign-in; mutation pages are admin.
       live "/blocks", BlockLive.Index, :index

@@ -29,7 +29,8 @@ defmodule BitblocksWeb.SitemapController do
     {"/collections", "weekly", "0.5"},
     {"/collections/grand-tardinians", "weekly", "0.3"},
     {"/collections/rexxies", "monthly", "0.3"},
-    {"/types", "weekly", "0.6"}
+    {"/types", "weekly", "0.6"},
+    {"/elections", "weekly", "0.5"}
   ]
 
   # One page per transaction type (the glossary, #49).
