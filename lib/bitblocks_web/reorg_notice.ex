@@ -1,10 +1,15 @@
 defmodule BitblocksWeb.ReorgNotice do
   @moduledoc """
-  Loads the current reorg announcement onto every HTML page.
+  Loads the current reorg announcement onto an HTML page.
 
   The plug runs on the HTTP request, and the root layout renders that
   assign. A LiveView does not draw the banner again when its socket
   connects, so connecting does not query.
+
+  A reorganization is a tip event, and the banner is for admins. The plug
+  asks only when this request is an admin and the index is at the chain
+  tip (`Bitblocks.SyncProgress.at_chain_tip?/0`). Until then the assign is
+  nil and the database is not asked.
   """
 
   use Phoenix.Component
@@ -13,13 +18,23 @@ defmodule BitblocksWeb.ReorgNotice do
 
   alias Bitblocks.Reorgs
   alias Bitblocks.Reorgs.Reorg
+  alias Bitblocks.SyncProgress
 
   @doc false
   def init(opts), do: opts
 
   @doc false
   def call(conn, _opts) do
-    Plug.Conn.assign(conn, :reorg_notice, current())
+    Plug.Conn.assign(conn, :reorg_notice, notice(conn))
+  end
+
+  # The banner renders only for an admin, and only a tip the index has
+  # caught can reorganize. Everyone else, and every page while we are
+  # still catching up, skips the query.
+  defp notice(conn) do
+    if conn.assigns[:admin?] == true and SyncProgress.at_chain_tip?() do
+      current()
+    end
   end
 
   @doc """

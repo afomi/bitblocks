@@ -5,6 +5,7 @@ defmodule BitblocksWeb.ReorgLiveTest do
   import Phoenix.LiveViewTest
 
   alias Bitblocks.Reorgs
+  alias Bitblocks.SyncProgress
   alias BitblocksWeb.ReorgNotice
 
   test "a failed reorg query leaves the notice off the page" do
@@ -47,6 +48,8 @@ defmodule BitblocksWeb.ReorgLiveTest do
   end
 
   test "a page reads the reorg banner once", %{conn: conn} do
+    at_the_tip()
+
     {:ok, _} =
       Reorgs.record_observed(
         %{
@@ -81,7 +84,46 @@ defmodule BitblocksWeb.ReorgLiveTest do
     refute_receive :reorg_query, 50
   end
 
+  test "a reorg while the index is behind the tip is not announced", %{conn: conn} do
+    behind_the_tip()
+
+    {:ok, _} =
+      Reorgs.record_observed(
+        %{
+          fork_height: 800_040,
+          fork_point: nil,
+          orphan_count: nil,
+          outcome: "needs_attention"
+        },
+        DateTime.utc_now() |> DateTime.truncate(:second)
+      )
+
+    parent = self()
+    handler = "reorg-quiet-#{System.unique_integer([:positive])}"
+
+    :telemetry.attach(
+      handler,
+      [:bitblocks, :repo, :query],
+      fn _event, _measurements, %{query: query}, _config ->
+        if query =~ "\"reorgs\"" do
+          send(parent, :reorg_query)
+        end
+      end,
+      nil
+    )
+
+    on_exit(fn -> :telemetry.detach(handler) end)
+
+    {:ok, _view, html} = live(conn, ~p"/guide")
+
+    refute html =~ "id=\"reorg-notice\""
+    refute html =~ "800040"
+    refute_receive :reorg_query, 50
+  end
+
   test "a fresh reorg is announced on other pages", %{conn: conn} do
+    at_the_tip()
+
     {:ok, _} =
       Reorgs.record_observed(
         %{
@@ -113,14 +155,33 @@ defmodule BitblocksWeb.ReorgLiveTest do
           DateTime.utc_now() |> DateTime.truncate(:second)
         )
 
+      at_the_tip()
+
       :ok
     end
 
     test "a visitor never sees the banner: it is our index, not the network", %{conn: conn} do
+      parent = self()
+      handler = "reorg-visitor-#{System.unique_integer([:positive])}"
+
+      :telemetry.attach(
+        handler,
+        [:bitblocks, :repo, :query],
+        fn _event, _measurements, %{query: query}, _config ->
+          if query =~ "\"reorgs\"" do
+            send(parent, :reorg_query)
+          end
+        end,
+        nil
+      )
+
+      on_exit(fn -> :telemetry.detach(handler) end)
+
       html = conn |> get("/reorgs") |> html_response(200)
 
       refute html =~ "id=\"reorg-notice\""
       refute html =~ "800020"
+      refute_receive :reorg_query, 50
     end
 
     test "an admin sees it, linked to what a reorganization is", %{conn: conn} do
@@ -145,4 +206,20 @@ defmodule BitblocksWeb.ReorgLiveTest do
       assert html =~ "What a reorganization is."
     end
   end
+
+  # The shared snapshot. Restored so a later test does not inherit the tip.
+  defp put_overview(overview) do
+    snapshot = SyncProgress.empty_snapshot()
+
+    :ets.insert(
+      SyncProgress,
+      {:snapshot, %{snapshot | overview: Map.merge(snapshot.overview, overview)}}
+    )
+
+    on_exit(fn -> :ets.insert(SyncProgress, {:snapshot, SyncProgress.empty_snapshot()}) end)
+  end
+
+  defp at_the_tip, do: put_overview(%{complete_through: 900_000, node_tip: 900_002})
+
+  defp behind_the_tip, do: put_overview(%{complete_through: 400_000, node_tip: 900_000})
 end
