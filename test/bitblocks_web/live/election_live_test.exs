@@ -21,6 +21,8 @@ defmodule BitblocksWeb.ElectionLiveTest do
     {:ok, view, html} = live(conn, ~p"/elections")
 
     assert html =~ "Elections"
+    assert html =~ "Beta"
+    assert html =~ "The record format is a draft."
     assert html =~ "Bitblocks reads the chain and does not cast a vote."
     assert has_element?(view, "#election-open", "Election")
     assert has_element?(view, "a", "Recount it yourself")
@@ -42,6 +44,8 @@ defmodule BitblocksWeb.ElectionLiveTest do
     {:ok, view, html} = live(conn, ~p"/elections/#{s.election}")
 
     assert html =~ "PBA Board 2026"
+    assert html =~ "Beta"
+    assert html =~ "The record format is a draft."
     assert html =~ "This count is final."
 
     assert has_element?(
