@@ -2,8 +2,9 @@ defmodule BitblocksWeb.ReorgNotice do
   @moduledoc """
   Loads the current reorg announcement onto every HTML page.
 
-  The plug covers controller renders.
-  `on_mount` covers LiveViews after they connect.
+  The plug runs on the HTTP request, and the root layout renders that
+  assign. A LiveView does not draw the banner again when its socket
+  connects, so connecting does not query.
   """
 
   use Phoenix.Component
@@ -19,11 +20,6 @@ defmodule BitblocksWeb.ReorgNotice do
   @doc false
   def call(conn, _opts) do
     Plug.Conn.assign(conn, :reorg_notice, current())
-  end
-
-  @doc false
-  def on_mount(:default, _params, _session, socket) do
-    {:cont, assign(socket, :reorg_notice, current())}
   end
 
   @doc """

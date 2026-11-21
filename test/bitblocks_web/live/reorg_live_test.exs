@@ -46,6 +46,41 @@ defmodule BitblocksWeb.ReorgLiveTest do
     refute html =~ "654321"
   end
 
+  test "a page reads the reorg banner once", %{conn: conn} do
+    {:ok, _} =
+      Reorgs.record_observed(
+        %{
+          fork_height: 800_030,
+          fork_point: nil,
+          orphan_count: nil,
+          outcome: "needs_attention"
+        },
+        DateTime.utc_now() |> DateTime.truncate(:second)
+      )
+
+    parent = self()
+    handler = "reorg-queries-#{System.unique_integer([:positive])}"
+
+    :telemetry.attach(
+      handler,
+      [:bitblocks, :repo, :query],
+      fn _event, _measurements, %{query: query}, _config ->
+        if query =~ "\"reorgs\"" do
+          send(parent, :reorg_query)
+        end
+      end,
+      nil
+    )
+
+    on_exit(fn -> :telemetry.detach(handler) end)
+
+    {:ok, _view, html} = live(conn, ~p"/guide")
+
+    assert html =~ "id=\"reorg-notice\""
+    assert_receive :reorg_query
+    refute_receive :reorg_query, 50
+  end
+
   test "a fresh reorg is announced on other pages", %{conn: conn} do
     {:ok, _} =
       Reorgs.record_observed(
