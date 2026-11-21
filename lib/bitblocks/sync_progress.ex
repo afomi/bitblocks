@@ -86,6 +86,29 @@ defmodule Bitblocks.SyncProgress do
     ArgumentError -> empty_snapshot()
   end
 
+  # A day of blocks. Catching up from a planned stop is far behind this;
+  # following the tip, including a deep fork that halts there, is inside it.
+  @tip_lag_blocks 144
+
+  @doc """
+  Whether the index is at the chain tip.
+
+  A reorganization happens at the tip. While `complete_through` is still
+  catching up, the site has nothing to announce and should not ask.
+
+  The tip is `node_tip` when the snapshot has it, otherwise `public_tip`.
+  Within #{@tip_lag_blocks} blocks still counts. An unknown tip does not.
+  """
+  @spec at_chain_tip?(map()) :: boolean()
+  def at_chain_tip?(snapshot \\ snapshot()) do
+    overview = snapshot.overview
+    through = overview.complete_through
+    tip = overview.node_tip || overview.public_tip
+
+    is_integer(through) and through >= 0 and is_integer(tip) and
+      tip - through <= @tip_lag_blocks
+  end
+
   @doc """
   The last raw fetch of the block at `height` that this node saw in the last
   ten minutes: `%{source, bytes, ms, height, at}`, or nil. An ETS read.

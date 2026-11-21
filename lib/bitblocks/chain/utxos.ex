@@ -45,15 +45,29 @@ defmodule Bitblocks.Chain.Utxos do
 
   Candidate txs come from the GIN-indexed tag arrays (`output_addresses`,
   `output_script_hashes`); spends from `spend_index` by `(txid, vout)`.
+
+  Whether the spending tx's block is one we store is a second query.
+  A fat transaction can have hundreds of spends, and joining each one to
+  `transactions` held a checkout for many seconds while other pages queued
+  on the pool. That check runs under `statement_timeout`
+  (`:utxo_spender_timeout_ms`, 2 seconds). When Postgres cancels it, those
+  spends are unknown and the connection goes back to the pool.
   """
 
   import Ecto.Query
+
+  require Logger
 
   alias Bitblocks.Chain.{RawBlock, RawTx, Spend, Transaction}
   alias Bitblocks.Chain.Block
   alias Bitblocks.Chain.TxPipeline.Steps.Flows
   alias Bitblocks.Repo
   alias Bitblocks.Sync
+
+  # A nested loop from spend_index into transactions held a pool connection
+  # for 10–20s on a fat transaction (2026-11-21). Cap that check. The spend
+  # rows themselves stay on the (txid, vout) index, with no timeout.
+  @default_spender_timeout_ms 2_000
 
   @type coverage :: %{
           indexed_through_height: integer(),
@@ -363,20 +377,73 @@ defmodule Bitblocks.Chain.Utxos do
   end
 
   # {txid, vout} => {spending_txid, vin, spender canonical?}
+  #
+  # Two statements. The spend rows are an index read. Whether each spender's
+  # block is stored is separate, and Postgres cancels it at
+  # `spender_timeout/0` so a fat transaction cannot keep the connection.
+  # A cancel leaves those spends non-canonical (`:unknown` from `classify/4`).
   defp spends([]), do: %{}
 
   defp spends(txids) do
-    Repo.all(
-      from(s in Spend,
-        where: s.txid in ^txids,
-        left_join: st in Transaction,
-        on: st.txid == s.spending_txid,
-        left_join: sb in Block,
-        on: sb.hash == st.block_hash,
-        select: {{s.txid, s.vout}, {s.spending_txid, s.spending_vin, not is_nil(sb.id)}}
+    rows =
+      Repo.all(
+        from(s in Spend,
+          where: s.txid in ^txids,
+          select: {s.txid, s.vout, s.spending_txid, s.spending_vin}
+        )
       )
-    )
-    |> Map.new()
+
+    canonical = canonical_spenders(Enum.map(rows, fn {_, _, spender, _} -> spender end))
+
+    Map.new(rows, fn {txid, vout, spender, vin} ->
+      {{txid, vout}, {spender, vin, MapSet.member?(canonical, spender)}}
+    end)
+  end
+
+  defp canonical_spenders([]), do: MapSet.new()
+
+  defp canonical_spenders(spenders) do
+    spenders = Enum.uniq(spenders)
+
+    case read_canonical_spenders(spenders) do
+      {:ok, txids} ->
+        MapSet.new(txids)
+
+      {:error, :timeout} ->
+        Logger.warning("Utxos spend canonicality timed out for #{length(spenders)} spender(s)")
+
+        MapSet.new()
+    end
+  end
+
+  defp read_canonical_spenders(spenders) do
+    timeout = spender_timeout()
+
+    Repo.transaction(fn ->
+      Repo.query!("SET LOCAL statement_timeout = #{timeout}")
+
+      Repo.all(
+        from(t in Transaction,
+          join: b in Block,
+          on: b.hash == t.block_hash,
+          where: t.txid in ^spenders,
+          select: t.txid
+        )
+      )
+    end)
+  rescue
+    error in Postgrex.Error ->
+      case error do
+        %Postgrex.Error{postgres: %{code: :query_canceled}} -> {:error, :timeout}
+        _ -> reraise error, __STACKTRACE__
+      end
+  end
+
+  defp spender_timeout do
+    case Application.get_env(:bitblocks, :utxo_spender_timeout_ms, @default_spender_timeout_ms) do
+      ms when is_integer(ms) and ms > 0 -> ms
+      _ -> @default_spender_timeout_ms
+    end
   end
 
   defp classify(_outpoint, false, _spends, _coverage), do: {:unknown, nil, nil}

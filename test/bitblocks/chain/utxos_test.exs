@@ -10,6 +10,8 @@ defmodule Bitblocks.Chain.UtxosTest do
   alias Bitblocks.Chain.{Block, RawBlock, RawTx, Spend, Transaction, TxIngest, Utxos}
   alias Bitblocks.FirstSpendFixtures, as: FS
 
+  import ExUnit.CaptureLog
+
   # Block 9's coinbase pays this key's P2PK; block 170's first spend sends 10
   # coins to Hal Finney and 40 back to the same key.
   @satoshi "12cbQLTFMXRnSzktFkuoG3eHoMeFtpTu3S"
@@ -179,6 +181,68 @@ defmodule Bitblocks.Chain.UtxosTest do
       assert %{status: :partial, unknown: 1_000} = Utxos.balance(addr)
     end
 
+    test "spend rows come from spend_index; the block check is a capped second query" do
+      addr = address()
+      {txid, _} = t = tx([funding_outpoint()], [p2pkh(addr, 1_000)])
+      store(t, 5)
+      store(tx(["#{txid}_0"], [p2pkh(address(), 900)]), 5)
+
+      parent = self()
+      handler = "utxo-sql-#{System.unique_integer([:positive])}"
+
+      :telemetry.attach(
+        handler,
+        [:bitblocks, :repo, :query],
+        fn _event, _measurements, %{query: query}, _config ->
+          send(parent, {:sql, query})
+        end,
+        nil
+      )
+
+      on_exit(fn -> :telemetry.detach(handler) end)
+
+      assert {:ok, %{status: :spent}} = Utxos.outpoint(txid, 0)
+
+      sql = sql_from_self([])
+
+      spend = Enum.find(sql, &(&1 =~ "spend_index"))
+      assert spend =~ "spending_txid"
+      refute spend =~ "transactions"
+
+      assert "SET LOCAL statement_timeout = 2000" in sql
+
+      assert Enum.any?(sql, fn statement ->
+               statement =~ "FROM \"transactions\"" and statement =~ "JOIN \"blocks\""
+             end)
+    end
+
+    test "a block check Postgres cancels leaves the spend unknown, and the connection survives" do
+      addr = address()
+      {txid, _} = t = tx([funding_outpoint()], [p2pkh(addr, 1_000)])
+      store(t, 5)
+      store(tx(["#{txid}_0"], [p2pkh(address(), 900)]), 5)
+
+      assert {:ok, %{status: :spent}} = Utxos.outpoint(txid, 0)
+
+      # This connection only: every read of transactions sleeps, then the
+      # sandbox rollback drops the view with the test.
+      Repo.query!("""
+      CREATE TEMP VIEW transactions AS
+      SELECT * FROM public.transactions WHERE pg_sleep(0.2)::text = ''
+      """)
+
+      Application.put_env(:bitblocks, :utxo_spender_timeout_ms, 50)
+      on_exit(fn -> Application.delete_env(:bitblocks, :utxo_spender_timeout_ms) end)
+
+      log =
+        capture_log(fn ->
+          assert {:ok, %{status: :unknown, spent_by: nil}} = Utxos.outpoint(txid, 0)
+        end)
+
+      assert log =~ "Utxos spend canonicality timed out for 1 spender(s)"
+      assert %{rows: [[1]]} = Repo.query!("SELECT 1")
+    end
+
     test "an output in a tx whose block we don't store is unknown" do
       addr = address()
       {txid, hex} = tx([funding_outpoint()], [p2pkh(addr, 1_000)])
@@ -214,4 +278,12 @@ defmodule Bitblocks.Chain.UtxosTest do
   end
 
   defp funding_outpoint, do: Bitblocks.OrdinalFixtures.funding_outpoint()
+
+  defp sql_from_self(acc) do
+    receive do
+      {:sql, query} -> sql_from_self([query | acc])
+    after
+      0 -> Enum.reverse(acc)
+    end
+  end
 end
