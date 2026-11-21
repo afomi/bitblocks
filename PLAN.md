@@ -22,7 +22,8 @@ Without funding, Bitblocks spins down by 2026-12-31, so an archive that restores
    The runbook is [docs/RESTORE.md](docs/RESTORE.md), with `Release.restore_check/1` to compare a restore with its source; the rehearsal itself is infra's.
 2. The election dogfood: the Public Blockchain Association elects its board on Bitblocks, then Modular City runs the same flow; design in [docs/ELECTION_DOGFOOD.md](docs/ELECTION_DOGFOOD.md).
    Epic: https://github.com/afomi/bitblocks/issues/140; the counting rule and its v0 vectors are live (https://github.com/afomi/bitblocks/issues/136), and so is the tip lane, dormant until an election projection exists and Ryan starts it (https://github.com/afomi/bitblocks/issues/139).
-   Left for Ryan: one `app` name for the record format, and MIT or CC0 for the vectors.
+   The read side is `/elections` and `GET /api/v1/elections/:outpoint`.
+   Still open: a wallet ballot in qart, `/elections/new`, an archive button, and one `app` name for the record format, plus MIT or CC0 for the vectors.
 
 The live Bitcom registry ([docs/BITCOM.md](docs/BITCOM.md)) is done but for the funded address, https://github.com/afomi/bitblocks/issues/58.
 

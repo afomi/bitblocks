@@ -232,10 +232,12 @@ Exists:
 - **Current data**, built and dormant: our index stops near block 389,000, and an election happens at the tip, so a tip lane keeps the election projection's slice current, each new block read once and only the matching txs (and spends of their outputs) kept (https://github.com/afomi/bitblocks/issues/139, `Bitblocks.TipLane`, `docs/SYNCING.md`).
   It runs once an operator starts it with `Release.start_tip_lane/2`.
 - The record parsers, gathering from our index, the live count and the archive writer, CLI and context only (above).
+- The read-only live page and open API: `/elections`, `/elections/<outpoint>` and `GET /api/v1/elections/:outpoint`, both from `Elections.gather/2` then `Elections.count/1`.
+  Bitblocks still does not sign or send a ballot.
 - The recount tool and its guide, static files at `/elections/recount.py` and `/elections/recount.html` (above).
 
 Not built:
-- The live election page and its API.
+- `/elections/new`, a wallet button, and a button that writes the archive.
 - Ballot composing in qart.
 
 Needs real hands:
@@ -247,7 +249,7 @@ Needs real hands:
 1. The counting rule and its vectors, offline (built).
 2. The scoped tip lane, so the election's txs arrive as they confirm (built, dormant).
 3. The record parsers, the live count and the archive, from the CLI (built).
-4. The live page and API.
+4. The live page and API, read side only (built).
 5. The recount (built).
 6. PBA's election, end to end, with real keys.
 7. Modular City's election, published on its site.

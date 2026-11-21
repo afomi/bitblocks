@@ -1,0 +1,60 @@
+<div class="max-w-3xl mx-auto px-4 py-8 text-gray-900 dark:text-gray-100">
+  <h1 class="text-4xl font-bold text-gray-900 dark:text-white mb-3">
+    Elections
+  </h1>
+  <p class="text-gray-700 dark:text-gray-300 mb-2 max-w-3xl">
+    An election is named by the outpoint of its record, <code class="font-mono">{"<txid>.<vout>"}</code>.
+  </p>
+  <p class="text-gray-700 dark:text-gray-300 mb-6 max-w-3xl">
+    Bitblocks reads the chain and does not cast a vote.
+  </p>
+
+  <form
+    id="election-open"
+    phx-submit="open"
+    class="mb-6 rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800"
+  >
+    <label
+      for="election-outpoint"
+      class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+    >
+      Election
+    </label>
+    <div class="flex flex-col gap-3 sm:flex-row sm:items-center">
+      <input
+        id="election-outpoint"
+        name="outpoint"
+        type="text"
+        required
+        autocomplete="off"
+        spellcheck="false"
+        placeholder="txid.vout"
+        class="w-full min-w-0 rounded-md border border-gray-300 bg-white px-3 py-2 font-mono text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
+      />
+      <button
+        type="submit"
+        class="rounded-md bg-blue-600 px-4 py-2 text-white hover:bg-blue-700"
+      >
+        Open
+      </button>
+    </div>
+  </form>
+
+  <p
+    :if={@error}
+    id="election-error"
+    role="alert"
+    class="mb-6 rounded-lg border border-red-200 bg-red-50 p-4 text-red-800 dark:border-red-800 dark:bg-red-900/30 dark:text-red-200"
+  >
+    {@error}
+  </p>
+
+  <p>
+    <a
+      href="/elections/recount.html"
+      class="text-blue-700 underline hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
+    >
+      Recount it yourself
+    </a>
+  </p>
+</div>
