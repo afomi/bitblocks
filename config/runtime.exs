@@ -212,6 +212,13 @@ if config_env() == :prod do
     ai_fetcher_max_requests:
       String.to_integer(System.get_env("RATE_LIMIT_AI_FETCHER_PER_MINUTE", "30"))
 
+  # A page request while this many checkouts wait for a database connection
+  # is a 503 with Retry-After, at once (BitblocksWeb.Plugs.PoolGuard).
+  # 0 turns shedding off.
+  config :bitblocks, BitblocksWeb.Plugs.PoolGuard,
+    queue_length: String.to_integer(System.get_env("SHED_QUEUE_LENGTH", "40")),
+    retry_after_s: String.to_integer(System.get_env("SHED_RETRY_AFTER_S", "10"))
+
   # x402: an AI crawler over its budget can pay for the request (docs/STRIPE.md,
   # Bitblocks.Payments.X402). Off unless X402_ENABLED=true, and then only with
   # X402_PAY_TO, our Stripe deposit address (Release.x402_create_deposit_address/1).

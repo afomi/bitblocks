@@ -129,6 +129,10 @@ config :bitblocks, :usage_flush_ms, nil
 # turn assertions into flaky 429s depending on test order.
 config :bitblocks, BitblocksWeb.Plugs.RateLimiter, max_requests: 100_000
 
+# The pool gauge PoolGuard reads: no sampling in tests (the sandbox has no
+# shared queue); tests set it with Bitblocks.Repo.PoolMonitor.record/1.
+config :bitblocks, Bitblocks.Repo.PoolMonitor, interval_ms: nil
+
 # Derived-data backfills (docs/DERIVED_DATA.md): no pause between pages.
 config :bitblocks, :derivation_pause_ms, 0
 
