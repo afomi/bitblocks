@@ -4,8 +4,9 @@ defmodule BitblocksWeb.IndexNotice do
 
   Bitblocks is accurate as of the last-known block, so the banner names that
   block and how long ago it was mined, from the shared sync snapshot
-  (`Bitblocks.SyncProgress`, an ETS read) and one lookup by height. Until the
-  snapshot knows a block, there is no banner.
+  (`Bitblocks.SyncProgress`, an ETS read) and that block's time, looked up
+  once per height and remembered. Until the snapshot knows a block, there
+  is no banner.
   """
 
   use Phoenix.Component
@@ -35,7 +36,7 @@ defmodule BitblocksWeb.IndexNotice do
   def current do
     with %{complete_through: height} when is_integer(height) and height >= 0 <-
            SyncProgress.snapshot().overview,
-         time when is_integer(time) <- Chain.block_time(height) do
+         time when is_integer(time) <- block_time(height) do
       %{height: height, time: time}
     else
       _ -> nil
@@ -44,6 +45,25 @@ defmodule BitblocksWeb.IndexNotice do
     exception ->
       Logger.error("index notice unavailable: #{Exception.message(exception)}")
       nil
+  end
+
+  # The banner's block changes only as the sync completes one, so its time
+  # is read once per height and kept in the snapshot's table: a page asks
+  # nothing of the database for it.
+  @time_key {__MODULE__, :block_time}
+
+  defp block_time(height) do
+    case :ets.lookup(SyncProgress, @time_key) do
+      [{@time_key, ^height, time}] ->
+        time
+
+      _ ->
+        time = Chain.block_time(height)
+        if is_integer(time), do: :ets.insert(SyncProgress, {@time_key, height, time})
+        time
+    end
+  rescue
+    ArgumentError -> Chain.block_time(height)
   end
 
   @doc """

@@ -133,6 +133,11 @@ config :bitblocks, BitblocksWeb.Plugs.RateLimiter, max_requests: 100_000
 # shared queue); tests set it with Bitblocks.Repo.PoolMonitor.record/1.
 config :bitblocks, Bitblocks.Repo.PoolMonitor, interval_ms: nil
 
+# Tip and complete_through from the database in tests, so a block a test
+# stores is seen at once; production reads them from memory
+# (Bitblocks.Sync.Position). Tests of the memory path set source: :memory.
+config :bitblocks, Bitblocks.Sync.Position, source: :database
+
 # Derived-data backfills (docs/DERIVED_DATA.md): no pause between pages.
 config :bitblocks, :derivation_pause_ms, 0
 

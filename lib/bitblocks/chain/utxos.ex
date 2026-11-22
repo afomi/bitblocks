@@ -62,7 +62,7 @@ defmodule Bitblocks.Chain.Utxos do
   alias Bitblocks.Chain.Block
   alias Bitblocks.Chain.TxPipeline.Steps.Flows
   alias Bitblocks.Repo
-  alias Bitblocks.Sync
+  alias Bitblocks.Sync.Position
 
   # A nested loop from spend_index into transactions held a pool connection
   # for 10–20s on a fat transaction (2026-11-21). Cap that check. The spend
@@ -96,11 +96,17 @@ defmodule Bitblocks.Chain.Utxos do
   How far absence of a spend can be trusted: `indexed_through_height`
   (`Sync.complete_through/0`), `tip_height` (our highest stored header),
   and `complete?` when the two meet.
+
+  Both come from memory (`Bitblocks.Sync.Position`), not from a
+  `max(height)` and a `count(*)` on `blocks` per call, so "unspent" can lag
+  the sync by the snapshot's refresh (seconds; a stale snapshot falls back
+  to the database at most every 5 seconds). `fresh: true` asks the database,
+  and so does every call under
+  `config :bitblocks, Bitblocks.Sync.Position, source: :database`.
   """
-  @spec coverage() :: coverage()
-  def coverage do
-    tip = Sync.tip()
-    through = Sync.complete_through(tip)
+  @spec coverage(keyword()) :: coverage()
+  def coverage(opts \\ []) do
+    %{tip: tip, complete_through: through} = Position.position(opts)
     %{indexed_through_height: through, tip_height: tip, complete?: tip != nil and through == tip}
   end
 

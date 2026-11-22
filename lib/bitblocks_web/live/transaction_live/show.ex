@@ -179,11 +179,11 @@ defmodule BitblocksWeb.TransactionLive.Show do
 
   # HodLocker (#75): what this tx's time locks back; nLockTime (#76): the
   # tx's own lock. Our tip says how far each lock has left, read only when
-  # the tx carries one.
+  # the tx carries one, from memory (Bitblocks.Sync.Position), not max(height).
   defp assign_locks(socket, decoded_tx, txid, block) do
     hodlocker = decoded_tx && txid && Bitblocks.HodLocker.parse(decoded_tx, txid)
     nlocktime = decoded_tx && Bitblocks.NLockTime.parse(decoded_tx, block)
-    tip = if hodlocker || nlocktime, do: Bitblocks.ChainTiles.chain_tip()
+    tip = if hodlocker || nlocktime, do: Bitblocks.Sync.Position.tip()
 
     socket
     |> assign(:hodlocker, hodlocker || nil)
