@@ -138,6 +138,10 @@ config :bitblocks, Bitblocks.Repo.PoolMonitor, interval_ms: nil
 # (Bitblocks.Sync.Position). Tests of the memory path set source: :memory.
 config :bitblocks, Bitblocks.Sync.Position, source: :database
 
+# Tx page cache off in tests, so a page re-rendered after a test changes its
+# data shows the change; the cache's own tests turn it on.
+config :bitblocks, BitblocksWeb.TransactionLive.PageCache, enabled: false
+
 # Derived-data backfills (docs/DERIVED_DATA.md): no pause between pages.
 config :bitblocks, :derivation_pause_ms, 0
 

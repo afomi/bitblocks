@@ -6,6 +6,7 @@ defmodule BitblocksWeb.TransactionLive.Show do
   alias Bitblocks.Script.{Descriptor, Templates}
   alias Bitblocks.Chain.TxPipeline.Steps.SatsIn
   alias BitblocksWeb.TxSummary
+  alias BitblocksWeb.TransactionLive.PageCache
 
   @impl true
   def mount(_params, _session, socket) do
@@ -31,8 +32,67 @@ defmodule BitblocksWeb.TransactionLive.Show do
      )}
   end
 
+  # What handle_params computes for a tx, and all PageCache keeps: the
+  # assigns, never the HTML (it carries the viewer's CSRF token).
+  @page_keys [
+    :transaction,
+    :block,
+    :parsed_data,
+    :decoded_tx,
+    :coinbase_message,
+    :collection_item,
+    :collection_holding,
+    :collection_slug,
+    :collection_module,
+    :input_satoshis,
+    :multisig_inputs,
+    :multisig_more_inputs,
+    :multisig_outputs,
+    :output_descriptors,
+    :script_templates,
+    :output_protocols,
+    :output_status,
+    :nft_facts,
+    :tx_state,
+    :protocol_links,
+    :b_file,
+    :descriptors_by_vout,
+    :stas_outputs,
+    :hodlocker,
+    :hodlocker_totals,
+    :hodlocker_backers,
+    :hodlocker_indexed_through,
+    :hodlocker_coverage,
+    :nlocktime,
+    :tip_height,
+    :tip_time
+  ]
+
+  @doc false
+  def page_keys, do: @page_keys
+
   @impl true
   def handle_params(%{"id" => id}, _, socket) do
+    case cached_page(socket, id) do
+      {:ok, page} ->
+        PageCache.mark_cacheable()
+
+        {:noreply,
+         socket
+         |> assign(page)
+         |> assign(:page_title, page_title(socket.assigns.live_action))}
+
+      :miss ->
+        load_page(socket, id)
+    end
+  end
+
+  # A deep-confirmed tx's page, kept by PageCache, asks nothing of the
+  # database on a repeat view, static render or connect.
+  defp cached_page(%{assigns: %{live_action: :show}}, id), do: PageCache.get(id)
+  defp cached_page(_socket, _id), do: :miss
+
+  defp load_page(socket, id) do
     transaction = Chain.get_transaction(id)
 
     if is_nil(transaction) do
@@ -164,8 +224,24 @@ defmodule BitblocksWeb.TransactionLive.Show do
      |> assign(:b_file, b_file(decoded_tx))
      |> assign(:descriptors_by_vout, Map.new(output_descriptors, &{&1.vout, &1}))
      |> assign(:stas_outputs, stas_outputs(decoded_tx))
-     |> assign_locks(decoded_tx, transaction.txid, block)}
+     |> assign_locks(decoded_tx, transaction.txid, block)
+     |> keep_page(id)}
   end
+
+  # Kept when the tx is the one asked for, in a block buried at least
+  # PageCache's min_depth under our tip (from memory: Sync.Position).
+  defp keep_page(%{assigns: %{live_action: :show} = assigns} = socket, id) do
+    with %{txid: ^id} <- assigns.transaction,
+         %{height: height} <- assigns.block,
+         true <- PageCache.deep_enough?(height, Bitblocks.Sync.Position.tip()),
+         :ok <- PageCache.put(id, Map.take(assigns, @page_keys)) do
+      PageCache.mark_cacheable()
+    end
+
+    socket
+  end
+
+  defp keep_page(socket, _id), do: socket
 
   # Which keys signed each multisig input, and whether inputs past the
   # page's cap went unread (Bitblocks.Multisig).

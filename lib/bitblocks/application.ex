@@ -71,6 +71,8 @@ defmodule Bitblocks.Application do
       Bitblocks.ChainTiles.Cache,
       # One shared live sync snapshot for /syncing: computed once, broadcast to every viewer
       Bitblocks.SyncProgress,
+      # Deep-confirmed tx pages' computed facts, bounded by bytes
+      BitblocksWeb.TransactionLive.PageCache,
       # Start Oban for background job processing
       # (a read-only node runs no queues: Bitblocks.NodeRole)
       {Oban, Bitblocks.NodeRole.oban_config(Application.fetch_env!(:bitblocks, Oban))},

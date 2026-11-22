@@ -21,6 +21,8 @@ defmodule BitblocksWeb.Router do
     plug :put_secure_browser_headers
     plug :fetch_current_user
     plug BitblocksWeb.ReorgNotice
+    # A deep-confirmed tx page a browser may keep (TransactionLive.PageCache)
+    plug BitblocksWeb.Plugs.TxPageCacheControl
   end
 
   # The API takes an API key or a signed-in session (#12). The :open_api routes
