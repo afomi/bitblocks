@@ -38,6 +38,8 @@ defmodule Bitblocks.Application do
       {TelemetryMetricsPrometheus.Core,
        name: Bitblocks.TelemetryPrometheus, metrics: BitblocksWeb.Telemetry.prometheus_metrics()},
       Bitblocks.Repo,
+      # Samples the Repo pool's checkout queue for BitblocksWeb.Plugs.PoolGuard
+      Bitblocks.Repo.PoolMonitor,
       {Cluster.Supervisor,
        [Application.get_env(:libcluster, :topologies, []), [name: Bitblocks.ClusterSupervisor]]},
       {Phoenix.PubSub, name: Bitblocks.PubSub},

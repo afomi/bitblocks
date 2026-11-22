@@ -49,6 +49,8 @@ defmodule BitblocksWeb.Plugs.RequestLogger do
       }
 
       # Track invalid requests and auto-ban if enabled
+      shed? = conn.private[:pool_guard] == :shed
+
       is_invalid =
         case conn.status do
           404 ->
@@ -62,6 +64,12 @@ defmodule BitblocksWeb.Plugs.RequestLogger do
           status when status >= 400 and status < 500 ->
             Logger.warning("Client error #{status}", metadata)
             true
+
+          # Shed by PoolGuard while the database pool is overloaded: expected
+          # under a crawl, counted by telemetry, and not a fault.
+          503 when shed? ->
+            Logger.info("Shed 503", metadata)
+            false
 
           status when status >= 500 ->
             Logger.error("Server error #{status}", metadata)

@@ -70,6 +70,9 @@ defmodule BitblocksWeb.Endpoint do
   plug BitblocksWeb.Plugs.OpenCors
   plug BitblocksWeb.Plugs.RateLimiter
   plug BitblocksWeb.Plugs.RequestLogger
+  # After the logger, so a shed request is logged: a 503 at once while the
+  # database pool's queue is long, never a 500 a minute later.
+  plug BitblocksWeb.Plugs.PoolGuard
   plug BitblocksWeb.Router
 
   defp healthz(%{request_path: "/healthz"} = conn, _opts) do
