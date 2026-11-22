@@ -16,11 +16,11 @@ defmodule BitblocksWeb.Router do
     plug :fetch_session
     plug :fetch_live_flash
     plug :put_root_layout, html: {BitblocksWeb.Layouts, :root}
-    plug BitblocksWeb.ReorgNotice
     plug BitblocksWeb.IndexNotice
     plug :protect_from_forgery
     plug :put_secure_browser_headers
     plug :fetch_current_user
+    plug BitblocksWeb.ReorgNotice
   end
 
   # The API takes an API key or a signed-in session (#12). The :open_api routes

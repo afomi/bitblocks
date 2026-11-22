@@ -271,7 +271,23 @@ defmodule BitblocksWeb.AccessibilityAxeTest do
   end
 
   # One fresh reorg per outcome, so the banner and both timeline labels render.
+  # The banner asks the database only once the index is at the chain tip.
   defp record_reorgs do
+    snapshot = Bitblocks.SyncProgress.empty_snapshot()
+
+    :ets.insert(
+      Bitblocks.SyncProgress,
+      {:snapshot,
+       %{snapshot | overview: %{snapshot.overview | complete_through: 900_000, node_tip: 900_002}}}
+    )
+
+    on_exit(fn ->
+      :ets.insert(
+        Bitblocks.SyncProgress,
+        {:snapshot, Bitblocks.SyncProgress.empty_snapshot()}
+      )
+    end)
+
     now = DateTime.utc_now() |> DateTime.truncate(:second)
 
     {:ok, _} =
