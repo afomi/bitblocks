@@ -935,18 +935,12 @@
             id="crawlers-ip-budget"
             class="font-mono tabular-nums text-neutral-50"
           >{@ip_budget}</span>
-          requests a minute, and each company's AI crawlers share
+          requests a minute, and each company's AI crawlers and user-triggered fetchers (ChatGPT-User, Claude-User and the like) share
           <span
             id="crawlers-budget"
             class="font-mono tabular-nums text-neutral-50"
           >{@crawler_budget}</span>
           across all their addresses.
-          A company's user-triggered fetcher (ChatGPT-User, Claude-User and the like), reading a page because a person asked, has
-          <span
-            id="crawlers-fetcher-budget"
-            class="font-mono tabular-nums text-neutral-50"
-          >{@fetcher_budget}</span>
-          a minute of its own.
           Past a shared budget the answer is a 402 Payment Required that names the way in, with a <code class="font-mono text-neutral-50">Retry-After</code> header.
         </p>
         <h3

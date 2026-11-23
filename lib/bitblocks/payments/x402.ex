@@ -19,7 +19,7 @@ defmodule Bitblocks.Payments.X402 do
         price_atomic: 10_000,          # X402_PRICE_ATOMIC, 0.01 USDC
         facilitator: "x402org",        # X402_FACILITATOR
         paid_per_ip_per_minute: 30,     # X402_PAID_PER_IP_PER_MINUTE
-        paid_per_family_per_minute: 600 # X402_PAID_PER_FAMILY_PER_MINUTE
+        paid_site_per_minute: 600       # X402_PAID_SITE_PER_MINUTE
 
   `enabled: true` takes effect only with a `pay_to`, on a network whose USDC
   x402_ex knows (Base `eip155:8453`, Base Sepolia `eip155:84532`); otherwise
@@ -40,7 +40,7 @@ defmodule Bitblocks.Payments.X402 do
   @base "eip155:8453"
   @default_price_atomic 10_000
   @default_paid_per_ip 30
-  @default_paid_per_family 600
+  @default_paid_site 600
 
   @stripe_key_env %{@sepolia => "STRIPE_SANDBOX_SECRET_KEY", @base => "STRIPE_SECRET_KEY"}
 
@@ -140,9 +140,8 @@ defmodule Bitblocks.Payments.X402 do
   @doc "Paid attempts a minute from one IP (each costs a facilitator call)."
   def paid_per_ip_per_minute, do: config(:paid_per_ip_per_minute, @default_paid_per_ip)
 
-  @doc "Paid attempts a minute from one crawler family, across its IPs."
-  def paid_per_family_per_minute,
-    do: config(:paid_per_family_per_minute, @default_paid_per_family)
+  @doc "Paid attempts a minute site-wide, from every caller together."
+  def paid_site_per_minute, do: config(:paid_site_per_minute, @default_paid_site)
 
   @doc """
   The offer for one request: the configured price, network and deposit

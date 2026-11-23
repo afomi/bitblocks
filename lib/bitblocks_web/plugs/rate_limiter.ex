@@ -12,8 +12,7 @@ defmodule BitblocksWeb.Plugs.RateLimiter do
         max_requests: 30,             # logged out, per IP
         signed_in_max_requests: 600,  # logged in, per user
         admin_max_requests: 3_000,    # admin, per user
-        ai_crawler_max_requests: 10,  # an AI crawler, per family
-        ai_fetcher_max_requests: 30,  # an AI user-triggered fetcher, per family
+        ai_crawler_max_requests: 10,  # an AI company's crawlers and fetchers, per family
         anonymous_site_max_requests: 300 # no key, no session: everyone, site-wide
 
   Static assets bypass this plug.
@@ -28,8 +27,7 @@ defmodule BitblocksWeb.Plugs.RateLimiter do
   | Admin | the user | `RATE_LIMIT_ADMIN_PER_MINUTE`, 3,000 |
   | Logged in | the user | `RATE_LIMIT_SIGNED_IN_PER_MINUTE`, 600 |
   | Logged out | the IP | `RATE_LIMIT_PER_MINUTE`, 30 |
-  | AI crawler, no key | its family | `RATE_LIMIT_AI_CRAWLER_PER_MINUTE`, 10 |
-  | AI user-triggered fetcher, no key | its family | `RATE_LIMIT_AI_FETCHER_PER_MINUTE`, 30 |
+  | AI crawler or fetcher, no key | its company's family | `RATE_LIMIT_AI_CRAWLER_PER_MINUTE`, 10 |
   | Every caller with no key and no session, together | the site | `RATE_LIMIT_ANONYMOUS_SITE_PER_MINUTE`, 300 |
 
   The last row runs alongside the others: a logged-out request, crawler or
@@ -58,11 +56,14 @@ defmodule BitblocksWeb.Plugs.RateLimiter do
   `/pricing#crawlers` describes, sent as `Authorization: Bearer bbk_…`. A keyed
   request is never counted as a crawler; it has its key's budget.
 
-  A company's user-triggered fetcher (`ChatGPT-User`, `Claude-User`, …; kind
-  `:fetcher` in `AiCrawlers`) is a family of its own, `<company>_user`, with
-  `RATE_LIMIT_AI_FETCHER_PER_MINUTE` (30), so a person asking an assistant to
-  read one page isn't refused because that company's bulk crawler spent its
-  budget. Over it, the same 402.
+  A company's user-triggered fetcher (`ChatGPT-User`, `Claude-User`, …) is in
+  the same family as its crawlers and shares their one budget. A person's one
+  question through an assistant is protected by the shared anonymous budget
+  (the room it leaves) and by the free key at `/start`, which the assistant's
+  company, or the person, can take; not by a bucket of its own.
+  `RATE_LIMIT_AI_FETCHER_PER_MINUTE` is deprecated: read only when
+  `RATE_LIMIT_AI_CRAWLER_PER_MINUTE` is unset (`config/runtime.exs`), and safe
+  to drop from the secret.
 
   402 rather than 429, because the way to more requests is a key or a
   payment, not waiting; `Retry-After` still says when the free budget opens
@@ -109,10 +110,11 @@ defmodule BitblocksWeb.Plugs.RateLimiter do
   address) for a route the caller could read for free
   (`AiCrawlers.payable?/1`). A retry with a `PAYMENT-SIGNATURE` header:
 
-    * first meets its own budgets, per IP and per shared bucket (the family,
-      or `anonymous:site`) (`X402_PAID_PER_IP_PER_MINUTE`,
-      `X402_PAID_PER_FAMILY_PER_MINUTE`), since each costs a facilitator
-      call; over either, a 429;
+    * first meets two paid-attempt caps, since each attempt costs a
+      facilitator call: one per IP (`X402_PAID_PER_IP_PER_MINUTE`) and one
+      site-wide (`X402_PAID_SITE_PER_MINUTE`); over either, a 429
+      (`X402_PAID_PER_FAMILY_PER_MINUTE` is deprecated, read only when
+      `X402_PAID_SITE_PER_MINUTE` is unset);
     * paid: the request is served, with `PAYMENT-RESPONSE`, as the anonymous
       caller it is (telemetry `[:bitblocks, :ai_crawler, :paid]`, or
       `[:bitblocks, :anonymous, :paid]`);
@@ -153,7 +155,6 @@ defmodule BitblocksWeb.Plugs.RateLimiter do
   @default_admin_max_requests 3_000
   @default_tier_cache_ms 60_000
   @default_ai_crawler_max_requests 10
-  @default_ai_fetcher_max_requests 30
   # Everyone with no key and no session, together. Normal human peaks were
   # about 80 a minute (400 in 5 minutes), so this leaves room for a busy hour.
   @default_anonymous_site_max_requests 300
@@ -240,15 +241,16 @@ defmodule BitblocksWeb.Plugs.RateLimiter do
     end
   end
 
-  # No key and no session: an AI crawler's family shares one budget across
-  # its addresses; anyone else has the IP's.
+  # No key and no session: an AI company's crawlers and fetchers share one
+  # budget across their addresses; anyone else has the IP's.
   defp anonymous_budget(conn, ip, anonymous) do
     case conn |> get_req_header("user-agent") |> List.first() |> AiCrawlers.family() do
       nil ->
         {ip, anonymous, :anonymous}
 
       family ->
-        {"crawler:#{family}", crawler_budget(AiCrawlers.kind(family)), {:ai_crawler, family}}
+        max_requests = config(:ai_crawler_max_requests, @default_ai_crawler_max_requests)
+        {"crawler:#{family}", max_requests, {:ai_crawler, family}}
     end
   end
 
@@ -376,14 +378,6 @@ defmodule BitblocksWeb.Plugs.RateLimiter do
     Enum.any?(@doorway, fn prefix -> Enum.take(path, length(prefix)) == prefix end)
   end
 
-  # A person's one request through an assistant gets more room than a bulk
-  # crawl, in a bucket of its own.
-  defp crawler_budget(:fetcher),
-    do: config(:ai_fetcher_max_requests, @default_ai_fetcher_max_requests)
-
-  defp crawler_budget(_crawler),
-    do: config(:ai_crawler_max_requests, @default_ai_crawler_max_requests)
-
   # A crawler within its budget is still an anonymous caller to the routes
   # (RequireCaller reads :caller_tier).
   defp assign_tier(conn, {:ai_crawler, family}) do
@@ -437,17 +431,15 @@ defmodule BitblocksWeb.Plugs.RateLimiter do
   end
 
   # A paid retry. Each well-formed payment header costs a facilitator /verify
-  # call, so paid attempts have budgets of their own, per IP and per shared
-  # bucket (a crawler family, or the anonymous site), checked before x402_ex
-  # sees the header.
+  # call, so paid attempts have two caps of their own, per IP and site-wide,
+  # checked before x402_ex sees the header.
   defp pay(conn, bucket, tier, max_requests, retry_after_s) do
     ip = BitblocksWeb.Utils.IpHelper.get_ip_address(conn)
     now = System.system_time(:millisecond)
     window_ms = config(:window_ms, @default_window_ms)
 
     with {:ok, _} <- check_rate("x402:ip:#{ip}", now, window_ms, X402Pay.paid_per_ip_per_minute()),
-         {:ok, _} <-
-           check_rate("x402:#{bucket}", now, window_ms, X402Pay.paid_per_family_per_minute()) do
+         {:ok, _} <- check_rate("x402:site", now, window_ms, X402Pay.paid_site_per_minute()) do
       case X402Pay.handle(conn) do
         {:ok, conn, _settlement} ->
           record_paid(tier)

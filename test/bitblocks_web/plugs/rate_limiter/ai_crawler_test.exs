@@ -33,8 +33,7 @@ defmodule BitblocksWeb.Plugs.RateLimiter.AiCrawlerTest do
 
     Application.put_env(:bitblocks, BitblocksWeb.Plugs.RateLimiter,
       max_requests: 100,
-      ai_crawler_max_requests: 3,
-      ai_fetcher_max_requests: 5
+      ai_crawler_max_requests: 3
     )
 
     on_exit(fn -> Application.put_env(:bitblocks, BitblocksWeb.Plugs.RateLimiter, previous) end)
@@ -57,20 +56,13 @@ defmodule BitblocksWeb.Plugs.RateLimiter.AiCrawlerTest do
     test "names each family, and nothing else" do
       assert AiCrawlers.family(@meta_ua) == "meta"
       assert AiCrawlers.family(@gptbot_ua) == "openai"
-      assert AiCrawlers.family(@chatgpt_user_ua) == "openai_user"
       assert AiCrawlers.family(@oai_search_ua) == "openai"
-      assert AiCrawlers.kind("openai") == :crawler
 
-      for family <- ~w(openai_user anthropic_user perplexity_user meta_user) do
-        assert AiCrawlers.kind(family) == :fetcher
-      end
-
-      assert AiCrawlers.family("Mozilla/5.0 (compatible; Claude-User/1.0)") == "anthropic_user"
-
-      assert AiCrawlers.family("Mozilla/5.0 (compatible; Perplexity-User/1.0)") ==
-               "perplexity_user"
-
-      assert AiCrawlers.family("meta-externalfetcher/1.1") == "meta_user"
+      # A company's user-triggered fetcher is in its company's family.
+      assert AiCrawlers.family(@chatgpt_user_ua) == "openai"
+      assert AiCrawlers.family("Mozilla/5.0 (compatible; Claude-User/1.0)") == "anthropic"
+      assert AiCrawlers.family("Mozilla/5.0 (compatible; Perplexity-User/1.0)") == "perplexity"
+      assert AiCrawlers.family("meta-externalfetcher/1.1") == "meta"
 
       assert AiCrawlers.family(
                "Mozilla/5.0 (compatible; ClaudeBot/1.0; +claudebot@anthropic.com)"
@@ -142,19 +134,16 @@ defmodule BitblocksWeb.Plugs.RateLimiter.AiCrawlerTest do
       assert request("/about", @meta_ua, ip(5)).status == 200
     end
 
-    test "a bulk crawler at its limit doesn't block that company's user fetcher" do
-      for n <- 1..3, do: assert(request("/about", @gptbot_ua, ip(n)).status == 200)
-      assert request("/about", @gptbot_ua, ip(4)).status == 402
+    test "a company's crawler and its user fetcher share one budget" do
+      assert request("/about", @gptbot_ua, ip(1)).status == 200
+      assert request("/about", @chatgpt_user_ua, ip(2)).status == 200
+      assert request("/about", @gptbot_ua, ip(3)).status == 200
 
-      # ai_fetcher_max_requests is 5 here: its own budget, larger than the crawler's.
-      statuses = for n <- 1..5, do: request("/about", @chatgpt_user_ua, ip(n)).status
-      assert statuses == List.duplicate(200, 5)
-
-      over = request("/api/v1/blocks", @chatgpt_user_ua, ip(6))
+      over = request("/api/v1/blocks", @chatgpt_user_ua, ip(4))
       assert over.status == 402
-      assert get_resp_header(over, "x-ratelimit-limit") == ["5"]
-      assert Jason.decode!(over.resp_body)["crawler_family"] == "openai_user"
-      assert RateLimiter.throttled_crawlers() == %{"openai" => 1, "openai_user" => 1}
+      assert get_resp_header(over, "x-ratelimit-limit") == ["3"]
+      assert Jason.decode!(over.resp_body)["crawler_family"] == "openai"
+      assert RateLimiter.throttled_crawlers() == %{"openai" => 1}
     end
 
     test "is counted per family, logged below error, and reported by telemetry" do

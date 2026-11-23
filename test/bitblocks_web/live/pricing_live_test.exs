@@ -22,9 +22,7 @@ defmodule BitblocksWeb.PricingLiveTest do
 
       budget = BitblocksWeb.PricingLive.crawler_budget()
       assert has_element?(view, "#crawlers-budget", Integer.to_string(budget))
-
-      fetcher_budget = BitblocksWeb.PricingLive.fetcher_budget()
-      assert has_element?(view, "#crawlers-fetcher-budget", Integer.to_string(fetcher_budget))
+      assert has_element?(view, "#crawlers", "ChatGPT-User")
       assert has_element?(view, "#crawlers", "/api/v1/ops/*")
       refute render(element(view, "#crawlers")) =~ "whole API"
       assert has_element?(view, "#crawlers-header", "Authorization: Bearer bbk_")

@@ -192,7 +192,8 @@ All in the bitblocks secret (`config/runtime.exs`), and off unless set:
 | `X402_PRICE_ATOMIC` | set by Ryan | the price of one request, in USDC atomic units; `x402_status()` shows it |
 | `X402_FACILITATOR` | `x402org` | the public test facilitator; the only one x402_ex v0.1 can use (mainnet's CDP fails closed) |
 | `X402_PAID_PER_IP_PER_MINUTE` | `30` | paid attempts a minute from one IP, each a facilitator call |
-| `X402_PAID_PER_FAMILY_PER_MINUTE` | `600` | paid attempts a minute in one shared bucket: a crawler family, or everyone without a key |
+| `X402_PAID_SITE_PER_MINUTE` | `600` | paid attempts a minute site-wide, from every caller together |
+| `X402_PAID_PER_FAMILY_PER_MINUTE` | deprecated | read as `X402_PAID_SITE_PER_MINUTE` only when that is unset; drop it from the secret |
 | `STRIPE_SANDBOX_SECRET_KEY` | none | records payments on Base Sepolia |
 | `STRIPE_SECRET_KEY` | none | records payments on Base mainnet |
 
