@@ -60,6 +60,27 @@ defmodule Bitblocks.Payments.X402Guard do
       {:error, :unavailable}
   end
 
+  @doc """
+  Settled payments (`tx:` rows) so far, and how many have no PaymentIntent
+  yet, as `%{settled: n, unrecorded: m}`; nil while the database can't say.
+  For `Release.x402_status/0`.
+  """
+  @spec counts() :: %{settled: non_neg_integer(), unrecorded: non_neg_integer()} | nil
+  def counts do
+    Repo.one(
+      from c in @table,
+        where: c.kind == "transaction",
+        select: %{
+          settled: count(c.key),
+          unrecorded: filter(count(c.key), is_nil(c.payment_intent_id))
+        }
+    )
+  rescue
+    e ->
+      Logger.error("x402 counts failed: #{inspect(e.__struct__)}")
+      nil
+  end
+
   @impl true
   def unrecorded(limit, _config) do
     rows =

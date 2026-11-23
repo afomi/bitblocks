@@ -54,6 +54,7 @@ defmodule BitblocksWeb.PricingLive do
   alias Bitblocks.Payments.Stripe
   alias Bitblocks.SyncProgress
   alias Bitblocks.Usage
+  alias BitblocksWeb.Plugs.RateLimiter
   alias BitblocksWeb.Plugs.RateLimiter.AiCrawlers
   alias BitblocksWeb.Seo
   alias BitblocksWeb.StartLive.Index
@@ -80,6 +81,9 @@ defmodule BitblocksWeb.PricingLive do
       )
       |> assign(:crawler_budget, crawler_budget())
       |> assign(:fetcher_budget, fetcher_budget())
+      |> assign(:anonymous_site_budget, anonymous_site_budget())
+      |> assign(:ip_budget, ip_budget())
+      |> assign(:signed_in_budget, RateLimiter.signed_in_max_requests())
       |> assign(:coverage, coverage)
       |> assign(:contact_email, AiCrawlers.contact_email())
       |> assign(:x402, x402())
@@ -524,6 +528,20 @@ defmodule BitblocksWeb.PricingLive do
   def crawler_budget do
     Application.get_env(:bitblocks, BitblocksWeb.Plugs.RateLimiter, [])
     |> Keyword.get(:ai_crawler_max_requests, 10)
+  end
+
+  @doc "Requests a minute everyone with no key and no session shares, or nil while that's off."
+  def anonymous_site_budget do
+    case RateLimiter.anonymous_site_max_requests() do
+      n when is_integer(n) and n > 0 -> n
+      _ -> nil
+    end
+  end
+
+  @doc "Requests a minute one address has without a key or a session."
+  def ip_budget do
+    Application.get_env(:bitblocks, BitblocksWeb.Plugs.RateLimiter, [])
+    |> Keyword.get(:max_requests, 30)
   end
 
   @doc "Requests a minute a company's user-triggered fetcher has without a key."

@@ -1,0 +1,117 @@
+<html
+  lang="en"
+  class="light"
+>
+  <script>
+    try {
+      if (localStorage.getItem('theme') === 'dark') {
+        document.documentElement.classList.remove('light');
+        document.documentElement.classList.add('dark');
+      }
+    } catch(e) {}
+  </script>
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1"
+    />
+    <meta
+      name="robots"
+      content="noindex"
+    />
+    <title>Reading at scale takes a key · Bitblocks</title>
+    <link
+      rel="stylesheet"
+      href={~p"/assets/app.css"}
+    />
+  </head>
+  <body class="bg-white dark:bg-gray-900">
+    <main
+      id="payment-required"
+      class="max-w-xl mx-auto px-4 py-16 text-gray-700 dark:text-gray-300"
+    >
+      <p class="font-mono text-xs text-gray-600 dark:text-gray-400 uppercase tracking-wider mb-2">
+        402 Payment Required
+      </p>
+      <h1 class="text-3xl font-semibold text-gray-900 dark:text-white mb-4">
+        Reading at scale takes a key
+      </h1>
+      <p
+        id="payment-required-why"
+        class="mb-3"
+      >
+        {@why}
+        The free budget opens again in
+        <span class="font-mono tabular-nums">{@retry_after_s}</span>
+        seconds.
+      </p>
+      <p class="mb-8">
+        A key is free to get, and gives you a budget of your own.
+        Heavy use is paid.
+      </p>
+
+      <ol
+        id="payment-required-ways"
+        class="space-y-6"
+      >
+        <li id="way-sign-in">
+          <a
+            href={@sign_in_path}
+            class="inline-flex items-center rounded bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+          >
+            Sign in with GitHub
+          </a>
+          <p class="mt-2 text-sm">
+            Signed in, you read with
+            <span class="font-mono tabular-nums">{@signed_in_budget}</span>
+            requests a minute of your own.
+          </p>
+        </li>
+        <li id="way-free-key">
+          <a
+            href="/start"
+            class="font-semibold text-blue-700 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
+          >
+            Get a free API key
+          </a>
+          <p class="mt-1 text-sm">
+            Sign a challenge with a wallet, and the key comes back at once, with no account.
+            Send it on every request as <code class="font-mono">Authorization: Bearer bbk_…</code>.
+          </p>
+        </li>
+        <li id="way-plans">
+          <a
+            href={@plans_path}
+            class="font-semibold text-blue-700 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
+          >
+            Plans for heavy use
+          </a>
+          <p class="mt-1 text-sm">
+            Reading the chain at scale is paid: a plan raises your key's budget.
+          </p>
+        </li>
+        <li
+          :if={@x402}
+          id="way-x402"
+        >
+          <p class="font-semibold text-gray-900 dark:text-white">
+            For agents: pay per request with x402
+          </p>
+          <p class="mt-1 text-sm">
+            This response carries a <code class="font-mono">PAYMENT-REQUIRED</code> offer.
+            Sign it with an x402 client, and send the same request again with a <code class="font-mono">PAYMENT-SIGNATURE</code> header.
+          </p>
+        </li>
+      </ol>
+
+      <p class="mt-10 text-sm text-gray-600 dark:text-gray-400">
+        Questions, or a data license:
+        <a
+          href={"mailto:#{@contact_email}"}
+          class="underline text-blue-700 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
+        >{@contact_email}</a>.
+      </p>
+    </main>
+  </body>
+</html>

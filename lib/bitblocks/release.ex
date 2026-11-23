@@ -461,6 +461,12 @@ defmodule Bitblocks.Release do
     throttled = BitblocksWeb.Plugs.RateLimiter.throttled_crawlers()
     IO.puts("  AI crawlers 402'd:  #{format_throttled(throttled)} (this node, since boot)")
 
+    IO.puts(
+      "  Anonymous 402'd:    #{BitblocksWeb.Plugs.RateLimiter.throttled_anonymous()} " <>
+        "past the shared #{BitblocksWeb.Plugs.RateLimiter.anonymous_site_max_requests()}/min " <>
+        "(this node, since boot)"
+    )
+
     # Whether BRC-237 statements are BRC-77 signed (STATEMENT_SIGNING_KEY); never the key.
     signing = Bitblocks.Interop.StatementSignature.status()
     IO.puts("  Statement signing:  #{format_signing(signing)}")
@@ -2717,23 +2723,48 @@ defmodule Bitblocks.Release do
   # x402: AI crawlers paying for requests over their budget (docs/STRIPE.md).
 
   @doc """
-  Says whether x402 payments are on, and if not, why: the network, price,
-  deposit address and which Stripe key name records them. Prints no key.
+  Says whether x402 payments are on, and plainly what is missing if not: the
+  network, price, deposit address, facilitator and which Stripe key name
+  records them. Prints no key (docs/STRIPE.md, "Turning x402 on").
 
       bin/bitblocks rpc 'Bitblocks.Release.x402_status()'
+
+  Returns the status atom (`:ok` when the 402 carries an offer).
   """
   def x402_status do
     alias Bitblocks.Payments.X402, as: Pay
 
     status = Pay.status()
+    missing = Pay.missing()
     key_env = Pay.stripe_key_env()
-    key_set = if System.get_env(key_env), do: "is set", else: "is NOT set"
+    key_set = if System.get_env(key_env) in [nil, ""], do: "is NOT set", else: "is set"
 
-    IO.puts("x402: #{status}")
+    IO.puts("x402: #{if status == :ok, do: "on", else: "off (#{status})"}")
     IO.puts("  network:     #{Pay.network()} (#{Pay.network_name(Pay.network())})")
     IO.puts("  price:       #{Pay.price_atomic()} atomic (#{Pay.price_usdc()} USDC)")
     IO.puts("  pay_to:      #{Pay.pay_to() || "not set (X402_PAY_TO)"}")
+    IO.puts("  facilitator: #{Pay.facilitator_name()}")
     IO.puts("  stripe key:  #{key_env} #{key_set}")
+
+    case with_running_repo(fn -> Bitblocks.Payments.X402Guard.counts() end) do
+      %{settled: settled, unrecorded: unrecorded} ->
+        IO.puts(
+          "  payments:    #{settled} settled, #{unrecorded} not yet in Stripe " <>
+            "(x402_reconcile/0 records those)"
+        )
+
+      _ ->
+        IO.puts("  payments:    unknown (the database didn't answer)")
+    end
+
+    case missing do
+      [] ->
+        IO.puts("  missing:     nothing; every 402 carries a PAYMENT-REQUIRED offer")
+
+      _ ->
+        IO.puts("  missing:")
+        for line <- missing, do: IO.puts("    - #{line}")
+    end
 
     status
   end

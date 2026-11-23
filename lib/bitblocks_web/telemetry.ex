@@ -87,6 +87,10 @@ defmodule BitblocksWeb.Telemetry do
         description: "AI crawler requests refused with a 402, by family",
         tags: [:family]
       ),
+      # Callers with no key and no session refused past the shared anonymous budget
+      counter("bitblocks.anonymous.throttled.count",
+        description: "Requests with no key and no session refused with a 402, site-wide"
+      ),
 
       # Bitcoin RPC Metrics
       summary("bitblocks.bitcoin_rpc.call.duration",
