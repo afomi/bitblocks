@@ -37,8 +37,7 @@ defmodule BitblocksWeb.Plugs.RateLimiter.X402Test do
 
     Application.put_env(:bitblocks, BitblocksWeb.Plugs.RateLimiter,
       max_requests: 100,
-      ai_crawler_max_requests: 1,
-      ai_fetcher_max_requests: 1
+      ai_crawler_max_requests: 1
     )
 
     enable()
@@ -96,7 +95,7 @@ defmodule BitblocksWeb.Plugs.RateLimiter.X402Test do
           stripe_opts: [req_options: [plug: {Req.Test, @stripe}]],
           deposit_req_options: [plug: {Req.Test, @stripe}],
           paid_per_ip_per_minute: 30,
-          paid_per_family_per_minute: 600
+          paid_site_per_minute: 600
         ],
         overrides
       )
@@ -310,6 +309,21 @@ defmodule BitblocksWeb.Plugs.RateLimiter.X402Test do
       end)
 
       assert paid("/about", payment("/about", & &1, 3), "57.141.0.2").status == 200
+    end
+
+    test "has one site-wide cap across every IP, checked before the facilitator" do
+      enable(paid_site_per_minute: 1)
+      over_budget()
+
+      assert paid("/about", payment("/about", & &1, 1)).status == 200
+      assert_received {:facilitator, "/facilitator/verify"}
+      assert_received {:facilitator, "/facilitator/settle"}
+
+      # Another address, with a per-IP budget to spare, still meets the site's.
+      conn = paid("/about", payment("/about", & &1, 2), "57.141.0.2")
+      assert conn.status == 429
+      assert get_resp_header(conn, "retry-after") != []
+      refute_received {:facilitator, _}
     end
   end
 

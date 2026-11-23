@@ -204,13 +204,14 @@ if config_env() == :prod do
     signed_in_max_requests:
       String.to_integer(System.get_env("RATE_LIMIT_SIGNED_IN_PER_MINUTE", "600")),
     admin_max_requests: String.to_integer(System.get_env("RATE_LIMIT_ADMIN_PER_MINUTE", "3000")),
-    # One budget per AI crawler family, across all its IPs (#107).
+    # One budget per AI company, its crawlers and user-triggered fetchers
+    # together, across all their IPs (#107). RATE_LIMIT_AI_FETCHER_PER_MINUTE is
+    # deprecated, read only when the crawler variable is unset; drop it.
     ai_crawler_max_requests:
-      String.to_integer(System.get_env("RATE_LIMIT_AI_CRAWLER_PER_MINUTE", "10")),
-    # A user-triggered fetcher (ChatGPT-User, Claude-User, …), per company, apart
-    # from its bulk crawler.
-    ai_fetcher_max_requests:
-      String.to_integer(System.get_env("RATE_LIMIT_AI_FETCHER_PER_MINUTE", "30")),
+      String.to_integer(
+        System.get_env("RATE_LIMIT_AI_CRAWLER_PER_MINUTE") ||
+          System.get_env("RATE_LIMIT_AI_FETCHER_PER_MINUTE", "10")
+      ),
     # Everyone with no key and no session, together, whatever the IP or user
     # agent; past it, the same 402 a crawler gets. 0 turns it off.
     anonymous_site_max_requests:
@@ -234,11 +235,16 @@ if config_env() == :prod do
     pay_to: System.get_env("X402_PAY_TO"),
     price_atomic: String.to_integer(System.get_env("X402_PRICE_ATOMIC", "10000")),
     facilitator: System.get_env("X402_FACILITATOR", "x402org"),
-    # Paid attempts, each a facilitator call, before x402_ex sees the header.
+    # Paid attempts, each a facilitator call, before x402_ex sees the header:
+    # per IP, and site-wide. X402_PAID_PER_FAMILY_PER_MINUTE is deprecated, read
+    # only when X402_PAID_SITE_PER_MINUTE is unset; drop it.
     paid_per_ip_per_minute:
       String.to_integer(System.get_env("X402_PAID_PER_IP_PER_MINUTE", "30")),
-    paid_per_family_per_minute:
-      String.to_integer(System.get_env("X402_PAID_PER_FAMILY_PER_MINUTE", "600"))
+    paid_site_per_minute:
+      String.to_integer(
+        System.get_env("X402_PAID_SITE_PER_MINUTE") ||
+          System.get_env("X402_PAID_PER_FAMILY_PER_MINUTE", "600")
+      )
 
   # Paid bulk downloads through Stripe Checkout (docs/STRIPE.md,
   # Bitblocks.Payments.Stripe, #111). Dormant until both the mode's secret key

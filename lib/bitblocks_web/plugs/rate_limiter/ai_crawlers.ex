@@ -33,50 +33,36 @@ defmodule BitblocksWeb.Plugs.RateLimiter.AiCrawlers do
 
   Some companies send a separate agent when a person asks their assistant to
   read one page (`ChatGPT-User`, `Claude-User`, `Perplexity-User`,
-  `meta-externalfetcher`). Those are families of their own, `<company>_user`,
-  of kind `:fetcher`, with their own larger budget
-  (`RATE_LIMIT_AI_FETCHER_PER_MINUTE`, 30), so a person's one question isn't
-  refused while the same company's bulk crawler uses up its budget.
+  `meta-externalfetcher`). They are listed with their company's crawlers and
+  share that company's one budget: a company is one caller, however it reads.
+  A person's one question is covered by the shared anonymous budget's room and
+  by the free key (`/start`), not by a bucket of its own.
   """
 
-  # {family, kind, [user-agent tokens]}. The family names the budget
+  # {family, [user-agent tokens]}. The family names the budget
   # (`crawler:<family>`) and the counts; keep them short, lowercase and stable.
-  # A :fetcher acts for one person's request; a :crawler crawls in bulk.
-  @entries [
-    {"meta", :crawler, ["meta-externalagent", "FacebookBot"]},
-    {"meta_user", :fetcher, ["meta-externalfetcher"]},
-    {"openai", :crawler, ["GPTBot", "OAI-SearchBot"]},
-    {"openai_user", :fetcher, ["ChatGPT-User"]},
-    {"anthropic", :crawler, ["ClaudeBot", "Claude-SearchBot", "anthropic-ai"]},
-    {"anthropic_user", :fetcher, ["Claude-User"]},
-    {"common_crawl", :crawler, ["CCBot"]},
-    {"bytedance", :crawler, ["Bytespider"]},
-    {"perplexity", :crawler, ["PerplexityBot"]},
-    {"perplexity_user", :fetcher, ["Perplexity-User"]},
-    {"amazon", :crawler, ["Amazonbot"]},
-    {"google", :crawler, ["Google-Extended"]},
-    {"apple", :crawler, ["Applebot-Extended"]},
-    {"cohere", :crawler, ["cohere-ai", "cohere-training-data-crawler"]},
-    {"diffbot", :crawler, ["Diffbot"]}
+  # A company's user-triggered fetcher is listed with its crawlers.
+  @families [
+    {"meta", ["meta-externalagent", "FacebookBot", "meta-externalfetcher"]},
+    {"openai", ["GPTBot", "OAI-SearchBot", "ChatGPT-User"]},
+    {"anthropic", ["ClaudeBot", "Claude-SearchBot", "anthropic-ai", "Claude-User"]},
+    {"common_crawl", ["CCBot"]},
+    {"bytedance", ["Bytespider"]},
+    {"perplexity", ["PerplexityBot", "Perplexity-User"]},
+    {"amazon", ["Amazonbot"]},
+    {"google", ["Google-Extended"]},
+    {"apple", ["Applebot-Extended"]},
+    {"cohere", ["cohere-ai", "cohere-training-data-crawler"]},
+    {"diffbot", ["Diffbot"]}
   ]
 
-  @families for {family, _kind, tokens} <- @entries, do: {family, tokens}
-  @kinds Map.new(@entries, fn {family, kind, _tokens} -> {family, kind} end)
-
-  @patterns for {family, _kind, tokens} <- @entries,
+  @patterns for {family, tokens} <- @families,
                 token <- tokens,
                 do: {String.downcase(token), family}
 
   @doc "Every family with its user-agent tokens, in the order they're matched."
   @spec families() :: [{String.t(), [String.t()]}]
   def families, do: @families
-
-  @doc """
-  `:fetcher` for a family that fetches for one person's request
-  (`openai_user`), `:crawler` for a bulk crawler, nil for an unknown name.
-  """
-  @spec kind(String.t()) :: :crawler | :fetcher | nil
-  def kind(family), do: Map.get(@kinds, family)
 
   @doc """
   The crawler family a user agent belongs to, or nil for anything else

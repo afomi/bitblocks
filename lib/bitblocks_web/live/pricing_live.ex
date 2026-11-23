@@ -80,7 +80,6 @@ defmodule BitblocksWeb.PricingLive do
         )
       )
       |> assign(:crawler_budget, crawler_budget())
-      |> assign(:fetcher_budget, fetcher_budget())
       |> assign(:anonymous_site_budget, anonymous_site_budget())
       |> assign(:ip_budget, ip_budget())
       |> assign(:signed_in_budget, RateLimiter.signed_in_max_requests())
@@ -542,12 +541,6 @@ defmodule BitblocksWeb.PricingLive do
   def ip_budget do
     Application.get_env(:bitblocks, BitblocksWeb.Plugs.RateLimiter, [])
     |> Keyword.get(:max_requests, 30)
-  end
-
-  @doc "Requests a minute a company's user-triggered fetcher has without a key."
-  def fetcher_budget do
-    Application.get_env(:bitblocks, BitblocksWeb.Plugs.RateLimiter, [])
-    |> Keyword.get(:ai_fetcher_max_requests, 30)
   end
 
   defdelegate format_number(n), to: Index
