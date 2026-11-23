@@ -30,10 +30,13 @@ defmodule BitblocksWeb.IndexNotice do
 
   Deploy answers `/` before `bin/migrate`, so a failed lookup is logged and
   leaves the banner off rather than turning a page into a 500.
+  While the pool is under pressure (`BitblocksWeb.Plugs.PoolGuard`) the
+  banner is left off and nothing is asked of the pool.
   """
   @spec current() :: t() | nil
   def current do
-    with %{complete_through: height} when is_integer(height) and height >= 0 <-
+    with false <- BitblocksWeb.Plugs.PoolGuard.under_pressure?(),
+         %{complete_through: height} when is_integer(height) and height >= 0 <-
            SyncProgress.snapshot().overview,
          time when is_integer(time) <- Chain.block_time(height) do
       %{height: height, time: time}

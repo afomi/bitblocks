@@ -22,9 +22,13 @@ defmodule BitblocksWeb.Plugs.PoolGuard do
   join its queue.
 
   Not shed: the load balancer's and deploy's checks (`/healthz` is
-  answered before this plug, `/api/v1/status`), Stripe's webhooks, and a
+  answered before this plug, `/api/v1/status`), Stripe's webhooks, a
   signed-in session, so an operator can still reach `/syncing` during a
-  crawl.
+  crawl, and the two sign-in pages (`/sign-in`, `/auth/github`), so a
+  person can sign in to get past it. Those two ask nothing of the pool
+  while it is under pressure: no session means no user lookup, and
+  `BitblocksWeb.IndexNotice` skips its query (`under_pressure?/0`). The
+  GitHub callback, which writes the user row, is still shed.
 
   Config (`config :bitblocks, #{inspect(__MODULE__)}`):
 
@@ -45,6 +49,8 @@ defmodule BitblocksWeb.Plugs.PoolGuard do
 
   # Prefixes never shed: the deploy check and webhooks that must land.
   @exempt_prefixes ["/api/v1/status", "/webhooks/"]
+  # Exact paths never shed: signing in, so a person can get past the guard.
+  @exempt_paths ["/sign-in", "/auth/github"]
 
   @impl true
   def init(opts), do: opts
@@ -58,14 +64,22 @@ defmodule BitblocksWeb.Plugs.PoolGuard do
 
   @doc "Whether a request arriving now would be shed (`conn` decides the exemptions)."
   @spec shed?(Plug.Conn.t()) :: boolean()
-  def shed?(conn) do
-    limit = queue_limit()
+  def shed?(conn), do: under_pressure?() and not exempt?(conn)
 
-    limit > 0 and PoolMonitor.queue_length() >= limit and not exempt?(conn)
+  @doc """
+  Whether the pool's queue is at or past the shedding limit right now.
+  Read from the gauge, so it asks nothing of the pool; pages that are never
+  shed use it to skip optional queries.
+  """
+  @spec under_pressure?() :: boolean()
+  def under_pressure? do
+    limit = queue_limit()
+    limit > 0 and PoolMonitor.queue_length() >= limit
   end
 
   defp exempt?(conn) do
-    Enum.any?(@exempt_prefixes, &String.starts_with?(conn.request_path, &1)) or
+    conn.request_path in @exempt_paths or
+      Enum.any?(@exempt_prefixes, &String.starts_with?(conn.request_path, &1)) or
       signed_in?(conn)
   end
 
