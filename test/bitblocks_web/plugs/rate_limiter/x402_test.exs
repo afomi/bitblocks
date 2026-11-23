@@ -313,6 +313,119 @@ defmodule BitblocksWeb.Plugs.RateLimiter.X402Test do
     end
   end
 
+  describe "an anonymous caller past the shared budget, end to end" do
+    # Any browser, any address: no crawler family, so only the site-wide
+    # budget (1 here) stands between it and the 402.
+    @browser_ua "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+
+    setup do
+      Application.put_env(:bitblocks, BitblocksWeb.Plugs.RateLimiter,
+        max_requests: 100,
+        anonymous_site_max_requests: 1
+      )
+
+      :ok
+    end
+
+    defp anon(path, headers \\ [], ip \\ "203.0.113.1") do
+      {conn, _log} =
+        with_log(fn ->
+          build_conn()
+          |> put_req_header("user-agent", @browser_ua)
+          |> put_req_header("x-forwarded-for", ip)
+          |> then(fn conn ->
+            Enum.reduce(headers, conn, fn {k, v}, c -> put_req_header(c, k, v) end)
+          end)
+          |> get(path)
+        end)
+
+      conn
+    end
+
+    defp spend_site_budget, do: assert(anon("/about", [], "203.0.113.200").status == 200)
+
+    test "402 with PAYMENT-REQUIRED, a paid retry served with PAYMENT-RESPONSE, claimed once, a replay refused" do
+      spend_site_budget()
+
+      # 1. Past the shared budget, from an address that has made no request.
+      refused = anon("/about")
+      assert refused.status == 402
+      assert refused.resp_body =~ "Everyone reading Bitblocks without a key shares 1 requests"
+      offer = challenge(refused)
+      assert offer["resource"]["url"] == BitblocksWeb.Endpoint.url() <> "/about"
+      assert [%{"payTo" => @pay_to, "network" => "eip155:84532"}] = offer["accepts"]
+      refute_received {:facilitator, _}
+
+      # 2. The same request, paid.
+      header = payment("/about")
+      served = anon("/about", [{"payment-signature", header}])
+
+      assert served.status == 200
+      assert [response] = get_resp_header(served, "payment-response")
+      assert {:ok, %{"success" => true, "transaction" => @tx}} = X402.Codec.decode(response)
+      assert get_resp_header(served, "payment-required") == []
+      assert_received {:facilitator, "/facilitator/verify"}
+      assert_received {:facilitator, "/facilitator/settle"}
+      assert_received {:stripe, "/v1/payment_intents", [@tx]}
+
+      # 3. Claimed exactly once in x402_payments.
+      assert [auth, tx] = rows()
+      assert auth.kind == "authorization"
+      assert tx.key == "tx:eip155:84532:" <> @tx
+      assert tx.payment_intent_id == "pi_test_x402"
+
+      # 4. The same payment again is refused with a fresh offer, and settles nothing.
+      replay = anon("/about", [{"payment-signature", header}], "203.0.113.2")
+      assert replay.status == 402
+      assert challenge(replay)
+      assert get_resp_header(replay, "payment-response") == []
+      refute_received {:facilitator, "/facilitator/settle"}
+      assert length(rows()) == 2
+    end
+
+    test "a refused payment (the wrong amount) gets the 402 again, before the facilitator" do
+      spend_site_budget()
+
+      header =
+        payment("/about", fn p ->
+          p
+          |> put_in(["accepted", "amount"], "1")
+          |> put_in(["payload", "authorization", "value"], "1")
+        end)
+
+      conn = anon("/about", [{"payment-signature", header}])
+
+      assert conn.status == 402
+      assert challenge(conn)["accepts"] |> hd() |> Map.get("amount") == "10000"
+      refute_received {:facilitator, _}
+      assert rows() == []
+    end
+
+    test "an unavailable facilitator gets a 503 with no content, and nothing is claimed" do
+      Req.Test.stub(@facilitator, &Req.Test.transport_error(&1, :econnrefused))
+      spend_site_budget()
+
+      conn = anon("/about", [{"payment-signature", payment("/about")}])
+
+      assert conn.status == 503
+      assert conn.resp_body == ""
+      assert rows() == []
+    end
+
+    test "the HTML 402 offers x402 to agents last, and the API's JSON says it is offered" do
+      spend_site_budget()
+
+      html = anon("/about", [{"accept", "text/html"}])
+      assert html.status == 402
+      assert html.resp_body =~ ~s(id="way-x402")
+      assert get_resp_header(html, "payment-required") != []
+
+      json = anon("/api/v1/blocks")
+      assert json.status == 402
+      assert Jason.decode!(json.resp_body)["ways_in"]["pay_per_request"]["offered"] == true
+    end
+  end
+
   describe "not offered" do
     test "when x402 is off: today's plain 402, unchanged" do
       enable(enabled: false)
@@ -443,6 +556,45 @@ defmodule BitblocksWeb.Plugs.RateLimiter.X402Test do
       assert Pay.reconcile() == {:ok, :disabled}
       assert :ok = Bitblocks.Workers.X402ReconcileWorker.perform(%Oban.Job{args: %{}})
       refute_received {:stripe, _, _}
+    end
+  end
+
+  describe "Release.x402_status/0" do
+    test "says plainly what is missing, naming variables and never a key" do
+      enable(enabled: false, pay_to: nil)
+      System.delete_env("STRIPE_SANDBOX_SECRET_KEY")
+
+      output = capture_io(fn -> assert Bitblocks.Release.x402_status() == :disabled end)
+
+      assert output =~ "x402: off (disabled)"
+      assert output =~ "X402_ENABLED is not true"
+      assert output =~ "X402_PAY_TO is not set"
+      assert output =~ "Release.x402_create_deposit_address/1"
+      assert output =~ "STRIPE_SANDBOX_SECRET_KEY is not set"
+    end
+
+    test "names nothing missing once it is on, and prints no key" do
+      output = capture_io(fn -> assert Bitblocks.Release.x402_status() == :ok end)
+
+      assert output =~ "x402: on"
+      assert output =~ "missing:     nothing"
+      assert output =~ "payments:    0 settled, 0 not yet in Stripe"
+      refute output =~ "rk_test_"
+    end
+
+    test "warns that Base mainnet can't settle through the testnet facilitator" do
+      enable(network: "eip155:8453")
+      previous = System.get_env("STRIPE_SECRET_KEY")
+      System.put_env("STRIPE_SECRET_KEY", "rk_live_")
+
+      on_exit(fn ->
+        if previous,
+          do: System.put_env("STRIPE_SECRET_KEY", previous),
+          else: System.delete_env("STRIPE_SECRET_KEY")
+      end)
+
+      output = capture_io(fn -> Bitblocks.Release.x402_status() end)
+      assert output =~ "Base mainnet needs the CDP facilitator"
     end
   end
 

@@ -96,18 +96,6 @@ defmodule BitblocksWeb.Plugs.RateLimiter.AiCrawlers do
 
   def family(_), do: nil
 
-  # Pages a crawler over its budget can always read: where the 402 sends it
-  # (/pricing#crawlers), and the contact and terms pages when they exist.
-  @always_open ~w(pricing contact terms)
-
-  @doc """
-  True for a page never refused to a crawler over its budget: `/pricing`,
-  where the 402 points, and `/contact` and `/terms`. Still counted.
-  """
-  @spec always_open?(Plug.Conn.t()) :: boolean()
-  def always_open?(%Plug.Conn{path_info: [first | _]}), do: first in @always_open
-  def always_open?(_conn), do: false
-
   # Pipelines that refuse a caller with no key and no session while the
   # sign-in gate is on (BitblocksWeb.AdminAuth), and the one that always does
   # (ops_api wants a key with a scope).

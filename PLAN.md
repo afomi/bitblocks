@@ -75,11 +75,12 @@ The live Bitcom registry ([docs/BITCOM.md](docs/BITCOM.md)) is done but for the 
   - Stripe recording goes in a shared `X402.Stripe.record/2` helper.
     Each app keeps its own Stripe keys and webhooks.
   - bitblocks has its own Stripe account, separate from jurisdictional's.
-    Its deposit address, one per app as x402_ex requires, gets recorded here once Stripe issues it.
+    Its deposit address, one per app as x402_ex requires, lives only in the secret as `X402_PAY_TO`, never in this public repo.
   - x402_ex v0.1.0 is released: https://github.com/afomi/x402_ex/releases/tag/v0.1.0 (Apache-2.0, CI on Elixir 1.15 and 1.19).
     jurisdictional reviewed it and approved it for v0.1 at `74e6d07`; the release adds only open-source hygiene and a doc fix.
-  - Keys and the sandbox run: [docs/STRIPE.md](docs/STRIPE.md).
-  - Live mode waits on Ryan: Stripe's crypto approval, CDP keys, a price (proposed 0.01 USDC a request) and his go.
+  - Ryan's steps, from the deposit address to live mode: [docs/STRIPE.md, "Turning x402 on"](docs/STRIPE.md#turning-x402-on); `Release.x402_status()` says what's missing.
+  - Since 2026-11-23 the 402 also answers everyone with no key and no session past one shared site-wide budget (`RATE_LIMIT_ANONYMOUS_SITE_PER_MINUTE`, 300), so a distributed crawl meets it too, and it is a doorway: sign in, a free key, plans, x402.
+  - Live mode waits on Ryan: Stripe's crypto approval, CDP keys (and an x402_ex release that signs CDP requests), a price he sets, and his go.
     Then infra lifts the ALB Meta rule.
 - Interop, a BRC-237 statement and one live payment: https://github.com/afomi/bitblocks/issues/64
 - REVIVE unwriter's stack: https://github.com/afomi/bitblocks/issues/25

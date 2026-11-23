@@ -2,8 +2,9 @@
 
 Bitblocks uses Stripe for two things:
 
-- Recording AI crawlers' x402 payments, through [x402_ex](https://github.com/afomi/x402_ex).
-  A crawler over its budget gets a 402 with a price; it pays in USDC, and each settled payment is recorded in Stripe as a machine payment.
+- Recording x402 payments, through [x402_ex](https://github.com/afomi/x402_ex).
+  A caller past a shared budget (an AI crawler family's, or the one everyone without a key shares) gets a 402 with a price; it pays in USDC, and each settled payment is recorded in Stripe as a machine payment.
+  Your steps: [Turning x402 on](#turning-x402-on).
   The plan is under "Paid crawler access (x402)" in [PLAN.md](../PLAN.md).
 - Selling bulk downloads of a block range with Stripe Checkout, at the published $1.00 per GiB (https://github.com/afomi/bitblocks/issues/111).
   It is built and dormant until the keys below are set: [Bulk downloads: Checkout](#bulk-downloads-checkout).
@@ -67,69 +68,135 @@ It can then confirm the name is present, never the value.
 
 ## 3. What happens with it
 
-- The sandbox run pays 0.01 test USDC on Base Sepolia, through the public test facilitator `https://x402.org/facilitator`.
+- The sandbox run pays the configured price in test USDC on Base Sepolia, through the public test facilitator `https://x402.org/facilitator`.
   The test USDC comes from https://faucet.circle.com, and no real money moves.
 - Each paid retry should create one PaymentIntent in the Stripe test dashboard, under **Payments**, idempotent on the on-chain transaction hash.
 - A replay of the same payment should be refused, and create nothing.
 
-## 4. The deposit address
+## Turning x402 on
 
-Every offer pays one deposit address, bitblocks' own, created once in Stripe and never shared with another app (x402_ex's rule: one deposit address per app).
-It goes in config as `X402_PAY_TO`, in the bitblocks secret, and not in this repo.
+x402 lets a caller past a shared budget (an AI crawler family's, or the one every caller with no key and no session shares) pay for the one request, with no key and no account.
+It is built, tested end to end against a stubbed facilitator (`test/bitblocks_web/plugs/rate_limiter/x402_test.exs`), and off until the steps below.
+You set every value yourself; a session never asks for one and never sees one.
 
-After the sandbox key is set and a deploy has written it to the nodes, from a node:
+At any point, from a node:
 
 ```bash
-# Dry run: names the key and the request, and calls nothing
+bin/bitblocks rpc 'Bitblocks.Release.x402_status()'
+```
+
+It says `x402: on` or `off`, the network, price, deposit address, facilitator, which Stripe key variable it reads and whether it is set, how many payments have settled and how many aren't in Stripe yet, and under `missing:` each thing still in the way, naming the variable to set.
+It never prints a key.
+
+### 1. The deposit address
+
+Every offer pays one deposit address, bitblocks' own, created once in Stripe and never shared with another app (x402_ex's rule: one deposit address per app).
+It needs `STRIPE_SANDBOX_SECRET_KEY` set and deployed first (steps 1 and 2 above).
+
+```bash
+# Dry run: names the key variable and the request, and calls nothing
 bin/bitblocks rpc 'Bitblocks.Release.x402_create_deposit_address(network: "base")'
 
 # Creates it, and prints only the address
 bin/bitblocks rpc 'Bitblocks.Release.x402_create_deposit_address(network: "base", apply: true)'
 ```
 
-It sends `POST /v1/crypto/deposit_addresses` with `network=base`, as Stripe's x402 guide shows (https://docs.stripe.com/payments/machine/x402).
-The key is the one for `X402_NETWORK`: `STRIPE_SANDBOX_SECRET_KEY` on Base Sepolia, the default.
+It sends `POST /v1/crypto/deposit_addresses` with `network=base`, as Stripe's x402 guide shows (https://docs.stripe.com/payments/machine/x402), with the key for `X402_NETWORK`: `STRIPE_SANDBOX_SECRET_KEY` on Base Sepolia, the default.
 The `Stripe-Version` follows the guide: `2026-07-29.preview` with a sandbox key, `2026-05-27.preview` with a live one; `stripe_version:` overrides it.
+If Stripe refuses it, the result names the status and Stripe's error type and code, never the key or Stripe's message.
 
 Three things here are not yet confirmed against a real call:
 - where the address sits in Stripe's response (the guide doesn't show it; we read a top-level `address`, and otherwise report only the response's top-level keys);
-- which restricted-key permission the call needs beyond **PaymentIntents: Write** (the key above may be refused; add only what Stripe names, and note it here);
+- which restricted-key permission the call needs beyond **PaymentIntents: Write** (add only what Stripe names, and note it here);
 - whether a sandbox address on `network=base` takes Base Sepolia payments, as the guide's sandbox section implies.
 
-Then set the address as `X402_PAY_TO`, the same way as the key:
+The address goes only in the secret, never in this repo, an issue or a commit.
+
+### 2. Set `X402_PAY_TO` and `X402_ENABLED`
+
+In your own terminal, from your checkout of the infra repo, each at a hidden prompt you paste into:
 
 ```bash
 aws-vault exec default -- ./scripts/app-secret-set.sh bitblocks X402_PAY_TO
+aws-vault exec default -- ./scripts/app-secret-set.sh bitblocks X402_ENABLED
 ```
 
-## 5. Turning it on
+`X402_PAY_TO` is the address step 1 printed, and `X402_ENABLED` is `true`.
+The script prints no value, and confirms each is set by reading it back.
+Leave `X402_NETWORK` unset for the testnet run; it defaults to Base Sepolia.
 
-Everything is off unless set, in the bitblocks secret (`config/runtime.exs`):
+Then run the deploy workflow by hand, so each node reads the secret:
+
+```bash
+gh workflow run "Deploy to AWS" --ref develop
+```
+
+Once it finishes, `Release.x402_status()` should say `x402: on` and `missing: nothing`.
+If `X402_ENABLED` is `true` without what it needs, the app logs a warning at boot and stays off, and `missing:` says why.
+
+### 3. A test payment on testnet
+
+No real money moves: Base Sepolia, test USDC, and the public test facilitator `https://x402.org/facilitator`.
+
+1. Make a test wallet with an x402 client, such as Stripe's `purl` from Stripe's machine payments docs (https://docs.stripe.com/payments/machine), and fund it with Base Sepolia USDC from https://faucet.circle.com.
+2. Get past a budget on purpose.
+   An AI crawler's user agent has the smallest one, so the eleventh request in a minute gets the 402:
+
+   ```bash
+   for i in $(seq 1 11); do
+     curl -s -o /dev/null -w '%{http_code}\n' -A 'GPTBot/1.2' https://bitblocks.app/about
+   done
+   curl -s -D - -o /dev/null -A 'GPTBot/1.2' https://bitblocks.app/about | grep -i '^payment-required'
+   ```
+
+   The last line shows the `PAYMENT-REQUIRED` header: base64 JSON with the price, the USDC asset, `eip155:84532` and our deposit address.
+3. With the x402 client, send the same request with the same user agent (most clients take an extra header), so it is still over the budget.
+   It signs the offer, retries with `PAYMENT-SIGNATURE`, and gets the page with 200 and a `PAYMENT-RESPONSE` header naming the transaction.
+4. Check it landed:
+
+   ```bash
+   bin/bitblocks rpc 'Bitblocks.Release.x402_status()'     # payments: 1 settled, 0 not yet in Stripe
+   bin/bitblocks rpc 'Bitblocks.Release.x402_reconcile()'  # x402 reconcile: 0 recorded, 0 failed
+   ```
+
+   In the Stripe sandbox, **Payments** shows one PaymentIntent, idempotent on the on-chain transaction hash.
+   If `x402_status()` says one is not yet in Stripe, `x402_reconcile()` records it (the `X402ReconcileWorker` cron does the same every 10 minutes); if it then reports one failed, the key's request log in Stripe names why.
+5. Send the client's same signed payment again: it gets the 402 with a fresh offer, and nothing settles twice.
+
+Paid requests are rows in `x402_payments`: an `auth:` row per claimed authorization, and a `tx:` row per settled transaction with its PaymentIntent.
+
+### 4. Live mode
+
+Live mode waits on your go, after the testnet run.
+It needs:
+
+- Stripe's approval for **Stablecoins and Crypto** (Dashboard → **Settings → Payment methods**); it shows Pending until Stripe approves it.
+- A live restricted key with **PaymentIntents: Write**, set as `STRIPE_SECRET_KEY` the same way as the sandbox key.
+- Coinbase Developer Platform (CDP) keys for the mainnet facilitator, set the same way.
+  x402_ex v0.1 can't sign CDP requests yet (`X402.Facilitator.CDP`), so this also waits on an x402_ex release that can; until then a mainnet payment fails closed, and `x402_status()` says so.
+- A live deposit address: step 1 again with `X402_NETWORK=eip155:8453` and the live key, then step 2 with the new address.
+- The price, which you set: `X402_PRICE_ATOMIC`, in USDC atomic units (a millionth of a USDC each).
+- Then `X402_NETWORK=eip155:8453` and a deploy, and `x402_status()` saying `missing: nothing`.
+
+Then ask infra to lift the ALB rule for Meta's crawler, so it reaches the in-app offer.
+
+### The settings
+
+All in the bitblocks secret (`config/runtime.exs`), and off unless set:
 
 | Variable | Default | What it does |
 | --- | --- | --- |
-| `X402_ENABLED` | `false` | `true` offers payment on the crawler 402; it takes effect only with `X402_PAY_TO` set |
+| `X402_ENABLED` | `false` | `true` offers payment on the 402; it takes effect only with `X402_PAY_TO` set |
 | `X402_PAY_TO` | none | the deposit address every offer pays |
 | `X402_NETWORK` | `eip155:84532` | Base Sepolia; `eip155:8453` is Base mainnet |
-| `X402_PRICE_ATOMIC` | `10000` | the price of one request, in USDC atomic units (10,000 is 0.01 USDC) |
+| `X402_PRICE_ATOMIC` | set by Ryan | the price of one request, in USDC atomic units; `x402_status()` shows it |
 | `X402_FACILITATOR` | `x402org` | the public test facilitator; the only one x402_ex v0.1 can use (mainnet's CDP fails closed) |
 | `X402_PAID_PER_IP_PER_MINUTE` | `30` | paid attempts a minute from one IP, each a facilitator call |
-| `X402_PAID_PER_FAMILY_PER_MINUTE` | `600` | paid attempts a minute from one crawler family, across its IPs |
+| `X402_PAID_PER_FAMILY_PER_MINUTE` | `600` | paid attempts a minute in one shared bucket: a crawler family, or everyone without a key |
 | `STRIPE_SANDBOX_SECRET_KEY` | none | records payments on Base Sepolia |
 | `STRIPE_SECRET_KEY` | none | records payments on Base mainnet |
 
 The Stripe key is chosen by network, and read only when a payment is recorded; x402_ex refuses a live key on Base Sepolia and a test key on Base mainnet.
-If `X402_ENABLED` is `true` without what it needs, the app logs a warning at boot and stays off.
-
-To check it, and to finish any payment recorded on chain but not yet in Stripe (the `X402ReconcileWorker` cron does this every 10 minutes):
-
-```bash
-bin/bitblocks rpc 'Bitblocks.Release.x402_status()'
-bin/bitblocks rpc 'Bitblocks.Release.x402_reconcile()'
-```
-
-`x402_status()` names the key variable and whether it is set, never its value.
-Paid requests are rows in `x402_payments`: an `auth:` row per claimed authorization, and a `tx:` row per settled transaction with its PaymentIntent.
 
 ## Bulk downloads: Checkout
 
@@ -272,16 +339,6 @@ It prints the mode, each key and secret's name and whether it is set (never a va
 
 Once the prices are decided, make the same products and prices in live mode, give the live restricted key **Customer portal: Write**, add the events above to the live endpoint, set the portal up in live mode, and set `BILLING_PLANS` with the live price ids.
 The mode is the one `DOWNLOADS_CHECKOUT_MODE` sets, for downloads and plans alike.
-
-## Later: x402 live mode (not yet)
-
-Live mode waits on your go, after the sandbox run is shown end to end.
-It needs:
-- Stripe's approval for **Stablecoins and Crypto** (Dashboard → **Settings → Payment methods**); it shows Pending until Stripe approves it.
-- A live restricted key, set the same way as `STRIPE_SECRET_KEY`.
-- Coinbase Developer Platform keys for the mainnet facilitator.
-- The bitblocks deposit address, recorded in PLAN.md, and never shared with jurisdictional.
-- A price; the proposal is 0.01 USDC a request.
 
 ## Rolling or revoking a key
 

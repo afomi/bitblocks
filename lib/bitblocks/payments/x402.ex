@@ -77,6 +77,43 @@ defmodule Bitblocks.Payments.X402 do
     end
   end
 
+  @doc """
+  What stands between this config and taking a payment, each in plain words
+  naming the variable to set; empty when nothing does. For
+  `Release.x402_status/0`. Names variables, never values.
+  """
+  @spec missing() :: [String.t()]
+  def missing do
+    key_env = stripe_key_env()
+
+    [
+      config(:enabled, false) != true &&
+        "X402_ENABLED is not true (set it to true to offer payment on the 402)",
+      pay_to() in [nil, ""] &&
+        "X402_PAY_TO is not set (create the deposit address with " <>
+          "Release.x402_create_deposit_address/1, then set it)",
+      not match?({:ok, _}, X402.Scheme.ExactEvm.usdc(network())) &&
+        "X402_NETWORK #{inspect(network())} has no USDC x402_ex knows " <>
+          "(eip155:84532 Base Sepolia, or eip155:8453 Base)",
+      System.get_env(key_env) in [nil, ""] &&
+        "#{key_env} is not set (payments would settle but not be recorded in Stripe " <>
+          "until it is; x402_reconcile/0 records them later)",
+      (network() == @base and config(:facilitator, "x402org") == "x402org") &&
+        "Base mainnet needs the CDP facilitator, and x402_ex v0.1 can't sign CDP " <>
+          "requests yet; the x402.org facilitator settles testnet only"
+    ]
+    |> Enum.filter(&is_binary/1)
+  end
+
+  @doc "The facilitator in use, by name."
+  def facilitator_name do
+    case config(:facilitator, "x402org") do
+      "x402org" -> "x402org (https://x402.org/facilitator, testnet)"
+      {module, _opts} -> inspect(module)
+      other -> "#{inspect(other)} (not supported)"
+    end
+  end
+
   @doc "The CAIP-2 network offered (default Base Sepolia, `eip155:84532`)."
   def network, do: config(:network, @sepolia)
 

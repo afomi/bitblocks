@@ -210,7 +210,11 @@ if config_env() == :prod do
     # A user-triggered fetcher (ChatGPT-User, Claude-User, …), per company, apart
     # from its bulk crawler.
     ai_fetcher_max_requests:
-      String.to_integer(System.get_env("RATE_LIMIT_AI_FETCHER_PER_MINUTE", "30"))
+      String.to_integer(System.get_env("RATE_LIMIT_AI_FETCHER_PER_MINUTE", "30")),
+    # Everyone with no key and no session, together, whatever the IP or user
+    # agent; past it, the same 402 a crawler gets. 0 turns it off.
+    anonymous_site_max_requests:
+      String.to_integer(System.get_env("RATE_LIMIT_ANONYMOUS_SITE_PER_MINUTE", "300"))
 
   # A page request while this many checkouts wait for a database connection
   # is a 503 with Retry-After, at once (BitblocksWeb.Plugs.PoolGuard).

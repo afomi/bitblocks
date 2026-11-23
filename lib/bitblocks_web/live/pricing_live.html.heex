@@ -901,39 +901,104 @@
       </p>
     </section>
 
-    <%!-- AI crawlers and data licensing: the crawler 402 links here (#107) --%>
+    <%!-- Reading at scale: every 402 links here (#107) --%>
     <section
       id="crawlers"
       aria-labelledby="crawlers-heading"
       class="border-t border-neutral-800 py-8 scroll-mt-6"
     >
       <p class="font-mono text-xs text-neutral-500 uppercase tracking-wider mb-2">
-        AI crawlers
+        Crawlers, agents and data services
       </p>
       <h2
         id="crawlers-heading"
         class="text-lg font-semibold text-neutral-50 mb-3"
       >
-        For AI crawlers and data licensing
+        Reading at scale takes a key
       </h2>
       <div class="max-w-2xl space-y-3 text-sm text-neutral-400 leading-relaxed">
         <p>
-          If you run a crawler for an AI or LLM product, you're welcome to the chain we hold, through the API.
-          Without a key, each company's crawlers share
+          Bitblocks is free to read, and a key is free to get.
+          Services that read at scale identify themselves with a key, and pay for heavy use, so we can keep serving more of the chain to everyone.
+        </p>
+        <p id="crawlers-budgets">
+          <span :if={@anonymous_site_budget}>
+            Without a key or a session, everyone shares
+            <span
+              id="crawlers-site-budget"
+              class="font-mono tabular-nums text-neutral-50"
+            >{@anonymous_site_budget}</span>
+            requests a minute, site-wide, whatever the address or user agent.
+          </span>
+          Each address without a key has
+          <span
+            id="crawlers-ip-budget"
+            class="font-mono tabular-nums text-neutral-50"
+          >{@ip_budget}</span>
+          requests a minute, and each company's AI crawlers share
           <span
             id="crawlers-budget"
             class="font-mono tabular-nums text-neutral-50"
           >{@crawler_budget}</span>
-          requests a minute across all their addresses, and past that get a 402 with a <code class="font-mono text-neutral-50">Retry-After</code> header.
-          When a person asks an assistant to read a page, its user-triggered fetcher (ChatGPT-User, Claude-User and the like) has a separate budget of
+          across all their addresses.
+          A company's user-triggered fetcher (ChatGPT-User, Claude-User and the like), reading a page because a person asked, has
           <span
             id="crawlers-fetcher-budget"
             class="font-mono tabular-nums text-neutral-50"
           >{@fetcher_budget}</span>
-          a minute per company.
+          a minute of its own.
+          Past a shared budget the answer is a 402 Payment Required that names the way in, with a <code class="font-mono text-neutral-50">Retry-After</code> header.
         </p>
+        <h3
+          id="crawlers-ways-heading"
+          class="text-sm font-semibold text-neutral-50 pt-2"
+        >
+          The way in
+        </h3>
+        <ol
+          id="crawlers-ways"
+          class="list-decimal pl-5 space-y-2"
+        >
+          <li id="crawlers-way-sign-in">
+            <a
+              href="/sign-in"
+              class="underline text-neutral-50 hover:opacity-80"
+            >Sign in with GitHub</a>
+            for
+            <span class="font-mono tabular-nums text-neutral-50">{@signed_in_budget}</span>
+            requests a minute of your own.
+          </li>
+          <li id="crawlers-way-free-key">
+            <a
+              href="/start"
+              class="underline text-neutral-50 hover:opacity-80"
+            >Get a free key</a>
+            by signing a challenge with a wallet: <code class="font-mono text-neutral-50">GET /api/v1/keys/challenge</code>, then <code class="font-mono text-neutral-50">POST /api/v1/keys</code>.
+            No account is needed.
+          </li>
+          <li id="crawlers-way-plans">
+            Heavy use is paid.
+            <span :if={@plans_for_sale}>
+              A <a
+                href="#plans"
+                class="underline text-neutral-50 hover:opacity-80"
+              >monthly plan</a> raises every key you own.
+            </span>
+            For a higher budget or a data license, write to us, below.
+          </li>
+          <li
+            :if={@x402}
+            id="crawlers-way-x402"
+          >
+            For agents, each request past the free budget can be paid for with
+            <a
+              href="#crawlers-x402"
+              class="underline text-neutral-50 hover:opacity-80"
+            >x402</a>, as below.
+          </li>
+        </ol>
         <p>
-          A key gets your crawler a budget of its own, and is never counted as a crawler.
+          A key gets your service a budget of its own, and is never counted with callers that have none.
           It opens the chain data API: blocks, transactions, proofs, addresses, tokens and the other indexes.
           That includes <code class="font-mono text-neutral-50">/api/v1/txs/:txid/raw</code>, a transaction's exact bytes, checked against its txid.
           Our operator routes (<code class="font-mono text-neutral-50">/api/v1/ops/*</code>) and admin routes aren't part of it.
@@ -966,7 +1031,7 @@
             Paying with x402
           </h3>
           <p>
-            Past the free budget, a crawler can also pay for each request with <a
+            Past a shared budget, a crawler or agent can pay for each request with <a
               href="https://x402.org"
               class="underline text-neutral-50 hover:opacity-80"
             >x402</a>, with no key and no account.
@@ -995,14 +1060,13 @@
           </p>
         </div>
         <p>
-          There's no checkout for crawler keys yet.
-          Write to
+          For a higher budget than a plan gives, or a data license, write to
           <a
             id="crawlers-contact"
             href={"mailto:#{@contact_email}?subject=AI%20crawler%20access"}
             class="underline text-neutral-50 hover:opacity-80"
           >{@contact_email}</a>
-          for a key or a data license, with your crawler's name and user agent, what you'd like to read, and the requests a minute you need.
+          with your service's name and user agent, what you'd like to read, and the requests a minute you need.
         </p>
       </div>
     </section>

@@ -127,7 +127,11 @@ config :bitblocks, :usage_flush_ms, nil
 # Raise the per-IP rate limit in tests. Many controller tests share the
 # 127.0.0.1 source IP, so the production-tight 20/min limit would otherwise
 # turn assertions into flaky 429s depending on test order.
-config :bitblocks, BitblocksWeb.Plugs.RateLimiter, max_requests: 100_000
+# The shared anonymous budget is off for the same reason: the whole suite would
+# share it. test/bitblocks_web/plugs/rate_limiter/anonymous_site_test.exs turns it on.
+config :bitblocks, BitblocksWeb.Plugs.RateLimiter,
+  max_requests: 100_000,
+  anonymous_site_max_requests: 0
 
 # The pool gauge PoolGuard reads: no sampling in tests (the sandbox has no
 # shared queue); tests set it with Bitblocks.Repo.PoolMonitor.record/1.
