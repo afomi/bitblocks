@@ -20,6 +20,37 @@ defmodule BitblocksWeb.Plugs.PoolGuardTest do
     txid
   end
 
+  # Holds the test's only pool connection in a transaction, so the request's
+  # checkout queues until the pool drops it, as production's pool did.
+  defp assert_held_503(conn, path) do
+    parent = self()
+
+    holder =
+      spawn(fn ->
+        Repo.transaction(fn ->
+          send(parent, :held)
+
+          receive do
+            :release -> :ok
+          end
+        end)
+      end)
+
+    assert_receive :held
+    watch = Process.monitor(holder)
+    started = System.monotonic_time(:millisecond)
+
+    {status, headers, _body} = assert_error_sent(503, fn -> get(conn, path) end)
+
+    elapsed = System.monotonic_time(:millisecond) - started
+    send(holder, :release)
+    assert_receive {:DOWN, ^watch, _, _, _}
+
+    assert status == 503
+    assert {"retry-after", "10"} in headers
+    assert elapsed < 5_000
+  end
+
   defp count_queries(fun) do
     parent = self()
     ref = make_ref()
@@ -105,34 +136,19 @@ defmodule BitblocksWeb.Plugs.PoolGuardTest do
     test "a transaction page is a 503 with Retry-After within seconds, not a 500",
          %{conn: conn} do
       txid = stored_txid()
-      parent = self()
+      assert_held_503(conn, ~p"/transactions/#{txid}")
+    end
 
-      holder =
-        spawn(fn ->
-          Repo.transaction(fn ->
-            send(parent, :held)
+    # The same paths failed with 500s under the crawl on 2026-11-22
+    # (https://github.com/afomi/bitblocks/issues/164).
+    test "a block page is a 503 with Retry-After within seconds, not a 500", %{conn: conn} do
+      stored_txid()
+      assert_held_503(conn, "/blocks/10")
+    end
 
-            receive do
-              :release -> :ok
-            end
-          end)
-        end)
-
-      assert_receive :held
-      watch = Process.monitor(holder)
-
-      started = System.monotonic_time(:millisecond)
-
-      {status, headers, _body} =
-        assert_error_sent(503, fn -> get(conn, ~p"/transactions/#{txid}") end)
-
-      elapsed = System.monotonic_time(:millisecond) - started
-      send(holder, :release)
-      assert_receive {:DOWN, ^watch, _, _, _}
-
-      assert status == 503
-      assert {"retry-after", "10"} in headers
-      assert elapsed < 5_000
+    test "a B:// file is a 503 with Retry-After within seconds, not a 500", %{conn: conn} do
+      txid = stored_txid()
+      assert_held_503(conn, "/b/#{txid}")
     end
   end
 end
