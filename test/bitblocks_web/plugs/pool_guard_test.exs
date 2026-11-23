@@ -109,6 +109,21 @@ defmodule BitblocksWeb.Plugs.PoolGuardTest do
       refute get(signed_in, "/blocks").status == 503
     end
 
+    test "signing in is never shed, and asks nothing of the pool", %{conn: conn} do
+      PoolMonitor.record(1_000)
+
+      {sign_in, queries} = count_queries(fn -> get(conn, "/sign-in") end)
+      assert sign_in.status == 200
+      assert queries == 0
+
+      refute get(build_conn(), "/auth/github").status == 503
+    end
+
+    test "the GitHub callback, which writes the user row, is still shed", %{conn: conn} do
+      PoolMonitor.record(1_000)
+      assert get(conn, "/auth/github/callback").status == 503
+    end
+
     test "a queue under the limit sheds nothing", %{conn: conn} do
       PoolMonitor.record(39)
       assert get(conn, "/blocks").status == 200
