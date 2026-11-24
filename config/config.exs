@@ -199,7 +199,7 @@ config :bitblocks, Oban,
 
 # Blocks the sync loop works at once, cluster-wide, until an admin picks a
 # number on /sync (persisted in sync_settings). Always clamped to
-# Sync.concurrency_limit/0: CPU cores, pool_size minus :sync_pool_reserve
+# Sync.concurrency_limit/0: CPU cores x :sync_jobs_per_core, pool_size minus :sync_pool_reserve
 # (web requests, header sync, other queues) and :sync_rpc_limit (the node's
 # RPC threads; bitcoind's default rpcthreads is 4).
 config :bitblocks, :sync_workers, 1
@@ -208,6 +208,8 @@ config :bitblocks, :sync_workers, 1
 config :bitblocks, :sync_stop_at_height, nil
 config :bitblocks, :sync_pool_reserve, 5
 config :bitblocks, :sync_rpc_limit, 4
+# A block job mostly waits on the node and the database, so a core carries two.
+config :bitblocks, :sync_jobs_per_core, 2
 
 # Mining proxy — COMPILE-TIME settings only (read via Application.compile_env in
 # Bitblocks.MiningProxy). Runtime-toggled keys (enabled, coinbase_address,

@@ -522,6 +522,22 @@ defmodule Bitblocks.SyncTest do
       assert {:ok, 1} = Sync.set_concurrency(0)
     end
 
+    test "each CPU core carries :sync_jobs_per_core jobs" do
+      previous = Application.get_env(:bitblocks, :sync_rpc_limit)
+      Application.put_env(:bitblocks, :sync_rpc_limit, 1_000)
+      Application.put_env(:bitblocks, :sync_pool_reserve, -1_000)
+      Application.put_env(:bitblocks, :sync_jobs_per_core, 3)
+
+      on_exit(fn ->
+        Application.put_env(:bitblocks, :sync_rpc_limit, previous)
+        Application.put_env(:bitblocks, :sync_pool_reserve, 5)
+        Application.put_env(:bitblocks, :sync_jobs_per_core, 2)
+      end)
+
+      assert {limit, "CPU cores"} = Sync.concurrency_limit()
+      assert limit == System.schedulers_online() * 3
+    end
+
     test "shrinking lets live blocks finish and refills nothing until a slot frees" do
       Sync.set_concurrency(2)
       for h <- 0..3, do: block_at(h, "header_only")
