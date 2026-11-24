@@ -47,6 +47,7 @@ Docs marked *(mixed)* are mostly aspirational but contain sections that accurate
 
 ## Design & vision (aspirational)
 
+- `BSV_402.md` — design (2026-11-23): paying Bitblocks in satoshis per request, BRC-121 adopted as is and carried in x402's BSV `exact` envelope beside USDC; the flow, what each side keeps, seams, attack vectors, test vectors and the build plan.
 - `ACCOUNT_MODEL.md` — account-based model over the UTXO ledger: indexer-level account views (Layer 1) plus sCrypt/OP_PUSH_TX stateful covenants (Layer 2), aimed at Ethereum-developer DX.
 - `ADOPTION_SPECTRUM.md` — framework for ledger use cases from Pay to Prove and what each means for an explorer.
 - `BITBLOCK.md` — vision: a "Bitblock" as a filtered chain instance (same codebase, subset database, git-like sparse checkout).
