@@ -150,20 +150,28 @@ config :bitblocks, :facts_refresh, false
 config :bitblocks, :downloads_quote_interval_ms, 0
 
 # Wallaby configuration
+# Custom capabilities replace Wallaby's own, so its `headless:` flag no longer
+# reaches Chrome: the args carry `--headless=new` themselves. The key is the
+# W3C "goog:chromeOptions"; current chromedriver ignores the legacy
+# `chromeOptions`, which left every feature test opening a visible window.
+# HEADLESS=false shows the browser for debugging.
+headless_chrome? = System.get_env("HEADLESS", "true") == "true"
+
 config :wallaby,
   otp_app: :bitblocks,
   base_url: "http://localhost:#{test_port}",
   driver: Wallaby.Chrome,
   chrome: [
-    headless: System.get_env("HEADLESS", "true") == "true",
+    headless: headless_chrome?,
     capabilities: %{
-      chromeOptions: %{
-        args: [
-          "--no-sandbox",
-          "--disable-dev-shm-usage",
-          "--disable-gpu",
-          "--disable-software-rasterizer"
-        ]
+      "goog:chromeOptions": %{
+        args:
+          [
+            "--no-sandbox",
+            "--disable-dev-shm-usage",
+            "--disable-gpu",
+            "--disable-software-rasterizer"
+          ] ++ if(headless_chrome?, do: ["--headless=new"], else: [])
       }
     }
   ]
