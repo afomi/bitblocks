@@ -253,10 +253,17 @@ defmodule Bitblocks.Sync do
 
   @doc """
   The most blocks this node can work at once, and what binds it:
-  `{max, reason}`, the smallest of CPU cores, database connections left
-  after a reserve for web requests and header sync, and the node's RPC
-  threads (`config :bitblocks, :sync_rpc_limit`, env `SYNC_RPC_LIMIT`,
-  default 4 like bitcoind's `rpcthreads`).
+  `{max, reason}`, the smallest of CPU cores times the jobs each one can
+  carry (`config :bitblocks, :sync_jobs_per_core`, default 2), database
+  connections left after a reserve for web requests and header sync, and the
+  node's RPC threads (`config :bitblocks, :sync_rpc_limit`, env
+  `SYNC_RPC_LIMIT`, default 4 like bitcoind's `rpcthreads`).
+
+  Two jobs a core because a block job mostly waits: on the node, and on the
+  database's round trips. Measured on prod on 2026-11-24 with two jobs on a
+  two-core host, the host's CPU averaged 19% and the database's 27%, using
+  about a third of its IOPS. The limit is a ceiling; the slots in use are
+  still the admin's choice on /syncing.
   """
   @spec concurrency_limit() :: {pos_integer(), String.t()}
   def concurrency_limit do
@@ -264,7 +271,8 @@ defmodule Bitblocks.Sync do
     reserve = Application.get_env(:bitblocks, :sync_pool_reserve, 5)
 
     [
-      {System.schedulers_online(), "CPU cores"},
+      {System.schedulers_online() * Application.get_env(:bitblocks, :sync_jobs_per_core, 2),
+       "CPU cores"},
       {pool - reserve, "database connections"},
       {Application.get_env(:bitblocks, :sync_rpc_limit, 4), "node RPC threads"}
     ]
