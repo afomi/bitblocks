@@ -4,7 +4,7 @@ defmodule BitblocksWeb.PaymentRequiredHTML do
   shared budget: an AI crawler family's, or the one every caller with no key
   and no session shares. It is a doorway, not a wall: it says why, then the
   ways in, in order (sign in, a free key by signing a challenge, a plan, and
-  for agents, paying for the request with x402 when that's on).
+  for agents, paying for the request with x402 or in BSV, each when it's on).
 
   JSON under `/api/`, a short HTML page for a caller that accepts
   `text/html`, plain text for everyone else.
@@ -20,7 +20,9 @@ defmodule BitblocksWeb.PaymentRequiredHTML do
           tier: :anonymous_site | {:ai_crawler, String.t()},
           limit: pos_integer(),
           retry_after_s: pos_integer(),
-          x402: boolean()
+          x402: boolean(),
+          bsv: boolean(),
+          bsv_refused: map() | nil
         }
 
   @doc "`{content_type, body}` for this refusal."
@@ -35,6 +37,7 @@ defmodule BitblocksWeb.PaymentRequiredHTML do
         why: why(refusal),
         retry_after_s: refusal.retry_after_s,
         x402: refusal.x402,
+        bsv: bsv?(refusal),
         signed_in_budget: RateLimiter.signed_in_max_requests(),
         sign_in_path: "/sign-in?" <> URI.encode_query(%{"return_to" => return_to(conn)}),
         plans_path: "/pricing#crawlers",
@@ -71,9 +74,11 @@ defmodule BitblocksWeb.PaymentRequiredHTML do
 
   defp site, do: BitblocksWeb.Endpoint.url()
 
+  defp bsv?(refusal), do: Map.get(refusal, :bsv, false) == true
+
   # The ways in, for JSON and text alike, in the order a caller should try them.
-  defp ways_in(x402?) do
-    %{
+  defp ways_in(x402?, bsv?) do
+    ways = %{
       sign_in: site() <> "/sign-in",
       free_key: site() <> "/start",
       key_challenge: site() <> "/api/v1/keys/challenge",
@@ -85,6 +90,17 @@ defmodule BitblocksWeb.PaymentRequiredHTML do
         about: "https://x402.org"
       }
     }
+
+    # Only while it's on: no terms show that can't be paid.
+    if bsv?,
+      do:
+        Map.put(ways, :pay_in_bsv, %{
+          protocol: "BRC-121",
+          terms: ["x-bsv-sats", "x-bsv-server"],
+          headers: Bitblocks.Payments.Bsv402.payment_headers(),
+          about: "https://github.com/bitcoin-sv/BRCs/blob/master/payments/0121.md"
+        }),
+      else: ways
   end
 
   defp json(%{tier: tier} = refusal) do
@@ -109,18 +125,33 @@ defmodule BitblocksWeb.PaymentRequiredHTML do
         contact: "mailto:" <> AiCrawlers.contact_email(),
         header: "Authorization: Bearer bbk_…"
       },
-      ways_in: ways_in(refusal.x402)
+      ways_in: ways_in(refusal.x402, bsv?(refusal))
     }
+    |> put_bsv_refused(Map.get(refusal, :bsv_refused))
   end
 
+  # Why a BSV payment on this request wasn't taken.
+  defp put_bsv_refused(json, %{reason: reason, detail: detail}),
+    do: Map.put(json, :payment_refused, %{protocol: "BRC-121", reason: reason, message: detail})
+
+  defp put_bsv_refused(json, _refused), do: json
+
   defp text(refusal) do
-    ways = ways_in(refusal.x402)
+    ways = ways_in(refusal.x402, bsv?(refusal))
 
     x402 =
       if refusal.x402,
         do:
           "4. For agents, pay for this request with x402: this response carries a " <>
             "PAYMENT-REQUIRED offer; send the same request again with a PAYMENT-SIGNATURE header.\n",
+        else: ""
+
+    bsv =
+      if bsv?(refusal),
+        do:
+          "5. Or pay for this request in BSV (BRC-121): this response carries x-bsv-sats and " <>
+            "x-bsv-server; send the same request again with x-bsv-beef, x-bsv-sender, " <>
+            "x-bsv-nonce, x-bsv-time and x-bsv-vout.\n",
         else: ""
 
     """
@@ -135,7 +166,7 @@ defmodule BitblocksWeb.PaymentRequiredHTML do
     2. Get a free API key by signing a challenge: #{ways.free_key}
        Agents: GET #{ways.key_challenge}, then POST /api/v1/keys
     3. Plans for heavy use: #{ways.plans}
-    #{x402}
+    #{x402}#{bsv}
     Send a key as: Authorization: Bearer bbk_…
     Contact: #{AiCrawlers.contact_email()}
 

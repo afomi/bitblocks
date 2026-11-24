@@ -4,7 +4,8 @@ defmodule BitblocksWeb.PricingLive do
   licensing, which the crawler 402 links to (`BitblocksWeb.Plugs.RateLimiter`,
   #107). Keys have no price yet (#61), so that section says to write to us;
   with x402 on, it also gives the per-request price and how to pay
-  (`#crawlers-x402`). Its budget, coverage and price are read when the page
+  (`#crawlers-x402`), and with BSV 402 on, the same in satoshis
+  (`#crawlers-bsv`, `Bitblocks.Payments.Bsv402`). Its budget, coverage and price are read when the page
   loads.
 
   `#downloads` quotes a bulk download of a block range (`Bitblocks.Downloads`,
@@ -86,6 +87,7 @@ defmodule BitblocksWeb.PricingLive do
       |> assign(:coverage, coverage)
       |> assign(:contact_email, AiCrawlers.contact_email())
       |> assign(:x402, x402())
+      |> assign(:bsv402, bsv402())
       |> assign(:data_options, Downloads.data_options())
       |> assign(:price_per_gib, Downloads.price_usd_per_gib())
       |> assign(:holding, if(coverage, do: coverage.through, else: -1))
@@ -520,6 +522,18 @@ defmodule BitblocksWeb.PricingLive do
         network: Pay.network(),
         network_name: Pay.network_name(Pay.network())
       }
+    end
+  end
+
+  @doc """
+  What the BSV offer is, for `#crawlers-bsv`, or nil while BSV 402 is off
+  (`Bitblocks.Payments.Bsv402.enabled?/0`), so no price shows that can't be paid.
+  """
+  def bsv402 do
+    alias Bitblocks.Payments.Bsv402
+
+    if Bsv402.enabled?() do
+      %{price_sats: Bsv402.price_sats(), server_key: Bsv402.identity_public()}
     end
   end
 

@@ -990,6 +990,16 @@
               class="underline text-neutral-50 hover:opacity-80"
             >x402</a>, as below.
           </li>
+          <li
+            :if={@bsv402}
+            id="crawlers-way-bsv"
+          >
+            Or in BSV, from any BRC-100 wallet, as
+            <a
+              href="#crawlers-bsv"
+              class="underline text-neutral-50 hover:opacity-80"
+            >below</a>.
+          </li>
         </ol>
         <p>
           A key gets your service a budget of its own, and is never counted with callers that have none.
@@ -1051,6 +1061,43 @@
           <p>
             Payment opens what the free budget opens, and no more.
             For the chain data API, or for more than a few requests, a key is the better way in.
+          </p>
+        </div>
+        <div
+          :if={@bsv402}
+          id="crawlers-bsv"
+          class="space-y-3"
+        >
+          <h3
+            id="crawlers-bsv-heading"
+            class="text-sm font-semibold text-neutral-50 pt-2"
+          >
+            Paying in BSV
+          </h3>
+          <p>
+            Past a shared budget, a wallet or agent can pay for each request in BSV, with no key and no account, as
+            <a
+              href="https://github.com/bitcoin-sv/BRCs/blob/master/payments/0121.md"
+              class="underline text-neutral-50 hover:opacity-80"
+            >BRC-121</a>
+            describes.
+            One request costs
+            <span
+              id="crawlers-bsv-price"
+              class="font-mono tabular-nums text-neutral-50"
+            >{format_number(@bsv402.price_sats)} satoshis</span>.
+          </p>
+          <p>
+            The 402 carries <code class="font-mono text-neutral-50">x-bsv-sats</code>
+            and <code class="font-mono text-neutral-50">x-bsv-server</code>, our identity key:
+            <code
+              id="crawlers-bsv-server"
+              class="font-mono text-neutral-50 break-all"
+            >{@bsv402.server_key}</code>.
+            A BRC-100 wallet, or <code class="font-mono text-neutral-50">@bsv/402-pay</code>, pays a BRC-29 output to it and sends the same request again with the payment in <code class="font-mono text-neutral-50">x-bsv-beef</code> and four more <code class="font-mono text-neutral-50">x-bsv-*</code> headers.
+            We check it against our own headers, and our own node takes it; then you get the page, with <code class="font-mono text-neutral-50">x-bsv-txid</code>.
+            Each payment is good for one request, once.
+            A payment we can't take gets the 402 again, with <code class="font-mono text-neutral-50">x-bsv-refused</code> saying why, and a 503 means try again shortly.
           </p>
         </div>
         <p>

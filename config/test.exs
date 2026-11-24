@@ -77,6 +77,9 @@ config :x402_ex, allow_req_options: true
 # x402 off by default; test/bitblocks_web/plugs/rate_limiter/x402_test.exs turns it on.
 config :bitblocks, Bitblocks.Payments.X402, enabled: false
 
+# BSV 402 off by default; its tests turn it on with a key they make.
+config :bitblocks, Bitblocks.Payments.Bsv402, enabled: false
+
 # Checkout for downloads: sandbox mode, every call to the Req.Test stub
 # (test/bitblocks/downloads/purchases_test.exs). Dormant unless a test sets
 # the key and webhook secret in the environment.

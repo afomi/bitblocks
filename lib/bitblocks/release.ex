@@ -471,6 +471,13 @@ defmodule Bitblocks.Release do
     signing = Bitblocks.Interop.StatementSignature.status()
     IO.puts("  Statement signing:  #{format_signing(signing)}")
 
+    # Whether the 402 offers BSV (BRC-121); names what's missing, never a value.
+    bsv402 = Bitblocks.Payments.Bsv402.status()
+
+    IO.puts(
+      "  BSV 402:            #{if bsv402 == :ok, do: "on", else: "off (#{bsv402}; Release.bsv402_status() says what's missing)"}"
+    )
+
     audit =
       if Keyword.get(opts, :audit, false) do
         %{count: deficit_count} = result = audit_completeness()
@@ -2717,6 +2724,63 @@ defmodule Bitblocks.Release do
       "db #{Float.round(u.db_us / 1_000_000, 2)} s in #{u.db_queries} queries, " <>
       "upstream #{upstream} (node #{u.node_calls}, woc #{u.woc_calls}, " <>
       "coingecko #{u.coingecko_calls}, other #{u.other_calls})" <> means
+  end
+
+  # ---------------------------------------------------------------------------
+  # BSV 402: requests past a shared budget paid in BSV, BRC-121 (docs/BSV_402.md).
+
+  @doc """
+  Says whether BSV payments are on the 402 (`Bitblocks.Payments.Bsv402`),
+  and plainly what is missing if not, naming each variable: never the
+  identity key or the price, only whether each is set. Prints the identity
+  key's public half, which the 402 publishes anyway, and the payments taken
+  by status.
+
+      bin/bitblocks rpc 'Bitblocks.Release.bsv402_status()'
+
+  Returns the status atom (`:ok` when the 402 carries BSV terms).
+  """
+  def bsv402_status do
+    alias Bitblocks.Payments.Bsv402, as: Pay
+
+    status = Pay.status()
+    set = fn value -> if value, do: "is set", else: "is NOT set" end
+
+    IO.puts("BSV 402: #{if status == :ok, do: "on", else: "off (#{status})"}")
+    IO.puts("  identity key: #{Pay.identity_key_env()} #{set.(Pay.identity() != :none)}")
+    IO.puts("  public key:   #{Pay.identity_public() || "none (no valid key)"}")
+    IO.puts("  price:        BSV402_PRICE_SATS #{set.(Pay.price_sats() != nil)}")
+    IO.puts("  BEEF cap:     #{Pay.max_beef_bytes()} bytes")
+
+    IO.puts(
+      "  paid caps:    #{Bitblocks.Payments.X402.paid_per_ip_per_minute()}/min per IP, " <>
+        "#{Bitblocks.Payments.X402.paid_site_per_minute()}/min site-wide (shared with x402)"
+    )
+
+    case with_running_repo(&Pay.counts/0) do
+      counts when is_map(counts) and map_size(counts) == 0 ->
+        IO.puts("  payments:     none yet")
+
+      counts when is_map(counts) ->
+        IO.puts(
+          "  payments:     " <>
+            Enum.map_join(Enum.sort(counts), ", ", fn {status, n} -> "#{n} #{status}" end)
+        )
+
+      _ ->
+        IO.puts("  payments:     unknown (the database didn't answer)")
+    end
+
+    case Pay.missing() do
+      [] ->
+        IO.puts("  missing:      nothing; every 402 past a shared budget carries BSV terms")
+
+      missing ->
+        IO.puts("  missing:")
+        for line <- missing, do: IO.puts("    - #{line}")
+    end
+
+    status
   end
 
   # ---------------------------------------------------------------------------

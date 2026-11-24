@@ -246,6 +246,17 @@ if config_env() == :prod do
           System.get_env("X402_PAID_PER_FAMILY_PER_MINUTE", "600")
       )
 
+  # BSV 402: the same 402, paid in BSV as BRC-121 describes (docs/BSV_402.md,
+  # Bitblocks.Payments.Bsv402). Off unless BSV402_ENABLED=true, and then only
+  # with BSV402_PRICE_SATS (satoshis a request, set by Ryan) and
+  # BSV402_IDENTITY_KEY, a dedicated private key that is read from the
+  # environment when a payment is checked, never held in config or logged.
+  # Paid attempts share x402's two caps above.
+  config :bitblocks, Bitblocks.Payments.Bsv402,
+    enabled: System.get_env("BSV402_ENABLED", "false") == "true",
+    price_sats: System.get_env("BSV402_PRICE_SATS"),
+    identity_key_env: "BSV402_IDENTITY_KEY"
+
   # Paid bulk downloads through Stripe Checkout (docs/STRIPE.md,
   # Bitblocks.Payments.Stripe, #111). Dormant until both the mode's secret key
   # and webhook signing secret are set: sandbox (the default) reads
@@ -341,7 +352,11 @@ if config_env() == :prod do
       # Bind on all IPv4 interfaces for Fly.io compatibility
       # Fly.io requires binding to 0.0.0.0 (IPv4) on port 8080
       ip: {0, 0, 0, 0},
-      port: port
+      port: port,
+      # A BRC-121 payment arrives as Atomic BEEF in one header, x-bsv-beef
+      # (Payments.Bsv402 caps it at 12,000 bytes, 16,000 in base64), so one
+      # header may be as long as the load balancer's 16 KB, not Bandit's 10,000.
+      http_1_options: [max_header_length: 16_384]
     ],
     secret_key_base: secret_key_base,
     check_origin: [

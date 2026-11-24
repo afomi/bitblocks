@@ -1,0 +1,672 @@
+{
+  "name": "bitblocks-bsv402-vectors",
+  "version": "bsv402/v0",
+  "status": "draft",
+  "published": "2026-11-23",
+  "url": "https://bitblocks.app/interop/bsv402/v0.json",
+  "description": "Test vectors for a server taking BRC-121 (Simple 402 Payments): a BRC-29 output in Atomic BEEF, sent in the x-bsv-* headers, checked against the server's own headers and node. Each says what the server should answer.",
+  "versioning": "v0 until a real wallet's payment is in it; then v1. Within a version, a vector's id, bytes and expected outcome stay as they are, except to correct a mistake.",
+  "basis": {
+    "brc121": "https://github.com/bitcoin-sv/BRCs/blob/42ceeb219e686e41a6b7fb85be1231c44b2e2a73/payments/0121.md",
+    "brc29": "https://github.com/bitcoin-sv/BRCs/blob/d403af3417815919218468556503b627cd272abc/payments/0029.md",
+    "reference_client": "@bsv/402-pay 0.3.6 (its client and server, read 2026-11-23)",
+    "derivation": "test/support/fixtures/brc/bsv402_brc29_sdk.json in the bitblocks repo: @bsv/sdk 4.1.2's keys for these labels"
+  },
+  "claim": "These vectors cover what a server checks before it serves a paid request: the headers, the time, the BEEF, the output and its key, the amount, the proof against headers, the claim and the node's answer. The transactions are unsigned: a real node would refuse them, so each vector names what the stubbed node answers.",
+  "tried_against": "Bitblocks.Payments.Bsv402, and the derivation against @bsv/sdk 4.1.2. No live wallet yet. Nothing in this file says any wallet or server conforms to it.",
+  "how_to_use": [
+    "Take server.identity_private_key as your identity key, price_sats as your price and now_ms as your clock.",
+    "Treat every entry in headers as a header you hold, verified and on the best chain, and no others. They are made up: rely on merkleroot alone.",
+    "Before a vector, treat each txid in claimed as already taken for the request beside it.",
+    "Send the vector's payment headers with its request, and have your node answer as node says: accept, already_known, unreachable, or reject:<reason>.",
+    "Compare your status and outcome with expected. reason is the name Bitblocks uses, so yours may differ."
+  ],
+  "derivation": {
+    "protocol": [
+      2,
+      "3241645161d8"
+    ],
+    "key_id": "<x-bsv-nonce> <base64 of the x-bsv-time text>",
+    "invoice": "2-3241645161d8-<x-bsv-nonce> <base64 of the x-bsv-time text>",
+    "output": "P2PKH to the BRC-42 child of the server's key for that invoice, with the sender's key as counterparty"
+  },
+  "outcomes": {
+    "accepted": "Served: the payment checks, is claimed, and the node took it.",
+    "reserved": "Served again: the same payment for the same request, already claimed; no new claim.",
+    "refused": "Not served. status says how: 402 with the terms again, 413 too large, 503 try again."
+  },
+  "server": {
+    "identity_private_key": "fa458db61a3a2f7ff785806fc5d736073ce73d08a2e1cf299b4322cb7815aa1c",
+    "identity_key": "0382d3cb3b4f4cd9f527d5eb94c01a4d64a2c5a16d8f3da0c49b099c0bea64239d"
+  },
+  "sender": {
+    "identity_private_key": "bd7052f0563037fe2f8b80a31f642b2699f2235d6b9e776943d57982f0dc11a4",
+    "identity_key": "03d3c42460bdf4efe595c888f763e1fc76d5486d620701c9525dde416b8a9a93ca"
+  },
+  "now_ms": 1764000000000,
+  "window_ms": 30000,
+  "price_sats": 100,
+  "max_beef_bytes": 12000,
+  "headers": [
+    {
+      "height": 3100001,
+      "synthetic": true,
+      "merkleroot": "c0a5bb6fece81aba7c7d43c79c521266e13859bac4e4dbaa7b1a99a78c7e2af1",
+      "tx_count": 1,
+      "note": "Made up for vector pays-exact: a one-tx block holding its coin."
+    },
+    {
+      "height": 3100002,
+      "synthetic": true,
+      "merkleroot": "94b9d5513a5d60db62000f495c73f8e80d307f38d64866c08d2bdee8d7b33745",
+      "tx_count": 1,
+      "note": "Made up for vector pays-over: a one-tx block holding its coin."
+    },
+    {
+      "height": 3100003,
+      "synthetic": true,
+      "merkleroot": "e7908b4c09eedf627d5cac02af767c0fbba0c5faafb223a7decaa3c5151324c5",
+      "tx_count": 1,
+      "note": "Made up for vector pays-under: a one-tx block holding its coin."
+    },
+    {
+      "height": 3100004,
+      "synthetic": true,
+      "merkleroot": "47a21d358645f339acbe6b2ae664812505d69ecfb9ade05a5295562f282f1712",
+      "tx_count": 1,
+      "note": "Made up for vector wrong-key: a one-tx block holding its coin."
+    },
+    {
+      "height": 3100005,
+      "synthetic": true,
+      "merkleroot": "d46307dc208a0957341cbaa2816a2d84bf65a494f11e17e83d45cdd9aa24b89f",
+      "tx_count": 1,
+      "note": "Made up for vector wrong-suffix: a one-tx block holding its coin."
+    },
+    {
+      "height": 3100006,
+      "synthetic": true,
+      "merkleroot": "2d62d16575207a4ef415c957c3943f08d833ae2de36e0ed2e696298f95a97439",
+      "tx_count": 1,
+      "note": "Made up for vector wrong-vout: a one-tx block holding its coin."
+    },
+    {
+      "height": 3100007,
+      "synthetic": true,
+      "merkleroot": "94c3c3d51fc450390a5649eb07f7e19afdbfe3c36bcde719f0d94498b92d45a8",
+      "tx_count": 1,
+      "note": "Made up for vector stale: a one-tx block holding its coin."
+    },
+    {
+      "height": 3100008,
+      "synthetic": true,
+      "merkleroot": "549e20f721a0b2532a3ad1f8ccf7ffe6d82c5c532f059654061d14bd8ac7766e",
+      "tx_count": 1,
+      "note": "Made up for vector future: a one-tx block holding its coin."
+    },
+    {
+      "height": 3100009,
+      "synthetic": true,
+      "merkleroot": "8385f646e988f978158a15ea739ce1cd56cf41365da3f922ad363de96bf9d466",
+      "tx_count": 1,
+      "note": "Made up for vector replay: a one-tx block holding its coin."
+    },
+    {
+      "height": 3100010,
+      "synthetic": true,
+      "merkleroot": "975099802a00fdc5d304afbcb79dba53717f997142bc232ad99e4daa225eb07a",
+      "tx_count": 1,
+      "note": "Made up for vector replay-same-request: a one-tx block holding its coin."
+    },
+    {
+      "height": 3100011,
+      "synthetic": true,
+      "merkleroot": "e1b5bb622014d7ee968bed3025f88b23ff794e175a9c260cd15df88264769219",
+      "tx_count": 1,
+      "note": "Made up for vector unknown-root: a one-tx block holding its coin."
+    },
+    {
+      "height": 3100013,
+      "synthetic": true,
+      "merkleroot": "2b32d74492fb091654420c04573014e6be3ad82fb4761744e2749290743411ed",
+      "tx_count": 1,
+      "note": "Made up for vector not-atomic: a one-tx block holding its coin."
+    },
+    {
+      "height": 3100014,
+      "synthetic": true,
+      "merkleroot": "b08b82abb166d0f16101678ee39748295e8a166af45b32edcffda1501a05ecf8",
+      "tx_count": 1,
+      "note": "Made up for vector bad-beef: a one-tx block holding its coin."
+    },
+    {
+      "height": 3100015,
+      "synthetic": true,
+      "merkleroot": "271f977fd56d75d749a16779edd92910353a7b1d99e21338015982acd214dcc0",
+      "tx_count": 1,
+      "note": "Made up for vector missing-header: a one-tx block holding its coin."
+    },
+    {
+      "height": 3100016,
+      "synthetic": true,
+      "merkleroot": "1bf7fe1fcf48b402c961b1e5a0175b4ab25bef8366223d29fb3c6f24a65c1735",
+      "tx_count": 1,
+      "note": "Made up for vector node-rejects: a one-tx block holding its coin."
+    },
+    {
+      "height": 3100017,
+      "synthetic": true,
+      "merkleroot": "910212ae224545e7d45ac689ad84035677e8e80499ea86e42677757fe7df8149",
+      "tx_count": 1,
+      "note": "Made up for vector node-down: a one-tx block holding its coin."
+    },
+    {
+      "height": 3100018,
+      "synthetic": true,
+      "merkleroot": "590e5df4db31c28dfae673f96e6a28712ff400a310ed9f116b8a9333eda724d0",
+      "tx_count": 1,
+      "note": "Made up for vector node-knows-it: a one-tx block holding its coin."
+    },
+    {
+      "height": 3100019,
+      "synthetic": true,
+      "merkleroot": "c167e53a4356bd0d0cd556082bb8dfed6fe1f1c5521b11f14213f747ecf71c9b",
+      "tx_count": 1,
+      "note": "Made up for vector oversize: a one-tx block holding its coin."
+    }
+  ],
+  "vectors": [
+    {
+      "id": "pays-exact",
+      "case": "One output of exactly the price, its coin proven.",
+      "envelope": "brc121",
+      "request": {
+        "method": "GET",
+        "path": "/api/v1/blocks/latest",
+        "query": ""
+      },
+      "payment": {
+        "x-bsv-beef": "AQEBAUrieoZDabc38vpNLOQhFSM30ft7ovZZ1IYtrVv3EMNTAQC+7wH+YU0vAAEBAALxKn6Mp5kae6rb5MS6WTjhZhJSnMdDfXy6Gujsb7ulwAIBAAAAAe3AwSyR6nNmVphdKigQzY2BEI7wicJpeTPMkj+70cXgAAAAAAEA/////wGghgEAAAAAABl2qRTp/wMWFPXkO7Rwfbl24pRbJI9hD4isAAAAAAEAAQAAAAHxKn6Mp5kae6rb5MS6WTjhZhJSnMdDfXy6Gujsb7ulwAAAAAABAP////8CZAAAAAAAAAAZdqkUPdbazAiECGZGdLtc71CxtM4OZvKIrFSCAQAAAAAAGXapFOn/AxYU9eQ7tHB9uXbilFskj2EPiKwAAAAAAA==",
+        "x-bsv-sender": "03d3c42460bdf4efe595c888f763e1fc76d5486d620701c9525dde416b8a9a93ca",
+        "x-bsv-nonce": "LUWE4VrDYNg=",
+        "x-bsv-time": "1764000000000",
+        "x-bsv-vout": "0"
+      },
+      "txid": "53c310f75bad2d86d459f6a27bfbd137231521e42c4dfaf237b76943867ae24a",
+      "claimed": [],
+      "node": "accept",
+      "expected": {
+        "status": 200,
+        "outcome": "accepted",
+        "reason": null
+      }
+    },
+    {
+      "id": "pays-over",
+      "case": "One sat more than the price: at least the price is what BRC-121 asks.",
+      "envelope": "brc121",
+      "request": {
+        "method": "GET",
+        "path": "/api/v1/blocks/latest",
+        "query": ""
+      },
+      "payment": {
+        "x-bsv-beef": "AQEBAbG1rqrpnkVPufo9RTlfdciLZ0znd6bOojDFzzvMKOwPAQC+7wH+Yk0vAAEBAAJFN7PX6N4rjcBmSNY4fzAN6PhzXEkPAGLbYF06UdW5lAIBAAAAASFb5Bbq1c1P5WNvUg2rQ4QpYNvHXX+1RNLRoGk1oiLVAAAAAAEA/////wGghgEAAAAAABl2qRTp/wMWFPXkO7Rwfbl24pRbJI9hD4isAAAAAAEAAQAAAAFFN7PX6N4rjcBmSNY4fzAN6PhzXEkPAGLbYF06UdW5lAAAAAABAP////8CZQAAAAAAAAAZdqkUPdbazAiECGZGdLtc71CxtM4OZvKIrFSCAQAAAAAAGXapFOn/AxYU9eQ7tHB9uXbilFskj2EPiKwAAAAAAA==",
+        "x-bsv-sender": "03d3c42460bdf4efe595c888f763e1fc76d5486d620701c9525dde416b8a9a93ca",
+        "x-bsv-nonce": "LUWE4VrDYNg=",
+        "x-bsv-time": "1764000000000",
+        "x-bsv-vout": "0"
+      },
+      "txid": "0fec28cc3bcfc530a2cea677e74c678bc8755f39453dfab94f459ee9aaaeb5b1",
+      "claimed": [],
+      "node": "accept",
+      "expected": {
+        "status": 200,
+        "outcome": "accepted",
+        "reason": null
+      }
+    },
+    {
+      "id": "pays-under",
+      "case": "One sat short.",
+      "envelope": "brc121",
+      "request": {
+        "method": "GET",
+        "path": "/api/v1/blocks/latest",
+        "query": ""
+      },
+      "payment": {
+        "x-bsv-beef": "AQEBAVdVxXoVHm3aEROG7g8Fa0+ysYLLXhXx0abm4uSCoFHYAQC+7wH+Y00vAAEBAALFJBMVxaPK3qcjsq/6xaC7D3x2rwKsXH1i3+4JTIuQ5wIBAAAAARNCrM6fqNuub/CeLdgk6UGwv2Lfd8fvUaIkkZPOOufJAAAAAAEA/////wGghgEAAAAAABl2qRTp/wMWFPXkO7Rwfbl24pRbJI9hD4isAAAAAAEAAQAAAAHFJBMVxaPK3qcjsq/6xaC7D3x2rwKsXH1i3+4JTIuQ5wAAAAABAP////8CYwAAAAAAAAAZdqkUPdbazAiECGZGdLtc71CxtM4OZvKIrFSCAQAAAAAAGXapFOn/AxYU9eQ7tHB9uXbilFskj2EPiKwAAAAAAA==",
+        "x-bsv-sender": "03d3c42460bdf4efe595c888f763e1fc76d5486d620701c9525dde416b8a9a93ca",
+        "x-bsv-nonce": "LUWE4VrDYNg=",
+        "x-bsv-time": "1764000000000",
+        "x-bsv-vout": "0"
+      },
+      "txid": "d851a082e4e2e6a6d1f1155ecb82b1b24f6b050fee861311da6d1e157ac55557",
+      "claimed": [],
+      "node": "accept",
+      "expected": {
+        "status": 402,
+        "outcome": "refused",
+        "reason": "underpaid"
+      }
+    },
+    {
+      "id": "wrong-key",
+      "case": "P2PKH to the key derived for another server.",
+      "envelope": "brc121",
+      "request": {
+        "method": "GET",
+        "path": "/api/v1/blocks/latest",
+        "query": ""
+      },
+      "payment": {
+        "x-bsv-beef": "AQEBAdnnp4iAYDfid36hgyM2VrHPq9NkFdgQ2nke8Wy46N6TAQC+7wH+ZE0vAAEBAAISFy8oL1aVUlrgrbnPntYFJYFk5iprvqw580WGNR2iRwIBAAAAATiKb0ptq4U0oAgckxrcHyEswwcCp8JeI7DSOWIqTdTsAAAAAAEA/////wGghgEAAAAAABl2qRTp/wMWFPXkO7Rwfbl24pRbJI9hD4isAAAAAAEAAQAAAAESFy8oL1aVUlrgrbnPntYFJYFk5iprvqw580WGNR2iRwAAAAABAP////8CZAAAAAAAAAAZdqkU7Zm3M4YizEWnvl5+3E8vWZXfIB+IrFSCAQAAAAAAGXapFOn/AxYU9eQ7tHB9uXbilFskj2EPiKwAAAAAAA==",
+        "x-bsv-sender": "03d3c42460bdf4efe595c888f763e1fc76d5486d620701c9525dde416b8a9a93ca",
+        "x-bsv-nonce": "LUWE4VrDYNg=",
+        "x-bsv-time": "1764000000000",
+        "x-bsv-vout": "0"
+      },
+      "txid": "93dee8b86cf11e79da10d81564d3abcfb156362383a17e77e237608088a7e7d9",
+      "claimed": [],
+      "node": "accept",
+      "expected": {
+        "status": 402,
+        "outcome": "refused",
+        "reason": "not_our_output"
+      }
+    },
+    {
+      "id": "wrong-suffix",
+      "case": "x-bsv-time a second off the time the key was derived for.",
+      "envelope": "brc121",
+      "request": {
+        "method": "GET",
+        "path": "/api/v1/blocks/latest",
+        "query": ""
+      },
+      "payment": {
+        "x-bsv-beef": "AQEBAQoCsTQPvu4kZ76WQjUvE5j0LVsOidXlbHYK+Ql3CUmaAQC+7wH+ZU0vAAEBAAKfuCSq2c1FPegXHvGUpGW/hC1qgaK6HDRXCYog3Adj1AIBAAAAAS9aMb89HJjI3dEhqqx+hhK6WKT6H3NXffOZZB8TzzETAAAAAAEA/////wGghgEAAAAAABl2qRTp/wMWFPXkO7Rwfbl24pRbJI9hD4isAAAAAAEAAQAAAAGfuCSq2c1FPegXHvGUpGW/hC1qgaK6HDRXCYog3Adj1AAAAAABAP////8CZAAAAAAAAAAZdqkUPdbazAiECGZGdLtc71CxtM4OZvKIrFSCAQAAAAAAGXapFOn/AxYU9eQ7tHB9uXbilFskj2EPiKwAAAAAAA==",
+        "x-bsv-sender": "03d3c42460bdf4efe595c888f763e1fc76d5486d620701c9525dde416b8a9a93ca",
+        "x-bsv-nonce": "LUWE4VrDYNg=",
+        "x-bsv-time": "1763999999000",
+        "x-bsv-vout": "0"
+      },
+      "txid": "9a49097709f90a766ce5d5890e5b2df498132f354296be6724eebe0f34b1020a",
+      "claimed": [],
+      "node": "accept",
+      "expected": {
+        "status": 402,
+        "outcome": "refused",
+        "reason": "not_our_output"
+      }
+    },
+    {
+      "id": "wrong-vout",
+      "case": "x-bsv-vout names the change.",
+      "envelope": "brc121",
+      "request": {
+        "method": "GET",
+        "path": "/api/v1/blocks/latest",
+        "query": ""
+      },
+      "payment": {
+        "x-bsv-beef": "AQEBAb7GfrWIte5nSPNAexJu5V7g/5qTU7MApDwFHNslINylAQC+7wH+Zk0vAAEBAAI5dKmVjymW5tIObuMtrjPYCD+Uw1fJFfROeiB1ZdFiLQIBAAAAAYDM9WeriSaAy7EK1L/vkqQnWtOOeuwEy7qhfkXOtdzLAAAAAAEA/////wGghgEAAAAAABl2qRTp/wMWFPXkO7Rwfbl24pRbJI9hD4isAAAAAAEAAQAAAAE5dKmVjymW5tIObuMtrjPYCD+Uw1fJFfROeiB1ZdFiLQAAAAABAP////8CZAAAAAAAAAAZdqkUPdbazAiECGZGdLtc71CxtM4OZvKIrFSCAQAAAAAAGXapFOn/AxYU9eQ7tHB9uXbilFskj2EPiKwAAAAAAA==",
+        "x-bsv-sender": "03d3c42460bdf4efe595c888f763e1fc76d5486d620701c9525dde416b8a9a93ca",
+        "x-bsv-nonce": "LUWE4VrDYNg=",
+        "x-bsv-time": "1764000000000",
+        "x-bsv-vout": "1"
+      },
+      "txid": "a5dc2025db1c053ca400b353939affe05ee56e127b40f34867eeb588b57ec6be",
+      "claimed": [],
+      "node": "accept",
+      "expected": {
+        "status": 402,
+        "outcome": "refused",
+        "reason": "not_our_output"
+      }
+    },
+    {
+      "id": "stale",
+      "case": "Paid 31 seconds ago.",
+      "envelope": "brc121",
+      "request": {
+        "method": "GET",
+        "path": "/api/v1/blocks/latest",
+        "query": ""
+      },
+      "payment": {
+        "x-bsv-beef": "AQEBAe4+o/PZNZedsgn4arR4vYBaTfZ8boKv1rVywcAuC3NaAQC+7wH+Z00vAAEBAAKoRS25mETZ8BnnzWvD47/9muH3B+tJVgo5UMQf1cPDlAIBAAAAAXSL7BC56xVzVVSqVxHZc2XUA+1V3wbYHANGyc2lUxzxAAAAAAEA/////wGghgEAAAAAABl2qRTp/wMWFPXkO7Rwfbl24pRbJI9hD4isAAAAAAEAAQAAAAGoRS25mETZ8BnnzWvD47/9muH3B+tJVgo5UMQf1cPDlAAAAAABAP////8CZAAAAAAAAAAZdqkU6JkgYZ+me4GqvyiT+DQVc9Aq/cyIrFSCAQAAAAAAGXapFOn/AxYU9eQ7tHB9uXbilFskj2EPiKwAAAAAAA==",
+        "x-bsv-sender": "03d3c42460bdf4efe595c888f763e1fc76d5486d620701c9525dde416b8a9a93ca",
+        "x-bsv-nonce": "LUWE4VrDYNg=",
+        "x-bsv-time": "1763999969000",
+        "x-bsv-vout": "0"
+      },
+      "txid": "5a730b2ec0c172b5d6af826e7cf64d5a80bd78b46af809b29d9735d9f3a33eee",
+      "claimed": [],
+      "node": "accept",
+      "expected": {
+        "status": 402,
+        "outcome": "refused",
+        "reason": "stale"
+      }
+    },
+    {
+      "id": "future",
+      "case": "Dated 31 seconds ahead.",
+      "envelope": "brc121",
+      "request": {
+        "method": "GET",
+        "path": "/api/v1/blocks/latest",
+        "query": ""
+      },
+      "payment": {
+        "x-bsv-beef": "AQEBAW4DqH+piI8TVKBfp3NuA/JDURQ2oOTau0MykopMHNJ0AQC+7wH+aE0vAAEBAAJudseKvRQdBlSWBS9TXCzY5v/3zPjROipTsqAh9yCeVAIBAAAAAYmgdY/Oxwyz09hrhkXyLfLs6ITPf8eyzr5fjoAs9lthAAAAAAEA/////wGghgEAAAAAABl2qRTp/wMWFPXkO7Rwfbl24pRbJI9hD4isAAAAAAEAAQAAAAFudseKvRQdBlSWBS9TXCzY5v/3zPjROipTsqAh9yCeVAAAAAABAP////8CZAAAAAAAAAAZdqkUgZRbVcXrwrlQ3nCagHkvV1pNoN+IrFSCAQAAAAAAGXapFOn/AxYU9eQ7tHB9uXbilFskj2EPiKwAAAAAAA==",
+        "x-bsv-sender": "03d3c42460bdf4efe595c888f763e1fc76d5486d620701c9525dde416b8a9a93ca",
+        "x-bsv-nonce": "LUWE4VrDYNg=",
+        "x-bsv-time": "1764000031000",
+        "x-bsv-vout": "0"
+      },
+      "txid": "74d21c4c8a923243bbdae4a036145143f2036e73a75fa054138f88a97fa8036e",
+      "claimed": [],
+      "node": "accept",
+      "expected": {
+        "status": 402,
+        "outcome": "refused",
+        "reason": "stale"
+      }
+    },
+    {
+      "id": "replay",
+      "case": "Its txid already bought another request.",
+      "envelope": "brc121",
+      "request": {
+        "method": "GET",
+        "path": "/api/v1/blocks/latest",
+        "query": ""
+      },
+      "payment": {
+        "x-bsv-beef": "AQEBAZauR9K+vUyU54Ey/+h9AKixTAbKAFsgnuTbHJT/g5WzAQC+7wH+aU0vAAEBAAJm1Plr6T02rSL5o102Qc9WzeGcc+oVihV4+YjpRvaFgwIBAAAAAYBmriDiAuGE+o8moGknpdr7SSciu9tOidM9KNEEqJZ2AAAAAAEA/////wGghgEAAAAAABl2qRTp/wMWFPXkO7Rwfbl24pRbJI9hD4isAAAAAAEAAQAAAAFm1Plr6T02rSL5o102Qc9WzeGcc+oVihV4+YjpRvaFgwAAAAABAP////8CZAAAAAAAAAAZdqkUPdbazAiECGZGdLtc71CxtM4OZvKIrFSCAQAAAAAAGXapFOn/AxYU9eQ7tHB9uXbilFskj2EPiKwAAAAAAA==",
+        "x-bsv-sender": "03d3c42460bdf4efe595c888f763e1fc76d5486d620701c9525dde416b8a9a93ca",
+        "x-bsv-nonce": "LUWE4VrDYNg=",
+        "x-bsv-time": "1764000000000",
+        "x-bsv-vout": "0"
+      },
+      "txid": "b39583ff941cdbe49e205b00ca064cb1a8007de8ff3281e7944cbdbed247ae96",
+      "claimed": [
+        {
+          "txid": "b39583ff941cdbe49e205b00ca064cb1a8007de8ff3281e7944cbdbed247ae96",
+          "request": {
+            "method": "GET",
+            "path": "/api/v1/blocks/0",
+            "query": ""
+          }
+        }
+      ],
+      "node": "accept",
+      "expected": {
+        "status": 402,
+        "outcome": "refused",
+        "reason": "replayed"
+      }
+    },
+    {
+      "id": "replay-same-request",
+      "case": "Its txid already bought this same request: served again, with no new claim.",
+      "envelope": "brc121",
+      "request": {
+        "method": "GET",
+        "path": "/api/v1/blocks/latest",
+        "query": ""
+      },
+      "payment": {
+        "x-bsv-beef": "AQEBAWsN0bOu+j8Riw8LZ+PwAmexTWvVD2ow9KbkephB7SSsAQC+7wH+ak0vAAEBAAJ6sF4iqk2e2SojvEJxmX9xU7qdt7yvBNPF/QAqgJlQlwIBAAAAARTACJK8ZXx5Vrg3rm0ibRGOQJUZxnoKi66LPYzMUUKVAAAAAAEA/////wGghgEAAAAAABl2qRTp/wMWFPXkO7Rwfbl24pRbJI9hD4isAAAAAAEAAQAAAAF6sF4iqk2e2SojvEJxmX9xU7qdt7yvBNPF/QAqgJlQlwAAAAABAP////8CZAAAAAAAAAAZdqkUPdbazAiECGZGdLtc71CxtM4OZvKIrFSCAQAAAAAAGXapFOn/AxYU9eQ7tHB9uXbilFskj2EPiKwAAAAAAA==",
+        "x-bsv-sender": "03d3c42460bdf4efe595c888f763e1fc76d5486d620701c9525dde416b8a9a93ca",
+        "x-bsv-nonce": "LUWE4VrDYNg=",
+        "x-bsv-time": "1764000000000",
+        "x-bsv-vout": "0"
+      },
+      "txid": "ac24ed41987ae4a6f4306a0fd56b4db16702f0e3670b0f8b113ffaaeb3d10d6b",
+      "claimed": [
+        {
+          "txid": "ac24ed41987ae4a6f4306a0fd56b4db16702f0e3670b0f8b113ffaaeb3d10d6b",
+          "request": {
+            "method": "GET",
+            "path": "/api/v1/blocks/latest",
+            "query": ""
+          }
+        }
+      ],
+      "node": "accept",
+      "expected": {
+        "status": 200,
+        "outcome": "reserved",
+        "reason": null
+      }
+    },
+    {
+      "id": "unknown-root",
+      "case": "The coin's BUMP climbs to a root that isn't the header's at that height.",
+      "envelope": "brc121",
+      "request": {
+        "method": "GET",
+        "path": "/api/v1/blocks/latest",
+        "query": ""
+      },
+      "payment": {
+        "x-bsv-beef": "AQEBAbgtkUdaSLiTWOeFZ3L1yqHIUDXh8aQCAZ+K0zTei8cLAQC+7wH+a00vAAEBAALDzP72vcJzP0ihS9Sm2FSYDKQPQif/GzDAdCRY5XOY7wIBAAAAASbwAA0nAiP2+zUlpB08CT49MSAenOyXO58ke84WJbdwAAAAAAEA/////wGghgEAAAAAABl2qRTp/wMWFPXkO7Rwfbl24pRbJI9hD4isAAAAAAEAAQAAAAHDzP72vcJzP0ihS9Sm2FSYDKQPQif/GzDAdCRY5XOY7wAAAAABAP////8CZAAAAAAAAAAZdqkUPdbazAiECGZGdLtc71CxtM4OZvKIrFSCAQAAAAAAGXapFOn/AxYU9eQ7tHB9uXbilFskj2EPiKwAAAAAAA==",
+        "x-bsv-sender": "03d3c42460bdf4efe595c888f763e1fc76d5486d620701c9525dde416b8a9a93ca",
+        "x-bsv-nonce": "LUWE4VrDYNg=",
+        "x-bsv-time": "1764000000000",
+        "x-bsv-vout": "0"
+      },
+      "txid": "0bc78bde34d38a9f0102a4f1e13550c8a1caf5726785e75893b8485a47912db8",
+      "claimed": [],
+      "node": "accept",
+      "expected": {
+        "status": 402,
+        "outcome": "refused",
+        "reason": "unproven"
+      }
+    },
+    {
+      "id": "unknown-block",
+      "case": "The coin's BUMP names a height with no header.",
+      "envelope": "brc121",
+      "request": {
+        "method": "GET",
+        "path": "/api/v1/blocks/latest",
+        "query": ""
+      },
+      "payment": {
+        "x-bsv-beef": "AQEBAVRLKc9lI4cVjhE4Qy6XMaCUauBizqeWc6ou7lAFQCygAQC+7wH+bE0vAAEBAAIxC1Tq1zUv7xvIW7xpsdDQOg+y/ABMvM4XEhly3HOwyAIBAAAAAQvBA4srSoW951LevI5w+fZ5N2qmuKKsyWmuxr7BSib/AAAAAAEA/////wGghgEAAAAAABl2qRTp/wMWFPXkO7Rwfbl24pRbJI9hD4isAAAAAAEAAQAAAAExC1Tq1zUv7xvIW7xpsdDQOg+y/ABMvM4XEhly3HOwyAAAAAABAP////8CZAAAAAAAAAAZdqkUPdbazAiECGZGdLtc71CxtM4OZvKIrFSCAQAAAAAAGXapFOn/AxYU9eQ7tHB9uXbilFskj2EPiKwAAAAAAA==",
+        "x-bsv-sender": "03d3c42460bdf4efe595c888f763e1fc76d5486d620701c9525dde416b8a9a93ca",
+        "x-bsv-nonce": "LUWE4VrDYNg=",
+        "x-bsv-time": "1764000000000",
+        "x-bsv-vout": "0"
+      },
+      "txid": "a02c400550ee2eaa7396a7ce62e06a94a031972e4338118e15872365cf294b54",
+      "claimed": [],
+      "node": "accept",
+      "expected": {
+        "status": 402,
+        "outcome": "refused",
+        "reason": "unknown_block"
+      }
+    },
+    {
+      "id": "not-atomic",
+      "case": "BEEF V1 without the Atomic prefix (BRC-95).",
+      "envelope": "brc121",
+      "request": {
+        "method": "GET",
+        "path": "/api/v1/blocks/latest",
+        "query": ""
+      },
+      "payment": {
+        "x-bsv-beef": "AQC+7wH+bU0vAAEBAALtETR0kJJ04kQXdrQv2Dq+5hQwVwQMQlQWCfuSRNcyKwIBAAAAAb1tRCKc1l+ub3erHX1gxgw7abWVt+DtouRuIn0FF99KAAAAAAEA/////wGghgEAAAAAABl2qRTp/wMWFPXkO7Rwfbl24pRbJI9hD4isAAAAAAEAAQAAAAHtETR0kJJ04kQXdrQv2Dq+5hQwVwQMQlQWCfuSRNcyKwAAAAABAP////8CZAAAAAAAAAAZdqkUPdbazAiECGZGdLtc71CxtM4OZvKIrFSCAQAAAAAAGXapFOn/AxYU9eQ7tHB9uXbilFskj2EPiKwAAAAAAA==",
+        "x-bsv-sender": "03d3c42460bdf4efe595c888f763e1fc76d5486d620701c9525dde416b8a9a93ca",
+        "x-bsv-nonce": "LUWE4VrDYNg=",
+        "x-bsv-time": "1764000000000",
+        "x-bsv-vout": "0"
+      },
+      "txid": "17643fba2e76984ffc1e37a32d908b20626e61e91d61ec5a31ea256fd954debf",
+      "claimed": [],
+      "node": "accept",
+      "expected": {
+        "status": 402,
+        "outcome": "refused",
+        "reason": "malformed"
+      }
+    },
+    {
+      "id": "bad-beef",
+      "case": "Atomic BEEF cut short.",
+      "envelope": "brc121",
+      "request": {
+        "method": "GET",
+        "path": "/api/v1/blocks/latest",
+        "query": ""
+      },
+      "payment": {
+        "x-bsv-beef": "AQEBASHhSd614HdMiOBOGEMXClBbb7r0ZyGdRBaO5HwRLuYyAQC+7wH+bk0vAAEBAAL47AUaUKH9z+0y",
+        "x-bsv-sender": "03d3c42460bdf4efe595c888f763e1fc76d5486d620701c9525dde416b8a9a93ca",
+        "x-bsv-nonce": "LUWE4VrDYNg=",
+        "x-bsv-time": "1764000000000",
+        "x-bsv-vout": "0"
+      },
+      "txid": null,
+      "claimed": [],
+      "node": "accept",
+      "expected": {
+        "status": 402,
+        "outcome": "refused",
+        "reason": "malformed"
+      }
+    },
+    {
+      "id": "missing-header",
+      "case": "No x-bsv-sender.",
+      "envelope": "brc121",
+      "request": {
+        "method": "GET",
+        "path": "/api/v1/blocks/latest",
+        "query": ""
+      },
+      "payment": {
+        "x-bsv-beef": "AQEBAQ4E+7iPHfEfLNrtmwyoJEgBfBX3UmSs9pYYL1pDMh1LAQC+7wH+b00vAAEBAALA3BTSrIJZATgT4pkdezo1ECnZ7XlnoUnXdW3Vf5cfJwIBAAAAAf/cqvxV96CqF6hTGxazoxml8k6DPnUbqZ4wHgV1zjWzAAAAAAEA/////wGghgEAAAAAABl2qRTp/wMWFPXkO7Rwfbl24pRbJI9hD4isAAAAAAEAAQAAAAHA3BTSrIJZATgT4pkdezo1ECnZ7XlnoUnXdW3Vf5cfJwAAAAABAP////8CZAAAAAAAAAAZdqkUPdbazAiECGZGdLtc71CxtM4OZvKIrFSCAQAAAAAAGXapFOn/AxYU9eQ7tHB9uXbilFskj2EPiKwAAAAAAA==",
+        "x-bsv-nonce": "LUWE4VrDYNg=",
+        "x-bsv-time": "1764000000000",
+        "x-bsv-vout": "0"
+      },
+      "txid": "4b1d32435a2f1896f6ac6452f7157c014824a80c9bedda2c1ff11d8fb8fb040e",
+      "claimed": [],
+      "node": "accept",
+      "expected": {
+        "status": 402,
+        "outcome": "refused",
+        "reason": "incomplete"
+      }
+    },
+    {
+      "id": "node-rejects",
+      "case": "Our node refuses it, as a double spend.",
+      "envelope": "brc121",
+      "request": {
+        "method": "GET",
+        "path": "/api/v1/blocks/latest",
+        "query": ""
+      },
+      "payment": {
+        "x-bsv-beef": "AQEBAbyujANPNJKDgquYLLMDWxPq6Xp76yXcse/WsoQuwUrBAQC+7wH+cE0vAAEBAAI1F1ymJG88+yk9ImaD71uySlsXoOWxYckCtEjPH/73GwIBAAAAARk4IRFsGoQ7jzwD4MEWtXgUt1bQVvVIKWFQqSJqH7s3AAAAAAEA/////wGghgEAAAAAABl2qRTp/wMWFPXkO7Rwfbl24pRbJI9hD4isAAAAAAEAAQAAAAE1F1ymJG88+yk9ImaD71uySlsXoOWxYckCtEjPH/73GwAAAAABAP////8CZAAAAAAAAAAZdqkUPdbazAiECGZGdLtc71CxtM4OZvKIrFSCAQAAAAAAGXapFOn/AxYU9eQ7tHB9uXbilFskj2EPiKwAAAAAAA==",
+        "x-bsv-sender": "03d3c42460bdf4efe595c888f763e1fc76d5486d620701c9525dde416b8a9a93ca",
+        "x-bsv-nonce": "LUWE4VrDYNg=",
+        "x-bsv-time": "1764000000000",
+        "x-bsv-vout": "0"
+      },
+      "txid": "c14ac12e84b2d6efb1dc25eb7b7ae9ea135b03b32c98ab828392344f038caebc",
+      "claimed": [],
+      "node": "reject:bad-txns-inputs-spent",
+      "expected": {
+        "status": 402,
+        "outcome": "refused",
+        "reason": "broadcast_rejected"
+      }
+    },
+    {
+      "id": "node-down",
+      "case": "Our node doesn't answer: nothing is taken.",
+      "envelope": "brc121",
+      "request": {
+        "method": "GET",
+        "path": "/api/v1/blocks/latest",
+        "query": ""
+      },
+      "payment": {
+        "x-bsv-beef": "AQEBAbs30IeDBczq0TxA+gAhrkuz530HwxNNOFJvxgPbm7DCAQC+7wH+cU0vAAEBAAJJgd/nf3V3JuSG6pkE6Oh3VgOErYnGWtTnRUUirhICkQIBAAAAAW+ynJbsfdwOakDP/9p6ZNsBtJ1lkMQN4YaXi/TOHbnMAAAAAAEA/////wGghgEAAAAAABl2qRTp/wMWFPXkO7Rwfbl24pRbJI9hD4isAAAAAAEAAQAAAAFJgd/nf3V3JuSG6pkE6Oh3VgOErYnGWtTnRUUirhICkQAAAAABAP////8CZAAAAAAAAAAZdqkUPdbazAiECGZGdLtc71CxtM4OZvKIrFSCAQAAAAAAGXapFOn/AxYU9eQ7tHB9uXbilFskj2EPiKwAAAAAAA==",
+        "x-bsv-sender": "03d3c42460bdf4efe595c888f763e1fc76d5486d620701c9525dde416b8a9a93ca",
+        "x-bsv-nonce": "LUWE4VrDYNg=",
+        "x-bsv-time": "1764000000000",
+        "x-bsv-vout": "0"
+      },
+      "txid": "c2b09bdb03c66f52384d13c3077de7b34bae2100fa403cd1eacc058387d037bb",
+      "claimed": [],
+      "node": "unreachable",
+      "expected": {
+        "status": 503,
+        "outcome": "refused",
+        "reason": "broadcast_unavailable"
+      }
+    },
+    {
+      "id": "node-knows-it",
+      "case": "Our node already has it (the wallet broadcast it first).",
+      "envelope": "brc121",
+      "request": {
+        "method": "GET",
+        "path": "/api/v1/blocks/latest",
+        "query": ""
+      },
+      "payment": {
+        "x-bsv-beef": "AQEBAVtCHbGg57A/ZXzK0mFv/vcdzkYhuO2FQ/NmwoO+WWlcAQC+7wH+ck0vAAEBAALQJKftM5OKaxGf7RCjAPQvcShqbvlz5vqNwjHb9F0OWQIBAAAAAXRpFWKPZYd3qIjtbm4NE4htUP/NbpM2CO1J43TlE1ODAAAAAAEA/////wGghgEAAAAAABl2qRTp/wMWFPXkO7Rwfbl24pRbJI9hD4isAAAAAAEAAQAAAAHQJKftM5OKaxGf7RCjAPQvcShqbvlz5vqNwjHb9F0OWQAAAAABAP////8CZAAAAAAAAAAZdqkUPdbazAiECGZGdLtc71CxtM4OZvKIrFSCAQAAAAAAGXapFOn/AxYU9eQ7tHB9uXbilFskj2EPiKwAAAAAAA==",
+        "x-bsv-sender": "03d3c42460bdf4efe595c888f763e1fc76d5486d620701c9525dde416b8a9a93ca",
+        "x-bsv-nonce": "LUWE4VrDYNg=",
+        "x-bsv-time": "1764000000000",
+        "x-bsv-vout": "0"
+      },
+      "txid": "5c6959be83c266f34385edb82146ce1df7fe6f61d2ca7c653fb0e7a0b11d425b",
+      "claimed": [],
+      "node": "already_known",
+      "expected": {
+        "status": 200,
+        "outcome": "accepted",
+        "reason": null
+      }
+    },
+    {
+      "id": "oversize",
+      "case": "A BEEF over max_beef_bytes: its coin carries 12000 bytes of data.",
+      "envelope": "brc121",
+      "request": {
+        "method": "GET",
+        "path": "/api/v1/blocks/latest",
+        "query": ""
+      },
+      "payment": {
+        "x-bsv-beef": "AQEBAdPbSx2zKNTHQKpRcXz8Xlsu7nlrIOeczEec+tY7J6SWAQC+7wH+c00vAAEBAAKbHPfsR/cTQvERG1LF8eFv7d+4KwhW1QwNvVZDOuVnwQIBAAAAAQS8ClR6W3BoDRAe3EjjqWggFPmZ9pJ+cHTivUAPEYp5AAAAAAEA/////wKghgEAAAAAABl2qRTp/wMWFPXkO7Rwfbl24pRbJI9hD4isAAAAAAAAAAD95S4Aak3gLgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAEAAAABmxz37Ef3E0LxERtSxfHhb+3fuCsIVtUMDb1WQzrlZ8EAAAAAAQD/////AmQAAAAAAAAAGXapFD3W2swIhAhmRnS7XO9QsbTODmbyiKxUggEAAAAAABl2qRTp/wMWFPXkO7Rwfbl24pRbJI9hD4isAAAAAAA=",
+        "x-bsv-sender": "03d3c42460bdf4efe595c888f763e1fc76d5486d620701c9525dde416b8a9a93ca",
+        "x-bsv-nonce": "LUWE4VrDYNg=",
+        "x-bsv-time": "1764000000000",
+        "x-bsv-vout": "0"
+      },
+      "txid": "96a4273bd6fa9c47cc9ce7206b79ee2e5b5efc7c7151aa40c7d428b31d4bdbd3",
+      "claimed": [],
+      "node": "accept",
+      "expected": {
+        "status": 413,
+        "outcome": "refused",
+        "reason": "too_large"
+      }
+    }
+  ]
+}

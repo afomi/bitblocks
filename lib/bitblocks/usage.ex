@@ -134,6 +134,10 @@ defmodule Bitblocks.Usage do
       match?(%{id: _}, assigns[:api_key]) ->
         {"key", to_string(assigns.api_key.id)}
 
+      # A request paid in BSV (BRC-121), by the payer's identity key.
+      is_binary(assigns[:bsv_payer]) ->
+        {"bsv", assigns.bsv_payer}
+
       assigns[:ai_crawler] ->
         {"crawler", to_string(assigns.ai_crawler)}
 
