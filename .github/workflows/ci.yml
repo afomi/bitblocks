@@ -118,7 +118,7 @@ jobs:
           chrome-version: stable
 
       - name: Set up ChromeDriver
-        uses: nanasess/setup-chromedriver@v2
+        uses: nanasess/setup-chromedriver@v3
 
       - name: Start ChromeDriver
         run: |
