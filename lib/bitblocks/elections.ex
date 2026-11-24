@@ -144,6 +144,23 @@ defmodule Bitblocks.Elections do
     }
   end
 
+  @doc """
+  Where our index holds the tx `txid`, for a ballot lookup that found no
+  ballot by that txid in the count: `nil` when we don't store it, else
+  `%{height: h, block_hash: hash}` (height nil while it is in no block).
+  One query by txid; it reads no bytes.
+  """
+  @spec stored_at(String.t()) :: nil | %{height: integer() | nil, block_hash: String.t() | nil}
+  def stored_at(txid) when is_binary(txid) do
+    Repo.one(
+      from(t in Transaction,
+        where: t.txid == ^txid,
+        select: %{height: t.block_height, block_hash: t.block_hash},
+        limit: 1
+      )
+    )
+  end
+
   # -- The records ------------------------------------------------------------
 
   defp outpoint(value) do

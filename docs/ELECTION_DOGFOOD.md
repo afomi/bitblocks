@@ -162,6 +162,26 @@ bin/bitblocks rpc 'Bitblocks.Release.election_count("<txid>.0") |> IO.inspect(li
 bin/bitblocks rpc 'Bitblocks.Release.election_count("<txid>.0", projection: 1) |> IO.inspect(limit: :infinity)'
 ```
 
+## Did my ballot count?
+
+Built: on `/elections/<outpoint>`, a member enters a ballot's txid or their address, and `GET /api/v1/elections/:outpoint/ballots/:query` gives the same answer as JSON (https://github.com/afomi/bitblocks/issues/137).
+Both read the count the page already shows (`BitblocksWeb.ElectionCount.lookup/2`), so there is no second rule.
+
+- **A txid** gives that ballot's status in the count's own words, and the rule's reason in a sentence with the heights it was judged against.
+- **An address** gives its ballots in chain order, which one counts, and whether the address is on the roll.
+- **"Counted"** appears only for a ballot the count counted, which is in a block inside the window, and links its merkle proof and its block's header, both open.
+  The proof is the one gathering built, climbed from the txid to the merkle root of the header we hold at that height.
+- **"Not counted: this key isn't on the roll."** names the roll's txid.
+- **"Not counted: confirmed after block N."** and **"Replaced by a later ballot."** (with the later ballot's txid) come straight from the rules `after_close` and `replaced`.
+- **"Waiting for a block."** covers a ballot a reorg left unconfirmed, a tx we hold in no block, and a txid we don't hold at all.
+  For the last, it says what we can't see: "This transaction is not in our index yet; our index reaches block N."
+  No answer asks WhatsOnChain.
+- A stored tx that holds no ballot for this election is "Not a ballot in this count."
+- Anything that is neither a txid nor a P2PKH address asks for one, and marks the field invalid.
+
+Every answer says the block it is current to, and sits in a polite live region, so a screen reader hears it without moving focus.
+`test/bitblocks_web/live/election_live_test.exs` covers each answer and the API; `test/bitblocks_web/election_ballot_axe_test.exs` checks the answer with axe at phone width, in light and dark mode.
+
 ## The archive
 
 Built: `Bitblocks.Elections.Archive`.
@@ -233,6 +253,7 @@ Exists:
   It runs once an operator starts it with `Release.start_tip_lane/2`.
 - The record parsers, gathering from our index, the live count and the archive writer, CLI and context only (above).
 - The read-only live page and open API: `/elections`, `/elections/<outpoint>` and `GET /api/v1/elections/:outpoint`, both from `Elections.gather/2` then `Elections.count/1`.
+- "Did my ballot count?" on the election's page, and `GET /api/v1/elections/:outpoint/ballots/:query`, from the same count (above).
   Bitblocks still does not sign or send a ballot.
 - The recount tool and its guide, static files at `/elections/recount.py` and `/elections/recount.html` (above).
 

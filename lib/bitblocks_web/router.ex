@@ -223,6 +223,8 @@ defmodule BitblocksWeb.Router do
     get "/status", StatusController, :show
     # The live election count, no key (#136, #137). Same gather and count as the page.
     get "/elections/:outpoint", ElectionController, :show
+    # One member's ballot, by txid or address, from the same count (#137).
+    get "/elections/:outpoint/ballots/:query", ElectionController, :ballot
     get "/price/bsv", PriceController, :show
     get "/support", SupportController, :show
   end
