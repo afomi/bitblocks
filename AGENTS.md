@@ -37,6 +37,15 @@ Run suites via `mix test` (the alias automatically boots an isolated database).
 For coverage spot-checks, `mix test --cover` is available; cover new contexts with both happy-path and failure-mode cases.
 Reuse fixtures from `test/support` where possible.
 
+### Browser tests (Wallaby)
+
+The browser tests are the files tagged `@moduletag :accessibility_axe` (axe checks and phone width), and CI runs them as their own job.
+Since 2026-11-24, background agents don't run them.
+Chrome runs headless (`"goog:chromeOptions"` in `config/test.exs`), but several suites launching browsers at once still pile up chromedriver processes and bring Chrome.app forward on Ryan's screen.
+Run `mix test --exclude accessibility_axe` plus the static checks (`mix format --check-formatted`, `mix compile --warnings-as-errors`), and say in the PR that the browser tests were skipped and left to CI.
+The browser suite runs once, serially (`mix test --only accessibility_axe --max-cases 1`), from the coordinating session or by Ryan, and never under `--repeat-until-failure`.
+Afterwards `pgrep -f chromedriver` should print nothing.
+
 ## Commit & Pull Request Guidelines
 
 Keep commit subjects short and imperative (e.g., `add tx cache`), matching the existing Git history, in present tense.
