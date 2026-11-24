@@ -162,6 +162,19 @@ bin/bitblocks rpc 'Bitblocks.Release.election_count("<txid>.0") |> IO.inspect(li
 bin/bitblocks rpc 'Bitblocks.Release.election_count("<txid>.0", projection: 1) |> IO.inspect(limit: :infinity)'
 ```
 
+## The voting window
+
+Built: `/elections/<outpoint>` opens with one line on the window, from the election's heights and our headers' tip (`Sync.tip/0`, already in the count's coverage), so there is no new chain-tip lookup (https://github.com/afomi/bitblocks/issues/137).
+
+- Before open: "Voting opens at block N (in about X)."
+- While open: "Voting closes at block N (about X)."
+- After close: "Voting closed at block N."
+
+The state goes by the next block, `tip + 1`, the first block a ballot sent now can be in, and both ends of the window count: upcoming while `tip + 1 < opens_at_height`, open while `tip + 1 <= closes_at_height`, closed after.
+The time is the blocks to go times 10 minutes, rounded to minutes, hours or days, and always "about", since blocks don't keep time (`BitblocksWeb.ElectionCount.about/1`).
+`GET /api/v1/elections/:outpoint` carries the same `state` (`upcoming | open | closed`) and `tip_height` beside `opens_at_height` and `closes_at_height`.
+`test/bitblocks_web/live/election_window_test.exs` covers the states before close and the rounding; `election_live_test.exs` covers the closed state.
+
 ## Did my ballot count?
 
 Built: on `/elections/<outpoint>`, a member enters a ballot's txid or their address, and `GET /api/v1/elections/:outpoint/ballots/:query` gives the same answer as JSON (https://github.com/afomi/bitblocks/issues/137).

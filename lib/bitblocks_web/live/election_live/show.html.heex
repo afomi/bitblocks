@@ -43,6 +43,14 @@
       >
         This election
       </h2>
+      <p
+        :if={ElectionCount.window_sentence(@count)}
+        id="election-window"
+        data-state={@count.state}
+        class="mb-3 text-lg font-medium text-gray-900 dark:text-white"
+      >
+        {ElectionCount.window_sentence(@count)}
+      </p>
       <p class="mb-2 break-all text-gray-700 dark:text-gray-300">
         This election is <span class="font-mono">{@count.election}</span>.
       </p>
@@ -50,7 +58,8 @@
         id="election-seats"
         class="mb-2 text-gray-800 dark:text-gray-200"
       >
-        This election fills <span class="font-mono tabular-nums">{@count.number_elected}</span> seats.
+        This election fills
+        <span class="font-mono tabular-nums">{ElectionCount.seats_label(@count.number_elected)}</span>.
       </p>
       <p
         id="election-votes-allowed"
@@ -59,16 +68,19 @@
         A ballot may list <span class="font-mono tabular-nums">{@count.votes_allowed}</span> choices.
       </p>
       <p
-        id="election-opens"
+        id="election-heights"
         class="mb-2 text-gray-800 dark:text-gray-200"
       >
-        Voting opens at block <span class="font-mono tabular-nums">{@count.opens_at_height}</span>.
+        Ballots count in blocks
+        <span class="font-mono tabular-nums">{@count.opens_at_height}</span>
+        through <span class="font-mono tabular-nums">{@count.closes_at_height}</span>.
       </p>
       <p
-        id="election-closes"
+        :if={@count.tip_height}
+        id="election-tip"
         class="mb-2 text-gray-800 dark:text-gray-200"
       >
-        Voting closes at block <span class="font-mono tabular-nums">{@count.closes_at_height}</span>.
+        Our headers reach block <span class="font-mono tabular-nums">{@count.tip_height}</span>.
       </p>
       <p
         id="election-current-to"
