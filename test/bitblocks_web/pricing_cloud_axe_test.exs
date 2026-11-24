@@ -26,6 +26,9 @@ defmodule BitblocksWeb.PricingCloudAxeTest do
     session
     |> visit("/pricing#cloud")
     |> assert_has(css("#cloud-form"))
+    # The form is live: typing before the socket connects is lost, and the
+    # filter JSON never updates. Wait for it, as interop_axe_test.exs does.
+    |> assert_has(css("[data-phx-main].phx-connected"))
     |> click(css("#cloud-choose-database"))
     |> fill_in(css("#cloud-filter-protocols"), with: "MAP")
     |> assert_has(css("#cloud-filter-json", text: ~s({"protocols":["MAP"]})))
