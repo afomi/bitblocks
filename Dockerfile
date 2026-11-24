@@ -39,7 +39,7 @@ ENV MIX_ENV="prod"
 COPY mix.exs mix.lock ./
 # Path deps (vendored libraries) must be present before deps.get.
 COPY vendor vendor
-RUN mix deps.get --only $MIX_ENV
+RUN mix deps.get --only $MIX_ENV --check-locked
 RUN mkdir config
 
 # copy compile-time config files before we compile dependencies
@@ -56,7 +56,7 @@ COPY lib lib
 
 COPY assets assets
 WORKDIR /app/assets
-RUN npm install
+RUN npm ci
 
 # compile assets
 WORKDIR /app

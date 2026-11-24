@@ -1,0 +1,27 @@
+# Dependabot version updates, checked weekly.
+# Each version update waits a 7-day cooldown after release, so a compromised
+# release has time to be caught and pulled before a PR proposes it here.
+# Security updates are not delayed by the cooldown.
+version: 2
+updates:
+  - package-ecosystem: "mix"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    cooldown:
+      default-days: 7
+  - package-ecosystem: "npm"
+    directory: "/assets"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    cooldown:
+      default-days: 7
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    cooldown:
+      default-days: 7
