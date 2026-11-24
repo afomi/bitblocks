@@ -73,6 +73,12 @@ defmodule BitblocksWeb.RpcStub do
   def stub_gettxoutproof(txids, blockhash, response),
     do: put({:gettxoutproof, txids, blockhash}, response)
 
+  @doc """
+  Stubs `sendrawtransaction/1` for any tx: the txid string on success, or
+  `{:error, %{"code" => c, "message" => m}}` as the node refuses one.
+  """
+  def stub_sendrawtransaction(response), do: put({:sendrawtransaction}, response)
+
   def stub_getrawtransaction(txid, verbose \\ 1, response \\ nil) do
     put({:getrawtransaction, txid, verbose}, response || fixture!("getrawtransaction.json"))
   end

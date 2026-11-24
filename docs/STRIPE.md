@@ -197,6 +197,8 @@ All in the bitblocks secret (`config/runtime.exs`), and off unless set:
 | `STRIPE_SANDBOX_SECRET_KEY` | none | records payments on Base Sepolia |
 | `STRIPE_SECRET_KEY` | none | records payments on Base mainnet |
 
+The two paid-attempt caps also bound BSV payments on the same 402 (`docs/BSV_402.md`): both rails count against one per-IP and one site-wide bucket.
+
 The Stripe key is chosen by network, and read only when a payment is recorded; x402_ex refuses a live key on Base Sepolia and a test key on Base mainnet.
 
 ## Bulk downloads: Checkout

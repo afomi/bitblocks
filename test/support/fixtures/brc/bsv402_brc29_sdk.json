@@ -1,0 +1,78 @@
+{
+  "sdk": "@bsv/sdk 4.1.2, ProtoWallet.getPublicKey, run once on 2026-11-23 (sender side; the server side with forSelf gave the same key)",
+  "labels": "sha256(\"bitblocks bsv402 vectors v0: \" <> name)",
+  "cases": [
+    {
+      "server": "server",
+      "server_identity_key": "0382d3cb3b4f4cd9f527d5eb94c01a4d64a2c5a16d8f3da0c49b099c0bea64239d",
+      "sender_identity_key": "03d3c42460bdf4efe595c888f763e1fc76d5486d620701c9525dde416b8a9a93ca",
+      "derivation_prefix": "LUWE4VrDYNg=",
+      "time": "1764000000000",
+      "key_id": "LUWE4VrDYNg= MTc2NDAwMDAwMDAwMA==",
+      "derived_public_key": "03f34f0c04f72c8844e6d32308c16d0d2967fe37684dd84eee68038b5ed1835ecb"
+    },
+    {
+      "server": "server",
+      "server_identity_key": "0382d3cb3b4f4cd9f527d5eb94c01a4d64a2c5a16d8f3da0c49b099c0bea64239d",
+      "sender_identity_key": "03d3c42460bdf4efe595c888f763e1fc76d5486d620701c9525dde416b8a9a93ca",
+      "derivation_prefix": "LUWE4VrDYNg=",
+      "time": "1763999969000",
+      "key_id": "LUWE4VrDYNg= MTc2Mzk5OTk2OTAwMA==",
+      "derived_public_key": "033fd652fbcd82b7cc12ebf6a5e0a6e60e34f1d72bde9104cecc7a29c0be0ba08e"
+    },
+    {
+      "server": "server",
+      "server_identity_key": "0382d3cb3b4f4cd9f527d5eb94c01a4d64a2c5a16d8f3da0c49b099c0bea64239d",
+      "sender_identity_key": "03d3c42460bdf4efe595c888f763e1fc76d5486d620701c9525dde416b8a9a93ca",
+      "derivation_prefix": "LUWE4VrDYNg=",
+      "time": "1764000031000",
+      "key_id": "LUWE4VrDYNg= MTc2NDAwMDAzMTAwMA==",
+      "derived_public_key": "03f31fa4585b2f61a284abad6d5df6c39ac52f78f8c15319d94c376360a1920781"
+    },
+    {
+      "server": "server",
+      "server_identity_key": "0382d3cb3b4f4cd9f527d5eb94c01a4d64a2c5a16d8f3da0c49b099c0bea64239d",
+      "sender_identity_key": "03d3c42460bdf4efe595c888f763e1fc76d5486d620701c9525dde416b8a9a93ca",
+      "derivation_prefix": "LUWE4VrDYNg=",
+      "time": "1763999999000",
+      "key_id": "LUWE4VrDYNg= MTc2Mzk5OTk5OTAwMA==",
+      "derived_public_key": "0295929541faaafc1d4bc275471f4523de013e36100806d1c5afd7c235e59f480a"
+    },
+    {
+      "server": "other server",
+      "server_identity_key": "02fc9b7bab798c00d6dd92c56e726c5183581f155522e0ab520def2eef41c31f22",
+      "sender_identity_key": "03d3c42460bdf4efe595c888f763e1fc76d5486d620701c9525dde416b8a9a93ca",
+      "derivation_prefix": "LUWE4VrDYNg=",
+      "time": "1764000000000",
+      "key_id": "LUWE4VrDYNg= MTc2NDAwMDAwMDAwMA==",
+      "derived_public_key": "02c0bc38ca1bf46dcfe74da95cf3ad4779d988d56e9aaec16cc2c5b50268d5265d"
+    },
+    {
+      "server": "other server",
+      "server_identity_key": "02fc9b7bab798c00d6dd92c56e726c5183581f155522e0ab520def2eef41c31f22",
+      "sender_identity_key": "03d3c42460bdf4efe595c888f763e1fc76d5486d620701c9525dde416b8a9a93ca",
+      "derivation_prefix": "LUWE4VrDYNg=",
+      "time": "1763999969000",
+      "key_id": "LUWE4VrDYNg= MTc2Mzk5OTk2OTAwMA==",
+      "derived_public_key": "03c7343fc8b95564182207f828a20c117b3beee8b0942f7f1426cf2a0854635598"
+    },
+    {
+      "server": "other server",
+      "server_identity_key": "02fc9b7bab798c00d6dd92c56e726c5183581f155522e0ab520def2eef41c31f22",
+      "sender_identity_key": "03d3c42460bdf4efe595c888f763e1fc76d5486d620701c9525dde416b8a9a93ca",
+      "derivation_prefix": "LUWE4VrDYNg=",
+      "time": "1764000031000",
+      "key_id": "LUWE4VrDYNg= MTc2NDAwMDAzMTAwMA==",
+      "derived_public_key": "025809490a832b3193c5f08e0a01e6267682e8cf058a5208ea18cee79a34c94da2"
+    },
+    {
+      "server": "other server",
+      "server_identity_key": "02fc9b7bab798c00d6dd92c56e726c5183581f155522e0ab520def2eef41c31f22",
+      "sender_identity_key": "03d3c42460bdf4efe595c888f763e1fc76d5486d620701c9525dde416b8a9a93ca",
+      "derivation_prefix": "LUWE4VrDYNg=",
+      "time": "1763999999000",
+      "key_id": "LUWE4VrDYNg= MTc2Mzk5OTk5OTAwMA==",
+      "derived_public_key": "03c32e767895d34d4b9677f707bff2b5f7431d97f82b2b9c5f53d0918c514b5624"
+    }
+  ]
+}

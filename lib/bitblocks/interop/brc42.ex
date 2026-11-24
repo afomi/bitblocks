@@ -36,6 +36,48 @@ defmodule Bitblocks.Interop.Brc42 do
   def valid_private?(<<d::big-size(256)>>), do: d > 0 and d < @n
   def valid_private?(_), do: false
 
+  @doc """
+  A configured private key as 32 bytes: 64 hex digits, or a WIF (compressed
+  or not, mainnet `0x80` or testnet `0xef`; the key is the same 32 bytes
+  either way), surrounding whitespace ignored. `:invalid` for anything else,
+  or a scalar out of range. Never raises, and never puts the value in an error.
+  """
+  @spec decode_private(String.t()) :: {:ok, <<_::256>>} | :invalid
+  def decode_private(value) when is_binary(value) do
+    case String.trim(value) do
+      <<_::binary-64>> = hex ->
+        case Base.decode16(hex, case: :mixed) do
+          {:ok, privkey} -> in_range(privkey)
+          :error -> decode_wif(hex)
+        end
+
+      other ->
+        decode_wif(other)
+    end
+  end
+
+  defp decode_wif(value) do
+    case B58.decode58_check(value) do
+      {:ok, {<<privkey::binary-32, 1>>, version}} when version in [<<0x80>>, <<0xEF>>] ->
+        in_range(privkey)
+
+      {:ok, {<<privkey::binary-32>>, version}} when version in [<<0x80>>, <<0xEF>>] ->
+        in_range(privkey)
+
+      _ ->
+        :invalid
+    end
+  rescue
+    _ -> :invalid
+  end
+
+  defp in_range(privkey), do: if(valid_private?(privkey), do: {:ok, privkey}, else: :invalid)
+
+  @doc "Whether 33 bytes are a compressed public key on the curve."
+  @spec valid_public?(binary()) :: boolean()
+  def valid_public?(pubkey) when is_binary(pubkey), do: match?({:ok, _}, point(pubkey))
+  def valid_public?(_), do: false
+
   @doc "The 33-byte compressed public key for a 32-byte private key."
   @spec public_key(<<_::256>>) :: <<_::264>>
   def public_key(<<_::256>> = privkey), do: privkey |> Key.from_privkey() |> Key.to_pubkey()

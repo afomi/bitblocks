@@ -103,6 +103,18 @@
             Sign it with an x402 client, and send the same request again with a <code class="font-mono">PAYMENT-SIGNATURE</code> header.
           </p>
         </li>
+        <li
+          :if={@bsv}
+          id="way-bsv"
+        >
+          <p class="font-semibold text-gray-900 dark:text-white">
+            For wallets: pay per request in BSV
+          </p>
+          <p class="mt-1 text-sm">
+            This response carries <code class="font-mono">x-bsv-sats</code> and <code class="font-mono">x-bsv-server</code>, as BRC-121 describes.
+            A BRC-100 wallet, or <code class="font-mono">@bsv/402-pay</code>, pays them and sends the same request again.
+          </p>
+        </li>
       </ol>
 
       <p class="mt-10 text-sm text-gray-600 dark:text-gray-400">

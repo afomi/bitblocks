@@ -84,6 +84,10 @@ defmodule BitcoinsvCliMock do
     call(:getrawtransaction, [txid, verbose], {:getrawtransaction, txid, verbose})
   end
 
+  def sendrawtransaction(hex) do
+    call(:sendrawtransaction, [hex], {:sendrawtransaction})
+  end
+
   def gettxoutproof(txids, blockhash \\ nil) do
     call(:gettxoutproof, [txids, blockhash], {:gettxoutproof, txids, blockhash})
   end

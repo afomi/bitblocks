@@ -172,39 +172,9 @@ defmodule Bitblocks.Interop.StatementSignature do
     case Application.get_env(:bitblocks, :statement_signing_key) do
       nil -> :none
       "" -> :none
-      value when is_binary(value) -> value |> String.trim() |> decode_key()
+      value when is_binary(value) -> Brc42.decode_private(value)
       _ -> :invalid
     end
-  end
-
-  defp decode_key(<<_::binary-64>> = value) do
-    case Base.decode16(value, case: :mixed) do
-      {:ok, privkey} -> in_range(privkey)
-      :error -> decode_wif(value)
-    end
-  end
-
-  defp decode_key(value), do: decode_wif(value)
-
-  # A compressed or uncompressed WIF, mainnet (0x80) or testnet (0xef): the
-  # key is the same 32 bytes either way.
-  defp decode_wif(value) do
-    case B58.decode58_check(value) do
-      {:ok, {<<privkey::binary-32, 1>>, version}} when version in [<<0x80>>, <<0xEF>>] ->
-        in_range(privkey)
-
-      {:ok, {<<privkey::binary-32>>, version}} when version in [<<0x80>>, <<0xEF>>] ->
-        in_range(privkey)
-
-      _ ->
-        :invalid
-    end
-  rescue
-    _ -> :invalid
-  end
-
-  defp in_range(privkey) do
-    if Brc42.valid_private?(privkey), do: {:ok, privkey}, else: :invalid
   end
 
   defp warn_invalid_once do

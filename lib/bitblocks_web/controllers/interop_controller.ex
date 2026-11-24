@@ -1,15 +1,16 @@
 defmodule BitblocksWeb.InteropController do
   @moduledoc """
-  `GET /interop/vectors/v1.json` and `GET /interop/elections/count/v0.json`:
-  the published test vectors, open to anyone with no key, since a kit that
+  `GET /interop/vectors/v1.json`, `GET /interop/elections/count/v0.json` and
+  `GET /interop/bsv402/v0.json`: the published test vectors, open to anyone with no key, since a kit that
   needs our key isn't neutral. The bytes are held
-  in modules (`Bitblocks.Interop.Vectors`, `Bitblocks.Elections.CountVectors`),
+  in modules (`Bitblocks.Interop.Vectors`, `Bitblocks.Elections.CountVectors`,
+  `Bitblocks.Interop.Bsv402Vectors`),
   so this reads no database.
   """
   use BitblocksWeb, :controller
 
   alias Bitblocks.Elections.CountVectors
-  alias Bitblocks.Interop.Vectors
+  alias Bitblocks.Interop.{Bsv402Vectors, Vectors}
 
   @doc "GET /interop/vectors/LICENSE.txt, the licence the file's notice names."
   def license(conn, _params) do
@@ -26,6 +27,9 @@ defmodule BitblocksWeb.InteropController do
   @doc "GET /interop/elections/count/v0.json, the election counting rule's vectors."
   def election_count(conn, _params),
     do: send_vectors(conn, CountVectors.body(), CountVectors.sha256())
+
+  @doc "GET /interop/bsv402/v0.json, the BSV 402 (BRC-121) server vectors."
+  def bsv402(conn, _params), do: send_vectors(conn, Bsv402Vectors.body(), Bsv402Vectors.sha256())
 
   defp send_vectors(conn, body, sha256) do
     etag = ~s("#{sha256}")

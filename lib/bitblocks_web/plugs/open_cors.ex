@@ -31,8 +31,12 @@ defmodule BitblocksWeb.Plugs.OpenCors do
   import Plug.Conn
 
   @cors_pipelines [:open_api, :public_api, :public_csv]
-  @allow_headers "accept, authorization, content-type, x-api-key"
-  @expose_headers "retry-after, x-ratelimit-limit, x-ratelimit-remaining, content-disposition"
+  # x-bsv-*: BRC-121's paid retry, and its terms and receipt (Payments.Bsv402).
+  @allow_headers "accept, authorization, content-type, x-api-key, " <>
+                   "x-bsv-beef, x-bsv-sender, x-bsv-nonce, x-bsv-time, x-bsv-vout"
+  @expose_headers "retry-after, x-ratelimit-limit, x-ratelimit-remaining, content-disposition, " <>
+                    "x-bsv-sats, x-bsv-server, x-bsv-payment-satoshis-paid, x-bsv-txid, " <>
+                    "x-bsv-refused"
   @max_age "86400"
 
   @doc "The router pipelines whose routes are open to every origin."

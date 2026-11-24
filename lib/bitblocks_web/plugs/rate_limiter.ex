@@ -112,7 +112,8 @@ defmodule BitblocksWeb.Plugs.RateLimiter do
 
     * first meets two paid-attempt caps, since each attempt costs a
       facilitator call: one per IP (`X402_PAID_PER_IP_PER_MINUTE`) and one
-      site-wide (`X402_PAID_SITE_PER_MINUTE`); over either, a 429
+      site-wide (`X402_PAID_SITE_PER_MINUTE`), shared with BSV payments
+      (below); over either, a 429
       (`X402_PAID_PER_FAMILY_PER_MINUTE` is deprecated, read only when
       `X402_PAID_SITE_PER_MINUTE` is unset);
     * paid: the request is served, with `PAYMENT-RESPONSE`, as the anonymous
@@ -123,6 +124,26 @@ defmodule BitblocksWeb.Plugs.RateLimiter do
     * facilitator or replay guard unavailable: a 503 with no content.
 
   A request with a bad key is never offered one; it gets its 401.
+
+  ## Paying in BSV
+
+  With `Bitblocks.Payments.Bsv402` enabled (`BSV402_ENABLED`, with its key
+  and price), the same 402 also carries BRC-121's terms, `x-bsv-sats` and
+  `x-bsv-server`, for a route the caller could read for free, beside the
+  x402 offer when that's on. A retry with `x-bsv-beef` (and the other four
+  `x-bsv-*` headers):
+
+    * meets the same two paid-attempt caps as x402, per IP and site-wide;
+    * paid: served as the anonymous caller it is, with
+      `x-bsv-payment-satoshis-paid` and `x-bsv-txid`, metered under
+      `bsv:<sender key>` (`Bitblocks.Usage.caller/1`), telemetry
+      `[:bitblocks, :bsv402, :paid]`; the same payment for the same request
+      inside its 30 seconds is served again, not charged twice;
+    * refused (underpaid, not our output, stale, unproven, replayed, our
+      node refused it): the 402 again with the terms, and `x-bsv-refused`
+      naming the reason;
+    * too large: a 413; our node or database unavailable: a 503 with
+      `Retry-After`, nothing served and nothing taken.
 
   ## API keys
 
@@ -142,6 +163,7 @@ defmodule BitblocksWeb.Plugs.RateLimiter do
   import Plug.Conn
   require Logger
 
+  alias Bitblocks.Payments.Bsv402
   alias Bitblocks.Payments.X402, as: X402Pay
   alias BitblocksWeb.PaymentRequiredHTML
   alias BitblocksWeb.Plugs.RateLimiter.{AiCrawlers, Replicator}
@@ -390,9 +412,9 @@ defmodule BitblocksWeb.Plugs.RateLimiter do
   defp assign_tier(conn, tier), do: assign(conn, :caller_tier, tier)
 
   # Over a shared budget (a crawler family's, or the anonymous site's): the
-  # doorway pages stay open; with x402 on, a route the caller could read for
-  # free is offered for sale, and a payment for it is taken; otherwise the
-  # plain 402.
+  # doorway pages stay open; a route the caller could read for free is
+  # offered for sale (x402 in USDC, BRC-121 in BSV, whichever are on), and a
+  # payment for it is taken; otherwise the plain 402.
   defp refuse(conn, bucket, tier, max_requests, retry_after_s)
        when tier == :anonymous_site or is_tuple(tier) do
     cond do
@@ -402,17 +424,11 @@ defmodule BitblocksWeb.Plugs.RateLimiter do
         |> put_resp_header("x-ratelimit-limit", Integer.to_string(max_requests))
         |> put_resp_header("x-ratelimit-remaining", "0")
 
-      X402Pay.enabled?() and not Map.has_key?(conn.private, :rate_limiter_bad_key) and
-          AiCrawlers.payable?(conn) ->
-        case get_req_header(conn, X402.payment_header()) do
-          [] ->
-            conn
-            |> X402.put_challenge(X402Pay.challenge(conn))
-            |> payment_required(bucket, tier, max_requests, retry_after_s)
+      offering?(conn, :bsv) and get_req_header(conn, "x-bsv-beef") != [] ->
+        pay(conn, :bsv, bucket, tier, max_requests, retry_after_s)
 
-          _header ->
-            pay(conn, bucket, tier, max_requests, retry_after_s)
-        end
+      offering?(conn, :x402) and get_req_header(conn, X402.payment_header()) != [] ->
+        pay(conn, :x402, bucket, tier, max_requests, retry_after_s)
 
       true ->
         payment_required(conn, bucket, tier, max_requests, retry_after_s)
@@ -430,52 +446,38 @@ defmodule BitblocksWeb.Plugs.RateLimiter do
     |> halt()
   end
 
-  # A paid retry. Each well-formed payment header costs a facilitator /verify
-  # call, so paid attempts have two caps of their own, per IP and site-wide,
-  # checked before x402_ex sees the header.
-  defp pay(conn, bucket, tier, max_requests, retry_after_s) do
+  # Whether this request may be offered, and take, a payment on this rail: the
+  # rail is on, the key wasn't bad (that is a 401), and the route is open to
+  # a caller with no key, so a payment never buys a 401 or a 404.
+  defp offering?(conn, rail) do
+    on? =
+      case rail do
+        :x402 -> X402Pay.enabled?()
+        :bsv -> Bsv402.enabled?()
+      end
+
+    on? and not Map.has_key?(conn.private, :rate_limiter_bad_key) and AiCrawlers.payable?(conn)
+  end
+
+  # A paid retry. Each one costs work beyond a lookup (a facilitator call for
+  # x402; a BEEF climb and a node call for BSV), so paid attempts on either
+  # rail share two caps, per IP and site-wide, checked before the payment is
+  # read at all.
+  defp pay(conn, rail, bucket, tier, max_requests, retry_after_s) do
     ip = BitblocksWeb.Utils.IpHelper.get_ip_address(conn)
     now = System.system_time(:millisecond)
     window_ms = config(:window_ms, @default_window_ms)
 
-    with {:ok, _} <- check_rate("x402:ip:#{ip}", now, window_ms, X402Pay.paid_per_ip_per_minute()),
-         {:ok, _} <- check_rate("x402:site", now, window_ms, X402Pay.paid_site_per_minute()) do
-      case X402Pay.handle(conn) do
-        {:ok, conn, _settlement} ->
-          record_paid(tier)
-          Logger.info("x402 paid #{bucket} path=#{conn.request_path} ip=#{ip}")
-
-          conn
-          |> assign_tier(tier)
-          |> assign(:x402_paid, true)
-
-        {:payment_required, challenge} ->
-          conn
-          |> X402.put_challenge(challenge)
-          |> payment_required(bucket, tier, max_requests, retry_after_s)
-
-        {:payment_required, challenge, reason} ->
-          Logger.info("x402 payment refused #{bucket} reason=#{reason} ip=#{ip}")
-
-          conn
-          |> X402.put_challenge(challenge)
-          |> payment_required(bucket, tier, max_requests, retry_after_s)
-
-        # The facilitator or our guard is unavailable: nothing is served. A
-        # 503 after x402_ex's settle wait may still have been paid; it records
-        # the settlement when it lands (the reconciler books it), and the
-        # same header retried is refused as replayed, so no one pays twice.
-        {:error, reason} ->
-          Logger.warning("x402 payment unavailable #{bucket} reason=#{reason}")
-
-          conn
-          |> send_resp(503, "")
-          |> halt()
+    with {:ok, _} <- check_rate("paid:ip:#{ip}", now, window_ms, X402Pay.paid_per_ip_per_minute()),
+         {:ok, _} <- check_rate("paid:site", now, window_ms, X402Pay.paid_site_per_minute()) do
+      case rail do
+        :x402 -> pay_x402(conn, bucket, tier, max_requests, retry_after_s, ip)
+        :bsv -> pay_bsv(conn, bucket, tier, max_requests, retry_after_s, ip)
       end
     else
       {:error, retry_after_ms} ->
         retry_s = retry_seconds(retry_after_ms)
-        Logger.info("x402 paid attempts limited #{bucket} ip=#{ip}")
+        Logger.info("Paid attempts limited #{bucket} rail=#{rail} ip=#{ip}")
 
         conn
         |> put_resp_header("retry-after", Integer.to_string(retry_s))
@@ -484,8 +486,95 @@ defmodule BitblocksWeb.Plugs.RateLimiter do
     end
   end
 
+  defp pay_x402(conn, bucket, tier, max_requests, retry_after_s, ip) do
+    case X402Pay.handle(conn) do
+      {:ok, conn, _settlement} ->
+        record_paid(tier)
+        Logger.info("x402 paid #{bucket} path=#{conn.request_path} ip=#{ip}")
+
+        conn
+        |> assign_tier(tier)
+        |> assign(:x402_paid, true)
+
+      {:payment_required, challenge} ->
+        conn
+        |> X402.put_challenge(challenge)
+        |> payment_required(bucket, tier, max_requests, retry_after_s)
+
+      {:payment_required, challenge, reason} ->
+        Logger.info("x402 payment refused #{bucket} reason=#{reason} ip=#{ip}")
+
+        conn
+        |> X402.put_challenge(challenge)
+        |> payment_required(bucket, tier, max_requests, retry_after_s)
+
+      # The facilitator or our guard is unavailable: nothing is served. A
+      # 503 after x402_ex's settle wait may still have been paid; it records
+      # the settlement when it lands (the reconciler books it), and the
+      # same header retried is refused as replayed, so no one pays twice.
+      {:error, reason} ->
+        Logger.warning("x402 payment unavailable #{bucket} reason=#{reason}")
+
+        conn
+        |> send_resp(503, "")
+        |> halt()
+    end
+  end
+
+  # BRC-121: checked against our headers, claimed once, taken by our node
+  # (Bitblocks.Payments.Bsv402), then served as the anonymous caller it is,
+  # metered under the payer's identity key, with what was paid in the
+  # response headers.
+  defp pay_bsv(conn, bucket, tier, max_requests, retry_after_s, ip) do
+    case Bsv402.handle(conn) do
+      {:ok, paid} ->
+        record_paid(tier)
+
+        :telemetry.execute([:bitblocks, :bsv402, :paid], %{count: 1, satoshis: paid.satoshis}, %{
+          outcome: paid.outcome
+        })
+
+        Logger.info(
+          "BSV 402 paid #{bucket} txid=#{paid.txid} outcome=#{paid.outcome} " <>
+            "path=#{conn.request_path} ip=#{ip}"
+        )
+
+        conn
+        |> assign_tier(tier)
+        |> assign(:bsv_payer, paid.sender_key)
+        |> put_resp_header("x-bsv-payment-satoshis-paid", Integer.to_string(paid.satoshis))
+        |> put_resp_header("x-bsv-txid", paid.txid)
+
+      {:error, %{status: 402} = refused} ->
+        Logger.info("BSV 402 payment refused #{bucket} reason=#{refused.reason} ip=#{ip}")
+
+        conn
+        |> put_private(:bsv402_refused, refused)
+        |> put_resp_header("x-bsv-refused", Atom.to_string(refused.reason))
+        |> payment_required(bucket, tier, max_requests, retry_after_s)
+
+      # Too large (413), or our node or database didn't answer (503): nothing
+      # is served, and nothing was taken.
+      {:error, %{status: status} = refused} ->
+        Logger.warning("BSV 402 payment not taken #{bucket} reason=#{refused.reason} ip=#{ip}")
+
+        conn
+        |> put_resp_header("x-bsv-refused", Atom.to_string(refused.reason))
+        |> then(fn conn ->
+          if status == 503, do: put_resp_header(conn, "retry-after", "5"), else: conn
+        end)
+        |> put_resp_content_type("application/json")
+        |> send_resp(
+          status,
+          Jason.encode!(%{error: Atom.to_string(refused.reason), message: refused.detail})
+        )
+        |> halt()
+    end
+  end
+
   defp payment_required(conn, bucket, tier, max_requests, retry_after_s) do
     record_throttle(tier)
+    conn = offers(conn)
 
     label = if tier == :anonymous_site, do: "Anonymous budget spent", else: "AI crawler throttled"
 
@@ -498,7 +587,9 @@ defmodule BitblocksWeb.Plugs.RateLimiter do
       tier: tier,
       limit: max_requests,
       retry_after_s: retry_after_s,
-      x402: get_resp_header(conn, "payment-required") != []
+      x402: get_resp_header(conn, "payment-required") != [],
+      bsv: get_resp_header(conn, "x-bsv-sats") != [],
+      bsv_refused: conn.private[:bsv402_refused]
     }
 
     {content_type, body} = PaymentRequiredHTML.body(conn, refusal)
@@ -510,6 +601,20 @@ defmodule BitblocksWeb.Plugs.RateLimiter do
     |> put_resp_content_type(content_type)
     |> send_resp(402, body)
     |> halt()
+  end
+
+  # The offers a 402 carries, on each rail that's on, for a route a payment
+  # could open: x402's PAYMENT-REQUIRED (unless a refused x402 payment has
+  # already put a fresh one), and BRC-121's x-bsv-sats and x-bsv-server.
+  defp offers(conn) do
+    conn =
+      if offering?(conn, :x402) and get_resp_header(conn, "payment-required") == [],
+        do: X402.put_challenge(conn, X402Pay.challenge(conn)),
+        else: conn
+
+    if offering?(conn, :bsv),
+      do: Enum.reduce(Bsv402.terms(), conn, fn {k, v}, c -> put_resp_header(c, k, v) end),
+      else: conn
   end
 
   defp record_throttle({:ai_crawler, family}) do
