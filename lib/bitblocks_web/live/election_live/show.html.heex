@@ -97,6 +97,207 @@
       </p>
     </section>
 
+    <section aria-labelledby="ballot-check-heading">
+      <h2
+        id="ballot-check-heading"
+        class="text-xl font-semibold text-gray-900 dark:text-white mb-3"
+      >
+        Did my ballot count?
+      </h2>
+      <form
+        id="ballot-lookup"
+        phx-submit="lookup"
+        class="mb-4 rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800"
+      >
+        <label
+          for="ballot-query"
+          class="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300"
+        >
+          Your address or your ballot's transaction id
+        </label>
+        <p
+          id="ballot-query-hint"
+          class="mb-2 text-sm text-gray-600 dark:text-gray-400"
+        >
+          An address shows every ballot it sent, and which one counts.
+        </p>
+        <div class="flex flex-col gap-3 sm:flex-row sm:items-center">
+          <input
+            id="ballot-query"
+            name="query"
+            type="text"
+            value={@lookup}
+            autocomplete="off"
+            autocapitalize="none"
+            spellcheck="false"
+            aria-describedby={
+              if @lookup_error, do: "ballot-query-hint ballot-lookup-error", else: "ballot-query-hint"
+            }
+            aria-invalid={if @lookup_error, do: "true", else: "false"}
+            class="w-full min-w-0 rounded-md border border-gray-300 bg-white px-3 py-2 font-mono text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
+          />
+          <button
+            type="submit"
+            class="shrink-0 rounded-md bg-blue-600 px-4 py-2 text-white hover:bg-blue-700"
+          >
+            Check my ballot
+          </button>
+        </div>
+      </form>
+
+      <div
+        id="ballot-answer"
+        role="status"
+        aria-live="polite"
+      >
+        <p
+          :if={@lookup_error}
+          id="ballot-lookup-error"
+          class="rounded-lg border border-red-200 bg-red-50 p-4 text-red-800 dark:border-red-800 dark:bg-red-900/30 dark:text-red-200"
+        >
+          {@lookup_error}
+        </p>
+
+        <div
+          :if={@answer}
+          class="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800"
+        >
+          <div
+            :if={@answer.kind == :address}
+            id="ballot-answer-address"
+            class="mb-4"
+          >
+            <h3
+              id="ballot-answer-headline"
+              class="text-lg font-semibold text-gray-900 dark:text-white"
+            >
+              {@answer.headline}
+            </h3>
+            <p class="mt-1 text-gray-800 dark:text-gray-200">
+              {@answer.reason}
+            </p>
+            <p class="mt-1 break-all font-mono text-sm text-gray-600 dark:text-gray-400">
+              {@answer.query}
+            </p>
+            <p
+              :if={not @answer.on_roll}
+              class="mt-2 break-all text-gray-800 dark:text-gray-200"
+            >
+              The roll is transaction
+              <a
+                href={~p"/transactions/#{@count.roll_txid}"}
+                class="font-mono text-sm text-blue-700 underline hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
+              >{@count.roll_txid}</a>.
+            </p>
+          </div>
+
+          <ol
+            :if={answer_ballots(@answer) != []}
+            id="ballot-answer-ballots"
+            aria-label="Ballots, in chain order"
+            class="space-y-4"
+          >
+            <li
+              :for={ballot <- answer_ballots(@answer)}
+              id={"answer-#{ballot.txid}"}
+              class={[
+                @answer.kind == :address &&
+                  "border-t border-gray-200 pt-4 first:border-t-0 first:pt-0 dark:border-gray-700"
+              ]}
+            >
+              <p
+                id={"answer-#{ballot.txid}-headline"}
+                class={[
+                  "font-semibold text-gray-900 dark:text-white",
+                  @answer.kind == :txid && "text-lg"
+                ]}
+              >
+                {ballot.headline}
+              </p>
+              <p
+                :if={ballot.reason}
+                class="mt-1 text-gray-800 dark:text-gray-200"
+              >
+                {ballot.reason}
+              </p>
+              <p
+                :if={ballot.status == "not_on_roll"}
+                class="mt-2 break-all text-gray-800 dark:text-gray-200"
+              >
+                The roll is transaction
+                <a
+                  href={~p"/transactions/#{@count.roll_txid}"}
+                  class="font-mono text-sm text-blue-700 underline hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
+                >{@count.roll_txid}</a>.
+              </p>
+              <p
+                :if={ballot.status == "replaced" and ElectionCount.txid?(ballot.replaced_by)}
+                class="mt-2 break-all text-gray-800 dark:text-gray-200"
+              >
+                The later ballot is
+                <a
+                  href={~p"/transactions/#{ballot.replaced_by}"}
+                  class="font-mono text-sm text-blue-700 underline hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
+                >{ballot.replaced_by}</a>.
+              </p>
+              <p
+                :if={ballot.choices != []}
+                class="mt-2 text-gray-700 dark:text-gray-300"
+              >
+                Choices: <span class="font-mono">{Enum.join(ballot.choices, ", ")}</span>.
+              </p>
+              <ul
+                :if={ballot.counted and is_integer(ballot.height)}
+                id={"answer-#{ballot.txid}-proof"}
+                class="mt-2 space-y-1"
+              >
+                <li>
+                  <a
+                    href={~p"/api/v1/elections/#{@count.election}/ballots/#{ballot.txid}"}
+                    class="text-blue-700 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
+                  >
+                    Its merkle proof
+                  </a>
+                </li>
+                <li>
+                  <a
+                    href={~p"/api/v1/headers/#{ballot.height}"}
+                    class="text-blue-700 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
+                  >
+                    The header of block {ballot.height}
+                  </a>
+                </li>
+              </ul>
+              <p
+                :if={ballot.status != "not_indexed"}
+                class="mt-2 break-all"
+              >
+                <a
+                  href={~p"/transactions/#{ballot.txid}"}
+                  class="font-mono text-sm text-blue-700 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
+                >
+                  {ballot.txid}
+                </a>
+              </p>
+              <p
+                :if={ballot.status == "not_indexed"}
+                class="mt-2 break-all font-mono text-sm text-gray-600 dark:text-gray-400"
+              >
+                {ballot.txid}
+              </p>
+            </li>
+          </ol>
+
+          <p
+            id="ballot-answer-current-to"
+            class="mt-4 text-sm text-gray-600 dark:text-gray-400"
+          >
+            This answer is current to block <span class="font-mono tabular-nums">{@count.current_to.height}</span>.
+          </p>
+        </div>
+      </div>
+    </section>
+
     <section aria-labelledby="election-tally-heading">
       <h2
         id="election-tally-heading"
@@ -152,48 +353,12 @@
       <p class="mb-4 text-gray-700 dark:text-gray-300">
         <span class="font-mono tabular-nums">{@count.not_counted}</span> not counted.
       </p>
-      <form
-        id="ballot-lookup"
-        phx-submit="lookup"
-        class="mb-4 rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800"
-      >
-        <label
-          for="ballot-query"
-          class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
-        >
-          Address or transaction
-        </label>
-        <div class="flex flex-col gap-3 sm:flex-row sm:items-center">
-          <input
-            id="ballot-query"
-            name="query"
-            type="text"
-            value={@lookup}
-            autocomplete="off"
-            spellcheck="false"
-            class="w-full min-w-0 rounded-md border border-gray-300 bg-white px-3 py-2 font-mono text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
-          />
-          <button
-            type="submit"
-            class="rounded-md bg-blue-600 px-4 py-2 text-white hover:bg-blue-700"
-          >
-            Show my ballot
-          </button>
-        </div>
-      </form>
-      <p
-        :if={@lookup != "" and shown_ballots(@count.ballots, @lookup) == []}
-        id="ballot-lookup-empty"
-        class="mb-4 text-gray-800 dark:text-gray-200"
-      >
-        No ballot we have indexed matches that.
-      </p>
       <ul
         id="election-ballots"
         class="space-y-3"
       >
         <li
-          :for={ballot <- shown_ballots(@count.ballots, @lookup)}
+          :for={ballot <- @count.ballots}
           id={"ballot-#{ballot.txid}"}
           class="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800"
         >

@@ -28,29 +28,41 @@ defmodule BitblocksWeb.ElectionLive.Show do
           |> assign(:error, message)
       end
 
-    {:ok, assign(socket, :lookup, "")}
+    {:ok,
+     socket
+     |> assign(:lookup, "")
+     |> assign(:answer, nil)
+     |> assign(:lookup_error, nil)}
   end
 
+  # The member's answer, read from the count already on the page
+  # (`ElectionCount.lookup/2`), never a second rule.
   @impl true
-  def handle_event("lookup", params, socket) do
-    {:noreply, assign(socket, :lookup, String.trim(params["query"] || ""))}
+  def handle_event("lookup", params, %{assigns: %{count: count}} = socket)
+      when is_map(count) do
+    query = String.trim(params["query"] || "")
+
+    socket =
+      case ElectionCount.lookup(count, query) do
+        {:ok, answer} ->
+          assign(socket, answer: answer, lookup_error: nil)
+
+        {:error, :blank} ->
+          assign(socket, answer: nil, lookup_error: nil)
+
+        {:error, reason} ->
+          assign(socket, answer: nil, lookup_error: ElectionCount.lookup_message(reason))
+      end
+
+    {:noreply, assign(socket, :lookup, query)}
   end
 
-  @doc "Ballots whose signer or txid equals `lookup`, or every ballot when it is blank."
-  @spec shown_ballots([map()], String.t()) :: [map()]
-  def shown_ballots(ballots, lookup) do
-    query = String.trim(lookup || "")
+  def handle_event("lookup", _params, socket), do: {:noreply, socket}
 
-    if query == "" do
-      ballots
-    else
-      Enum.filter(ballots, &ballot_matches?(&1, query))
-    end
-  end
-
-  defp ballot_matches?(%{signer: signer, txid: txid}, query) do
-    query == signer or query == txid or String.downcase(query) == txid
-  end
+  @doc "The ballots an answer names: the one for a txid, or an address's in chain order."
+  @spec answer_ballots(map()) :: [map()]
+  def answer_ballots(%{kind: :txid, ballot: ballot}), do: [ballot]
+  def answer_ballots(%{kind: :address, ballots: ballots}), do: ballots
 
   defp seo(title, outpoint) do
     Seo.public_page(
