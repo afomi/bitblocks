@@ -1,0 +1,104 @@
+# Weekly host image roll, from infra's fleet template (afomi/infra docs/templates/image-refresh.yml).
+# A refreshed host boots `:latest`, which carries its own RELEASE_SHA (Dockerfile), so
+# /api/v1/status still names the release without a restart afterwards.
+#
+# Why it lives in the app repo:
+# `concurrency: deploy-group` is the same group as the app's deploy and restart workflows,
+# so GitHub runs a deploy and an image roll one after the other, never at the same time.
+#
+# What it does:
+# starts an ASG instance refresh (launch each replacement before terminating the old host,
+# one at a time), waits for it to finish, then confirms every host runs the image AWS's SSM
+# parameter names as the latest Amazon Linux 2023. The launch template resolves that same
+# parameter at boot (infra modules/app, ami_id = "al2023-latest").
+# Fails loudly on a failed, cancelled or rolled-back refresh, or a host on another image.
+#
+# Needs: the app's deploy credentials (infra modules/app/deploy.tf already grants
+# StartInstanceRefresh and DescribeInstanceRefreshes on the app's ASG), plus
+# ssm:GetParameter on the public AL2023 parameter.
+# Fleet-wide assertion: infra scripts/host-image-check.sh (daily health check).
+
+name: Image refresh
+
+on:
+  schedule:
+    # bitblocks' weekly slot, in UTC; each app has its own.
+    - cron: "17 12 * * 2" # Tuesday 12:17 UTC = 04:17 PST
+  workflow_dispatch:
+
+jobs:
+  image-refresh:
+    name: Roll hosts onto the latest AL2023 image
+    runs-on: ubuntu-latest
+    concurrency: deploy-group
+    timeout-minutes: 90
+    env:
+      AWS_REGION: us-east-1
+      APP: bitblocks # the exact value of the ASG's "project" tag
+      LATEST_PARAM: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          # The same credentials as aws-deploy.yml and restart.yml.
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Find the ASG (exact project tag)
+        id: asg
+        run: |
+          set -euo pipefail
+          NAMES=$(aws autoscaling describe-auto-scaling-groups \
+            --filters "Name=tag:project,Values=$APP" \
+            --query 'AutoScalingGroups[].AutoScalingGroupName' --output text)
+          COUNT=$(wc -w <<< "$NAMES")
+          if [ "$COUNT" -ne 1 ]; then
+            echo "::error::expected exactly one ASG tagged project=$APP, found $COUNT: $NAMES"
+            exit 1
+          fi
+          echo "name=$NAMES" >> "$GITHUB_OUTPUT"
+
+      - name: Start the instance refresh
+        id: refresh
+        run: |
+          set -euo pipefail
+          ID=$(aws autoscaling start-instance-refresh \
+            --auto-scaling-group-name "${{ steps.asg.outputs.name }}" \
+            --strategy Rolling \
+            --preferences '{"MinHealthyPercentage":100,"MaxHealthyPercentage":200}' \
+            --query InstanceRefreshId --output text)
+          echo "Started instance refresh $ID on ${{ steps.asg.outputs.name }}"
+          echo "id=$ID" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for it to finish
+        run: |
+          set -euo pipefail
+          while true; do
+            STATUS=$(aws autoscaling describe-instance-refreshes \
+              --auto-scaling-group-name "${{ steps.asg.outputs.name }}" \
+              --instance-refresh-ids "${{ steps.refresh.outputs.id }}" \
+              --query 'InstanceRefreshes[0].[Status,PercentageComplete,StatusReason]' --output text)
+            echo "$(date -u +%H:%M:%S) $STATUS"
+            case "$(cut -f1 <<< "$STATUS")" in
+              Successful) break ;;
+              Pending|InProgress) sleep 30 ;;
+              *) echo "::error::instance refresh ended: $STATUS"; exit 1 ;;
+            esac
+          done
+
+      - name: Confirm every host runs the latest image
+        run: |
+          set -euo pipefail
+          LATEST=$(aws ssm get-parameter --name "$LATEST_PARAM" --query Parameter.Value --output text)
+          IDS=$(aws autoscaling describe-auto-scaling-groups \
+            --auto-scaling-group-names "${{ steps.asg.outputs.name }}" \
+            --query 'AutoScalingGroups[0].Instances[].InstanceId' --output text)
+          STALE=$(aws ec2 describe-instances --instance-ids $IDS \
+            --query "Reservations[].Instances[?ImageId!='$LATEST'].[InstanceId,ImageId]" --output text)
+          if [ -n "$STALE" ]; then
+            echo "::error::hosts not on the latest image $LATEST: $STALE"
+            exit 1
+          fi
+          echo "VERIFIED: every $APP host runs $LATEST"

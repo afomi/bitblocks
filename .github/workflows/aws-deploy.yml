@@ -48,6 +48,8 @@ jobs:
           tags: |
             ${{ steps.ecr.outputs.registry }}/bitblocks:${{ github.sha }}
             ${{ steps.ecr.outputs.registry }}/bitblocks:latest
+          build-args: |
+            RELEASE_SHA=${{ github.sha }}
           cache-from: type=registry,ref=${{ steps.ecr.outputs.registry }}/bitblocks:cache
           cache-to: type=registry,ref=${{ steps.ecr.outputs.registry }}/bitblocks:cache,mode=max
 

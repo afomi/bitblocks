@@ -108,4 +108,11 @@ USER nobody
 # above and adding an entrypoint. See https://github.com/krallin/tini for details
 # ENTRYPOINT ["/tini", "--"]
 
+# The commit this image was built from, so a host that boots `:latest` on its
+# own (an image refresh, an autoscaling launch) still reports its release on
+# /api/v1/status. deploy.sh's `-e RELEASE_SHA` sets the same value. Last, so
+# a new sha never invalidates the layers above.
+ARG RELEASE_SHA=""
+ENV RELEASE_SHA=${RELEASE_SHA}
+
 CMD ["/app/bin/server"]
