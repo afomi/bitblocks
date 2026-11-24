@@ -3,7 +3,7 @@
     "test": "node --test 'js/chain_scrubber/*.test.mjs' 'js/block_graph/*.test.mjs' 'js/tx_flow/*.test.mjs'"
   },
   "dependencies": {
-    "chart.js": "^4.5.0",
+    "chart.js": "^4.6.1",
     "three": "^0.183.0",
     "vis-network": "^10.0.2"
   }
