@@ -5,6 +5,6 @@
   "dependencies": {
     "chart.js": "^4.5.0",
     "three": "^0.183.0",
-    "vis-network": "^10.0.2"
+    "vis-network": "^10.1.5"
   }
 }
