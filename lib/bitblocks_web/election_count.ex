@@ -39,6 +39,8 @@ defmodule BitblocksWeb.ElectionCount do
         votes_allowed: count.votes_allowed,
         opens_at_height: count.opens_at_height,
         closes_at_height: count.closes_at_height,
+        state: count.state,
+        tip_height: count.tip_height,
         candidates: count.candidates,
         ballots:
           Enum.map(
@@ -449,6 +451,61 @@ defmodule BitblocksWeb.ElectionCount do
   def votes_label(1), do: "1 vote"
   def votes_label(n) when is_integer(n), do: "#{n} votes"
 
+  @doc "\"1 seat\" or \"N seats\"."
+  @spec seats_label(integer()) :: String.t()
+  def seats_label(1), do: "1 seat"
+  def seats_label(n) when is_integer(n), do: "#{n} seats"
+
+  @doc """
+  Where a ballot sent now would land against the window: `"upcoming"`,
+  `"open"` or `"closed"`, or nil when we hold no header.
+
+  It goes by the next block, `tip_height + 1`, the first block a ballot sent
+  now can be in; both ends of the window count.
+  """
+  @spec window_state(integer() | nil, integer(), integer()) :: String.t() | nil
+  def window_state(nil, _opens, _closes), do: nil
+  def window_state(tip, opens, _closes) when tip + 1 < opens, do: "upcoming"
+  def window_state(tip, _opens, closes) when tip + 1 <= closes, do: "open"
+  def window_state(_tip, _opens, _closes), do: "closed"
+
+  @doc """
+  The voting window in one sentence, from the election's heights and our tip.
+  The time is the blocks to go times 10 minutes, always "about".
+  """
+  @spec window_sentence(map()) :: String.t() | nil
+  def window_sentence(%{state: "upcoming", tip_height: tip, opens_at_height: opens}) do
+    "Voting opens at block #{opens} (in #{about(opens - tip)})."
+  end
+
+  def window_sentence(%{state: "open", tip_height: tip, closes_at_height: closes}) do
+    "Voting closes at block #{closes} (#{about(closes - tip)})."
+  end
+
+  def window_sentence(%{state: "closed", closes_at_height: closes}) do
+    "Voting closed at block #{closes}."
+  end
+
+  def window_sentence(_count), do: nil
+
+  @doc """
+  `blocks` at 10 minutes each, rounded to one readable unit: "about 10
+  minutes", "about 3 hours", "about 2 days".
+  """
+  @spec about(integer()) :: String.t()
+  def about(blocks) when is_integer(blocks) do
+    minutes = max(blocks, 1) * 10
+
+    cond do
+      minutes < 60 -> "about #{unit(minutes, "minute")}"
+      minutes < 24 * 60 -> "about #{unit(round(minutes / 60), "hour")}"
+      true -> "about #{unit(round(minutes / (24 * 60)), "day")}"
+    end
+  end
+
+  defp unit(1, name), do: "1 #{name}"
+  defp unit(n, name), do: "#{n} #{name}s"
+
   defp http_status(:invalid_outpoint), do: 400
   defp http_status({:not_found, _}), do: 404
   defp http_status(_reason), do: 422
@@ -466,6 +523,13 @@ defmodule BitblocksWeb.ElectionCount do
       votes_allowed: Map.get(election, "votes_allowed", election["number_elected"]),
       opens_at_height: election["opens_at_height"],
       closes_at_height: election["closes_at_height"],
+      tip_height: counted.coverage.tip_height,
+      state:
+        window_state(
+          counted.coverage.tip_height,
+          election["opens_at_height"],
+          election["closes_at_height"]
+        ),
       candidates: candidates(election["candidates"], tally, winners),
       ballots: ballots(counted.count.ballots, by_txid),
       counted: counted.count.counted,

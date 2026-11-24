@@ -64,6 +64,29 @@ defmodule BitblocksWeb.ElectionLiveTest do
     assert has_element?(view, "a", "Recount it yourself")
   end
 
+  # The default scenario runs to block 21, past close. The states before
+  # close need a lower tip: `election_window_test.exs`.
+  describe "the voting window" do
+    test "after close it says the block voting closed at", %{conn: conn, s: s} do
+      {:ok, view, _html} = live(conn, ~p"/elections/#{s.election}")
+
+      assert has_element?(view, "#election-window", "Voting closed at block 15.")
+      assert has_element?(view, ~s(#election-window[data-state="closed"]))
+      assert has_element?(view, "#election-seats", "This election fills 2 seats.")
+      assert has_element?(view, "#election-heights", "Ballots count in blocks 12 through 15.")
+      assert has_element?(view, "#election-tip", "Our headers reach block 21.")
+      assert has_element?(view, "#candidate-alice")
+      assert has_element?(view, "#candidate-bob")
+      assert has_element?(view, "#candidate-carol")
+
+      body = conn |> get(~p"/api/v1/elections/#{s.election}") |> json_response(200)
+      assert body["data"]["state"] == "closed"
+      assert body["data"]["tip_height"] == 21
+      assert body["data"]["opens_at_height"] == 12
+      assert body["data"]["closes_at_height"] == 15
+    end
+  end
+
   describe "Did my ballot count?" do
     defp check(conn, s, query) do
       {:ok, view, _html} = live(conn, ~p"/elections/#{s.election}")
