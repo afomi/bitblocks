@@ -17,64 +17,183 @@
     A file opened by its C:// address is hashed again before it is served.
   </p>
 
-  <div
-    :if={@error}
-    id="files-error"
-    role="alert"
-    class="mb-6 rounded-lg border p-4 bg-red-50 border-red-200 text-red-800 dark:bg-red-900/30 dark:border-red-800 dark:text-red-200"
+  <form
+    id="files-search"
+    action={~p"/files"}
+    method="get"
+    phx-submit="search"
+    role="search"
+    aria-label="Find a file"
+    class="mb-6 rounded-lg border p-4 bg-gray-50 border-gray-200 dark:bg-gray-800 dark:border-gray-700"
   >
-    The file list couldn't be read just now.
-    Try again in a minute.
-  </div>
-
-  <p
-    :if={@files == [] and is_nil(@error)}
-    id="files-empty"
-    class="text-gray-700 dark:text-gray-300"
-  >
-    No B:// files in the stored blocks yet.
-  </p>
-
-  <div
-    :if={@files != []}
-    class="overflow-x-auto bg-white border border-gray-200 rounded-lg dark:bg-gray-800 dark:border-gray-700"
-  >
-    <table
-      id="files"
-      class="min-w-full text-sm"
-    >
-      <thead class="bg-gray-50 text-left text-gray-700 dark:bg-gray-900 dark:text-gray-300">
-        <tr>
-          <th class="px-4 py-2">
-            File
-          </th>
-          <th class="px-4 py-2">
-            Type
-          </th>
-          <th class="px-4 py-2 text-right">
-            Size
-          </th>
-          <th class="px-4 py-2 text-right">
-            Block
-          </th>
-          <th class="px-4 py-2">
-            C:// address
-          </th>
-          <th class="px-4 py-2">
-            Transaction
-          </th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr
-          :for={file <- @files}
-          id={"file-#{file.txid}"}
-          class="border-t border-gray-100 dark:border-gray-700"
+    <div class="flex flex-col gap-3 sm:flex-row sm:items-end">
+      <div class="flex-1 min-w-0">
+        <label
+          for="files-q"
+          class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
         >
-          <%= if file.parsed do %>
+          Find a file
+        </label>
+        <input
+          id="files-q"
+          type="search"
+          name="q"
+          value={@q}
+          maxlength={@max_query}
+          placeholder="Part of a name, or a C:// address"
+          autocomplete="off"
+          class="block w-full rounded border px-3 py-2 text-sm bg-white border-gray-300 text-gray-900 dark:bg-gray-800 dark:border-gray-600 dark:text-gray-100"
+        />
+      </div>
+      <div>
+        <label
+          for="files-type"
+          class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
+        >
+          Type
+        </label>
+        <select
+          id="files-type"
+          name="type"
+          class="block w-full sm:w-auto rounded border px-3 py-2 text-sm bg-white border-gray-300 text-gray-900 dark:bg-gray-800 dark:border-gray-600 dark:text-gray-100"
+        >
+          <option
+            :for={{label, value} <- @type_options}
+            value={value}
+            selected={(@type || "") == value}
+          >
+            {label}
+          </option>
+        </select>
+      </div>
+      <button
+        type="submit"
+        class="rounded px-4 py-2 text-sm font-medium bg-blue-600 text-white hover:bg-blue-700"
+      >
+        Search
+      </button>
+    </div>
+    <p class="mt-2 text-xs text-gray-600 dark:text-gray-400">
+      Searches the C:// index of B:// and BCat files by name and type.
+      A C:// address (64 hex characters) opens that file.
+    </p>
+  </form>
+
+  <section
+    :if={@mode == :search}
+    id="files-search-results"
+    aria-label="Search results"
+  >
+    <p
+      id="files-coverage"
+      class="mb-4 text-sm text-gray-700 dark:text-gray-300 max-w-3xl"
+    >
+      <%= cond do %>
+        <% @coverage.indexed_through_height -> %>
+          Searching the C:// index of B:// and BCat files in blocks 0 to {delimit(
+            @coverage.indexed_through_height
+          )}.
+          Later blocks join it as the sync stores them.
+        <% @coverage.earliest_indexed_height -> %>
+          Searching the C:// index, which holds files from block {delimit(
+            @coverage.earliest_indexed_height
+          )} on, until its backfill covers block 0.
+          A file in an older block may be on chain and not found here.
+        <% true -> %>
+          The C:// index holds no files yet, until its backfill covers block 0.
+          A file may be on chain and not found here.
+      <% end %>
+      <%= case @coverage.bcat_unassembled do %>
+        <% 0 -> %>
+        <% 1 -> %>
+          One BCat file we know of couldn't be assembled from its chunks, so it isn't in the index.
+        <% n -> %>
+          {delimit(n)} BCat files we know of couldn't be assembled from their chunks, so they aren't in the index.
+      <% end %>
+    </p>
+
+    <div
+      :if={@search_error}
+      id="files-search-error"
+      role="alert"
+      class="mb-6 rounded-lg border p-4 bg-red-50 border-red-200 text-red-800 dark:bg-red-900/30 dark:border-red-800 dark:text-red-200"
+    >
+      The search couldn't finish just now.
+      Try again in a minute, or narrow it.
+    </div>
+
+    <div
+      :if={@address}
+      id="files-address-miss"
+      class="mb-6 rounded-lg border p-4 bg-white border-gray-200 text-gray-800 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-200"
+    >
+      <p class="break-all">
+        No file in the C:// index has the address
+        <code class="font-mono">c://{@address}</code>.
+      </p>
+      <p class="mt-1">
+        That is a miss in our index, not proof the file doesn't exist.
+      </p>
+    </div>
+
+    <div
+      :if={@results == [] and is_nil(@search_error) and is_nil(@address)}
+      id="files-no-match"
+      class="mb-6 rounded-lg border p-4 bg-white border-gray-200 text-gray-800 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-200"
+    >
+      <p class="break-all">
+        <%= if @first_page do %>
+          No indexed file matches{if @q, do: " “#{@q}”"}{if @type,
+            do: " of type #{type_label(@type)}"}.
+        <% else %>
+          No more indexed files match.
+        <% end %>
+      </p>
+      <p class="mt-1">
+        That is a miss in our index, not proof the file doesn't exist.
+        Try part of the name, or another type.
+      </p>
+    </div>
+
+    <div
+      :if={@results != []}
+      class="overflow-x-auto bg-white border border-gray-200 rounded-lg dark:bg-gray-800 dark:border-gray-700"
+    >
+      <table
+        id="files-results"
+        class="min-w-full text-sm"
+      >
+        <thead class="bg-gray-50 text-left text-gray-700 dark:bg-gray-900 dark:text-gray-300">
+          <tr>
+            <th class="px-4 py-2">
+              File
+            </th>
+            <th class="px-4 py-2">
+              Type
+            </th>
+            <th class="px-4 py-2 text-right">
+              Size
+            </th>
+            <th class="px-4 py-2 text-right">
+              Block
+            </th>
+            <th class="px-4 py-2">
+              C:// address
+            </th>
+            <th class="px-4 py-2">
+              Transaction
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr
+            :for={file <- @results}
+            id={"result-#{file.id}"}
+            class="border-t border-gray-100 dark:border-gray-700"
+          >
             <td class="px-4 py-2 break-all">
               <a
-                href={~p"/b/#{file.txid}"}
+                href={open_path(file)}
                 class="text-blue-700 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
               >
                 {file.filename || "untitled"}
@@ -82,65 +201,200 @@
             </td>
             <td class="px-4 py-2 font-mono text-xs text-gray-700 dark:text-gray-300">
               {file.media_type || "unstated"}
+              <span
+                :if={file.kind == "bcat"}
+                class="block font-sans text-gray-600 dark:text-gray-400"
+              >
+                BCat, {file.chunks} chunks
+              </span>
             </td>
             <td class="px-4 py-2 text-right font-mono tabular-nums text-gray-700 dark:text-gray-300">
               {delimit(file.size)} B
             </td>
-          <% else %>
-            <td
-              colspan="3"
-              class="px-4 py-2 text-gray-600 dark:text-gray-400"
-            >
-              No B:// file could be read from this transaction.
+            <td class="px-4 py-2 text-right font-mono tabular-nums text-gray-700 dark:text-gray-300">
+              {if file.block_height, do: delimit(file.block_height), else: "unknown"}
             </td>
-          <% end %>
-          <td class="px-4 py-2 text-right font-mono tabular-nums text-gray-700 dark:text-gray-300">
-            {if file.block_height, do: delimit(file.block_height), else: "unconfirmed"}
-          </td>
-          <td class="px-4 py-2 font-mono text-xs">
-            <a
-              :if={file.sha256}
-              href={~p"/c/#{file.sha256}"}
-              title={"c://#{file.sha256}"}
-              class="text-blue-700 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
-            >
-              c://{short(file.sha256)}
-            </a>
-          </td>
-          <td class="px-4 py-2 font-mono text-xs">
-            <.link
-              navigate={~p"/transactions/#{file.txid}"}
-              class="text-blue-700 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
-            >
-              {short(file.txid)}
-            </.link>
-          </td>
-        </tr>
-      </tbody>
-    </table>
-  </div>
+            <td class="px-4 py-2 font-mono text-xs">
+              <a
+                href={~p"/c/#{hex(file.sha256)}"}
+                title={"c://#{hex(file.sha256)}"}
+                class="text-blue-700 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
+              >
+                c://{short(hex(file.sha256))}
+              </a>
+            </td>
+            <td class="px-4 py-2 font-mono text-xs">
+              <.link
+                navigate={~p"/transactions/#{file.txid}"}
+                class="text-blue-700 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
+              >
+                {short(file.txid)}
+              </.link>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
 
-  <nav
-    :if={@next || not @first_page}
-    class="mt-4 flex gap-6 text-sm"
-    aria-label="Pages of files"
+    <nav
+      class="mt-4 flex flex-wrap gap-6 text-sm"
+      aria-label="Pages of search results"
+    >
+      <.link
+        id="files-clear"
+        patch={~p"/files"}
+        class="text-blue-700 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
+      >
+        Clear search
+      </.link>
+      <.link
+        :if={not @first_page}
+        patch={~p"/files?#{next_query(@q, @type, nil)}"}
+        class="text-blue-700 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
+      >
+        First results
+      </.link>
+      <.link
+        :if={@next_cursor}
+        id="files-more"
+        patch={~p"/files?#{next_query(@q, @type, @next_cursor)}"}
+        class="text-blue-700 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
+      >
+        More results
+      </.link>
+    </nav>
+  </section>
+
+  <section
+    :if={@mode == :list}
+    id="files-list"
+    aria-label="Newest files"
   >
-    <.link
-      :if={not @first_page}
-      navigate={~p"/files"}
-      class="text-blue-700 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
+    <div
+      :if={@error}
+      id="files-error"
+      role="alert"
+      class="mb-6 rounded-lg border p-4 bg-red-50 border-red-200 text-red-800 dark:bg-red-900/30 dark:border-red-800 dark:text-red-200"
     >
-      Newest files
-    </.link>
-    <.link
-      :if={@next}
-      id="files-older"
-      navigate={~p"/files?#{[before: @next]}"}
-      class="text-blue-700 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
+      The file list couldn't be read just now.
+      Try again in a minute.
+    </div>
+
+    <p
+      :if={@files == [] and is_nil(@error)}
+      id="files-empty"
+      class="text-gray-700 dark:text-gray-300"
     >
-      Older files
-    </.link>
-  </nav>
+      No B:// files in the stored blocks yet.
+    </p>
+
+    <div
+      :if={@files != []}
+      class="overflow-x-auto bg-white border border-gray-200 rounded-lg dark:bg-gray-800 dark:border-gray-700"
+    >
+      <table
+        id="files"
+        class="min-w-full text-sm"
+      >
+        <thead class="bg-gray-50 text-left text-gray-700 dark:bg-gray-900 dark:text-gray-300">
+          <tr>
+            <th class="px-4 py-2">
+              File
+            </th>
+            <th class="px-4 py-2">
+              Type
+            </th>
+            <th class="px-4 py-2 text-right">
+              Size
+            </th>
+            <th class="px-4 py-2 text-right">
+              Block
+            </th>
+            <th class="px-4 py-2">
+              C:// address
+            </th>
+            <th class="px-4 py-2">
+              Transaction
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr
+            :for={file <- @files}
+            id={"file-#{file.txid}"}
+            class="border-t border-gray-100 dark:border-gray-700"
+          >
+            <%= if file.parsed do %>
+              <td class="px-4 py-2 break-all">
+                <a
+                  href={~p"/b/#{file.txid}"}
+                  class="text-blue-700 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
+                >
+                  {file.filename || "untitled"}
+                </a>
+              </td>
+              <td class="px-4 py-2 font-mono text-xs text-gray-700 dark:text-gray-300">
+                {file.media_type || "unstated"}
+              </td>
+              <td class="px-4 py-2 text-right font-mono tabular-nums text-gray-700 dark:text-gray-300">
+                {delimit(file.size)} B
+              </td>
+            <% else %>
+              <td
+                colspan="3"
+                class="px-4 py-2 text-gray-600 dark:text-gray-400"
+              >
+                No B:// file could be read from this transaction.
+              </td>
+            <% end %>
+            <td class="px-4 py-2 text-right font-mono tabular-nums text-gray-700 dark:text-gray-300">
+              {if file.block_height, do: delimit(file.block_height), else: "unconfirmed"}
+            </td>
+            <td class="px-4 py-2 font-mono text-xs">
+              <a
+                :if={file.sha256}
+                href={~p"/c/#{file.sha256}"}
+                title={"c://#{file.sha256}"}
+                class="text-blue-700 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
+              >
+                c://{short(file.sha256)}
+              </a>
+            </td>
+            <td class="px-4 py-2 font-mono text-xs">
+              <.link
+                navigate={~p"/transactions/#{file.txid}"}
+                class="text-blue-700 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
+              >
+                {short(file.txid)}
+              </.link>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <nav
+      :if={@next || not @first_page}
+      class="mt-4 flex gap-6 text-sm"
+      aria-label="Pages of files"
+    >
+      <.link
+        :if={not @first_page}
+        navigate={~p"/files"}
+        class="text-blue-700 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
+      >
+        Newest files
+      </.link>
+      <.link
+        :if={@next}
+        id="files-older"
+        navigate={~p"/files?#{[before: @next]}"}
+        class="text-blue-700 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
+      >
+        Older files
+      </.link>
+    </nav>
+  </section>
 
   <p class="mt-8 text-sm text-gray-600 dark:text-gray-400 max-w-3xl">
     The list grows as the sync stores more blocks.

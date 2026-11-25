@@ -109,6 +109,8 @@ defmodule BitblocksWeb.Router do
 
     # C:// (#147): the stored outputs that carry a file, by its sha256
     get "/c/:sha256", CFileController, :show
+    # Find a file in the C:// index by name, type or address (#175)
+    get "/files", FileController, :index
 
     # Bulk downloads (#111): the free quote only, no checkout yet
     get "/downloads/quote", DownloadController, :quote
