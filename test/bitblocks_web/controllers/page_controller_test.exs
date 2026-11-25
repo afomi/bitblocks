@@ -61,7 +61,7 @@ defmodule BitblocksWeb.PageControllerTest do
         |> Floki.text()
         |> String.replace(~r/\s+/, " ")
 
-      assert text =~ "Every transaction is stored through block 0, mined 3 hours ago."
+      assert text =~ "In development. Current to block 0, mined 3 hours ago · the chain tip"
     end
 
     test "names no milestone or month", %{conn: conn} do

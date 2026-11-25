@@ -71,7 +71,15 @@ defmodule BitblocksWeb.AboutLiveTest do
 
     assert html =~ ~s(id="home-coverage")
     assert html =~ ~s(href="/blocks/912345")
-    assert html =~ "957,301"
+
+    line =
+      html
+      |> Floki.parse_document!()
+      |> Floki.find("#home-coverage")
+      |> Floki.text()
+      |> String.replace(~r/\s+/, " ")
+
+    assert line =~ "Current to block 912,345 · 44,956 blocks behind the chain"
   end
 
   test "the homepage draws coverage as a bar that never claims more than is done", %{conn: conn} do

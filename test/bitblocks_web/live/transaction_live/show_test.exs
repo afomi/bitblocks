@@ -378,7 +378,7 @@ defmodule BitblocksWeb.TransactionLive.ShowTest do
       {:ok, view, _html} = live(conn, ~p"/transactions/#{post}")
 
       coverage = view |> element("#tx-hodlocker-coverage") |> render()
-      assert coverage =~ "Every block through"
+      assert coverage =~ "Time locks indexed through block"
       assert coverage =~ "840,000"
     end
 
@@ -403,7 +403,7 @@ defmodule BitblocksWeb.TransactionLive.ShowTest do
       refute totals =~ "sats, in"
 
       coverage = view |> element("#tx-hodlocker-coverage") |> render()
-      assert coverage =~ "Every block through"
+      assert coverage =~ "Time locks indexed through block"
       assert coverage =~ "400,000"
       assert coverage =~ "This transaction was mined at block"
       assert coverage =~ "833,405"
@@ -472,7 +472,7 @@ defmodule BitblocksWeb.TransactionLive.ShowTest do
 
       coverage = view |> element("#tx-hodlocker-coverage") |> render()
       assert coverage =~ "840,000"
-      assert coverage =~ "is indexed for time locks, up to our tip."
+      assert coverage =~ "the chain tip"
       assert coverage =~ "These counts hold every lock in the blocks we have."
     end
 

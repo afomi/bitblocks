@@ -55,7 +55,9 @@ defmodule BitblocksWeb.BlockLive.Show do
        tx_list_total: list_total,
        txids: [],
        tx_summaries: %{},
-       tx_cursors: %{}
+       tx_cursors: %{},
+       # How current the index is: the shared snapshot, an ETS read (DESIGN.md)
+       freshness: BitblocksWeb.Freshness.snapshot()
      )
      |> load_tx_page(1)}
   end

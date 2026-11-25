@@ -76,13 +76,6 @@
         through <span class="font-mono tabular-nums">{@count.closes_at_height}</span>.
       </p>
       <p
-        :if={@count.tip_height}
-        id="election-tip"
-        class="mb-2 text-gray-800 dark:text-gray-200"
-      >
-        Our headers reach block <span class="font-mono tabular-nums">{@count.tip_height}</span>.
-      </p>
-      <p
         id="election-current-to"
         class="mb-2 text-gray-800 dark:text-gray-200"
       >
@@ -95,12 +88,13 @@
       >
         That block's hash is {@count.current_to.hash}.
       </p>
-      <p
+      <.freshness
         id="election-index"
         class="mb-2 text-gray-800 dark:text-gray-200"
-      >
-        The index reaches block <span class="font-mono tabular-nums">{@count.coverage.complete_through}</span>.
-      </p>
+        label="Index complete through"
+        through={@count.coverage.complete_through}
+        tip={@count.tip_height}
+      />
       <p
         id="election-final"
         class="text-gray-800 dark:text-gray-200"

@@ -6,6 +6,12 @@
     Every B:// file in the blocks Bitblocks stores, newest first.
     Each one is read from its transaction as this page loads.
   </p>
+  <.freshness
+    id="files-freshness"
+    class="mb-2 text-sm text-gray-600 dark:text-gray-400 max-w-3xl"
+    through={@freshness.through}
+    tip={@freshness.tip}
+  />
   <p class="text-gray-700 dark:text-gray-300 mb-6 max-w-3xl">
     B:// is the file protocol unwriter published in 2019: a file's bytes, media type and name in one transaction output.
     A file's C:// address is the sha256 of its bytes, so every copy of the same file shares it.
@@ -84,15 +90,20 @@
     id="files-search-results"
     aria-label="Search results"
   >
-    <p
+    <div
       id="files-coverage"
       class="mb-4 text-sm text-gray-700 dark:text-gray-300 max-w-3xl"
     >
       <%= cond do %>
         <% @coverage.indexed_through_height -> %>
-          Searching the C:// index of B:// and BCat files in blocks 0 to {delimit(
-            @coverage.indexed_through_height
-          )}.
+          <.freshness
+            id="files-index-freshness"
+            class=""
+            label="Files indexed through"
+            through={@coverage.indexed_through_height}
+            tip={@freshness.tip}
+          />
+          Searching the C:// index of B:// and BCat files from block 0.
           Later blocks join it as the sync stores them.
         <% @coverage.earliest_indexed_height -> %>
           Searching the C:// index, which holds files from block {delimit(
@@ -110,7 +121,7 @@
         <% n -> %>
           {delimit(n)} BCat files we know of couldn't be assembled from their chunks, so they aren't in the index.
       <% end %>
-    </p>
+    </div>
 
     <div
       :if={@search_error}

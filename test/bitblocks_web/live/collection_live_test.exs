@@ -9,6 +9,17 @@ defmodule BitblocksWeb.CollectionLiveTest do
   alias Bitblocks.OrdinalCollections.Item
   alias Bitblocks.Repo
 
+  # The freshness line's text, whitespace collapsed.
+  defp line(view) do
+    view
+    |> element("#trace-freshness")
+    |> render()
+    |> Floki.parse_fragment!()
+    |> Floki.text()
+    |> String.replace(~r/\s+/, " ")
+    |> String.trim()
+  end
+
   defp item!(collection_id, n, attrs \\ %{}) do
     txid = String.pad_leading(Integer.to_string(n, 16), 64, "0") |> String.downcase()
 
@@ -106,18 +117,19 @@ defmodule BitblocksWeb.CollectionLiveTest do
       index_through(118, 120)
 
       {:ok, view, _html} = live(conn, ~p"/collections")
+      assert line(view) == "Owners traced through block 118 · 2 blocks behind the chain"
       note = view |> element("#trace-coverage") |> render()
-      assert note =~ "complete through block 118 of 120"
       assert note =~ "reads &quot;Owner unknown&quot; until our sync reaches it"
 
       {:ok, view, _html} = live(conn, ~p"/collections/grand-tardinians")
-      assert view |> element("#trace-coverage") |> render() =~ "complete through block 118 of 120"
+      assert line(view) == "Owners traced through block 118 · 2 blocks behind the chain"
     end
 
-    test "complete through our tip, there is nothing to explain", %{conn: conn} do
+    test "complete through our tip, it says so and has nothing to explain", %{conn: conn} do
       index_through(120)
 
       {:ok, view, _html} = live(conn, ~p"/collections/grand-tardinians")
+      assert line(view) == "Owners traced through block 120 · the chain tip"
       refute has_element?(view, "#trace-coverage")
     end
 

@@ -65,6 +65,12 @@
       <p class="font-mono text-xs text-neutral-500 uppercase tracking-wider mb-4">
         Sync Status
       </p>
+      <.freshness
+        id="block-freshness"
+        class="mb-4 text-sm text-neutral-500"
+        through={@freshness.through}
+        tip={@freshness.tip}
+      />
 
       <div
         :if={@block.sync_state == "failed"}

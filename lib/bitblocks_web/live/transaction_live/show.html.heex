@@ -435,7 +435,7 @@
                 <% :unspent -> %>
                   Unspent (a UTXO)
                 <% :unknown -> %>
-                  Unknown (no settled spend; indexed through block <%= BitblocksWeb.Sats.delimit(@output_status.indexed_through_height) %>)
+                  Unknown (no settled spend yet)
                 <% :unspendable -> %>
                   Unspendable (data)
               <% end %>
@@ -452,6 +452,13 @@
       <p class="text-xs text-gray-600 dark:text-gray-400 mt-2">
         Unspent means no transaction we have indexed spends it yet.
       </p>
+      <.freshness
+        id="tx-output-freshness"
+        class="text-xs text-gray-600 dark:text-gray-400 mt-1"
+        label="Spends indexed through"
+        through={@output_status.indexed_through_height}
+        tip={@output_status.tip_height}
+      />
     </div>
   </section>
 
@@ -696,42 +703,42 @@
       <% end %>
     </p>
     <%!-- #75: how far the timelocks index reaches, so a missing lock is never read as none --%>
-    <p
+    <div
       :if={@hodlocker_totals}
       id="tx-hodlocker-coverage"
       class="text-sm text-gray-600 dark:text-gray-400 mb-4"
     >
-      <%= case @hodlocker_coverage do %>
-        <% :complete -> %>
-          Every block through
-          <span class="font-mono tabular-nums"><%= BitblocksWeb.Sats.delimit(@hodlocker_indexed_through) %></span>
-          is indexed for time locks, up to our tip.
-          These counts hold every lock in the blocks we have.
-        <% :partial -> %>
-          Every block through
-          <span class="font-mono tabular-nums"><%= BitblocksWeb.Sats.delimit(@hodlocker_indexed_through) %></span>
-          is indexed for time locks.
-          A lock mined above it may not be counted yet.
-        <% :below -> %>
-          Every block through
-          <span class="font-mono tabular-nums"><%= BitblocksWeb.Sats.delimit(@hodlocker_indexed_through) %></span>
-          is indexed for time locks.
-          <%= if @block do %>
-            This transaction was mined at block
-            <span class="font-mono tabular-nums"><%= BitblocksWeb.Sats.delimit(@block.height) %></span>, above the index,
-          <% else %>
-            This transaction is not in a block we hold,
-          <% end %>
-          <%= if @hodlocker.kind == :like do %>
-            so this like and the other locks backing the post may not be counted yet.
-          <% else %>
-            so the locks backing this post may not be counted yet.
-          <% end %>
-        <% :unknown -> %>
-          The time lock index does not yet cover the chain from its first block.
-          These counts hold only the locks indexed so far, and a lock not yet indexed is missing from them.
-      <% end %>
-    </p>
+      <.freshness
+        id="tx-hodlocker-freshness"
+        class=""
+        label="Time locks indexed through"
+        through={@hodlocker_indexed_through}
+        tip={@tip_height}
+      />
+      <p>
+        <%= case @hodlocker_coverage do %>
+          <% :complete -> %>
+            These counts hold every lock in the blocks we have.
+          <% :partial -> %>
+            A lock mined above it may not be counted yet.
+          <% :below -> %>
+            <%= if @block do %>
+              This transaction was mined at block
+              <span class="font-mono tabular-nums"><%= BitblocksWeb.Sats.delimit(@block.height) %></span>, above the index,
+            <% else %>
+              This transaction is not in a block we hold,
+            <% end %>
+            <%= if @hodlocker.kind == :like do %>
+              so this like and the other locks backing the post may not be counted yet.
+            <% else %>
+              so the locks backing this post may not be counted yet.
+            <% end %>
+          <% :unknown -> %>
+            The time lock index does not yet cover the chain from its first block.
+            These counts hold only the locks indexed so far, and a lock not yet indexed is missing from them.
+        <% end %>
+      </p>
+    </div>
     <p
       :if={@hodlocker.locks == []}
       class="text-sm text-gray-600 dark:text-gray-400"

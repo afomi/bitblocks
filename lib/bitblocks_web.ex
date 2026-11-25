@@ -86,6 +86,7 @@ defmodule BitblocksWeb do
       import Phoenix.HTML
       # Core UI components and translation
       import BitblocksWeb.CoreComponents
+      import BitblocksWeb.Freshness, only: [freshness: 1]
       use Gettext, backend: BitblocksWeb.Gettext
 
       # Shortcut for generating JS commands

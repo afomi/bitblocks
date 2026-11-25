@@ -69,6 +69,23 @@ Colour carries meaning, never decoration:
 Chain data (heights, hashes, txids, sats, endpoints, commands) is `font-mono tabular-nums`; sentences are the sans face.
 Where a page shows a number, name the record or endpoint it comes from when you can, as `/about` does.
 
+## Say how current it is
+
+Bitblocks is accurate as of the last-known block, so a page built on our index says which block, in one line, the same way everywhere.
+Use `<.freshness>` (`BitblocksWeb.Freshness`, imported in every template) rather than writing the sentence by hand:
+
+- "Current to block 422,382 · 554,553 blocks behind the chain" while the index is behind our headers;
+- "Current to block 975,001 · the chain tip" once it reaches them;
+- "Current to block 600,000 · chain tip not known" when there is no tip to measure against;
+- "Current to: not known yet" before there is a block to name.
+
+It always names the block.
+`label` keeps the page's own meaning, what the number covers, in the same shape: "Files indexed through", "Owners traced through", "Spends indexed through", "Counts through".
+`through` and `tip` come from data the page already holds, usually `Freshness.snapshot/0` (the shared sync snapshot, an ETS read), so the line costs no query.
+`time` adds "mined 3 hours ago" when the page already knows the block's time; `link` links the block number to its page.
+Put what the number means for this page (what may be missing, what to do) in the sentences after the line, not inside it.
+Text alone never carries the state: the line is a `role="note"` labelled "How current this is", and `data-freshness` (`behind`, `at_tip`, `no_tip`, `unknown`) is there for tests and styling.
+
 ## The beta badge
 
 A beta product carries the homepage's amber pill: `rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-900 dark:bg-amber-900/40 dark:text-amber-200`.

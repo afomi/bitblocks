@@ -3,21 +3,22 @@ defmodule BitblocksWeb.IndexNotice do
   The site banner's one fact: how far the index reaches.
 
   Bitblocks is accurate as of the last-known block, so the banner names that
-  block and how long ago it was mined, from the shared sync snapshot
+  block, how long ago it was mined and how far behind our headers' tip it is,
+  in the shared freshness line (`BitblocksWeb.Freshness`), from the shared sync snapshot
   (`Bitblocks.SyncProgress`, an ETS read) and one lookup by height. Until the
   snapshot knows a block, there is no banner.
   """
 
   use Phoenix.Component
 
-  import BitblocksWeb.Sats, only: [delimit: 1]
+  import BitblocksWeb.Freshness, only: [freshness: 1]
 
   require Logger
 
   alias Bitblocks.{Chain, SyncProgress}
 
-  @typedoc "The block the index is complete through."
-  @type t :: %{height: non_neg_integer(), time: integer()}
+  @typedoc "The block the index is complete through, and our headers' tip (nil when not known)."
+  @type t :: %{height: non_neg_integer(), time: integer(), tip: non_neg_integer() | nil}
 
   @doc false
   def init(opts), do: opts
@@ -36,10 +37,10 @@ defmodule BitblocksWeb.IndexNotice do
   @spec current() :: t() | nil
   def current do
     with false <- BitblocksWeb.Plugs.PoolGuard.under_pressure?(),
-         %{complete_through: height} when is_integer(height) and height >= 0 <-
+         %{complete_through: height} = overview when is_integer(height) and height >= 0 <-
            SyncProgress.snapshot().overview,
          time when is_integer(time) <- Chain.block_time(height) do
-      %{height: height, time: time}
+      %{height: height, time: time, tip: overview[:our_tip]}
     else
       _ -> nil
     end
@@ -78,21 +79,20 @@ defmodule BitblocksWeb.IndexNotice do
       aria-label="How far the index reaches"
       class="relative flex items-center gap-x-6 bg-orange-500 bg-opacity-30 px-6 py-2.5 sm:px-3.5 sm:before:flex-1"
     >
-      <p
+      <.freshness
         id="banner-text"
         class="text-sm/6 text-gray-900 dark:text-gray-100"
+        through={@notice.height}
+        tip={@notice[:tip]}
+        time={@notice.time}
+        now={@now}
       >
         <strong
           class="font-semibold"
         >
           In development.
         </strong>
-        Every transaction is stored through block
-        <span
-          class="font-mono tabular-nums"
-        ><%= delimit(@notice.height) %></span>,
-        mined <%= span(@now - @notice.time) %> ago.
-      </p>
+      </.freshness>
       <div
         class="flex flex-1 justify-end"
       >
