@@ -42,6 +42,8 @@ defmodule BitblocksWeb.FilesLive do
        )
        |> Map.put(:type_options, @type_options)
        |> Map.put(:max_query, Search.max_query())
+       # How current the stored chain is: the shared snapshot, an ETS read (DESIGN.md)
+       |> Map.put(:freshness, BitblocksWeb.Freshness.snapshot())
      )}
   end
 

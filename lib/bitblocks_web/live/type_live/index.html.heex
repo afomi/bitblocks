@@ -114,13 +114,17 @@
     >
       <%= case @counts do %>
         <% %{status: :ok, through_height: through} = counts when through >= 0 -> %>
+          <.freshness
+            id="type-counts-freshness"
+            class="font-medium text-gray-900 dark:text-white"
+            label="Counts through"
+            through={through}
+            tip={counts.tip}
+          />
           <p>
-            Counts cover blocks
+            Every block from
             <span class="font-mono tabular-nums">0</span>
-            to
-            <span class="font-mono tabular-nums"><%= delimit(through) %></span>
-            of <span class="font-mono tabular-nums"><%= delimit(counts.tip) %></span> known.
-            Every block in that range is verified complete and typed, so the counts grow as the sync climbs toward the tip.
+            to that one is verified complete and typed, so the counts grow as the sync climbs toward the tip.
             <%= if through < counts.complete_through do %>
               Blocks
               <span class="font-mono tabular-nums"><%= delimit(through + 1) %></span>

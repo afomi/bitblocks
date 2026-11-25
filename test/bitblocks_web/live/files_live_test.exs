@@ -161,7 +161,11 @@ defmodule BitblocksWeb.FilesLiveTest do
       })
 
       {:ok, view, _html} = live(conn, ~p"/files?q=x")
-      assert text(view, "#files-coverage") =~ "B:// and BCat files in blocks 0 to 900."
+
+      assert text(view, "#files-index-freshness") |> String.replace(~r/\s+/, " ") =~
+               "Files indexed through block 900 · chain tip not known"
+
+      assert text(view, "#files-coverage") =~ "B:// and BCat files from block 0."
     end
 
     test "a C:// address the index holds goes straight to the file", %{conn: conn} do

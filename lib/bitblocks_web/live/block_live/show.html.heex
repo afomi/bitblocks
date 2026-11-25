@@ -65,6 +65,12 @@
       <p class="font-mono text-xs text-neutral-500 uppercase tracking-wider mb-4">
         Sync Status
       </p>
+      <.freshness
+        id="block-freshness"
+        class="mb-4 text-sm text-neutral-500"
+        through={@freshness.through}
+        tip={@freshness.tip}
+      />
 
       <div
         :if={@block.sync_state == "failed"}
@@ -222,7 +228,7 @@
             <span class="font-mono text-xs text-neutral-400">
               <%= @block.bits %>
               <%= if leading = bits_to_leading_zero_chars(@block.bits) do %>
-                <span class="text-neutral-600 ml-1">(<%= leading %> leading zeros)</span>
+                <span class="text-neutral-500 ml-1">(<%= leading %> leading zeros)</span>
               <% end %>
             </span>
           </div>
@@ -242,7 +248,7 @@
               >
                 <%= next %>
               </.link>
-              <span class="text-neutral-600 ml-1">(<%= blocks_away %> blocks)</span>
+              <span class="text-neutral-500 ml-1">(<%= blocks_away %> blocks)</span>
             </span>
           </div>
           <div class="py-3 border-b border-neutral-800 flex justify-between">

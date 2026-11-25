@@ -2,6 +2,8 @@ defmodule BitblocksWeb.CollectionComponents do
   @moduledoc "Markup shared by the collections index and show pages."
   use Phoenix.Component
 
+  import BitblocksWeb.Freshness, only: [freshness: 1]
+
   @doc "The page frame every collections page sits in."
   slot :inner_block, required: true
 
@@ -59,9 +61,10 @@ defmodule BitblocksWeb.CollectionComponents do
 
   @doc """
   How far our own index reaches, for owners traced through it
-  (docs/WOC_USE.md): nothing while it is complete through our tip, else a
-  line naming the block it reaches. `coverage` is `Chain.Utxos.coverage/0`.
-  Nothing either when no block 0 is complete: there is no block to name.
+  (docs/WOC_USE.md): the shared freshness line (`BitblocksWeb.Freshness`)
+  naming the block owners are traced through, and, while that is short of
+  our tip, what it means for an item. `coverage` is `Chain.Utxos.coverage/0`.
+  Nothing when no block 0 is complete: there is no block to name.
   """
   attr :coverage, :map, required: true
   attr :id, :string, default: "trace-coverage"
@@ -69,23 +72,28 @@ defmodule BitblocksWeb.CollectionComponents do
 
   def trace_coverage(assigns) do
     ~H"""
-    <p
-      :if={show_coverage?(@coverage)}
-      id={@id}
-      class={@class}
-    >
-      Owners are traced through our own spend index, which is complete through block <%= format_height(
-        @coverage.indexed_through_height
-      ) %> of <%= format_height(@coverage.tip_height) %>.
-      An item that may have moved after block <%= format_height(@coverage.indexed_through_height) %> reads "Owner unknown" until our sync reaches it.
-      Bitblocks shows only what its own index can prove.
-    </p>
+    <div :if={named?(@coverage)}>
+      <.freshness
+        id="trace-freshness"
+        class={@class}
+        label="Owners traced through"
+        through={@coverage.indexed_through_height}
+        tip={@coverage.tip_height}
+      />
+      <p
+        :if={not @coverage.complete?}
+        id={@id}
+        class={@class}
+      >
+        An item that may have moved after block <%= format_height(@coverage.indexed_through_height) %> reads "Owner unknown" until our sync reaches it.
+        Bitblocks shows only what its own index can prove.
+      </p>
+    </div>
     """
   end
 
   # Said only when there is a block to name: an empty index has no story yet.
-  defp show_coverage?(%{complete?: complete?, indexed_through_height: through, tip_height: tip}),
-    do: not complete? and is_integer(tip) and is_integer(through) and through >= 0
+  defp named?(%{indexed_through_height: through}), do: is_integer(through) and through >= 0
 
   defp format_height(height),
     do: height |> Integer.to_string() |> String.replace(~r/\B(?=(\d{3})+$)/, ",")

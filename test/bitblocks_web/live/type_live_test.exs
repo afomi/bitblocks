@@ -141,7 +141,9 @@ defmodule BitblocksWeb.TypeLiveTest do
       {:ok, view, _html} = live(conn, ~p"/types")
       coverage = text(view, "#type-counts-coverage")
 
-      assert coverage =~ "Counts cover blocks 0 to 1 of 2 known."
+      assert coverage |> String.replace(~r/\s+/, " ") =~
+               "Counts through block 1 · 1 block behind the chain"
+
       assert coverage =~ "once under each"
     end
 

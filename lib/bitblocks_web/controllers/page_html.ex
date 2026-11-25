@@ -26,4 +26,12 @@ defmodule BitblocksWeb.PageHTML do
     |> min(100)
     |> max(0)
   end
+
+  @doc """
+  The time of the block the home line names, when the site banner
+  (`BitblocksWeb.IndexNotice`) already read it for the same block; else nil,
+  and the line leaves the time out rather than ask again.
+  """
+  def home_coverage_time(%{height: height, time: time}, height), do: time
+  def home_coverage_time(_notice, _height), do: nil
 end
