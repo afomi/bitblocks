@@ -165,6 +165,8 @@ defmodule BitblocksWeb.UserAuthTest do
       on_exit(fn -> Application.delete_env(:ueberauth, Ueberauth.Strategy.Github.OAuth) end)
 
       assert redirected_to(get(conn, "/config")) =~ "/sign-in?return_to="
+      assert redirected_to(get(conn, "/elections/new")) =~ "/sign-in?return_to="
+      assert get(conn, "/elections").status == 200
     end
 
     test "gets no basic auth challenge, and credentials open nothing", %{conn: conn} do
@@ -215,6 +217,11 @@ defmodule BitblocksWeb.UserAuthTest do
       {:ok, _view, html} = live(conn, "/transactions/#{txid(1)}")
       assert html =~ txid(1)
       assert html =~ ~s(id="tx-raw-download")
+    end
+
+    test "can't compose an election's records, but can read the elections page", %{conn: conn} do
+      refute get(conn, "/elections/new").status == 200
+      assert get(conn, "/elections").status == 200
     end
 
     test "sees no operator controls on block and transaction pages", %{conn: conn} do
@@ -365,6 +372,8 @@ defmodule BitblocksWeb.UserAuthTest do
       {:ok, _} = Accounts.set_admin("afomi", true)
 
       assert {:ok, _view, _html} = live(sign_in(conn, user), "/admin")
+      assert {:ok, _view, html} = live(sign_in(conn, user), "/elections/new")
+      assert html =~ "New election"
     end
   end
 

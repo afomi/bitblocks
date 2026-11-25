@@ -62,6 +62,41 @@ defmodule BitblocksWeb.ElectionWindowTest do
     end
   end
 
+  # Step 4 of https://github.com/afomi/bitblocks/issues/136: while voting is
+  # open, the ballots counted so far, the ones not counted with the rule each
+  # failed, and the block the count is current to.
+  describe "the count while voting is open" do
+    test "shows counted ballots, not-counted ones with their rule, and the block it's current to",
+         %{conn: conn} do
+      s = scenario(through: 13)
+      {:ok, view, _html} = live(conn, ~p"/elections/#{s.election}")
+
+      assert has_element?(view, ~s(#election-window[data-state="open"]))
+      assert has_element?(view, "#election-current-to", "The count is current to block 13.")
+      assert has_element?(view, "#ballot-#{s.txids.second}-status", "Counted")
+
+      assert has_element?(
+               view,
+               "#ballot-#{s.txids.first}-status",
+               "Replaced by a later ballot."
+             )
+
+      assert has_element?(
+               view,
+               "#ballot-#{s.txids.outsider}-status",
+               "Not counted: this key isn't on the roll."
+             )
+
+      assert has_element?(
+               view,
+               "#ballot-#{s.txids.early}-status",
+               "Not counted: confirmed before voting opened."
+             )
+
+      assert render(view) =~ "This count is not final."
+    end
+  end
+
   describe "the window's time" do
     test "rounds blocks at 10 minutes each to one readable unit, always about" do
       assert ElectionCount.about(1) == "about 10 minutes"

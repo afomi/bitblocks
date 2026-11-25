@@ -356,6 +356,17 @@ defmodule BitblocksWeb.Router do
     delete "/auth/logout", AuthController, :logout
   end
 
+  # Composing an election's records (#136), admins only. Before the public
+  # scope, so "new" isn't taken for an election's outpoint.
+  scope "/", BitblocksWeb do
+    pipe_through :admin
+
+    live_session :admin_elections,
+      on_mount: [{UserAuth, :require_admin}] do
+      live "/elections/new", ElectionLive.New
+    end
+  end
+
   scope "/", BitblocksWeb do
     pipe_through :browser
 

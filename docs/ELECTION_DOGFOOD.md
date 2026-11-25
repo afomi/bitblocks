@@ -162,6 +162,46 @@ bin/bitblocks rpc 'Bitblocks.Release.election_count("<txid>.0") |> IO.inspect(li
 bin/bitblocks rpc 'Bitblocks.Release.election_count("<txid>.0", projection: 1) |> IO.inspect(limit: :infinity)'
 ```
 
+## Composing the records
+
+Built: `/elections/new`, for admins, where the administrator defines an election and sees its two records exactly as they'll be published (https://github.com/afomi/bitblocks/issues/136, steps 1 and 2).
+Bitblocks composes and never signs or sends a tx, as the Bitcom composer does (https://github.com/afomi/bitblocks/issues/23).
+
+- **The form** takes the title (`name`), seats (`number_elected`), votes per member (`votes_allowed`, blank for one per seat), the candidates, the roll's addresses and the window as `opens_at_height` and `closes_at_height`.
+  It shows today's tip, the height our headers reach (`Sync.tip/0`).
+- **About a week** fills in the heights: opening 6 blocks after the tip, about an hour for both records to confirm, and running 1,008 blocks, ten minutes each, both ends counting (`Draft.week_window/1`).
+  Under the heights, the page says how many blocks the window is and about how long, always "about", since blocks don't keep time.
+- **Candidates** go one per line, as `id: Name`, or the name alone, its id made from it (`Chen Wei` is `chen-wei`).
+- **The roll's addresses** go one per line (or apart by commas), each a mainnet P2PKH address; they're sorted, and each kept once.
+- **The count's own rules check the form.**
+  `Bitblocks.Elections.Draft` reads the text into the shapes `Count.count/4` takes, then puts each part (seats, votes, candidates, the window) to the count on its own, beside known-good values for the rest, so every part that breaks a rule is named at once.
+  Each refusal in `Count.refusals/0` has plain words beside its field (`Draft.message/2`), and `test/bitblocks/elections/draft_test.exs` fails if one doesn't.
+  The records are taken to confirm no sooner than `tip + 1`, so a window that opens too soon is refused as the count would refuse it.
+
+The records, in order (`Bitblocks.Elections.Compose`):
+
+1. **The roll**, a B:// file `roll.json` (`application/json`) with `type=roll_v1`, and its sha256 over the file's exact bytes.
+2. **The election**, which names the roll by outpoint.
+   That outpoint isn't known until the roll is broadcast, so the page shows the election as a template until the roll's txid (output 0) or `<txid>.<vout>` is pasted, then checks it with the count once more and builds the record.
+
+For each record the page gives:
+
+- the fields, numbered as AIP numbers them (`0` is `OP_RETURN`);
+- the unsigned output script, `OP_FALSE OP_RETURN <fields…>`, as hex;
+- the bytes AIP signs as a Bitcoin Signed Message: `0x6a`, every field, then `|`;
+- a BRC-100 `createAction` request with the record as output 0, a 0-sat output, and `randomizeOutputs: false`, so the record's outpoint is `<txid>.0`;
+- "Sign in your wallet", which copies that request.
+
+AIP signing is the wallet's job.
+Before it signs the tx, the wallet appends `| 15PciHG22SNLQJXMoSUaWVi7WSqc7hCfva BITCOIN_ECDSA <address> <signature>` to the output, with the administrator's key and no field indexes, so the signature covers every field.
+Both records are signed by the same key, which gathering checks.
+A wallet that sends the request unchanged publishes a record without a signature, which isn't counted.
+
+`test/bitblocks/elections/compose_test.exs` composes both records, signs them with a test key as a wallet would, reads them back with `Records` and gets the same election and roll, which the count then takes.
+`test/bitblocks_web/live/election_new_live_test.exs` walks the page, and `test/bitblocks_web/election_new_axe_test.exs` checks it with axe at phone width, in light and dark mode.
+
+No qart URL takes a `createAction` request or an election record yet, so the page links none.
+
 ## The voting window
 
 Built: `/elections/<outpoint>` opens with one line on the window, from the election's heights and our headers' tip (`Sync.tip/0`, already in the count's coverage), so there is no new chain-tip lookup (https://github.com/afomi/bitblocks/issues/137).
@@ -270,8 +310,12 @@ Exists:
   Bitblocks still does not sign or send a ballot.
 - The recount tool and its guide, static files at `/elections/recount.py` and `/elections/recount.html` (above).
 
+- `/elections/new`, which composes the roll and election records, unsigned, with a `createAction` request for each (above).
+
 Not built:
-- `/elections/new`, a wallet button, and a button that writes the archive.
+- A wallet that adds the AIP signature to a `createAction` output, and a qart URL to open a request in.
+- "Published" on `/elections/new`, with both txids, once the wallet sends them.
+- A button that writes the archive.
 - Ballot composing in qart.
 
 Needs real hands:
