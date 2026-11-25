@@ -57,7 +57,7 @@ defmodule Bitblocks.MixProject do
       # hackney 1.x advisories (#65). ExVCR's optional httpoison ~> 2.0 would
       # pin it back, and our cassette suites replay through Finch instead.
       {:httpoison, "~> 3.0", only: :test, override: true},
-      {:phoenix_live_dashboard, "~> 0.8.3"},
+      {:phoenix_live_dashboard, "~> 0.9.1"},
       {:esbuild, "~> 0.8", runtime: Mix.env() == :dev},
       {:tailwind, "~> 0.2", runtime: Mix.env() == :dev},
       {:heroicons,
