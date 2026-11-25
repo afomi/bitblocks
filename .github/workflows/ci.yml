@@ -56,7 +56,7 @@ jobs:
       # The election recount tool (priv/static/elections/recount.py) runs in
       # test/bitblocks/elections/recount_test.exs; standard library only.
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
