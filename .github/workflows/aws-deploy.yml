@@ -24,7 +24,7 @@ jobs:
       image_tag: ${{ github.sha }}
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v6
@@ -38,7 +38,7 @@ jobs:
         uses: aws-actions/amazon-ecr-login@v2
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Build and push image
         uses: docker/build-push-action@v6
