@@ -73,12 +73,14 @@ window.addEventListener("phx:page-loading-stop", _info => topbar.hide())
 window.addEventListener("bitblocks:copy", event => {
   const button = event.target
   const label = button.querySelector("[data-copy-label]")
+  // The label at rest: data-copy-label's value ("Sign in your wallet"), or "Copy".
+  const idle = (label && label.dataset.copyLabel) || "Copy"
   const status = document.getElementById(`${button.id}-status`)
   const show = (shown, spoken) => {
     if (label) label.textContent = shown
     if (status) status.textContent = spoken
     setTimeout(() => {
-      if (label) label.textContent = "Copy"
+      if (label) label.textContent = idle
       if (status) status.textContent = ""
     }, 2000)
   }
