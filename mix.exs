@@ -50,7 +50,7 @@ defmodule Bitblocks.MixProject do
       {:phoenix_live_view, "~> 1.1.34"},
       {:lazy_html, ">= 0.1.0", only: :test},
       {:floki, ">= 0.30.0", only: :test},
-      {:a11y_audit, "~> 0.3.1", only: :test},
+      {:a11y_audit, "~> 0.6.0", only: :test},
       {:wallaby, "~> 0.30", only: :test},
       {:exvcr, "~> 0.15", only: :test},
       # Wallaby still needs HTTPoison; 3.x runs on hackney 4, clear of the
