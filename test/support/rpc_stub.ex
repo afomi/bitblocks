@@ -73,6 +73,9 @@ defmodule BitblocksWeb.RpcStub do
   def stub_gettxoutproof(txids, blockhash, response),
     do: put({:gettxoutproof, txids, blockhash}, response)
 
+  @doc "Stubs `gettxout(txid, n, _)`: the output's map, or nil when spent or unknown."
+  def stub_gettxout(txid, n, response), do: put({:gettxout, txid, n}, response)
+
   @doc """
   Stubs `sendrawtransaction/1` for any tx: the txid string on success, or
   `{:error, %{"code" => c, "message" => m}}` as the node refuses one.

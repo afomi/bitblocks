@@ -327,7 +327,8 @@ bin/bitblocks rpc 'Bitblocks.Release.tx_store_reconcile(0, 9_999)'
 
 # x402 crawler payments (docs/STRIPE.md): status (names keys, never values), and settled payments not yet in Stripe (a 10-minute cron does the same)
 bin/bitblocks rpc 'Bitblocks.Release.x402_status()'
-# BSV 402 (docs/BSV_402.md): on or off and what's missing (names BSV402_* variables, never values), our public identity key, payments by status
+# BSV 402 (docs/BSV_402.md): on or off and what's missing (names BSV402_* variables, never values), our public identity key,
+# payments by status (accepted, confirmed, settled 6 deep, dropped, conflicted; BsvPaymentWorker each minute), the oldest open one, sender keys denied
 bin/bitblocks rpc 'Bitblocks.Release.bsv402_status()'
 # Paid downloads' Checkout (docs/STRIPE.md): mode, which variables are set (never values), purchases by status
 bin/bitblocks rpc 'Bitblocks.Release.downloads_checkout_status()'

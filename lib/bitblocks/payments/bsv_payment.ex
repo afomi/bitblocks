@@ -4,8 +4,12 @@ defmodule Bitblocks.Payments.BsvPayment do
   `bsv_payments` row, unique on `txid`, the replay guard.
 
   `status` starts `accepted` (our node took the transaction into its
-  mempool). `confirmed`, `settled`, `dropped` and `conflicted` belong to the
-  confirmation worker, a later slice of docs/BSV_402.md.
+  mempool). `Bitblocks.Payments.Bsv402.Confirmation`, run each minute by
+  `Bitblocks.Workers.BsvPaymentWorker`, moves it on: `confirmed` (in a block
+  our headers hold, `block_hash` and `block_height` set), `settled` (that
+  block `settle_depth` deep), `dropped` (not mined in time) or `conflicted`
+  (an input spent by another transaction). A reorg moves `confirmed` back to
+  `accepted`. Dropped and conflicted rows are the deny list.
   """
   use Ecto.Schema
 
@@ -26,6 +30,12 @@ defmodule Bitblocks.Payments.BsvPayment do
     field :caller, :string
     field :accepted_at, :utc_datetime_usec
     field :confirmed_at, :utc_datetime_usec
+    field :reason, :string
+    field :checks, :integer, default: 0
+    field :checked_at, :utc_datetime_usec
+    field :next_check_at, :utc_datetime_usec
+    field :rebroadcast_at, :utc_datetime_usec
+    field :closed_at, :utc_datetime_usec
 
     timestamps(type: :utc_datetime_usec)
   end

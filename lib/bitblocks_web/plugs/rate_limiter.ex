@@ -140,7 +140,7 @@ defmodule BitblocksWeb.Plugs.RateLimiter do
       `[:bitblocks, :bsv402, :paid]`; the same payment for the same request
       inside its 30 seconds is served again, not charged twice;
     * refused (underpaid, not our output, stale, unproven, replayed, our
-      node refused it): the 402 again with the terms, and `x-bsv-refused`
+      node refused it, a sender denied after a dropped or conflicted payment): the 402 again with the terms, and `x-bsv-refused`
       naming the reason;
     * too large: a 413; our node or database unavailable: a 503 with
       `Retry-After`, nothing served and nothing taken.
