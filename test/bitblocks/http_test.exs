@@ -27,6 +27,19 @@ defmodule Bitblocks.HTTPTest do
       |> Plug.Conn.send_resp(201, body)
     end
 
+    def call(%Plug.Conn{request_path: "/redirect"} = conn, _opts) do
+      send(:persistent_term.get({__MODULE__, :test_pid}), {:hit, "/redirect"})
+
+      conn
+      |> Plug.Conn.put_resp_header("location", "/elsewhere")
+      |> Plug.Conn.send_resp(302, "")
+    end
+
+    def call(%Plug.Conn{request_path: "/elsewhere"} = conn, _opts) do
+      send(:persistent_term.get({__MODULE__, :test_pid}), {:hit, "/elsewhere"})
+      Plug.Conn.send_resp(conn, 200, "ATTACKER-CONTROLLED-TOKEN")
+    end
+
     def call(conn, _opts), do: Plug.Conn.send_resp(conn, 429, "slow down")
   end
 
@@ -81,6 +94,23 @@ defmodule Bitblocks.HTTPTest do
 
     assert {:error, %{reason: :econnrefused}} =
              Bitblocks.HTTP.ExAwsClient.request(:get, "http://127.0.0.1:#{port}/", "", [], [])
+  end
+
+  # ex_aws 2.8 asks the IMDSv2 token request not to follow redirects
+  # (GHSA-mww9-g5mj-j664), and a custom client must honour that. Finch never
+  # follows them, so the 302 itself comes back and the target is never asked.
+  test "ExAws gets a redirect as the response, never following it", %{base: base} do
+    :persistent_term.put({Origin, :test_pid}, self())
+    on_exit(fn -> :persistent_term.erase({Origin, :test_pid}) end)
+
+    assert {:ok, %{status_code: 302, headers: headers}} =
+             Bitblocks.HTTP.ExAwsClient.request(:put, base <> "/redirect", "", [],
+               follow_redirect: false
+             )
+
+    assert {"location", "/elsewhere"} in headers
+    assert_received {:hit, "/redirect"}
+    refute_received {:hit, "/elsewhere"}
   end
 
   test "ExAws is configured to use it" do
