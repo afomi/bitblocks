@@ -133,8 +133,9 @@
           The election's <code>archive_sha256</code>: a 64-character code in the result record, shown on the election's page.
         </li>
         <li>
-          The recount tool, one file: <a href="/elections/recount.py">recount.py</a>.
+          The recount tool, one file: <a href="recount.py">recount.py</a>.
           Save it next to the archive folder.
+          If the archive came as a zip, a copy is already inside it, beside this guide.
         </li>
       </ul>
 
@@ -157,6 +158,13 @@
         If you have the result record's transaction as a file, from any block explorer, give it instead of the code, and the tool checks the record's signature too:
       </p>
       <pre><code>python3 recount.py pba-2026 --result-tx result.hex</code></pre>
+      <p>
+        From inside an unzipped archive, where the tool sits beside the files, name the folder as <code>.</code>, and add <code>-I</code> so Python loads nothing else from the folder:
+      </p>
+      <pre><code>python3 -I recount.py . --archive-sha256 &lt;archive_sha256&gt;</code></pre>
+      <p>
+        That copy came with the archive, so compare it with the published <code>recount.py</code>, or read it, before you trust what it prints.
+      </p>
 
       <h2>What it checks, in order</h2>
       <ol>
@@ -223,7 +231,7 @@
       <h2>For developers</h2>
       <p>
         <code>recount.py</code> is one file, Python's standard library only, with a small secp256k1 to check the signatures.
-        <code>python3 recount.py --self-test election_count_v0.json</code> runs the counting rule's published <a href="/interop/elections/count/v0.json">test vectors</a> and fails if any outcome differs.
+        <code>python3 recount.py --self-test election_count_v0.json</code> runs the counting rule's published <a href="https://bitblocks.app/interop/elections/count/v0.json">test vectors</a> and fails if any outcome differs.
         The format and the rule are in <a href="https://github.com/afomi/bitblocks/blob/develop/docs/ELECTION_DOGFOOD.md">docs/ELECTION_DOGFOOD.md</a>.
         Write your own recount against them; the vectors are there so yours and ours agree.
       </p>

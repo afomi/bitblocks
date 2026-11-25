@@ -55,9 +55,21 @@ defmodule Bitblocks.Elections.ArchiveTest do
           {path, hash}
         end)
 
-      # Every file but the manifest is listed, with its own hash, sorted by path.
+      # Every file but the manifest and the three beside it is listed, with
+      # its own hash, sorted by path.
+      assert Archive.beside() == ["index.html", "recount.py", "recount.html"]
+
       assert Map.keys(listed) |> Enum.sort() ==
-               Map.keys(written) |> List.delete("MANIFEST.sha256") |> Enum.sort()
+               Map.keys(written)
+               |> Kernel.--(["MANIFEST.sha256" | Archive.beside()])
+               |> Enum.sort()
+
+      for path <- Archive.beside(), do: assert(Map.has_key?(written, path))
+
+      assert Enum.sort(Enum.map(archive.files, & &1.path)) ==
+               Enum.sort(["MANIFEST.sha256" | Map.keys(listed)])
+
+      assert Enum.map(archive.beside, & &1.path) == Archive.beside()
 
       assert Enum.map(lines, &(String.split(&1, "  ") |> List.last())) ==
                Enum.sort(Map.keys(listed))
@@ -157,6 +169,97 @@ defmodule Bitblocks.Elections.ArchiveTest do
 
       assert Jason.decode!(File.read!(Path.join(dir, "count.json")))["result"] ==
                Jason.decode!(Archive.json(live.count))
+    end
+
+    test "index.html shows count.json's tally and winners, and archive_sha256",
+         %{s: s, tmp_dir: tmp} do
+      dir = Path.join(tmp, "page")
+      assert {:ok, archive} = Archive.build(s.election, dir)
+      written = files(dir)
+      page = written["index.html"]
+      count = Jason.decode!(written["count.json"])
+
+      assert page =~ "<h1>PBA Board 2026</h1>"
+      assert page =~ ~s(id="archive-sha256")
+      assert page =~ archive.archive_sha256
+      assert page =~ "Result record not published yet."
+      assert page =~ "Recount it yourself"
+      assert page =~ ~s(href="recount.py")
+      assert page =~ ~s(href="recount.html")
+      assert page =~ "python3 -I recount.py . --archive-sha256 #{archive.archive_sha256}"
+
+      # Each candidate's votes on the page are count.json's.
+      for %{"candidate" => id, "votes" => votes} <- count["result"]["tally"] do
+        [card] = Regex.run(~r/<li\s+id="candidate-#{id}".*?<\/li>/s, page)
+        label = if votes == 1, do: "1 vote", else: "#{votes} votes"
+        assert card =~ ~s(<span class="mono">#{label}</span>)
+        assert card =~ "elected" == id in count["result"]["winners"]
+      end
+
+      [winners] = Regex.run(~r/<ol\s+id="winners".*?<\/ol>/s, page)
+      names = Regex.scan(~r/<li>(.*?)<\/li>/, winners) |> Enum.map(&List.last/1)
+      assert names == ["Carol", "Bob"]
+      assert count["result"]["winners"] == ["carol", "bob"]
+
+      # Self-contained: no script, and nothing fetched from anywhere.
+      refute page =~ "<script"
+      refute page =~ ~r/<link\b/
+      refute page =~ ~r/\bsrc=/
+      refute page =~ ~r/href="(https?:)?\/\//
+
+      # The copies beside it are the published static files, byte for byte.
+      static = &File.read!(Application.app_dir(:bitblocks, "priv/static/elections/#{&1}"))
+      assert written["recount.py"] == static.("recount.py")
+      assert written["recount.html"] == static.("recount.html")
+
+      # archive.json names the three, and the manifest names none of them.
+      assert Jason.decode!(written["archive.json"])["beside"]["files"] == Archive.beside()
+      for path <- Archive.beside(), do: refute(written["MANIFEST.sha256"] =~ path)
+    end
+
+    test "the result record's txid shows on the page and leaves archive_sha256 alone",
+         %{s: s, tmp_dir: tmp} do
+      result_txid = String.duplicate("ab", 32)
+      assert {:ok, bare} = Archive.plan(s.election)
+
+      assert {:ok, named} =
+               Archive.build(s.election, Path.join(tmp, "named"), result_txid: result_txid)
+
+      assert named.archive_sha256 == bare.archive_sha256
+      assert Enum.map(named.files, & &1.sha256) == Enum.map(bare.files, & &1.sha256)
+
+      page = File.read!(Path.join([tmp, "named", "index.html"]))
+      assert page =~ "The result record is transaction"
+      assert page =~ result_txid
+      refute page =~ "Result record not published yet."
+
+      assert Archive.plan(s.election, result_txid: "not a txid") ==
+               {:error, :invalid_result_txid}
+    end
+
+    test "the zip holds exactly the archive's files and the three beside them, the same each time",
+         %{s: s, tmp_dir: tmp} do
+      assert {:ok, built} = Archive.build(s.election, Path.join(tmp, "z"))
+      assert {:ok, %{name: name, bytes: zip}} = Archive.zip(built)
+
+      folder = Archive.folder(s.election)
+      assert name == "#{folder}.zip"
+      assert folder == "election-" <> String.replace(s.election, ".", "-")
+
+      {:ok, entries} = :zip.unzip(zip, [:memory])
+      unzipped = Map.new(entries, fn {path, bytes} -> {to_string(path), bytes} end)
+
+      expected =
+        Map.new(files(Path.join(tmp, "z")), fn {path, bytes} -> {"#{folder}/#{path}", bytes} end)
+
+      assert unzipped == expected
+
+      assert Enum.sort(Map.keys(unzipped)) ==
+               Enum.sort(Enum.map(built.files ++ built.beside, &"#{folder}/#{&1.path}"))
+
+      # A rebuild zips to the same bytes.
+      assert {:ok, again} = Archive.build(s.election, Path.join(tmp, "z2"))
+      assert {:ok, %{bytes: ^zip}} = Archive.zip(again)
     end
 
     test "won't write over other files", %{s: s, tmp_dir: tmp} do

@@ -255,6 +255,52 @@ Until then it is refused, naming how many blocks remain (`{:too_shallow, %{block
 The same chain gives byte-identical files: nothing in the archive reads a clock, and every JSON file is written with its keys sorted, two-space indent and a closing newline (`Archive.json/1`).
 Every ballot gathered sits at or below `closes_at_height + 6`, so its header is in `headers.bin`.
 
+### Beside the manifest
+
+Three more files sit in the archive's folder, outside the hashed set, and `archive.json` names them under `beside`:
+
+| File | What it is |
+|---|---|
+| `index.html` | The archive page, made from the archive's own `count.json` bytes (`Bitblocks.Elections.ArchivePage`) |
+| `recount.py` | A copy of the recount tool, byte for byte the one at `/elections/recount.py` |
+| `recount.html` | A copy of its guide |
+
+The manifest covers the evidence; these are what a reader opens and runs.
+`index.html` shows `archive_sha256`, and that hash is taken over the manifest, so the page can't be listed in it.
+The tool and guide are kept out too, so a fix to the tool never changes the hash of an archive already built, or of one built again later.
+A reader checks the copies against the published ones, or reads `recount.py` before running it; what the recount prints, not the page, is the result.
+The recount checks only the files the manifest lists, so the three beside it never fail it.
+
+### The archive page
+
+`index.html` is one self-contained page, HTML and CSS only, with no script and nothing fetched, so it works from a folder on a laptop or from any static host, and stays up when Bitblocks is down (https://github.com/afomi/bitblocks/issues/138).
+It shows the election's name, the winners, the tally (each candidate's votes, and whether elected), how many ballots counted, `archive_sha256`, the closing block's hash, and the result record's txid, or "Result record not published yet".
+"Recount it yourself" links `recount.html` and `recount.py` beside it, and gives the command to run from inside the folder, `python3 -I recount.py . --archive-sha256 <archive_sha256>` (`-I`, so Python loads nothing else from the folder).
+It follows DESIGN.md's light look with the guide's colours, and reads no clock, so the same archive gives the same page.
+
+The result record carries `archive_sha256`, so it can only be published after the archive is built.
+Building again with the result record's txid (`result_txid:`, or the field on the page) changes `index.html` only; `archive_sha256` and every file in the manifest stay the same.
+
+### Build the archive
+
+Built: on `/elections/<outpoint>`, admins get "The archive" (https://github.com/afomi/bitblocks/issues/136, step 5; `BitblocksWeb.ElectionArchive`).
+
+- **Until it can be built**, the button is disabled, with `Archive.plan/2`'s refusal in a sentence: "Builds once block N is 6 deep: X blocks to go.", or how far the index reaches.
+  There is no second rule: the page asks `plan/2`.
+- **Once it can**, "Build the archive" runs `Archive.build/3` into a fresh temporary directory, reads each file back against its sha256, and lists every file with its size and sha256, the three beside the manifest apart, and `archive_sha256`.
+  The directory is removed after.
+- **"Download the archive (.zip)"** is `GET /elections/<outpoint>/archive.zip?sha256=<archive_sha256>`, admins only.
+  It builds again (the same chain gives the same files) and zips every file in the manifest and the three beside it, under one folder `election-<txid>-<vout>/`, each entry dated 1980-01-01, so the same archive gives the same zip, byte for byte (`Archive.zip/1`).
+  When the archive now hashes to something other than the `sha256` shown (a reorg can do that), it answers a 409 saying so, never a different zip; a refusal is a 409 with the same sentence as the page.
+- **Bounded**: each build runs under `:election_archive_timeout_ms` (20 seconds), and a timeout or failure is a sentence on the page.
+  An election's archive is a few dozen small files and builds in well under a second, so it needs no job queue.
+
+Unzipped, the folder is ready to publish as static files: for PBA, a page of its own; for Modular City, its GitHub Pages site.
+
+`test/bitblocks/elections/archive_test.exs` covers the page against `count.json`, the files beside the manifest, the result txid leaving `archive_sha256` alone, and the zip's contents and bytes.
+`test/bitblocks/elections/recount_test.exs` unzips the download and runs the copy of `recount.py` inside it.
+`test/bitblocks_web/live/election_archive_live_test.exs` covers the button before and after six deep, the file list, the download and its refusals, the page's tally against the archive's, and the admin gate; `test/bitblocks_web/election_archive_axe_test.exs` checks each state with axe at phone width, in light and dark mode.
+
 An observer recounts with the files alone, offline (https://github.com/afomi/bitblocks/issues/138); the recount tool below does each step:
 
 1. `sha256sum -c MANIFEST.sha256`, and the manifest's own sha256 against the result record.
@@ -311,11 +357,12 @@ Exists:
 - The recount tool and its guide, static files at `/elections/recount.py` and `/elections/recount.html` (above).
 
 - `/elections/new`, which composes the roll and election records, unsigned, with a `createAction` request for each (above).
+- "Build the archive" on the election's page, for admins, with the zip download and the static archive page inside it (above).
 
 Not built:
 - A wallet that adds the AIP signature to a `createAction` output, and a qart URL to open a request in.
 - "Published" on `/elections/new`, with both txids, once the wallet sends them.
-- A button that writes the archive.
+- The result record's composer, and "Closed" on `/elections/<outpoint>`, linking the published archive and the result txid.
 - Ballot composing in qart.
 
 Needs real hands:

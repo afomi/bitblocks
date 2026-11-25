@@ -20,8 +20,11 @@ defmodule BitblocksWeb.ElectionsStaticTest do
        %{conn: conn} do
     conn = get(conn, "/elections/recount.html")
     assert html_response(conn, 200) =~ "Recount an election yourself"
-    assert conn.resp_body =~ ~s(href="/elections/recount.py")
-    assert conn.resp_body =~ ~s(href="/interop/elections/count/v0.json")
+    # Relative to the guide, and full URLs elsewhere, so the copy inside an
+    # archive links the tool beside it and works from a file.
+    assert conn.resp_body =~ ~s(href="recount.py")
+    assert conn.resp_body =~ ~s(href="https://bitblocks.app/interop/elections/count/v0.json")
+    refute conn.resp_body =~ ~r/(href|src)="\//
   end
 
   test "the tool imports no network module" do

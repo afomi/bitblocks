@@ -16,6 +16,14 @@ defmodule Bitblocks.Elections.Archive do
   carries it. The same chain gives byte-identical files: nothing here reads a
   clock, and every JSON file is written with sorted keys.
 
+  Three files sit beside the manifest, outside the hashed set: `index.html`,
+  the static archive page made from `count.json` (`ArchivePage`), and copies
+  of the recount tool and its guide, `recount.py` and `recount.html`. The page
+  shows `archive_sha256`, so it can't be hashed into the manifest that hash is
+  taken over; the tool and guide are checked against their published copies,
+  so a fix to the tool never changes an archive's hash. The manifest covers the
+  evidence; these are what a reader opens and runs.
+
   An archive is refused until `closes_at_height` is #{Bitblocks.Elections.depth()}
   blocks deep, naming how many blocks remain, and until our index covers
   every block through that height.
@@ -23,6 +31,7 @@ defmodule Bitblocks.Elections.Archive do
 
   alias Bitblocks.Chain.{Beef, Headers}
   alias Bitblocks.Elections
+  alias Bitblocks.Elections.ArchivePage
 
   @format "bitblocks-election-archive"
   @format_version "0.1.0"
@@ -31,15 +40,26 @@ defmodule Bitblocks.Elections.Archive do
   @vectors_url "https://bitblocks.app/interop/elections/count/v0.json"
   @recount_url "https://bitblocks.app/elections/recount.py"
   @recount_guide_url "https://bitblocks.app/elections/recount.html"
+  @beside ["index.html", "recount.py", "recount.html"]
+  @txid ~r/\A[0-9a-f]{64}\z/
+  @zip_date {{1980, 1, 1}, {0, 0, 0}}
 
   @doc """
   The archive's files without writing them: `{:ok, %{election,
-  archive_sha256, files: [%{path, bytes, sha256}], count}}`, or the reason it
-  can't be built yet. Options as `Elections.gather/2`.
+  archive_sha256, files: [%{path, bytes, sha256}], beside: [...], count}}`,
+  or the reason it can't be built yet. `files` is the hashed set, the
+  manifest last; `beside` is `index.html`, `recount.py` and `recount.html`,
+  outside it.
+
+  Options as `Elections.gather/2`, plus `result_txid:`, the result record's
+  txid once it is published, which only `index.html` shows.
   """
   @spec plan(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def plan(election_outpoint, opts \\ []) do
-    with {:ok, gathered} <- Elections.gather(election_outpoint, opts),
+    {result_txid, opts} = Keyword.pop(opts, :result_txid)
+
+    with :ok <- check_result_txid(result_txid),
+         {:ok, gathered} <- Elections.gather(election_outpoint, opts),
          :ok <- deep_enough(gathered),
          :ok <- covered(gathered),
          :ok <- roll_confirmed(gathered),
@@ -47,18 +67,78 @@ defmodule Bitblocks.Elections.Archive do
          {:ok, counted} <- Elections.count(gathered) do
       files = files(gathered, headers, counted)
       manifest = manifest(files)
+      archive_sha256 = sha256(manifest)
+      {"count.json", count_json} = List.keyfind(files, "count.json", 0)
       files = files ++ [{@manifest, manifest}]
+
+      beside = [
+        {"index.html", ArchivePage.render(count_json, archive_sha256, result_txid: result_txid)},
+        {"recount.py", File.read!(static("recount.py"))},
+        {"recount.html", File.read!(static("recount.html"))}
+      ]
 
       {:ok,
        %{
          election: election_outpoint,
-         archive_sha256: sha256(manifest),
+         archive_sha256: archive_sha256,
          close_block_hash: counted.close_block_hash,
          count: counted.count,
-         files: Enum.map(files, fn {path, bytes} -> file_entry(path, bytes) end)
+         result_txid: result_txid,
+         files: Enum.map(files, fn {path, bytes} -> file_entry(path, bytes) end),
+         beside: Enum.map(beside, fn {path, bytes} -> file_entry(path, bytes) end)
        }}
     end
   end
+
+  @doc "The files written beside the manifest, outside the hashed set."
+  @spec beside() :: [String.t()]
+  def beside, do: @beside
+
+  @doc """
+  A zip of an archive `build/3` wrote: every file in `files` and `beside`,
+  read back from `dir`, under one folder (`folder/1`), in path order. Every
+  entry carries the same fixed date, so the same archive gives the same zip,
+  byte for byte.
+  """
+  @spec zip(map()) :: {:ok, %{name: String.t(), bytes: binary()}} | {:error, term()}
+  def zip(%{dir: dir, election: election, files: files, beside: beside}) do
+    folder = folder(election)
+
+    entries =
+      (files ++ beside)
+      |> Enum.map(& &1.path)
+      |> Enum.sort()
+      |> Enum.map(fn path ->
+        bytes = File.read!(Path.join(dir, path))
+        {String.to_charlist("#{folder}/#{path}"), bytes, zip_info(byte_size(bytes))}
+      end)
+
+    case :zip.create(~c"#{folder}.zip", entries, [:memory]) do
+      {:ok, {_name, bytes}} -> {:ok, %{name: "#{folder}.zip", bytes: bytes}}
+      {:error, reason} -> {:error, {:zip_failed, reason}}
+    end
+  end
+
+  @doc "The folder an archive unzips to: `election-<txid>-<vout>`."
+  @spec folder(String.t()) :: String.t()
+  def folder(election), do: "election-" <> String.replace(election, ".", "-")
+
+  # A `#file_info{}` record with a fixed date and a plain file's mode, so the
+  # zip never reads the clock or the file system's metadata.
+  defp zip_info(size) do
+    {:file_info, size, :regular, :read_write, @zip_date, @zip_date, @zip_date, 0o100644, 1, 0, 0,
+     0, 0, 0}
+  end
+
+  defp static(name), do: Application.app_dir(:bitblocks, "priv/static/elections/#{name}")
+
+  defp check_result_txid(nil), do: :ok
+
+  defp check_result_txid(txid) when is_binary(txid) do
+    if Regex.match?(@txid, txid), do: :ok, else: {:error, :invalid_result_txid}
+  end
+
+  defp check_result_txid(_), do: {:error, :invalid_result_txid}
 
   @doc """
   Writes the archive to `dir` and reads every file back against its sha256.
@@ -68,8 +148,8 @@ defmodule Bitblocks.Elections.Archive do
   @spec build(String.t(), Path.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def build(election_outpoint, dir, opts \\ []) do
     with {:ok, plan} <- plan(election_outpoint, opts),
-         :ok <- writable(dir, plan.files),
-         :ok <- write(dir, plan.files) do
+         :ok <- writable(dir, plan.files ++ plan.beside),
+         :ok <- write(dir, plan.files ++ plan.beside) do
       {:ok, Map.put(plan, :dir, dir)}
     end
   end
@@ -176,6 +256,11 @@ defmodule Bitblocks.Elections.Archive do
       spec: @spec_url,
       vectors: @vectors_url,
       recount: %{tool: @recount_url, guide: @recount_guide_url},
+      beside: %{
+        files: @beside,
+        note:
+          "Beside the manifest, not in it: index.html shows archive_sha256, so it can't be hashed into the manifest that hash is taken over; recount.py and recount.html are copies, to check against their published versions."
+      },
       election: gathered.election,
       app: gathered.app,
       administrator: gathered.administrator,

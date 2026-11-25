@@ -1847,11 +1847,14 @@ defmodule Bitblocks.Release do
   Builds the static archive of the election at `outpoint` in `dir`
   (`Bitblocks.Elections.Archive`): each record's tx bytes and BUMP, the
   headers from the roll's block to closes_at_height + 6, the roll file,
-  count.json and MANIFEST.sha256. Refused until closes_at_height is 6 blocks
-  deep, naming how many remain.
+  count.json and MANIFEST.sha256, and beside the manifest, outside the hashed
+  set, index.html (the archive page) and copies of recount.py and
+  recount.html. Refused until closes_at_height is 6 blocks deep, naming how
+  many remain. `result_txid: "<txid>"` puts the result record's txid on
+  index.html, leaving archive_sha256 as it was.
 
-  Dry run by default: every file's path, size and sha256, and the
-  archive_sha256, with nothing written. `apply: true` writes them and reads
+  Dry run by default: every file's path, size and sha256 (`files`, then
+  `beside`), and the archive_sha256, with nothing written. `apply: true` writes them and reads
   each back. The same chain gives the same bytes, so a rebuild is a check.
 
       bin/bitblocks rpc 'Bitblocks.Release.build_election_archive("<txid>.0", "/tmp/pba-2026") |> IO.inspect()'
@@ -1880,6 +1883,11 @@ defmodule Bitblocks.Release do
          files:
            Enum.map(
              archive.files,
+             &%{path: &1.path, size: byte_size(&1.bytes), sha256: &1.sha256}
+           ),
+         beside:
+           Enum.map(
+             archive.beside,
              &%{path: &1.path, size: byte_size(&1.bytes), sha256: &1.sha256}
            )
        }}
