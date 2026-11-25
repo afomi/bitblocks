@@ -2733,8 +2733,9 @@ defmodule Bitblocks.Release do
   Says whether BSV payments are on the 402 (`Bitblocks.Payments.Bsv402`),
   and plainly what is missing if not, naming each variable: never the
   identity key or the price, only whether each is set. Prints the identity
-  key's public half, which the 402 publishes anyway, and the payments taken
-  by status.
+  key's public half, which the 402 publishes anyway, the payments taken
+  by status (accepted, confirmed, settled, dropped, conflicted), the oldest
+  not yet settled, and how many sender keys the deny list refuses.
 
       bin/bitblocks rpc 'Bitblocks.Release.bsv402_status()'
 
@@ -2742,6 +2743,7 @@ defmodule Bitblocks.Release do
   """
   def bsv402_status do
     alias Bitblocks.Payments.Bsv402, as: Pay
+    alias Bitblocks.Payments.Bsv402.Confirmation
 
     status = Pay.status()
     set = fn value -> if value, do: "is set", else: "is NOT set" end
@@ -2769,6 +2771,34 @@ defmodule Bitblocks.Release do
 
       _ ->
         IO.puts("  payments:     unknown (the database didn't answer)")
+    end
+
+    IO.puts(
+      "  following:    settled at #{Confirmation.settle_depth()} blocks deep, " <>
+        "dropped after #{Confirmation.drop_after_hours()} h unmined, " <>
+        "sender refused #{Confirmation.deny_hours()} h after a drop or conflict"
+    )
+
+    case with_running_repo(&Confirmation.oldest_open/0) do
+      nil ->
+        IO.puts("  oldest open:  none")
+
+      %{} = row ->
+        age = DateTime.diff(DateTime.utc_now(), row.accepted_at, :minute)
+        at = if row.block_height, do: " at height #{row.block_height}", else: ""
+
+        IO.puts(
+          "  oldest open:  #{row.txid} #{row.status}#{at}, accepted #{age} min ago, " <>
+            "#{row.checks} check(s)"
+        )
+
+      _ ->
+        IO.puts("  oldest open:  unknown (the database didn't answer)")
+    end
+
+    case with_running_repo(&Confirmation.denied_count/0) do
+      n when is_integer(n) -> IO.puts("  denied:       #{n} sender key(s)")
+      _ -> IO.puts("  denied:       unknown (the database didn't answer)")
     end
 
     case Pay.missing() do

@@ -129,8 +129,12 @@ defmodule BitcoinsvCli do
     bitcoin_rpc("gettransaction", [txid])
   end
 
-  def gettxout(txid) do
-    bitcoin_rpc("gettxout", [txid])
+  @doc """
+  The unspent output `txid:n`, or nil when it is spent or unknown;
+  `include_mempool` counts a spend in the mempool as spent.
+  """
+  def gettxout(txid, n, include_mempool \\ true) do
+    bitcoin_rpc("gettxout", [txid, n, include_mempool])
   end
 
   def getmempoolinfo do

@@ -17,6 +17,8 @@ defmodule Bitblocks.Payments.Bsv402 do
     4. its txid isn't already claimed (`replayed`), unless the claim is for
        this same request, which is served again (`reserved`) so a client whose
        response was lost doesn't pay twice;
+    4a. its sender isn't on the deny list, a payment of theirs dropped or
+       conflicted lately (`denied`, `Bsv402.Confirmation`);
     5. the output at `x-bsv-vout` is P2PKH to the key we derive with our
        private key, the sender's key and the key ID
        `<nonce> <base64(time)>` under protocol `[2, "3241645161d8"]`
@@ -58,6 +60,7 @@ defmodule Bitblocks.Payments.Bsv402 do
   alias Bitblocks.Chain.{BeefVerifier, Headers, RawTx}
   alias Bitblocks.Chain.Beef.Reader
   alias Bitblocks.Interop.Brc42
+  alias Bitblocks.Payments.Bsv402.Confirmation
   alias Bitblocks.Payments.BsvPayment
   alias Bitblocks.Repo
 
@@ -108,6 +111,8 @@ defmodule Bitblocks.Payments.Bsv402 do
     broadcast_rejected: "Our node refused the payment transaction.",
     broadcast_unavailable:
       "Our node couldn't be reached, so the payment wasn't taken; the same payment can be sent again.",
+    denied:
+      "Payments from this x-bsv-sender are refused for now: an earlier one was dropped or conflicted.",
     unavailable: "We couldn't record the payment, so it wasn't taken; try again shortly."
   }
 
@@ -123,6 +128,7 @@ defmodule Bitblocks.Payments.Bsv402 do
           | :unknown_block
           | :broadcast_rejected
           | :broadcast_unavailable
+          | :denied
           | :unavailable
 
   @type accepted :: %{
@@ -329,6 +335,7 @@ defmodule Bitblocks.Payments.Bsv402 do
     * `:headers`: `fn heights -> %{height => header} end`, as `Chain.Headers.heights/1`;
     * `:tip`: our tip height;
     * `:broadcast`: `fn raw_tx -> node_answer end`, our node by default (`broadcast/1`);
+    * `:denied?`: `fn sender_key_hex -> boolean end`, the deny list by default;
     * `:max_beef_bytes`.
 
   `{:ok, accepted}` to serve the request, or `{:error, refused}` with the
@@ -343,6 +350,7 @@ defmodule Bitblocks.Payments.Bsv402 do
          :ok <- fresh(fields.time_ms, now),
          {:ok, beef, raw} <- read(fields.beef),
          :new <- prior(beef.subject, request_hash, fields),
+         :ok <- not_denied(fields.sender, opts),
          {:ok, identity} <- identity_opt(opts),
          {:ok, satoshis} <- output(raw, fields, identity, price_opt(opts)),
          :ok <- proven(beef, opts),
@@ -487,6 +495,19 @@ defmodule Bitblocks.Payments.Bsv402 do
   rescue
     e ->
       Logger.error("BSV 402 claim lookup failed: #{inspect(e.__struct__)}")
+      {:error, :unavailable}
+  end
+
+  # 4a. The deny list: a sender whose payment was dropped or conflicted lately
+  # (Bsv402.Confirmation). After the claimed check, so a lost response for a
+  # payment already taken is still served again.
+  defp not_denied(sender, opts) do
+    denied? = Keyword.get(opts, :denied?, &Confirmation.denied?/1)
+
+    if denied?.(hex(sender)), do: {:error, :denied}, else: :ok
+  rescue
+    e ->
+      Logger.error("BSV 402 deny-list check failed: #{inspect(e.__struct__)}")
       {:error, :unavailable}
   end
 

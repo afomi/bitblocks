@@ -160,6 +160,9 @@ config :bitblocks, Oban,
        # Settled x402 payments not yet in Stripe (docs/STRIPE.md): a no-op
        # while x402 is off, light on the default lane otherwise.
        {"*/10 * * * *", Bitblocks.Workers.X402ReconcileWorker},
+       # Accepted BSV 402 payments followed to settled, dropped or conflicted
+       # (docs/BSV_402.md, Bsv402.Confirmation): one query while none is open.
+       {"* * * * *", Bitblocks.Workers.BsvPaymentWorker},
        # A new Bitcom registry snapshot, if the registry changed (#21).
        {"17 4 * * *", Bitblocks.Workers.BitcomSnapshotWorker},
        # GIN pending lists on transactions merged here, not inside a sync
