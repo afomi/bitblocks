@@ -80,6 +80,27 @@ defmodule Bitblocks.Elections.RecountTest do
     assert out =~ "this is a test chain"
   end
 
+  test "the downloaded zip, unzipped, recounts with the copy of the tool inside it",
+       %{dir: dir, archive: archive, tmp_dir: tmp} do
+    {:ok, %{bytes: zip}} = Archive.zip(Map.put(archive, :dir, dir))
+    out_dir = Path.join(tmp, "unzipped")
+    {:ok, _} = :zip.unzip(zip, cwd: String.to_charlist(out_dir))
+    folder = Path.join(out_dir, Archive.folder(archive.election))
+
+    # As index.html says: from inside the folder, the tool beside the files.
+    {out, status} =
+      System.cmd(
+        @python || "python3",
+        ["-I", "recount.py", ".", "--archive-sha256", archive.archive_sha256],
+        cd: folder,
+        stderr_to_stdout: true
+      )
+
+    assert status == 0, out
+    assert out =~ "Matches the published result."
+    assert File.read!(Path.join(folder, "index.html")) =~ archive.archive_sha256
+  end
+
   test "the result record's tx, signed by the administrator, matches too",
        %{s: s, dir: dir, archive: archive, tmp_dir: tmp} do
     result_tx =

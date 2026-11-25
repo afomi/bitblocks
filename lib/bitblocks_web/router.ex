@@ -365,6 +365,9 @@ defmodule BitblocksWeb.Router do
       on_mount: [{UserAuth, :require_admin}] do
       live "/elections/new", ElectionLive.New
     end
+
+    # "Download the archive (.zip)" on the election's page (#136, step 5).
+    get "/elections/:outpoint/archive.zip", ElectionArchiveController, :download
   end
 
   scope "/", BitblocksWeb do

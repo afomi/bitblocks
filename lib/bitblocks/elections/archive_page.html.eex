@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1"
+    >
+    <title><%= h(@name) %>: the archived result</title>
+    <meta
+      name="description"
+      content="The archived result of an election recorded on Bitcoin SV, with the files to recount it offline."
+    >
+    <style>
+      :root {
+        --page: #ffffff;
+        --inset: #f9fafb;
+        --border: #e5e7eb;
+        --heading: #111827;
+        --text: #374151;
+        --secondary: #4b5563;
+        --link: #1d4ed8;
+        --link-hover: #1e3a8a;
+        --beta-bg: #fef3c7;
+        --beta-text: #78350f;
+      }
+      body {
+        margin: 0;
+        background: var(--page);
+        color: var(--text);
+        font: 16px/1.6 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+      }
+      main {
+        max-width: 44rem;
+        margin: 0 auto;
+        padding: 2rem 1rem 4rem;
+      }
+      h1,
+      h2,
+      h3 {
+        color: var(--heading);
+        line-height: 1.25;
+        overflow-wrap: anywhere;
+      }
+      h1 {
+        font-size: 1.875rem;
+        margin: 0.5rem 0;
+      }
+      h2 {
+        font-size: 1.25rem;
+        margin: 2.25rem 0 0.5rem;
+      }
+      h3 {
+        font-size: 1.125rem;
+        margin: 0;
+      }
+      p,
+      li {
+        margin: 0.5rem 0;
+      }
+      a {
+        color: var(--link);
+        text-decoration: underline;
+      }
+      a:hover {
+        color: var(--link-hover);
+      }
+      .lede {
+        color: var(--secondary);
+        font-size: 1.125rem;
+      }
+      .pill {
+        display: inline-block;
+        border-radius: 9999px;
+        background: var(--beta-bg);
+        color: var(--beta-text);
+        font-size: 0.75rem;
+        font-weight: 600;
+        padding: 0.125rem 0.625rem;
+      }
+      .mono,
+      code,
+      pre {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-variant-numeric: tabular-nums;
+      }
+      .hash {
+        font-size: 0.875rem;
+        overflow-wrap: anywhere;
+      }
+      code {
+        font-size: 0.875rem;
+        background: var(--inset);
+        border: 1px solid var(--border);
+        border-radius: 0.25rem;
+        padding: 0 0.25rem;
+        overflow-wrap: anywhere;
+      }
+      pre {
+        font-size: 0.875rem;
+        background: var(--inset);
+        border: 1px solid var(--border);
+        border-radius: 0.5rem;
+        padding: 0.75rem 1rem;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+      }
+      pre code {
+        background: none;
+        border: 0;
+        padding: 0;
+      }
+      ul.cards {
+        list-style: none;
+        padding: 0;
+      }
+      .card {
+        border: 1px solid var(--border);
+        border-radius: 0.5rem;
+        padding: 0.75rem 1rem;
+        margin: 0.75rem 0;
+      }
+      .secondary {
+        color: var(--secondary);
+        font-size: 0.875rem;
+      }
+      footer {
+        color: var(--secondary);
+        font-size: 0.875rem;
+        margin-top: 3rem;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <p>
+        <span class="pill">Archived result</span>
+      </p>
+      <h1><%= h(@name) %></h1>
+      <p class="lede">
+        This is the archived result of an election recorded on Bitcoin SV.
+        Every file here is static, so this page works from a folder on your computer or from any web host.
+      </p>
+      <p>
+        The election is <span class="mono hash"><%= h(@election) %></span>.
+      </p>
+      <p>
+        It filled <span class="mono"><%= seats(@number_elected) %></span>, with ballots counted in blocks <span class="mono"><%= @opens_at_height %></span> through <span class="mono"><%= @closes_at_height %></span>.
+      </p>
+
+      <h2 id="winners-heading">Winners</h2>
+      <%= if @winners == [] do %>
+      <p id="winners">
+        No candidate received a vote.
+      </p>
+      <% else %>
+      <ol
+        id="winners"
+        aria-labelledby="winners-heading"
+      >
+        <%= for name <- @winners do %>
+        <li><%= h(name) %></li>
+        <% end %>
+      </ol>
+      <% end %>
+      <%= if @undecided do %>
+      <p id="undecided">
+        <%= seats(@undecided["seats"]) %> undecided, tied between <span class="mono"><%= h(Enum.join(@undecided["tied"], ", ")) %></span>.
+      </p>
+      <% end %>
+
+      <h2 id="tally-heading">The tally</h2>
+      <ul
+        id="tally"
+        class="cards"
+        aria-labelledby="tally-heading"
+      >
+        <%= for c <- @tally do %>
+        <li
+          id="candidate-<%= h(c.id) %>"
+          class="card"
+        >
+          <h3><%= h(c.name) %></h3>
+          <p class="secondary">
+            Id <span class="mono"><%= h(c.id) %></span>
+          </p>
+          <p>
+            <span class="mono"><%= votes(c.votes) %></span><%= if c.elected do %>, elected<% end %>.
+          </p>
+        </li>
+        <% end %>
+      </ul>
+      <p>
+        <span class="mono"><%= @counted %></span> ballots counted, and <span class="mono"><%= @not_counted %></span> not counted.
+        <code>count.json</code> lists each one, with the rule a ballot failed.
+      </p>
+
+      <h2>The archive and the result record</h2>
+      <p>
+        The archive's sha256 (<code>archive_sha256</code>) is the sha256 of <a href="MANIFEST.sha256">MANIFEST.sha256</a>, which lists every file of evidence with its own sha256.
+      </p>
+      <p
+        id="archive-sha256"
+        class="mono hash"
+      ><%= h(@archive_sha256) %></p>
+      <%= if @result_txid do %>
+      <p id="result-record">
+        The result record is transaction <span class="mono hash"><%= h(@result_txid) %></span>.
+        It carries the same <code>archive_sha256</code>, signed by the election's administrator.
+      </p>
+      <% else %>
+      <p id="result-record">
+        Result record not published yet.
+        When it is, it carries this <code>archive_sha256</code>, signed by the election's administrator.
+      </p>
+      <% end %>
+      <%= if @close_block_hash do %>
+      <p>
+        Block <span class="mono"><%= @closes_at_height %></span>, where voting closed, has the hash <span class="mono hash"><%= h(@close_block_hash) %></span>.
+        Check it on any block explorer: it ties these files to the real chain, and it settles a tie for the last seat by lot.
+      </p>
+      <% end %>
+
+      <h2 id="recount-heading">Recount it yourself</h2>
+      <p>
+        You don't have to trust this page.
+        The recount tool checks every file against the manifest, the blocks against each other, each ballot against its block, and each signature, then counts again with the published rule.
+        It makes no network calls.
+      </p>
+      <ul>
+        <li><a href="recount.html">How to recount, step by step</a></li>
+        <li><a href="recount.py">recount.py</a>, the recount tool, one Python 3 file</li>
+      </ul>
+      <p>
+        From this folder, in a terminal:
+      </p>
+      <pre><code>python3 -I recount.py . --archive-sha256 <%= h(@archive_sha256) %></code></pre>
+      <%= if @result_txid do %>
+      <p>
+        Or save the result record's raw transaction as <code>result.hex</code> and check its signature too:
+      </p>
+      <pre><code>python3 -I recount.py . --result-tx result.hex</code></pre>
+      <% end %>
+      <p>
+        This page, <code>recount.py</code> and <code>recount.html</code> sit beside the manifest, not in it.
+        This page shows <code>archive_sha256</code>, so it can't be hashed into the manifest that hash is taken over.
+        The tool and guide are copies: compare them with the ones Bitblocks publishes, or read <code>recount.py</code> before you run it.
+        What the recount prints, not this page, is the result.
+      </p>
+
+      <h2>The files</h2>
+      <ul>
+        <li><a href="MANIFEST.sha256">MANIFEST.sha256</a>, every file of evidence with its sha256</li>
+        <li><a href="archive.json">archive.json</a>, what each file is</li>
+        <li><a href="count.json">count.json</a>, the count's input and its result</li>
+        <li><a href="roll.json">roll.json</a>, the voter roll, its exact bytes on chain</li>
+      </ul>
+
+      <footer>
+        <p>
+          Bitblocks read the chain and built this archive.
+          It did not cast a vote.
+          The record format is a draft.
+        </p>
+      </footer>
+    </main>
+  </body>
+</html>
