@@ -315,14 +315,16 @@ defmodule Bitblocks.Chain.TxIngest do
   # as an error naming what waited (55P03 lock_timeout, 57014
   # statement_timeout), logged with its step by TxPipeline, and the
   # connection survives; the block's retry redoes the tx. One round trip,
-  # scoped to this transaction.
+  # scoped to this transaction, which also names it `bitblocks-sync` for
+  # pg_stat_activity and Performance Insights.
   defp server_timeouts(timeout) do
     statement_ms =
       Application.get_env(:bitblocks, :tx_insert_statement_timeout_ms) ||
         max(timeout - 10_000, 1_000)
 
     Repo.query!(
-      "SELECT set_config('statement_timeout', $1, true), set_config('lock_timeout', $2, true)",
+      "SELECT set_config('statement_timeout', $1, true), set_config('lock_timeout', $2, true), " <>
+        "set_config('application_name', 'bitblocks-sync', true)",
       [Integer.to_string(statement_ms), Integer.to_string(div(statement_ms, 2))]
     )
   end
