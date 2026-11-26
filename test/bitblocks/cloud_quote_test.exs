@@ -45,6 +45,14 @@ defmodule Bitblocks.CloudQuoteTest do
       assert filter == %{}
     end
 
+    test "a signer or script hash alone is refused, as the projection API refuses it" do
+      assert {:error, [message]} =
+               CloudQuote.parse(params(%{"filter" => %{"aip_signers" => @addr}}))
+
+      assert message =~ "aren't indexed"
+      assert message =~ "protocols"
+    end
+
     test "bounds the values and checks the from block and namespace" do
       many = Enum.map_join(1..21, ",", &"v#{&1}")
 

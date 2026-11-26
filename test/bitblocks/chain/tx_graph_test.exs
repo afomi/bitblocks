@@ -5,9 +5,41 @@ defmodule Bitblocks.Chain.TxGraphTest do
 
   import Bitblocks.ChainFixtures
 
-  alias Bitblocks.Chain.TxGraph
+  import Ecto.Query
 
-  defp tx!(attrs \\ %{}), do: transaction_fixture(attrs)
+  alias Bitblocks.Chain
+  alias Bitblocks.Chain.{Transaction, TxGraph}
+
+  # A tx as the pipeline stores it: `input_txids` from its inputs, and a
+  # `spend_index` row per input (`record_spends`), which the forward walk reads.
+  defp tx!(attrs \\ %{})
+
+  defp tx!(%{input_txids: [_ | _] = parents} = attrs) do
+    inputs =
+      for parent <- parents,
+          do: Jason.encode!(%{txid: parent, vout: System.unique_integer([:positive])})
+
+    tx = attrs |> Map.put(:inputs, inputs) |> transaction_fixture()
+    Chain.record_spends(tx)
+    tx
+  end
+
+  defp tx!(attrs), do: transaction_fixture(attrs)
+
+  # The forward lookup the walk made before it moved onto spend_index: rows
+  # whose `input_txids` (GIN) overlap the frontier.
+  defp children_by_input_txids(frontier) do
+    from(t in Transaction,
+      where: fragment("? && ?::varchar[]", t.input_txids, ^frontier),
+      select: {t.txid, t.input_txids}
+    )
+    |> Repo.all()
+    |> Enum.flat_map(fn {child, input_txids} ->
+      for parent <- input_txids, parent in frontier, do: {parent, child}
+    end)
+    |> Enum.uniq()
+    |> Enum.sort()
+  end
 
   defp levels(graph), do: Map.new(graph.nodes, &{&1.id, &1.level})
   defp edges(graph), do: graph.edges |> Enum.map(&{&1.from, &1.to}) |> Enum.sort()
@@ -143,9 +175,45 @@ defmodule Bitblocks.Chain.TxGraphTest do
 
     {_graph, queries} = queries(fn -> TxGraph.build(center.txid, 2) end)
 
-    # The start, two levels back, and two forward from two sources.
-    assert length(queries) <= 7
+    # The start, two levels back, and two forward.
+    assert length(queries) <= 5
     refute Enum.any?(queries, &(&1 =~ ~s("raw") or &1 =~ ~s("inputs")))
+  end
+
+  test "the forward walk never asks the input_txids GIN index" do
+    center = tx!()
+    tx!(%{input_txids: [center.txid]})
+
+    {_graph, queries} = queries(fn -> TxGraph.build(center.txid, 2) end)
+
+    refute Enum.any?(queries, &(&1 =~ ~r/"input_txids"\s*(&&|@>)/)), Enum.join(queries, "\n")
+    assert Enum.any?(queries, &(&1 =~ ~s("spend_index")))
+  end
+
+  test "finds the same spenders the input_txids lookup found" do
+    a = tx!()
+    b = tx!()
+    # One child of a, one of both, one of b twice, and a grandchild.
+    c1 = tx!(%{input_txids: [a.txid]})
+    c2 = tx!(%{input_txids: [a.txid, b.txid]})
+    c3 = tx!(%{input_txids: [b.txid, b.txid]})
+    g = tx!(%{input_txids: [c1.txid, c3.txid]})
+    tx!()
+
+    for start <- [a, b, c1, c2, c3, g] do
+      graph = TxGraph.build(start.txid, 1)
+      forward = for e <- graph.edges, e.from == start.txid, do: {e.from, e.to}
+
+      assert Enum.sort(forward) == children_by_input_txids([start.txid]), start.txid
+    end
+
+    assert children_by_input_txids([a.txid, b.txid]) ==
+             Enum.sort([
+               {a.txid, c1.txid},
+               {a.txid, c2.txid},
+               {b.txid, c2.txid},
+               {b.txid, c3.txid}
+             ])
   end
 
   test "an unknown txid is not found" do

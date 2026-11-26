@@ -34,7 +34,8 @@ The marginal cost of a projection is its tags and its traffic, not another 20 TB
 
 ## What already exists to build on
 
-These ingest-time tags are GIN-indexed on `transactions` today, so filters on them are index lookups, not scans:
+These ingest-time tags are on `transactions`.
+A filter names at least one GIN-indexed column, so it is an index lookup, not a scan; `output_script_hashes` and `aip_signers` only narrow its rows, since their indexes are ready to drop ([INDEXES.md](INDEXES.md)):
 
 | Filter type | Column | Since |
 |---|---|---|

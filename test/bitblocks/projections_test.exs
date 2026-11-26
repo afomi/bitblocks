@@ -6,6 +6,7 @@ defmodule Bitblocks.ProjectionsTest do
   use Bitblocks.DataCase, async: true
 
   import Bitblocks.ChainFixtures
+  import Ecto.Query
 
   alias Bitblocks.Projections
   alias Bitblocks.Projections.Projection
@@ -58,6 +59,38 @@ defmodule Bitblocks.ProjectionsTest do
       assert a.definition_hash == b.definition_hash
       assert a.definition_hash =~ ~r/\A[0-9a-f]{64}\z/
     end
+
+    # Their GIN indexes are ready to drop (docs/INDEXES.md): alone, either
+    # would scan every row of transactions.
+    test "refuses output_script_hashes or aip_signers with no indexed column" do
+      for filter <- [
+            %{"output_script_hashes" => [String.duplicate("ab", 32)]},
+            %{"aip_signers" => [@qart_key]},
+            %{"aip_signers" => [@qart_key], "output_script_hashes" => ["x"]}
+          ] do
+        assert {:error, changeset} =
+                 Projections.create(%{tenant: "t", name: "n", filter: filter})
+
+        assert %{filter: [message]} = errors_on(changeset), inspect(filter)
+        assert message =~ "aren't indexed", message
+        assert message =~ "output_addresses, protocols or output_template_hashes", message
+      end
+    end
+
+    test "takes output_script_hashes or aip_signers next to an indexed column" do
+      for {column, value} <- [
+            {"output_script_hashes", String.duplicate("ab", 32)},
+            {"aip_signers", @qart_key}
+          ],
+          indexed <- Projection.indexed_columns() do
+        assert {:ok, _} =
+                 Projections.create(%{
+                   tenant: "t",
+                   name: "#{column}-#{indexed}",
+                   filter: %{indexed => ["v"], column => [value]}
+                 })
+      end
+    end
   end
 
   describe "query/1" do
@@ -95,6 +128,57 @@ defmodule Bitblocks.ProjectionsTest do
       # Either column's GIN index may serve it; the planner picks by stats.
       assert plan =~ ~r/Bitmap Index Scan on transactions_(output_addresses|protocols)_index/,
              plan
+    end
+
+    test "matches output_script_hashes and aip_signers without their GIN indexes" do
+      hash = String.duplicate("ab", 32)
+
+      want =
+        transaction_fixture(%{
+          protocols: ["MAP", "AIP"],
+          aip_signers: [@qart_key, @donation],
+          output_script_hashes: [hash]
+        })
+
+      _no_signer = transaction_fixture(%{protocols: ["MAP"], output_script_hashes: [hash]})
+      _one_signer = transaction_fixture(%{protocols: ["MAP"], aip_signers: [@qart_key]})
+      _no_tags = transaction_fixture(%{protocols: ["MAP"], aip_signers: nil})
+
+      {:ok, p} =
+        Projections.create(%{
+          tenant: "qart",
+          name: "signed",
+          filter: %{
+            "protocols" => ["MAP"],
+            "aip_signers" => [@donation, @qart_key],
+            "output_script_hashes" => [hash]
+          }
+        })
+
+      # The same rows containment finds, with both indexes still present.
+      contained =
+        Repo.all(
+          from(t in Bitblocks.Chain.Transaction,
+            where:
+              fragment("? @> ?", t.protocols, ^["MAP"]) and
+                fragment("? @> ?", t.aip_signers, ^[@donation, @qart_key]) and
+                fragment("? @> ?", t.output_script_hashes, ^[hash]),
+            select: t.id
+          )
+        )
+
+      assert Repo.all(from(t in Projections.query(p), select: t.id)) == [want.id]
+      assert contained == [want.id]
+
+      {sql, params} = Repo.to_sql(:all, Projections.query(p))
+      refute sql =~ ~r/"(aip_signers|output_script_hashes)"\s*(@>|&&)/, sql
+      assert sql =~ ~r/= ANY\(\w+\."aip_signers"\)/, sql
+
+      Repo.query!("SET LOCAL enable_seqscan = off")
+      plan = Repo.query!("EXPLAIN " <> sql, params).rows |> Enum.map_join("\n", &hd/1)
+
+      assert plan =~ "Bitmap Index Scan on transactions_protocols_index", plan
+      refute plan =~ ~r/transactions_(aip_signers|output_script_hashes)_index/, plan
     end
   end
 
@@ -305,7 +389,11 @@ defmodule Bitblocks.ProjectionsTest do
   describe "Release CLI" do
     test "set_projection_from_height/2, pause_projection/1 and resume_projection/1" do
       {:ok, p} =
-        Projections.create(%{tenant: "t", name: "ops", filter: %{"aip_signers" => [@qart_key]}})
+        Projections.create(%{
+          tenant: "t",
+          name: "ops",
+          filter: %{"protocols" => ["MAP"], "aip_signers" => [@qart_key]}
+        })
 
       assert {:ok, %{from_height: 957_300}} =
                Bitblocks.Release.set_projection_from_height(p.id, 957_300)
@@ -326,7 +414,7 @@ defmodule Bitblocks.ProjectionsTest do
                Bitblocks.Release.create_projection(%{
                  tenant: "t",
                  name: "n",
-                 filter: %{"aip_signers" => [@qart_key]}
+                 filter: %{"protocols" => ["MAP"], "aip_signers" => [@qart_key]}
                })
 
       assert {:error, %{filter: [_]}} =

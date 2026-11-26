@@ -130,13 +130,13 @@ defmodule BitblocksWeb.StartLive.Api do
             "GET",
             "/api/v1/script/:scripthash/history",
             :caller,
-            "Transactions paying a script, with its status."
+            "Not offered: script hash lookups aren't indexed, so it answers a 400 naming the address endpoints."
           ),
           row(
             "GET",
             "/api/v1/script/:scripthash/unspent",
             :caller,
-            "Outputs locked by a script."
+            "Not offered, as history: a 400 naming the address endpoints."
           ),
           row("POST", "/api/v1/script/decode", :caller, "Script hex into a typed description."),
           row(
