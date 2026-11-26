@@ -41,4 +41,27 @@ defmodule Bitblocks.DB.GinPendingTest do
     assert {"* * * * *", Bitblocks.Workers.GinPendingWorker} in crontab
     assert Bitblocks.Workers.GinPendingWorker.__opts__()[:queue] == :maintenance
   end
+
+  describe "the cleanup job's uniqueness (https://github.com/afomi/bitblocks/issues/212)" do
+    alias Bitblocks.Workers.GinPendingWorker
+
+    defp executing_since(minutes_ago) do
+      {:ok, job} = Oban.insert(GinPendingWorker.new(%{}))
+      at = DateTime.add(DateTime.utc_now(), -minutes_ago * 60, :second)
+
+      job
+      |> Ecto.Changeset.change(state: "executing", inserted_at: at, attempted_at: at)
+      |> Bitblocks.Repo.update!()
+    end
+
+    test "a run in progress blocks the next cron insert" do
+      executing_since(1)
+      assert {:ok, %Oban.Job{conflict?: true}} = Oban.insert(GinPendingWorker.new(%{}))
+    end
+
+    test "a run orphaned by a deploy stops blocking after five minutes" do
+      executing_since(10)
+      assert {:ok, %Oban.Job{conflict?: false}} = Oban.insert(GinPendingWorker.new(%{}))
+    end
+  end
 end
