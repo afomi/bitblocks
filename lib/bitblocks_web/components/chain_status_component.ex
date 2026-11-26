@@ -80,7 +80,7 @@ defmodule BitblocksWeb.ChainStatusComponent do
               <span class="font-medium text-gray-700 dark:text-gray-300">
                 App Indexed:
               </span>
-              <span class="ml-1 text-sm font-bold text-blue-600 dark:text-blue-400">
+              <span class="ml-1 text-sm font-bold text-blue-700 dark:text-blue-400">
                 <%= format_number(@blocks_count) %>
               </span>
               <span class="text-gray-600 dark:text-gray-200">
@@ -89,7 +89,7 @@ defmodule BitblocksWeb.ChainStatusComponent do
             </div>
             <%= if assigns[:transactions_count] do %>
               <div>
-                <span class="ml-1 text-sm font-bold text-blue-600 dark:text-blue-400">
+                <span class="ml-1 text-sm font-bold text-blue-700 dark:text-blue-400">
                   <%= format_number(@transactions_count) %>
                 </span>
                 <span class="text-gray-600 dark:text-gray-200">
@@ -104,7 +104,7 @@ defmodule BitblocksWeb.ChainStatusComponent do
                 </span>
                 <a
                   href={"/blocks/#{@latest_block.height}"}
-                  class="ml-1 text-sm font-bold text-blue-600 dark:text-blue-400 hover:underline"
+                  class="ml-1 text-sm font-bold text-blue-700 dark:text-blue-400 hover:underline"
                 >
                   #<%= format_number(@latest_block.height) %>
                 </a>

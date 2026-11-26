@@ -50,14 +50,14 @@ defmodule Bitblocks.MixProject do
       {:phoenix_live_view, "~> 1.1.34"},
       {:lazy_html, ">= 0.1.0", only: :test},
       {:floki, ">= 0.30.0", only: :test},
-      {:a11y_audit, "~> 0.3.1", only: :test},
+      {:a11y_audit, "~> 0.6.0", only: :test},
       {:wallaby, "~> 0.30", only: :test},
       {:exvcr, "~> 0.15", only: :test},
       # Wallaby still needs HTTPoison; 3.x runs on hackney 4, clear of the
       # hackney 1.x advisories (#65). ExVCR's optional httpoison ~> 2.0 would
       # pin it back, and our cassette suites replay through Finch instead.
       {:httpoison, "~> 3.0", only: :test, override: true},
-      {:phoenix_live_dashboard, "~> 0.8.3"},
+      {:phoenix_live_dashboard, "~> 0.9.1"},
       {:esbuild, "~> 0.8", runtime: Mix.env() == :dev},
       {:tailwind, "~> 0.2", runtime: Mix.env() == :dev},
       {:heroicons,
@@ -69,7 +69,7 @@ defmodule Bitblocks.MixProject do
        depth: 1},
       {:swoosh, "~> 1.30"},
       {:finch, "~> 0.13"},
-      {:telemetry_metrics, "~> 1.1.0 "},
+      {:telemetry_metrics, "~> 1.2"},
       {:telemetry_poller, "~> 1.0"},
       {:telemetry_metrics_prometheus_core, "~> 1.2"},
       {:telemetry_metrics_prometheus, "~> 1.1"},
