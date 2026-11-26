@@ -67,9 +67,14 @@ defmodule Bitblocks.DB.GinPending do
     result =
       Repo.transaction(
         fn ->
-          Repo.query!("SELECT set_config('statement_timeout', $1, true)", [
-            Integer.to_string(@statement_timeout_ms)
-          ])
+          # Named for pg_stat_activity and Performance Insights, this transaction only.
+          Repo.query!(
+            "SELECT set_config('statement_timeout', $1, true), " <>
+              "set_config('application_name', 'bitblocks-gin_pending', true)",
+            [
+              Integer.to_string(@statement_timeout_ms)
+            ]
+          )
 
           %{rows: [[pages]]} =
             Repo.query!("SELECT gin_clean_pending_list($1::text::regclass)", [index],

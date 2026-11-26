@@ -31,13 +31,20 @@ rpc_batch_timeout_ms =
 # The node's RPC worker threads (bitcoind rpcthreads): a ceiling on how many
 # blocks the sync works at once (Bitblocks.Sync.concurrency_limit/0).
 # A read-only web node (#39): see Bitblocks.NodeRole. Unset is a writer.
-config :bitblocks,
-       :node_role,
-       (case System.get_env("NODE_ROLE") do
-          value when value in [nil, "", "writer"] -> :writer
-          "reader" -> :reader
-          value -> raise "NODE_ROLE must be writer or reader, got: #{value}"
-        end)
+node_role =
+  case System.get_env("NODE_ROLE") do
+    value when value in [nil, "", "writer"] -> :writer
+    "reader" -> :reader
+    value -> raise "NODE_ROLE must be writer or reader, got: #{value}"
+  end
+
+config :bitblocks, :node_role, node_role
+
+# Every connection names its node role, so pg_stat_activity and Performance
+# Insights split the load by it. The sync's inserts and GIN cleanup rename
+# their own transactions (`bitblocks-sync`, `bitblocks-gin_pending`) with a
+# set_config they already send, so that costs no extra round trip.
+config :bitblocks, Bitblocks.Repo, parameters: [application_name: "bitblocks-#{node_role}"]
 
 case System.get_env("SYNC_STOP_AT_HEIGHT") do
   nil -> :ok
