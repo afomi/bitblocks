@@ -43,8 +43,10 @@ defmodule Bitblocks.Chain.Utxos do
   in any address's balance. A stored tx whose raw hex doesn't decode makes
   the answer `:partial`, since we can't tell which of its outputs count.
 
-  Candidate txs come from the GIN-indexed tag arrays (`output_addresses`,
-  `output_script_hashes`); spends from `spend_index` by `(txid, vout)`.
+  Candidate txs come from the GIN-indexed `output_addresses`; spends from
+  `spend_index` by `(txid, vout)`. Outputs by scripthash aren't offered:
+  `output_script_hashes` is written but its index is ready to drop
+  (docs/INDEXES.md).
 
   Whether the spending tx's block is one we store is a second query.
   A fat transaction can have hundreds of spends, and joining each one to
@@ -114,15 +116,6 @@ defmodule Bitblocks.Chain.Utxos do
       where: fragment("? @> ARRAY[?]::varchar[]", t.output_addresses, ^address)
     )
     |> collect(fn script -> RawBlock.script_address(script) == address end)
-  end
-
-  @doc "As `for_address/1`, for the outputs locked by the script with this Electrum scripthash."
-  @spec for_script_hash(String.t()) :: set()
-  def for_script_hash(script_hash) when is_binary(script_hash) do
-    from(t in Transaction,
-      where: fragment("? @> ARRAY[?]::varchar[]", t.output_script_hashes, ^script_hash)
-    )
-    |> collect(fn script -> electrum_hash(script) == script_hash end)
   end
 
   @doc """
@@ -467,12 +460,4 @@ defmodule Bitblocks.Chain.Utxos do
   end
 
   defp unknown_reason(_status, _outpoint, _canonical?, _spends), do: nil
-
-  defp electrum_hash(script) do
-    :crypto.hash(:sha256, script)
-    |> :binary.bin_to_list()
-    |> Enum.reverse()
-    |> :binary.list_to_bin()
-    |> Base.encode16(case: :lower)
-  end
 end

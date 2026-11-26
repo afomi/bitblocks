@@ -3,9 +3,8 @@ defmodule BitblocksWeb.Api.ScriptController do
   Script-addressed lookups — the read surface for arbitrary (non-P2PKH)
   scripts that have no address:
 
-      GET  /api/v1/script/:scripthash/history   — txs whose outputs include the script
-      GET  /api/v1/script/:scripthash/unspent   — its unspent outputs, exact or unknown
-                                                  (`Bitblocks.Chain.Utxos`)
+      GET  /api/v1/script/:scripthash/history   — a 400: scripthash lookups aren't indexed
+      GET  /api/v1/script/:scripthash/unspent   — a 400, the same
       POST /api/v1/script/decode                — hex → type/fields/asm/hashes/template
       GET  /api/v1/script/templates             — registered script templates
       POST /api/v1/script/templates             — register a template
@@ -20,61 +19,38 @@ defmodule BitblocksWeb.Api.ScriptController do
   use BitblocksWeb, :controller
 
   alias Bitblocks.Chain
-  alias Bitblocks.Chain.{AddressHistory, Utxos}
   alias Bitblocks.Script.{Descriptor, Templates}
   alias BitblocksWeb.Utils.BsvParams
 
   action_fallback BitblocksWeb.FallbackController
 
   @doc """
-  Txs whose outputs include the script, newest first, up to 1,000, from
-  our index alone. `meta` has the coverage fields address history has
-  (#80): `status` (`exact` only when the index reaches our tip and the
-  list isn't cut at 1,000), `indexed_through_height`, `tip_height`,
-  `next_cursor` (always nil: one page) and `sources`.
+  A 400 for a well-formed scripthash: lookups by scripthash aren't indexed,
+  so answering one would scan every stored tx. A scripthash is a hash of the
+  script, so it can't be turned back into an address; a caller with a P2PKH
+  or P2PK script uses the address endpoints, which `output_addresses` serves.
+  `output_script_hashes` is still written, so the lookup can come back with
+  its index (docs/INDEXES.md). A malformed scripthash is the usual 400.
   """
-  def history(conn, %{"scripthash" => raw}) do
+  def history(conn, %{"scripthash" => raw}), do: not_indexed(conn, raw)
+
+  @doc "As `history/2`: a 400 naming the address endpoint for unspent outputs."
+  def unspent(conn, %{"scripthash" => raw}), do: not_indexed(conn, raw)
+
+  defp not_indexed(conn, raw) do
     with {:ok, scripthash} <- BsvParams.scripthash(raw) do
-      scripthash = String.downcase(scripthash)
-      history = Chain.history_for_script_hash(scripthash)
-      coverage = Utxos.coverage()
-
-      json(conn, %{
-        scripthash: scripthash,
-        history: history,
-        source: "local",
-        meta: %{
-          status: history_status(coverage, length(history)),
-          indexed_through_height: coverage.indexed_through_height,
-          tip_height: coverage.tip_height,
-          next_cursor: nil,
-          sources: [AddressHistory.index_source(coverage.indexed_through_height)]
-        }
-      })
-    end
-  end
-
-  defp history_status(%{tip_height: nil}, _count), do: :unknown
-  defp history_status(%{indexed_through_height: through}, _count) when through < 0, do: :unknown
-
-  defp history_status(%{complete?: complete?}, count) do
-    if complete? and count < Chain.script_history_limit(), do: :exact, else: :partial
-  end
-
-  def unspent(conn, %{"scripthash" => raw}) do
-    with {:ok, scripthash} <- BsvParams.scripthash(raw) do
-      scripthash = String.downcase(scripthash)
-
-      set = Utxos.for_script_hash(scripthash)
-
-      json(conn, %{
-        scripthash: scripthash,
-        unspent: Utxos.with_status(set, :unspent),
-        unknown: Utxos.with_status(set, :unknown),
-        status: set.status,
-        indexed_through_height: set.indexed_through_height,
-        tip_height: set.tip_height,
-        source: "local"
+      conn
+      |> put_status(:bad_request)
+      |> json(%{
+        error:
+          "Script hash lookups aren't indexed. " <>
+            "For a P2PKH or P2PK script, use the address endpoints: " <>
+            "GET /api/v1/addresses/:address/history and GET /api/v1/addresses/:address/utxos.",
+        scripthash: String.downcase(scripthash),
+        address_endpoints: [
+          "/api/v1/addresses/:address/history",
+          "/api/v1/addresses/:address/utxos"
+        ]
       })
     end
   end

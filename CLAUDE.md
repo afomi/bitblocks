@@ -437,7 +437,7 @@ GET /b/:txid                    — a B:// file parsed from its tx on the fly (i
 GET /c/:sha256                  — public: a B:// or BCat file by its C:// address (sha256 of its bytes; for BCat, of the whole file), from the c_files index (#147, #155), hashed again before it is served (a BCat file assembled again, never redirected or streamed unchecked; same headers as /b); a hash not indexed is a 404 with indexed_through_height (null until the backfill covers block 0), complete_through and bcat_unassembled
 GET /api/v1/c/:sha256           — every stored copy of that file, oldest first: kind (b | bcat), txid, vout, block_height, media_type, size, filename, chunks, b_url or bcat_url; file_url; 404 not_indexed with the same meta
 GET /api/v1/files              — find a file in the C:// index (#175), `c_files` only: ?q= (part of a filename, or a 64-hex address), ?type= image | text | json | html | other, ?cursor=; data as /api/v1/c/:sha256 shows a location plus c_url and file_url, newest block first, 25 a page; meta: next_cursor, indexed_through_height, earliest_indexed_height, complete_through, bcat_unassembled, source; a bad type or cursor is a 400, a timeout a 503
-GET /api/v1/projections/:id     — managed projection (#29): tenant, source (transactions | bitcom_commands), filter, definition hash, hydrate_url (/txs or /commands)
+GET /api/v1/projections/:id     — managed projection (#29): tenant, source (transactions | bitcom_commands), filter, definition hash, hydrate_url (/txs or /commands); a filter names at least one indexed column (output_addresses, protocols, output_template_hashes), and output_script_hashes and aip_signers only narrow it, refused alone at creation (docs/INDEXES.md)
 GET /api/v1/projections/:id/txs — hydrate: matching confirmed txs on the stored chain, oldest first, frozen at a snapshot (?cursor=, ?limit=); meta.complete is true while a page lies within meta.stable_through_height; when it turns false, hold the cursor and come back
 GET /api/v1/projections/:id/commands — hydrate for a bitcom_commands projection (#29 Tenant 3): the Bitcom command log, valid and invalid, each command with txid, output_index, block_height, block_hash, actor, namespace, command, args, valid and reason, ordered by (block_height, txid, output_index), with the same cursor, snapshot and meta; served only while its tx stands under the stored block at that height; /txs and /commands answer a 400 naming each other for the wrong source
 GET /api/v1/projections/:id/status — index_state ready | backfilling (ready: the stable prefix reaches our tip and the node's), stable_through_height, tip_height, node_tip_height, lag_blocks; with a tip lane (#139), the blocks it read count as indexed, plus tip_lane_through_height and tip_lane (state, behind_blocks, waiting_on)
@@ -453,8 +453,8 @@ GET /api/v1/bap?address=        — the identities an address signs for
 GET /api/v1/downloads/quote     — the free bulk download quote (#111): ?from=&to=&data=raw&format=bin → files, bytes, gib, bytes_exact, sizes_missing (and their lowest heights), not_in_store, complete_through, billable_gib, price_usd_per_gib and price_usd (strings; price "quoted", or null with price "on_request" and price_reason no_price_set | sizes_missing), contact; meta.pricing states the arithmetic, meta.file and meta.check what a file is and how to check it; a range above complete_through is a 422 naming it; tx_json and data_pack are a 422 "coming"
 GET /api/v1/downloads/sizes     — the size of each 50,000-block band to complete_through (from, to, blocks, bytes, bytes_exact, sizes_missing, billable_gib, price_usd), cached 10 minutes; meta: complete_through, price_usd_per_gib, pricing, presets (the named ranges, each cut at complete_through)
 GET /api/v1/hodlocker/posts/:txid — what the indexed time locks back a HodLocker post with (#76): satoshis, locked_satoshis (still locked at meta.tip_height), locks, txs, likes, first and last unlock height; read from `timelocks`, so a range not yet backfilled is missing, and meta.indexed_through_height says how far the backfill reaches (null until it covers block 0 on)
-GET /api/v1/script/:scripthash/history — tx history for a script (Electrum scripthash: sha256 of scriptPubKey, reversed hex), from our index; meta as address history (status, indexed_through_height, tip_height, next_cursor nil, sources)
-GET /api/v1/script/:scripthash/unspent — UTXOs locked by a script, as the address utxos: unspent (exact only), unknown, status, indexed_through_height, tip_height
+GET /api/v1/script/:scripthash/history — a 400: script hash lookups aren't indexed (docs/INDEXES.md); the body has error, scripthash and address_endpoints (/api/v1/addresses/:address/history and /utxos, for a P2PKH or P2PK script); a malformed scripthash is the usual "Invalid scripthash" 400
+GET /api/v1/script/:scripthash/unspent — a 400, the same
 POST /api/v1/script/decode      — decode script hex into a descriptor (type, fields, asm, matched template)
 GET /api/v1/script/templates    — registered script templates
 POST /api/v1/script/templates   — register a script template
@@ -463,6 +463,8 @@ GET /api/v1/script/templates/:template_hash/history — txs matching a template
 ```
 
 ## Database Schema Notes
+
+- Indexes on `transactions` (authoritative: `docs/INDEXES.md`): the `input_txids`, `output_script_hashes` and `aip_signers` GIN indexes have no reader and are ready to drop, by hand on prod; the columns are still written.
 
 - Blocks table has indexes on height and tx arrays (see migration 20241217061442)
 - Transaction inputs/outputs stored as string arrays (not fully parsed)

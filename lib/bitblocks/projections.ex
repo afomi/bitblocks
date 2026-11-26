@@ -48,18 +48,35 @@ defmodule Bitblocks.Projections do
   The rows a projection matches, as a query: transactions, or for the
   `bitcom_commands` source every logged Bitcom command.
 
-  Each filter column becomes `column @> values` (array containment), which the
-  column's GIN index serves. Avoid `value = ANY(column)` here: GIN can't serve
-  it, so on the full `transactions` table it is a sequential scan.
+  Each indexed filter column (`Projection.indexed_columns/0`) becomes
+  `column @> values` (array containment), which the column's GIN index
+  serves. Avoid `value = ANY(column)` on those: GIN can't serve it, so on the
+  full `transactions` table it is a sequential scan.
+
+  A narrowing column (`Projection.narrowing_columns/0`: `output_script_hashes`,
+  `aip_signers`) becomes `value = ANY(column)` for each value, on purpose: the
+  same match as containment, but one no GIN index serves, so the planner
+  finds the rows through an indexed column and the query runs the same with
+  or without those columns' indexes (docs/INDEXES.md). The changeset never
+  lets a narrowing column stand alone.
   """
   @spec query(Projection.t()) :: Ecto.Query.t()
   def query(%Projection{source: "bitcom_commands"}), do: from(c in Command)
 
   def query(%Projection{filter: filter}) do
+    narrowing = Projection.narrowing_columns()
+
     Enum.reduce(filter, from(t in Transaction), fn {column, values}, q ->
       # Validated against Projection.tag_columns/0, so the atom is known.
       field = String.to_existing_atom(column)
-      where(q, [t], fragment("? @> ?", field(t, ^field), type(^values, {:array, :string})))
+
+      if column in narrowing do
+        Enum.reduce(values, q, fn value, q ->
+          where(q, [t], fragment("? = ANY(?)", ^value, field(t, ^field)))
+        end)
+      else
+        where(q, [t], fragment("? @> ?", field(t, ^field), type(^values, {:array, :string})))
+      end
     end)
   end
 

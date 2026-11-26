@@ -85,7 +85,7 @@ defmodule BitblocksWeb.PageControllerTest do
 
     assert html =~ ~s(id="use-the-data")
     assert html =~ "GET /api/v1/txs/:txid/proof"
-    assert html =~ "GET /api/v1/script/:scripthash/history"
+    assert html =~ "GET /api/v1/addresses/:address/history"
     assert html =~ "GET /api/v1/stream/blocks"
   end
 end

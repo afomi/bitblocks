@@ -118,7 +118,7 @@
         :for={
           {need, path} <- [
             {"One transaction and its merkle proof", "GET /api/v1/txs/:txid/proof"},
-            {"A script's history and unspent outputs", "GET /api/v1/script/:scripthash/history"},
+            {"An address's history, newest first", "GET /api/v1/addresses/:address/history"},
             {"New blocks as they arrive", "GET /api/v1/stream/blocks"},
             {"Where the sync stands", "GET /api/v1/status"}
           ]

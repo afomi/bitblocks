@@ -10,9 +10,14 @@ defmodule Bitblocks.Projections.Projection do
 
   alias Bitblocks.Projections.WebhookTarget
 
-  # Ingest-time tag columns, each GIN-indexed, so a containment filter on any
-  # of them is an index lookup rather than a scan of `transactions`.
+  # Ingest-time tag columns a filter may name. A filter needs at least one
+  # column whose GIN index serves it (`@indexed_columns`), so it is an index
+  # lookup rather than a scan of `transactions`. `output_script_hashes` and
+  # `aip_signers` only narrow those rows: their GIN indexes are ready to drop
+  # (docs/INDEXES.md), and `Projections.query/1` never asks for them.
   @tag_columns ~w(output_addresses protocols output_script_hashes output_template_hashes aip_signers)
+  @indexed_columns ~w(output_addresses protocols output_template_hashes)
+  @narrowing_columns @tag_columns -- @indexed_columns
   @statuses ~w(active paused)
   # What a projection reads: txs by its tag filter, or the Bitcom command log
   # whole, whose filter is empty.
@@ -48,6 +53,17 @@ defmodule Bitblocks.Projections.Projection do
   @doc "Tag columns a filter may name."
   @spec tag_columns() :: [String.t()]
   def tag_columns, do: @tag_columns
+
+  @doc "Tag columns that bound a filter on their own: their GIN indexes serve it."
+  @spec indexed_columns() :: [String.t()]
+  def indexed_columns, do: @indexed_columns
+
+  @doc """
+  Tag columns that only narrow a filter: allowed next to an indexed column,
+  never alone, and matched without their GIN indexes.
+  """
+  @spec narrowing_columns() :: [String.t()]
+  def narrowing_columns, do: @narrowing_columns
 
   @doc "Sources a projection may read."
   @spec sources() :: [String.t()]
@@ -122,6 +138,27 @@ defmodule Bitblocks.Projections.Projection do
     do: [filter: "must name at least one tag column"]
 
   defp filter_errors(filter) do
+    column_errors(filter) ++ bound_errors(filter)
+  end
+
+  # Alone, a narrowing column would scan every row of `transactions`.
+  defp bound_errors(filter) do
+    columns = Map.keys(filter)
+
+    if Enum.any?(columns, &(&1 in @narrowing_columns)) and
+         not Enum.any?(columns, &(&1 in @indexed_columns)) do
+      [
+        filter:
+          "#{columns |> Enum.filter(&(&1 in @narrowing_columns)) |> Enum.join(" and ")} " <>
+            "can't be filtered on alone, since lookups on it aren't indexed: " <>
+            "name output_addresses, protocols or output_template_hashes as well"
+      ]
+    else
+      []
+    end
+  end
+
+  defp column_errors(filter) do
     Enum.flat_map(filter, fn
       {column, _} when column not in @tag_columns ->
         [filter: "unknown tag column #{inspect(column)}"]

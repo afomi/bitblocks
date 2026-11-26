@@ -6,7 +6,14 @@ defmodule BitblocksWeb.GraphLiveTest do
 
   test "draws the graph from the query string", %{conn: conn} do
     center = transaction_fixture()
-    transaction_fixture(%{input_txids: [center.txid]})
+    # As the pipeline stores a spender: its input_txids and its spend_index row.
+    spender =
+      transaction_fixture(%{
+        input_txids: [center.txid],
+        inputs: [Jason.encode!(%{txid: center.txid, vout: 0})]
+      })
+
+    Bitblocks.Chain.record_spends(spender)
 
     {:ok, view, _html} = live(conn, ~p"/graph?txid=#{center.txid}&depth=2")
 
