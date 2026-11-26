@@ -11,8 +11,10 @@ defmodule Bitblocks.CloudQuote do
   The estimate is the projection's own compiled query (`Projections.query/1`),
   limited to blocks `from_height..complete_through`, counted with a cap
   (`LIMIT cap + 1` inside a count) under a short `statement_timeout`. So it
-  never scans `transactions` unbounded, and needs no new index: each tag
-  column is GIN-indexed, and the command log has its own indexes.
+  never scans `transactions` unbounded, and needs no new index: a filter
+  names at least one GIN-indexed tag column (`Projection.indexed_columns/0`),
+  the narrowing columns only filter its rows, and the command log has its own
+  indexes.
   """
 
   import Ecto.Query
@@ -59,7 +61,8 @@ defmodule Bitblocks.CloudQuote do
     %{
       column: "output_script_hashes",
       label: "Script hashes",
-      hint: "The sha256 of an output's locking script, as hex."
+      hint:
+        "The sha256 of an output's locking script, as hex. It narrows another column's matches; it can't be the only one."
     },
     %{
       column: "output_template_hashes",
@@ -69,7 +72,8 @@ defmodule Bitblocks.CloudQuote do
     %{
       column: "aip_signers",
       label: "AIP signers",
-      hint: "An address that signed the tx's data with AIP."
+      hint:
+        "An address that signed the tx's data with AIP. It narrows another column's matches; it can't be the only one."
     }
   ]
 

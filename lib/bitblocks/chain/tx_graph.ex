@@ -4,12 +4,13 @@ defmodule Bitblocks.Chain.TxGraph do
   levels) and what spends it (positive levels), walked one level at a time.
 
   Every read is indexed, and it never loads `raw`. Going back, a row's
-  `input_txids`; about a quarter of stored rows have none yet, and only those
-  read their `inputs`. Going forward, `input_txids` (GIN) together with
-  `spend_index`, because rows an earlier sync stored have neither until
-  `Release.backfill_tx_steps/3` reaches them: until then a tx can have
-  spenders this doesn't show. Each level holds at most #{100} txs, and
-  `truncated` says when one was cut.
+  `input_txids`, read by `txid`; about a quarter of stored rows have none
+  yet, and only those read their `inputs`. Going forward, `spend_index` by
+  `txid`, the `(txid, vout)` index: rows an earlier sync stored have no spend
+  rows until `Release.backfill_tx_steps/3` reaches them, so until then a tx
+  can have spenders this doesn't show. The forward walk never reads the
+  `input_txids` GIN index, which is ready to drop (docs/INDEXES.md). Each
+  level holds at most #{100} txs, and `truncated` says when one was cut.
 
   A parent we don't store yet is still a node, with nothing behind it.
   """
@@ -106,30 +107,20 @@ defmodule Bitblocks.Chain.TxGraph do
     |> Enum.map(fn {txid, inputs} -> {txid, TransactionParser.extract_input_txids(inputs)} end)
   end
 
+  # Every stored spender of a frontier tx, from `spend_index` alone. The
+  # pipeline writes a spend row for each input of each tx it stores
+  # (`record_spends`), so this is the set the `input_txids && frontier`
+  # lookup found, without its GIN index.
   defp children(frontier) do
     limit = @per_level + 1
 
-    by_input_txids =
-      from(t in Transaction,
-        where: fragment("? && ?::varchar[]", t.input_txids, ^frontier),
-        select: {t.txid, t.input_txids},
-        limit: ^limit
-      )
-      |> Repo.all()
-      |> Enum.flat_map(fn {child, input_txids} ->
-        for parent <- input_txids, parent in frontier, do: {child, parent, child}
-      end)
-
-    by_spends =
-      from(s in Spend,
-        where: s.txid in ^frontier,
-        distinct: [s.txid, s.spending_txid],
-        select: {s.spending_txid, s.txid, s.spending_txid},
-        limit: ^limit
-      )
-      |> Repo.all()
-
-    Enum.uniq(by_input_txids ++ by_spends)
+    from(s in Spend,
+      where: s.txid in ^frontier,
+      distinct: [s.txid, s.spending_txid],
+      select: {s.spending_txid, s.txid, s.spending_txid},
+      limit: ^limit
+    )
+    |> Repo.all()
   end
 
   defp node(txid, level) do

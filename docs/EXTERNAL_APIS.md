@@ -139,16 +139,17 @@ Base: `/api/v1` (see `docs/` and the router).
 
 | Method | Path | Returns |
 |---|---|---|
-| GET | `/api/v1/script/{scripthash}/history` | Tx history for that script. |
-| GET | `/api/v1/script/{scripthash}/unspent` | UTXOs locked by that script. |
+| GET | `/api/v1/script/{scripthash}/history` | A 400: script hash lookups aren't indexed ([INDEXES.md](INDEXES.md)); the body names the address endpoints. |
+| GET | `/api/v1/script/{scripthash}/unspent` | A 400, the same. |
 | POST | `/api/v1/script/decode` | Decode script hex into a descriptor (`type, fields, asm`, matched template). |
 | GET | `/api/v1/script/templates` | Registered script templates. |
 | POST | `/api/v1/script/templates` | Register a script template. |
 | GET | `/api/v1/script/templates/{template_hash}` | Template detail. |
 | GET | `/api/v1/script/templates/{template_hash}/history` | Txs matching a template. |
 
-The `/script/{scripthash}/history|unspent` pair matches WoC's script endpoints in path shape (scripthash = sha256 of scriptPubKey, reversed hex), though responses are Bitblocks-shaped keyed objects (`{scripthash, history|unspent, source}`), not WoC's bare arrays.
-`/unspent` also carries `unknown`, `status` and `indexed_through_height`: an output is listed as unspent only when every block through our tip is synced.
+The `/script/{scripthash}/history|unspent` pair keeps WoC's path shape (scripthash = sha256 of scriptPubKey, reversed hex), and answers a 400 saying script hash lookups aren't indexed.
+A scripthash can't be turned back into an address, so a caller with a P2PKH or P2PK script uses `/api/v1/addresses/:address/history` and `/utxos`.
+`output_script_hashes` is still written at ingest, so the lookups can return if the index is rebuilt.
 The decode + template registry endpoints have no WoC/GorillaPool equivalent — script-first is a Bitblocks differentiator (see `docs/REUSABLE_SCRIPTS.md`).
 
 The divergence to decide on: **WoC has no envelope and uses RPC field names; Bitblocks envelopes everything and uses snake_case.** A client written against WoC cannot drop-in against Bitblocks today.

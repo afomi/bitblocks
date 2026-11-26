@@ -94,6 +94,7 @@ Q4, corrected to fall back to `octet_length(raw) / 2` where `size_bytes` is null
 - `transactions_script_analysis_version_index` (1,025 MB) is **kept**: it had 392 scans by 2026-11-17, from that day's script_analysis backfill, which selects by version through it.
   The held migration for https://github.com/afomi/bitblocks/issues/92 must leave it out before it ships.
 - Still at 0 scans on 2026-11-13 and kept on purpose: `transactions_output_script_hashes_index` (9,622 MB), which serves `/api/v1/script/:scripthash/*` and projection filters, and `transactions_aip_signers_index` (106 MB), which Qart's projection filters on.
+- Since 2026-11-26 no code reads either of those two, nor the `input_txids` GIN, and all three are ready to drop ([INDEXES.md](INDEXES.md)).
 
 ## 1. What fills the database
 

@@ -10,6 +10,12 @@ defmodule Bitblocks.DB.GinPending do
   each over 10 GB) that merge ran past the insert's 50 s statement timeout
   about 140 times a day, and each cancel left a tx for the block's retry.
 
+  The indexes are found in `pg_index` on every run (`indexes/1`), not
+  listed here, so a dropped index is skipped from the next run on with no
+  code change. `input_txids`, `output_script_hashes` and `aip_signers` are
+  ready to drop (docs/INDEXES.md); one dropped while a run is under way
+  fails that one cleanup, which is logged and doesn't stop the rest.
+
   `run/0` calls `gin_clean_pending_list/1` on each of them, so the merge
   happens here, a minute's worth at a time, instead of inside a sync insert.
   An insert that crosses the limit while this runs finds the cleanup lock

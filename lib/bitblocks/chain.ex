@@ -1579,28 +1579,6 @@ defmodule Bitblocks.Chain do
     for json <- list, {:ok, %{} = map} <- [Jason.decode(json)], do: map
   end
 
-  @script_history_limit 1000
-
-  @doc "The most rows `history_for_script_hash/1` returns."
-  def script_history_limit, do: @script_history_limit
-
-  @doc """
-  Transactions whose outputs include the given Electrum-convention scripthash
-  (GIN lookup on `output_script_hashes`), newest first.
-
-  This is the script-addressed analog of address history — it works for ANY
-  locking script, including custom/covenant scripts that have no address.
-  """
-  def history_for_script_hash(script_hash) when is_binary(script_hash) do
-    Repo.all(
-      from t in Transaction,
-        where: fragment("? @> ARRAY[?]::varchar[]", t.output_script_hashes, ^script_hash),
-        order_by: [desc: t.block_height],
-        limit: @script_history_limit,
-        select: %{txid: t.txid, block_height: t.block_height, block_hash: t.block_hash}
-    )
-  end
-
   @doc """
   Transactions carrying any output whose opcode skeleton matches the given
   template hash (GIN lookup on `output_template_hashes`), newest first.

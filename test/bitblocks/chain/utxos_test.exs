@@ -258,25 +258,6 @@ defmodule Bitblocks.Chain.UtxosTest do
     end
   end
 
-  describe "by scripthash" do
-    test "is exact only through the tip, like an address" do
-      completed_chain_fixture(5)
-      addr = address()
-      out = p2pkh(addr, 2_500)
-      t = tx([funding_outpoint()], [out])
-      txid = store(t, 5)
-      hash = Bitblocks.Script.script_hash(out.script)
-
-      assert %{status: :exact, outputs: [%{txid: ^txid, satoshis: 2_500, status: :unspent}]} =
-               Utxos.for_script_hash(hash)
-
-      block_fixture(%{height: 6, sync_state: "header_only"})
-
-      assert %{status: :partial, indexed_through_height: 5, outputs: [%{status: :unknown}]} =
-               Utxos.for_script_hash(hash)
-    end
-  end
-
   defp funding_outpoint, do: Bitblocks.OrdinalFixtures.funding_outpoint()
 
   defp sql_from_self(acc) do

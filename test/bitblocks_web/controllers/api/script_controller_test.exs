@@ -36,119 +36,65 @@ defmodule BitblocksWeb.Api.ScriptControllerTest do
     {tx, script_hash, template_hash}
   end
 
-  describe "GET /api/v1/script/:scripthash/history" do
-    test "returns transactions carrying the script", %{conn: conn} do
-      {tx, script_hash, _} = seed_tx_with_script(p2pkh_script(), %{block_height: 500})
+  # Script hash lookups would need the output_script_hashes GIN index, which
+  # is ready to drop (docs/INDEXES.md), so both answer a 400 that names the
+  # address endpoints, and never query transactions.
+  for path <- ["history", "unspent"] do
+    describe "GET /api/v1/script/:scripthash/#{path}" do
+      @path path
 
-      conn = get(conn, ~p"/api/v1/script/#{script_hash}/history")
+      test "says script hash lookups aren't indexed, and names the address endpoints",
+           %{conn: conn} do
+        {_tx, script_hash, _} = seed_tx_with_script(p2pkh_script(), %{block_height: 500})
 
-      assert %{"scripthash" => ^script_hash, "history" => [entry], "source" => "local"} =
-               json_response(conn, 200)
+        {conn, queries} =
+          capture_queries(fn -> get(conn, "/api/v1/script/#{script_hash}/#{@path}") end)
 
-      assert entry["txid"] == tx.txid
-      assert entry["block_height"] == 500
-    end
+        body = json_response(conn, 400)
+        assert body["error"] =~ "Script hash lookups aren't indexed"
+        assert body["scripthash"] == script_hash
 
-    test "says how far the history is complete, as address history does", %{conn: conn} do
-      completed_chain_fixture(5)
-      conn = get(conn, ~p"/api/v1/script/#{String.duplicate("aa", 32)}/history")
+        assert body["address_endpoints"] == [
+                 "/api/v1/addresses/:address/history",
+                 "/api/v1/addresses/:address/utxos"
+               ]
 
-      assert %{
-               "status" => "exact",
-               "indexed_through_height" => 5,
-               "tip_height" => 5,
-               "next_cursor" => nil,
-               "sources" => [%{"source" => "index", "from_height" => 0, "through_height" => 5}]
-             } = json_response(conn, 200)["meta"]
+        refute Enum.any?(queries, &(&1 =~ "output_script_hashes")), Enum.join(queries, "\n")
+      end
 
-      block_fixture(%{height: 6, sync_state: "header_only"})
-      conn = get(build_conn(), ~p"/api/v1/script/#{String.duplicate("aa", 32)}/history")
-      assert %{"status" => "partial", "tip_height" => 6} = json_response(conn, 200)["meta"]
-    end
-
-    test "empty history for an unseen scripthash", %{conn: conn} do
-      conn = get(conn, ~p"/api/v1/script/#{String.duplicate("aa", 32)}/history")
-      assert %{"history" => []} = json_response(conn, 200)
-    end
-
-    test "rejects a malformed scripthash", %{conn: conn} do
-      conn = get(conn, ~p"/api/v1/script/not-a-hash/history")
-      assert json_response(conn, 400)["error"] =~ "Invalid scripthash"
+      test "still rejects a malformed scripthash as malformed", %{conn: conn} do
+        conn = get(conn, "/api/v1/script/not-a-hash/#{@path}")
+        assert json_response(conn, 400)["error"] =~ "Invalid scripthash"
+      end
     end
   end
 
-  describe "GET /api/v1/script/:scripthash/unspent" do
-    # A real tx paying the script, stored through the pipeline into block 5
-    # of a chain synced 0..5.
-    defp store_paying_script(sats) do
-      completed_chain_fixture(5)
-      out = %BSV.TxOut{satoshis: sats, script: p2pkh_script()}
+  defp capture_queries(fun) do
+    parent = self()
+    id = "script-controller-#{inspect(parent)}"
 
-      {txid, hex} =
-        Bitblocks.OrdinalFixtures.tx([Bitblocks.OrdinalFixtures.funding_outpoint()], [out])
+    :telemetry.attach(
+      id,
+      [:bitblocks, :repo, :query],
+      fn _event, _measure, meta, _ ->
+        if self() == parent, do: send(parent, {:sql, meta.query})
+      end,
+      nil
+    )
 
-      block = Bitblocks.Repo.get_by!(Bitblocks.Chain.Block, height: 5)
-
-      :ok =
-        Bitblocks.Chain.TxIngest.store(
-          Bitblocks.Chain.RawBlock.tx_json(txid, Base.decode16!(hex, case: :mixed)),
-          block
-        )
-
-      txid
+    try do
+      result = fun.()
+      {result, drain_queries([])}
+    after
+      :telemetry.detach(id)
     end
+  end
 
-    test "is exact through the tip, and drops a spent output", %{conn: conn} do
-      txid = store_paying_script(50_000_001)
-      script_hash = Script.script_hash(p2pkh_script())
-
-      body = json_response(get(conn, ~p"/api/v1/script/#{script_hash}/unspent"), 200)
-
-      assert %{
-               "status" => "exact",
-               "indexed_through_height" => 5,
-               "tip_height" => 5,
-               "unknown" => [],
-               "unspent" => [%{"txid" => ^txid, "vout" => 0, "satoshis" => 50_000_001}]
-             } = body
-
-      # A spend recorded by a tx in a block we store: it drops out.
-      completed_chain_fixture(6)
-
-      spender =
-        transaction_fixture(%{
-          block_hash: "chain-6",
-          block_height: 6,
-          txid: String.duplicate("cd", 32)
-        })
-
-      Bitblocks.Repo.insert!(
-        Bitblocks.Chain.Spend.changeset(%Bitblocks.Chain.Spend{}, %{
-          txid: txid,
-          vout: 0,
-          spending_txid: spender.txid,
-          spending_vin: 0
-        })
-      )
-
-      body = json_response(get(build_conn(), ~p"/api/v1/script/#{script_hash}/unspent"), 200)
-      assert %{"status" => "exact", "unspent" => [], "unknown" => []} = body
-    end
-
-    test "says unknown, not unspent, while blocks above the index aren't synced", %{conn: conn} do
-      txid = store_paying_script(1_000)
-      block_fixture(%{height: 6, sync_state: "header_only"})
-      script_hash = Script.script_hash(p2pkh_script())
-
-      body = json_response(get(conn, ~p"/api/v1/script/#{script_hash}/unspent"), 200)
-
-      assert %{
-               "status" => "partial",
-               "indexed_through_height" => 5,
-               "tip_height" => 6,
-               "unspent" => [],
-               "unknown" => [%{"txid" => ^txid, "satoshis" => 1_000}]
-             } = body
+  defp drain_queries(acc) do
+    receive do
+      {:sql, q} -> drain_queries([q | acc])
+    after
+      0 -> Enum.reverse(acc)
     end
   end
 
