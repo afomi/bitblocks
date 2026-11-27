@@ -178,3 +178,7 @@ config :wallaby,
       }
     }
   ]
+
+# Sync.first_missing_below/1 counts every time in tests: they insert blocks and
+# read complete_through at once.
+config :bitblocks, :complete_through_cache_ms, 0
