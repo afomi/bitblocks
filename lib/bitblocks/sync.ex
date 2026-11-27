@@ -218,11 +218,42 @@ defmodule Bitblocks.Sync do
   The lowest height below `bound` with no stored block, or `bound` when
   0..bound-1 are all stored. Heights are unique, so a full count means no
   gap; only then is the gap looked for, stopping at the first.
+
+  Kept for `:complete_through_cache_ms` (5 s; 0 turns it off, as in tests)
+  per `bound`, in `Bitblocks.StatsCache`'s table: `complete_through/1` runs it
+  on every call, from pages, the API and the coordinator, and its count over
+  `blocks` was 11% of the database's load on prod (2026-11-26). The bound is
+  the lowest incomplete block, which moves only as the sync does, so the
+  answer is at most a few seconds old. With no cache table it counts.
   """
   @spec first_missing_below(non_neg_integer()) :: non_neg_integer()
   def first_missing_below(bound) when bound <= 0, do: 0
 
   def first_missing_below(bound) do
+    case Application.get_env(:bitblocks, :complete_through_cache_ms, 5_000) do
+      ttl when is_integer(ttl) and ttl > 0 -> cached_first_missing_below(bound, ttl)
+      _ -> count_first_missing_below(bound)
+    end
+  end
+
+  defp cached_first_missing_below(bound, ttl) do
+    key = {:first_missing_below, bound}
+    now = System.monotonic_time(:millisecond)
+
+    case :ets.lookup(Bitblocks.StatsCache, key) do
+      [{^key, missing, at}] when now - at < ttl ->
+        missing
+
+      _ ->
+        missing = count_first_missing_below(bound)
+        :ets.insert(Bitblocks.StatsCache, {key, missing, now})
+        missing
+    end
+  rescue
+    ArgumentError -> count_first_missing_below(bound)
+  end
+
+  defp count_first_missing_below(bound) do
     stored = Repo.one(from(b in Block, where: b.height < ^bound, select: count()))
 
     if stored == bound do

@@ -511,6 +511,41 @@ defmodule Bitblocks.SyncTest do
     end
   end
 
+  describe "first_missing_below/1's cache" do
+    setup do
+      Application.put_env(:bitblocks, :complete_through_cache_ms, 60_000)
+      on_exit(fn -> Application.put_env(:bitblocks, :complete_through_cache_ms, 0) end)
+      :ets.match_delete(Bitblocks.StatsCache, {{:first_missing_below, :_}, :_, :_})
+      :ok
+    end
+
+    test "answers a repeat from the cache, with no query" do
+      for h <- 0..2, do: block_at(h, "completed")
+      assert Sync.first_missing_below(3) == 3
+
+      handler = "first-missing-#{System.unique_integer()}"
+      parent = self()
+
+      :telemetry.attach(
+        handler,
+        [:bitblocks, :repo, :query],
+        fn _, _, _, _ -> send(parent, :query) end,
+        nil
+      )
+
+      on_exit(fn -> :telemetry.detach(handler) end)
+
+      assert Sync.first_missing_below(3) == 3
+      refute_received :query
+    end
+
+    test "a new bound is counted, not served from another bound's entry" do
+      for h <- 0..2, do: block_at(h, "completed")
+      assert Sync.first_missing_below(3) == 3
+      assert Sync.first_missing_below(5) == 3
+    end
+  end
+
   describe "concurrency" do
     test "is clamped to the computed limit, and the reason is named" do
       Application.put_env(:bitblocks, :sync_rpc_limit, 2)
