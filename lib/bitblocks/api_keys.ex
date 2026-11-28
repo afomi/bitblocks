@@ -12,6 +12,9 @@ defmodule Bitblocks.ApiKeys do
   A key can also hold scopes (#50). A new key has none, and neither does an
   existing one: `ops_read` is only ever granted by name, at creation or with
   `grant_scope/2`, and `BitblocksWeb.Plugs.RequireScope` refuses everyone else.
+  `unbudgeted`, granted the same way, takes a key out of the rate budget
+  altogether (`BitblocksWeb.Plugs.RateLimiter`): never a 429 or a 402, still
+  metered under the key.
 
   A signed-in user can take one trial key from `/start` (#59), with a small
   budget and no scopes. Replacing it revokes the old one.

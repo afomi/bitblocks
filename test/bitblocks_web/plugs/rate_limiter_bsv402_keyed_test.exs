@@ -231,6 +231,94 @@ defmodule BitblocksWeb.Plugs.RateLimiterBsv402KeyedTest do
     end
   end
 
+  # qart's own key: no budget at all (the unbudgeted scope), still metered.
+  describe "an unbudgeted key" do
+    setup do
+      {:ok, key, token} = ApiKeys.create("qart-unbudgeted", 1, scopes: ["unbudgeted"])
+      %{free_key: key, free_token: token}
+    end
+
+    test "well past its rpm is served, uncounted, with no x-ratelimit-* headers, metered under the key",
+         %{free_key: key, free_token: token} do
+      for _ <- 1..5 do
+        conn = request(token)
+
+        assert conn.status == 200
+        assert get_resp_header(conn, "x-ratelimit-limit") == []
+        assert get_resp_header(conn, "x-ratelimit-remaining") == []
+        assert get_resp_header(conn, "retry-after") == []
+        assert get_resp_header(conn, "x-bsv-sats") == []
+        assert Bitblocks.Usage.caller(conn) == {"key", to_string(key.id)}
+      end
+
+      assert counted(key) == 0
+
+      %{totals: totals} = Bitblocks.Usage.caller_usage({"key", to_string(key.id)})
+      assert totals.requests == 5
+    end
+
+    test "with BSV 402 on, never a 402, and a payment it sends isn't taken",
+         %{free_token: token} do
+      node_takes_it()
+
+      for _ <- 1..3, do: assert(request(token).status == 200)
+
+      conn = quietly(fn -> request(token, payment().headers) end)
+      assert conn.status == 200
+      assert get_resp_header(conn, "x-bsv-txid") == []
+      assert RpcStub.calls(:sendrawtransaction) == []
+      assert Repo.aggregate(BsvPayment, :count) == 0
+    end
+
+    test "with x402 on as well, never offered either", %{free_token: token} do
+      x402_on()
+
+      for _ <- 1..3 do
+        conn = request(token)
+        assert conn.status == 200
+        assert get_resp_header(conn, "payment-required") == []
+      end
+    end
+
+    test "revoked, it is a 401", %{free_key: key, free_token: token} do
+      assert request(token).status == 200
+      {:ok, _} = ApiKeys.revoke(key.id)
+
+      conn = quietly(fn -> request(token) end)
+      assert conn.status == 401
+      assert get_resp_header(conn, "x-bsv-sats") == []
+    end
+
+    test "the scope is granted only by name; unknown scopes are still refused", %{key: key} do
+      assert key.scopes == []
+      assert "unbudgeted" in Bitblocks.ApiKeys.ApiKey.scopes()
+
+      assert Bitblocks.ApiKeys.ApiKey.changeset(%Bitblocks.ApiKeys.ApiKey{}, %{
+               name: "x",
+               token_hash: "h",
+               prefix: "p",
+               requests_per_minute: 1,
+               scopes: ["unbudgeted"]
+             }).valid?
+
+      assert {:error, %Ecto.Changeset{}} = ApiKeys.create("x", 1, scopes: ["unlimited"])
+      assert {:error, %Ecto.Changeset{}} = ApiKeys.grant_scope(key.id, "no_budget")
+      assert {:ok, %{scopes: ["unbudgeted"]}} = ApiKeys.grant_scope(key.id, "unbudgeted")
+      assert {:ok, ["unbudgeted"]} = Bitblocks.Release.grant_api_key_scope(key.id, "unbudgeted")
+
+      assert Enum.any?(Bitblocks.Release.list_api_keys(), fn row ->
+               elem(row, 0) == key.id and elem(row, 4) == ["unbudgeted"]
+             end)
+    end
+
+    test "a key without the scope is still limited beside it", %{token: token, free_token: free} do
+      assert request(token).status == 200
+      assert request(free).status == 200
+      assert quietly(fn -> request(token) end).status == 402
+      assert request(free).status == 200
+    end
+  end
+
   describe "a bad key" do
     test "is a 401, never a 402, even carrying a payment", %{key: key, token: token} do
       node_takes_it()
@@ -318,9 +406,11 @@ defmodule BitblocksWeb.Plugs.RateLimiterBsv402KeyedTest do
       assert @doc_map["price_sats"] == @price
     end
 
-    test "cover what qart stubs: under budget, over, paid, replayed and a bad key" do
+    test "cover what qart stubs: under budget, over, paid, replayed, a bad key and unbudgeted" do
       ids = Enum.map(@doc_map["keyed"], & &1["id"])
-      assert ids == ~w(keyed-under-budget keyed-over-budget keyed-pays keyed-replay keyed-bad-key)
+
+      assert ids ==
+               ~w(keyed-under-budget keyed-over-budget keyed-pays keyed-replay keyed-bad-key keyed-unbudgeted)
     end
 
     for vector <- @doc_map["keyed"] do
@@ -332,7 +422,11 @@ defmodule BitblocksWeb.Plugs.RateLimiterBsv402KeyedTest do
 
         if api_key["registered"] do
           hash = :crypto.hash(:sha256, api_key["token"]) |> Base.encode16(case: :lower)
-          {:ok, _} = ApiKeys.create_from_hash("vectors", api_key["requests_per_minute"], hash)
+
+          {:ok, _} =
+            ApiKeys.create_from_hash("vectors", api_key["requests_per_minute"], hash,
+              scopes: Map.get(api_key, "scopes", [])
+            )
         end
 
         for _ <- List.duplicate(nil, api_key["spent"]) do

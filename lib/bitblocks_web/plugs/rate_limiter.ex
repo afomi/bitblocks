@@ -165,6 +165,12 @@ defmodule BitblocksWeb.Plugs.RateLimiter do
   (`caller: "key:<id>"`), so the key's record holds the payment's txid.
   (BSV 402 slice B, for qart's server; `docs/BSV_402.md`.)
 
+  A key holding the `unbudgeted` scope skips all of this: it is never
+  counted, never refused for its rate and never offered a payment, and its
+  responses carry no `x-ratelimit-*` headers, since there is no limit to
+  report. It is still assigned as `:api_key`, so `Bitblocks.Usage` meters it.
+  The scope grants nothing to an unknown or revoked key: that's still a 401.
+
   ## Cluster awareness (T1/T12)
 
   The counter is node-local ETS. When the app runs as a cluster, each admitted
@@ -219,12 +225,17 @@ defmodule BitblocksWeb.Plugs.RateLimiter do
 
       token ->
         case Bitblocks.ApiKeys.verify(token) do
-          # A keyed caller has its own budget, whatever its IP (qart's server
-          # serves many visitors from one address).
+          # A key holding `unbudgeted` (qart's own) has no budget at all: no
+          # counting, no 429, no 402, no x-ratelimit-* headers. Still metered
+          # under the key (Bitblocks.Usage reads :api_key).
+          # Otherwise a keyed caller has its own budget, whatever its IP
+          # (qart's server serves many visitors from one address).
           %{id: id, requests_per_minute: rpm} = key ->
-            conn
-            |> assign(:api_key, key)
-            |> limit("key:#{id}", now, window_ms, rpm, :api_key)
+            conn = assign(conn, :api_key, key)
+
+            if Bitblocks.ApiKeys.scope?(key, "unbudgeted"),
+              do: assign_tier(conn, :api_key),
+              else: limit(conn, "key:#{id}", now, window_ms, rpm, :api_key)
 
           # A bad key is refused loudly rather than treated as anonymous, but
           # only within the IP's budget (a crawler's, its family's), so random
