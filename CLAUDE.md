@@ -227,6 +227,11 @@ bin/bitblocks rpc 'Bitblocks.Release.sync_headers(0, 100_000)'
 bin/bitblocks rpc 'Bitblocks.Release.reopen_short_blocks(120_160, 120_160)'
 bin/bitblocks rpc 'Bitblocks.Release.reopen_short_blocks(120_160, 120_160, apply: true)'
 
+# Completed blocks with no coinbase flagged (a coinbase the strict decoder rejected, before 2026-11-28):
+# flags the one row that spends the null outpoint; then backfill_tx_tallies over the range. Dry run first.
+bin/bitblocks rpc 'Bitblocks.Release.flag_coinbases(401_000, 440_000) |> IO.inspect()'
+bin/bitblocks rpc 'Bitblocks.Release.flag_coinbases(401_000, 440_000, apply: true) |> IO.inspect()'
+
 # Check gaps and status
 bin/bitblocks rpc 'Bitblocks.Release.gaps()'
 bin/bitblocks rpc 'Bitblocks.Release.sync_status()'

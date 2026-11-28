@@ -421,12 +421,24 @@ defmodule Bitblocks.TransactionParser do
   def extract_output_addresses(_), do: []
 
   @doc """
-  Checks if a transaction is a coinbase transaction.
+  Checks if a transaction is a coinbase transaction: its first input spends
+  the null outpoint (all-zero hash, index 0xFFFFFFFF).
+
+  Read from the outpoint, not only from `script.coinbase`: the strict decoder
+  sets that field, but the tolerant one (`Chain.RawTx`, the fallback for a tx
+  with an output script that doesn't parse as opcodes) parses every input
+  script as chunks. A coinbase whose miner tag output held a truncated push
+  (1Hash's and Bitcoin India's, around blocks 401,000..439,000) took that
+  fallback and was stored with `coinbase` false, so its block had no miner
+  reward and no block totals.
   """
   def is_coinbase?(%BSV.Tx{} = tx) do
     case tx.inputs do
-      [first_input | _] ->
-        first_input.script.coinbase != nil
+      [%BSV.TxIn{script: %BSV.Script{coinbase: data}} | _] when is_binary(data) ->
+        true
+
+      [%BSV.TxIn{outpoint: %BSV.OutPoint{hash: <<0::256>>, vout: 0xFFFFFFFF}} | _] ->
+        true
 
       _ ->
         false

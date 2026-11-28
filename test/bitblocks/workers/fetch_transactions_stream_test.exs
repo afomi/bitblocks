@@ -163,6 +163,51 @@ defmodule Bitblocks.Workers.FetchTransactionsStreamTest do
     no_per_tx_calls!()
   end
 
+  # Every chunk is confirmed stored by txid, so a tx already stored under
+  # another stored block passed as present and the block completed short of
+  # its rows. Completion counts the rows under the block's own hash.
+  test "a tx stored under another stored block leaves the streamed block failed", %{big: big} do
+    other = block_fixture(%{height: 1, hash: "stream_other_stored_block"})
+    elsewhere = Enum.at(big.txids, 5)
+    transaction_fixture(%{txid: elsewhere, block_hash: other.hash, block_height: 1})
+
+    block = header(big, %{size: byte_size(big.bytes)})
+    RpcStub.stub_rest_block(big.hash, {:ok, big.bytes})
+
+    assert {:snooze, _} =
+             FetchTransactionsWorker.perform(%Oban.Job{args: %{"block_hash" => block.hash}})
+
+    failed = Chain.get_block!(0)
+    assert failed.sync_state == "failed"
+    assert failed.tx_sync_error =~ "incomplete"
+    assert Chain.get_transaction!(elsewhere).block_hash == other.hash
+  end
+
+  # The first tx is the coinbase. One stored earlier without the flag is
+  # skipped as present, so completion flags it, across resumed runs too.
+  test "the block's first tx is flagged its coinbase on completion, after resumed runs",
+       %{big: big} do
+    Application.put_env(:bitblocks, :tx_fetch_run_ms, 0)
+    [first | _] = big.txids
+    transaction_fixture(%{txid: first, block_hash: big.hash, block_height: 0, coinbase: false})
+
+    block = header(big, %{size: byte_size(big.bytes)})
+    RpcStub.stub_rest_block(big.hash, {:ok, big.bytes})
+    {:ok, job} = Oban.insert(FetchTransactionsWorker.new(%{block_hash: block.hash}))
+
+    result =
+      Enum.reduce_while(1..10, nil, fn _, _ ->
+        case perform(job) do
+          :ok -> {:halt, :ok}
+          other -> {:cont, other}
+        end
+      end)
+
+    assert result == :ok
+    assert Chain.get_block!(0).sync_state == "completed"
+    assert Chain.get_transaction!(first).coinbase == true
+  end
+
   test "a resumed run refills a tx that went missing from the stored region", %{big: big} do
     Application.put_env(:bitblocks, :tx_fetch_run_ms, 0)
     block = header(big, %{size: byte_size(big.bytes)})

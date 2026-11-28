@@ -278,8 +278,13 @@ defmodule Bitblocks.Chain.TxIngest do
     %{
       txid: tx_json["txid"],
       raw: tx_json["hex"],
-      block_hash: tx_json["blockhash"] || block.hash,
-      block_height: tx_json["height"] || block.height,
+      # The block the caller stores the tx for is its place: the sync's is
+      # the block whose verified txid list holds it, and every other caller
+      # builds its block from the tx's own. A `blockhash` in the JSON (from
+      # the node or WhatsOnChain) only fills in when the caller has none, so
+      # a source answering with another block never files the row elsewhere.
+      block_hash: block.hash || tx_json["blockhash"],
+      block_height: block.height || tx_json["height"],
       version: to_string(tx_json["version"] || 1),
       inputs: inputs,
       input_txids: TransactionParser.extract_input_txids(inputs),

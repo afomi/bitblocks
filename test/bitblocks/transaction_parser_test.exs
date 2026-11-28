@@ -239,6 +239,34 @@ defmodule Bitblocks.TransactionParserTest do
     end
   end
 
+  describe "analyze/1 on a coinbase the strict decoder rejects" do
+    # Block 403,534's coinbase (1Hash): its second output is OP_RETURN and
+    # a push of 40 bytes in a 37-byte script, so BSV.Tx.from_binary rejects
+    # it and analysis falls back to Chain.RawTx, which parses the coinbase
+    # input as script chunks. Stored with coinbase false, its block had no
+    # miner reward and no totals.
+    @coinbase_403_534 "01000000010000000000000000000000000000000000000000000000000000000000000000" <>
+                        "ffffffff04034e2806ffffffff0200f90295000000001976a91499c02ebccad91945bcb4" <>
+                        "69e5a66240b3c7ee614e88ac0000000000000000256a28124d696e656420627920316861" <>
+                        "73682e636f6d468b298a735f6eac735f6eacbc1f00c400000000"
+
+    test "is flagged a coinbase" do
+      assert {:error, _} = Bitblocks.Chain.SafeTx.from_hex(@coinbase_403_534)
+
+      assert {:ok, meta} = TransactionParser.analyze(@coinbase_403_534)
+      assert meta.coinbase == true
+    end
+
+    test "is_coinbase?/1 reads the null outpoint from the tolerant parser's tx" do
+      {:ok, tx} = Bitblocks.Chain.RawTx.parse(@coinbase_403_534)
+      assert TransactionParser.is_coinbase?(tx)
+
+      # An ordinary spend that takes the same fallback is not.
+      {:ok, spend} = Bitblocks.Chain.RawTx.parse(@tx_hex)
+      refute TransactionParser.is_coinbase?(spend)
+    end
+  end
+
   describe "script_analysis_version/0" do
     test "returns version 7 (template hashes name each opcode byte once)" do
       assert TransactionParser.script_analysis_version() == 7
