@@ -1,8 +1,8 @@
 defmodule BitblocksWeb.PaymentRequiredHTML do
   @moduledoc """
   The body of the 402 that `BitblocksWeb.Plugs.RateLimiter` sends past a
-  shared budget: an AI crawler family's, or the one every caller with no key
-  and no session shares. It is a doorway, not a wall: it says why, then the
+  shared budget (an AI crawler family's, or the one every caller with no key
+  and no session shares), or past a key's own budget while BSV 402 is on. It is a doorway, not a wall: it says why, then the
   ways in, in order (sign in, a free key by signing a challenge, a plan, and
   for agents, paying for the request with x402 or in BSV, each when it's on).
 
@@ -17,7 +17,7 @@ defmodule BitblocksWeb.PaymentRequiredHTML do
   embed_templates "payment_required_html/*"
 
   @type refusal :: %{
-          tier: :anonymous_site | {:ai_crawler, String.t()},
+          tier: :anonymous_site | :api_key | {:ai_crawler, String.t()},
           limit: pos_integer(),
           retry_after_s: pos_integer(),
           x402: boolean(),
@@ -72,6 +72,10 @@ defmodule BitblocksWeb.PaymentRequiredHTML do
       "and that budget is spent for now."
   end
 
+  defp why(%{tier: :api_key, limit: limit}) do
+    "Your API key's budget of #{limit} requests a minute is spent for now."
+  end
+
   defp site, do: BitblocksWeb.Endpoint.url()
 
   defp bsv?(refusal), do: Map.get(refusal, :bsv, false) == true
@@ -108,12 +112,20 @@ defmodule BitblocksWeb.PaymentRequiredHTML do
       case tier do
         {:ai_crawler, family} -> {"ai_crawler_rate_limited", family}
         :anonymous_site -> {"anonymous_rate_limited", nil}
+        :api_key -> {"api_key_rate_limited", nil}
+      end
+
+    budget =
+      case tier do
+        {:ai_crawler, _} -> "crawler_family"
+        :anonymous_site -> "anonymous_site"
+        :api_key -> "api_key"
       end
 
     %{
       error: error,
-      message: why(refusal) <> " Reading at scale takes a key; a key is free to get.",
-      budget: if(family, do: "crawler_family", else: "anonymous_site"),
+      message: why(refusal) <> more(tier),
+      budget: budget,
       crawler_family: family,
       limit_per_minute: refusal.limit,
       retry_after_seconds: refusal.retry_after_s,
@@ -129,6 +141,11 @@ defmodule BitblocksWeb.PaymentRequiredHTML do
     }
     |> put_bsv_refused(Map.get(refusal, :bsv_refused))
   end
+
+  defp more(:api_key),
+    do: " Pay for this request in BSV, or wait for the budget to open; a plan raises it."
+
+  defp more(_tier), do: " Reading at scale takes a key; a key is free to get."
 
   # Why a BSV payment on this request wasn't taken.
   defp put_bsv_refused(json, %{reason: reason, detail: detail}),

@@ -336,6 +336,8 @@ defmodule Bitblocks.Payments.Bsv402 do
     * `:tip`: our tip height;
     * `:broadcast`: `fn raw_tx -> node_answer end`, our node by default (`broadcast/1`);
     * `:denied?`: `fn sender_key_hex -> boolean end`, the deny list by default;
+    * `:caller`: who the claimed row names, the payer's identity key by
+      default (`"key:<id>"` for a keyed caller, `RateLimiter`);
     * `:max_beef_bytes`.
 
   `{:ok, accepted}` to serve the request, or `{:error, refused}` with the
@@ -354,7 +356,7 @@ defmodule Bitblocks.Payments.Bsv402 do
          {:ok, identity} <- identity_opt(opts),
          {:ok, satoshis} <- output(raw, fields, identity, price_opt(opts)),
          :ok <- proven(beef, opts),
-         :ok <- claim(beef.subject, raw, satoshis, fields, request_hash, price_opt(opts)),
+         :ok <- claim(beef.subject, raw, satoshis, fields, request_hash, opts),
          :ok <- send_to_node(beef.subject, raw, opts) do
       {:ok, accepted(:accepted, beef.subject, fields, satoshis)}
     else
@@ -563,8 +565,9 @@ defmodule Bitblocks.Payments.Bsv402 do
   end
 
   # 7. One insert behind the unique txid: of two requests, one wins.
-  defp claim(txid, raw, satoshis, fields, request_hash, price) do
+  defp claim(txid, raw, satoshis, fields, request_hash, opts) do
     stamp = DateTime.utc_now()
+    price = price_opt(opts)
 
     row = %{
       txid: txid,
@@ -578,7 +581,7 @@ defmodule Bitblocks.Payments.Bsv402 do
       envelope: "brc121",
       price_sats: price,
       status: "accepted",
-      caller: hex(fields.sender),
+      caller: Keyword.get_lazy(opts, :caller, fn -> hex(fields.sender) end),
       accepted_at: stamp,
       inserted_at: stamp,
       updated_at: stamp

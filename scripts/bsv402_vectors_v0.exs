@@ -127,6 +127,117 @@ cases = [
   end)
   |> Enum.unzip()
 
+# Keyed: a caller with an API key past its own budget (docs/BSV_402.md, slice
+# B). Added 2026-11-27; the vectors above are unchanged. The tokens are made
+# from labels like the keys: 32 bytes, as a real key holds.
+token = fn text -> "bbk_" <> Base.url_encode64(F.label(text), padding: false) end
+keyed_token = token.("keyed api key")
+unknown_token = token.("unknown api key")
+keyed_rpm = 1
+server_key = hex.(server_pub)
+
+terms = [{"x-bsv-sats", Integer.to_string(price)}, {"x-bsv-server", server_key}]
+
+limit_headers = [
+  {"x-ratelimit-limit", Integer.to_string(keyed_rpm)},
+  {"x-ratelimit-remaining", "0"}
+]
+
+keyed_body = [error: "api_key_rate_limited", budget: "api_key", limit_per_minute: keyed_rpm]
+
+keyed_cases = [
+  {"keyed-under-budget", "A key within its budget: served free, counted against the key.",
+   keyed_token, 0, nil, [], "accept",
+   [
+     status: 200,
+     outcome: "served",
+     reason: nil,
+     headers: limit_headers,
+     headers_absent: ["x-bsv-txid"]
+   ]},
+  {"keyed-over-budget",
+   "A key past its budget, no payment: a 402 with BRC-121's terms, where it was a 429.",
+   keyed_token, keyed_rpm, nil, [], "accept",
+   [
+     status: 402,
+     outcome: "payment_required",
+     reason: nil,
+     headers: terms ++ limit_headers,
+     headers_present: ["retry-after"],
+     body: keyed_body
+   ]},
+  {"keyed-pays",
+   "A key past its budget, paying: served, with what was paid, outside the key's budget.",
+   keyed_token, keyed_rpm, [], [], "accept",
+   [status: 200, outcome: "accepted", reason: nil, headers: :paid]},
+  {"keyed-replay", "A key past its budget, its payment's txid already bought another request.",
+   keyed_token, keyed_rpm, [], [other_request], "accept",
+   [
+     status: 402,
+     outcome: "refused",
+     reason: "replayed",
+     headers: [{"x-bsv-refused", "replayed"} | terms],
+     body: keyed_body ++ [payment_refused: O.new(protocol: "BRC-121", reason: "replayed")]
+   ]},
+  {"keyed-bad-key", "An unknown key with a payment: a 401, never a 402; the payment isn't read.",
+   unknown_token, 0, [], [], "accept",
+   [
+     status: 401,
+     outcome: "refused",
+     reason: "invalid_api_key",
+     headers_absent: ["x-bsv-sats", "x-bsv-server", "x-bsv-txid"],
+     body: [error: "Invalid API key (unknown or revoked)"]
+   ]}
+]
+
+{keyed, keyed_headers} =
+  keyed_cases
+  |> Enum.with_index(length(cases))
+  |> Enum.map(fn {{id, what, key_token, spent, pay_opts, claimed, node, expected}, index} ->
+    {txid, header, payment} =
+      if pay_opts, do: build.(index, id, pay_opts), else: {nil, nil, nil}
+
+    headers =
+      case expected[:headers] do
+        :paid -> [{"x-bsv-payment-satoshis-paid", Integer.to_string(price)}, {"x-bsv-txid", txid}]
+        nil -> []
+        list -> list
+      end
+
+    vector =
+      O.new(
+        id: id,
+        case: what,
+        envelope: "brc121",
+        api_key:
+          O.new(
+            token: key_token,
+            registered: key_token == keyed_token,
+            requests_per_minute: keyed_rpm,
+            spent: spent
+          ),
+        request: request,
+        request_headers: O.new(authorization: "Bearer " <> key_token),
+        payment: payment,
+        txid: txid,
+        claimed: Enum.map(claimed, &O.new(txid: txid, request: &1)),
+        node: node,
+        expected:
+          O.new(
+            status: expected[:status],
+            outcome: expected[:outcome],
+            reason: expected[:reason],
+            headers: O.new(headers),
+            headers_present: Keyword.get(expected, :headers_present, []),
+            headers_absent: Keyword.get(expected, :headers_absent, []),
+            body: if(expected[:body], do: O.new(expected[:body]))
+          )
+      )
+
+    {vector, header}
+  end)
+  |> Enum.unzip()
+
 doc =
   O.new(
     name: "bitblocks-bsv402-vectors",
@@ -181,8 +292,22 @@ doc =
     window_ms: Bsv402.window_ms(),
     price_sats: price,
     max_beef_bytes: max_beef_bytes,
-    headers: Enum.reject(headers, &is_nil/1),
-    vectors: vectors
+    headers: Enum.reject(headers ++ keyed_headers, &is_nil/1),
+    vectors: vectors,
+    changes: [
+      O.new(
+        date: "2026-11-27",
+        change:
+          "Added keyed: a caller with an API key past its own budget. The vectors before it are unchanged."
+      )
+    ],
+    keyed_how_to_use: [
+      "These run through the server's HTTP front, not the verifier alone: register api_key.token (when registered is true) as a key of requests_per_minute, and make spent requests with it, within the minute, before the vector's own.",
+      "Then send request with request_headers and, when payment isn't null, the payment headers, under the same clock, headers and node as the vectors above.",
+      "Compare status, each entry in expected.headers exactly, that each of headers_present is there and each of headers_absent isn't, and that the JSON body holds every field in expected.body.",
+      "outcome served or accepted: within the key's budget or paid; a paid request isn't counted against the key's budget. payment_required: past it, the terms given. refused: a payment refused (402 with the terms again), or a key refused (401, and no terms, since a payment can't mend a bad key)."
+    ],
+    keyed: keyed
   )
 
 if "--write" in System.argv() do
