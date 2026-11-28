@@ -133,6 +133,7 @@ cases = [
 token = fn text -> "bbk_" <> Base.url_encode64(F.label(text), padding: false) end
 keyed_token = token.("keyed api key")
 unknown_token = token.("unknown api key")
+unbudgeted_token = token.("unbudgeted api key")
 keyed_rpm = 1
 server_key = hex.(server_pub)
 
@@ -187,6 +188,24 @@ keyed_cases = [
      reason: "invalid_api_key",
      headers_absent: ["x-bsv-sats", "x-bsv-server", "x-bsv-txid"],
      body: [error: "Invalid API key (unknown or revoked)"]
+   ]},
+  # Added 2026-11-28: a key holding the unbudgeted scope has no budget at all.
+  {"keyed-unbudgeted",
+   "A key holding the unbudgeted scope, well past its requests_per_minute: served free, never a 429 or a 402, and no x-ratelimit-* headers, since there is no limit to report.",
+   unbudgeted_token, 2, nil, [], "accept",
+   [
+     status: 200,
+     outcome: "served",
+     reason: nil,
+     headers_absent: [
+       "x-bsv-sats",
+       "x-bsv-server",
+       "x-bsv-txid",
+       "x-ratelimit-limit",
+       "x-ratelimit-remaining",
+       "retry-after"
+     ],
+     scopes: ["unbudgeted"]
    ]}
 ]
 
@@ -211,10 +230,13 @@ keyed_cases = [
         envelope: "brc121",
         api_key:
           O.new(
-            token: key_token,
-            registered: key_token == keyed_token,
-            requests_per_minute: keyed_rpm,
-            spent: spent
+            [
+              token: key_token,
+              registered: key_token != unknown_token,
+              requests_per_minute: keyed_rpm,
+              spent: spent
+            ] ++
+              if(expected[:scopes], do: [scopes: expected[:scopes]], else: [])
           ),
         request: request,
         request_headers: O.new(authorization: "Bearer " <> key_token),
@@ -299,13 +321,19 @@ doc =
         date: "2026-11-27",
         change:
           "Added keyed: a caller with an API key past its own budget. The vectors before it are unchanged."
+      ),
+      O.new(
+        date: "2026-11-28",
+        change:
+          "Added keyed-unbudgeted: a key holding the unbudgeted scope has no budget, so it is served past its requests_per_minute, with no x-ratelimit-* headers. api_key.scopes appears on that vector only. The vectors before it are unchanged."
       )
     ],
     keyed_how_to_use: [
       "These run through the server's HTTP front, not the verifier alone: register api_key.token (when registered is true) as a key of requests_per_minute, and make spent requests with it, within the minute, before the vector's own.",
       "Then send request with request_headers and, when payment isn't null, the payment headers, under the same clock, headers and node as the vectors above.",
       "Compare status, each entry in expected.headers exactly, that each of headers_present is there and each of headers_absent isn't, and that the JSON body holds every field in expected.body.",
-      "outcome served or accepted: within the key's budget or paid; a paid request isn't counted against the key's budget. payment_required: past it, the terms given. refused: a payment refused (402 with the terms again), or a key refused (401, and no terms, since a payment can't mend a bad key)."
+      "outcome served or accepted: within the key's budget or paid; a paid request isn't counted against the key's budget. payment_required: past it, the terms given. refused: a payment refused (402 with the terms again), or a key refused (401, and no terms, since a payment can't mend a bad key).",
+      "When api_key.scopes is there, register the key holding those scopes. unbudgeted: the key has no rate budget, so it is never refused for its rate or offered a payment, and its responses carry no x-ratelimit-* headers."
     ],
     keyed: keyed
   )

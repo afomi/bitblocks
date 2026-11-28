@@ -345,6 +345,10 @@ bin/bitblocks rpc 'Bitblocks.Release.x402_reconcile()'
 bin/bitblocks rpc 'Bitblocks.Release.x402_create_deposit_address(network: "base")'
 bin/bitblocks rpc 'Bitblocks.Release.x402_create_deposit_address(network: "base", apply: true)'
 
+# API keys: list with scopes (never the key), then grant one by id; unbudgeted takes a key out of the rate budget, still metered
+bin/bitblocks rpc 'Bitblocks.Release.list_api_keys() |> IO.inspect()'
+bin/bitblocks rpc 'Bitblocks.Release.grant_api_key_scope(<key id>, "unbudgeted")'
+
 # Measured usage, nobody charged (#61, docs/USAGE_METERING.md): by endpoint class and caller, over the last N hours (default 24)
 bin/bitblocks rpc 'Bitblocks.Release.usage_report()'
 bin/bitblocks rpc 'Bitblocks.Release.usage_report(hours: 720, limit: 50)'
@@ -372,6 +376,8 @@ Plans are `BILLING_PLANS` in the secret, never in the repo; unset, `/pricing` sh
 A wallet or agent can take one with no account by signing a challenge (#121): `GET /api/v1/keys/challenge`, then `POST /api/v1/keys` with `challenge`, `signature` (Bitcoin Signed Message, base64) and, best, `address`; the key is bound to the signing address, one active key each (signing again replaces it), the trial budget, no scopes; redeeming is limited per IP and site-wide (`ApiKeys.issue_signed/4`, `BitblocksWeb.Api.KeyController`).
 The message's last line is `Expires: <ISO 8601>`, rebuilt from the challenge token, which still enforces the expiry; both routes work from a browser on any site (CORS under Access above).
 A key can hold scopes, none by default: `ops_read` opens `/api/v1/ops/*`, given with `scopes: ["ops_read"]` on either create function or `Release.grant_api_key_scope/2`. A key without it gets a 403.
+`unbudgeted`, granted the same way, takes a key out of the rate budget (qart's own key): never counted, never a 429 or a 402, no `x-ratelimit-*` headers, still metered under the key; revoked, it is a 401 like any other.
+`Release.list_api_keys/0` lists keys with their scopes (never the key), which is how to find a key's id by its name.
 
 ```
 GET /api/v1/blocks              — paginated block list

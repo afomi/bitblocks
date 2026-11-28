@@ -2182,7 +2182,12 @@ defmodule Bitblocks.Release do
     end)
   end
 
-  @doc "Lists API keys as `{id, name, prefix, requests_per_minute, revoked_at}`."
+  @doc """
+  Lists API keys as `{id, name, prefix, requests_per_minute, scopes, revoked_at}`.
+  Never the key itself. Find a key's id by its name here, for the grant below.
+
+      bin/bitblocks rpc 'Bitblocks.Release.list_api_keys() |> IO.inspect()'
+  """
   def list_api_keys do
     for k <- Bitblocks.ApiKeys.list(),
         do: {k.id, k.name, k.prefix, k.requests_per_minute, k.scopes, k.revoked_at}
@@ -2192,6 +2197,11 @@ defmodule Bitblocks.Release do
   Grants a scope to an existing key. Keys hold none until granted.
 
       bin/bitblocks rpc 'Bitblocks.Release.grant_api_key_scope(3, "ops_read")'
+
+  `unbudgeted` takes the key out of the rate budget: never a 429 or a 402,
+  no `x-ratelimit-*` headers, still metered under the key.
+
+      bin/bitblocks rpc 'Bitblocks.Release.grant_api_key_scope(3, "unbudgeted")'
   """
   def grant_api_key_scope(id, scope) do
     case Bitblocks.ApiKeys.grant_scope(id, scope) do

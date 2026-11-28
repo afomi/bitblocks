@@ -4,7 +4,9 @@ defmodule Bitblocks.ApiKeys.ApiKey do
   use Ecto.Schema
   import Ecto.Changeset
 
-  @scopes ~w(ops_read)
+  # ops_read: opens /api/v1/ops/*. unbudgeted: no rate budget at all, never a
+  # 429 or a 402, still metered (BitblocksWeb.Plugs.RateLimiter).
+  @scopes ~w(ops_read unbudgeted)
 
   @type t :: %__MODULE__{}
 
