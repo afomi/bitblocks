@@ -373,6 +373,36 @@ defmodule Bitblocks.Chain.TxPipelineTest do
       assert stamp == TxPipeline.version(:block_totals)
     end
 
+    # Genesis, and the two BIP30 blocks whose coinbase rows sit under 91,880
+    # and 91,842: their reward is known, so they are stamped, not left NULL.
+    test "the three blocks that can't hold their coinbase row are stamped with its known reward" do
+      genesis = block_fixture(%{height: 0, sync_state: "completed"})
+      TxPipeline.run_block(genesis)
+
+      assert %{miner_reward: @fifty_btc, fees: 0, fees_verified: true, tallies_version: stamp} =
+               Repo.reload!(genesis)
+
+      assert stamp == TxPipeline.version(:block_totals)
+
+      # 91,812: its coinbase row is under 91,842; its one other tx is here.
+      bip30 = block_fixture(%{height: 91_812, sync_state: "completed"})
+      later = block_fixture(%{height: 91_842, sync_state: "completed"})
+      tally_row(later, coinbase: true, out: @fifty_btc, fee: 0)
+      tally_row(bip30, coinbase: false, out: 100, fee: 50)
+      TxPipeline.run_block(bip30)
+
+      assert %{miner_reward: @fifty_btc, fees: 50, sats_out: 100, fees_verified: true} =
+               Repo.reload!(bip30)
+
+      assert Repo.reload!(bip30).tallies_version == TxPipeline.version(:block_totals)
+
+      # Any other block with no coinbase row still waits.
+      other = block_fixture(%{height: 91_813, sync_state: "completed"})
+      tally_row(other, coinbase: false, out: 100, fee: 50)
+      TxPipeline.run_block(other)
+      assert %{miner_reward: nil, tallies_version: nil} = Repo.reload!(other)
+    end
+
     test "subsidy halves every 210,000 blocks" do
       assert Steps.BlockTotals.subsidy(0) == 5_000_000_000
       assert Steps.BlockTotals.subsidy(209_999) == 5_000_000_000

@@ -35,9 +35,32 @@ defmodule Bitblocks.Chain.TxPipeline.CatchUp do
   alias Bitblocks.Repo
   alias Bitblocks.Workers.CatchUpBlockWorker
 
-  @doc "True when any of the block's rows is below a current version."
+  @doc """
+  True when any of the block's rows is below a current version, or when the
+  block's totals are below theirs though its coinbase is flagged: the block
+  steps at completion failed (a dropped connection, a canceled statement),
+  were logged, and nothing else would write them (block 405,241, completed
+  in the pool exhaustion of 2026-11-22). Read from the database, so the
+  totals written at completion count.
+  """
   @spec needed?(Block.t()) :: boolean()
-  def needed?(%Block{hash: hash}) do
+  def needed?(%Block{hash: hash} = block) do
+    rows_below?(block) or totals_unwritten?(hash)
+  end
+
+  defp totals_unwritten?(hash) do
+    block_totals = TxPipeline.version(:block_totals)
+
+    Repo.exists?(
+      from(b in Block,
+        where: b.hash == ^hash,
+        where: is_nil(b.tallies_version) or b.tallies_version < ^block_totals
+      )
+    ) and
+      Repo.exists?(from(t in Transaction, where: t.block_hash == ^hash and t.coinbase == true))
+  end
+
+  defp rows_below?(%Block{hash: hash}) do
     analysis = TxPipeline.version(:script_analysis)
     tallies = TxPipeline.version(:tallies)
     types = TxPipeline.version(:tx_types)

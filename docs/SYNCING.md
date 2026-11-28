@@ -9,7 +9,7 @@ Related: `docs/LARGE_BLOCKS.md` (mega-block handling), `docs/NODE_OPERATIONS.md`
 
 Bitblocks is accurate as of the last-known block, and it says which block that is.
 `Bitblocks.Sync.complete_through/0` is the highest height H such that every block from genesis through H is `completed`.
-`completed` means the block's txid list rebuilt the header's merkleroot and every one of its transactions is stored.
+`completed` means the block's txid list rebuilt the header's merkleroot, every one of its transactions is stored under its own hash, and its first tx is flagged as its coinbase.
 A missing header counts as incomplete.
 /syncing, /sync, /status and `Release.sync_status()` all say "Complete through block X of N known", where N is our highest stored header.
 
@@ -70,7 +70,12 @@ A header gap below it is found by an index-only count of heights, and only searc
    A read cut off by the transport keeps its rows: nothing says those bytes were wrong.
    While a stream is under way its rows read as confirmed (the block is `txs_syncing`), as on every path.
 6. **Checked before it counts.**
-   After the last chunk, a count by txid confirms every transaction is stored; only then is the block `completed`.
+   After the last chunk, a count of the rows under the block's own hash must reach its tx count, on the raw, per-tx and streamed paths alike; only then is the block `completed`.
+   Rows count whatever path stored them (this sync, the tip lane, a collections import), but only under this block's hash: a txid stored under another block that is still stored doesn't count, and the block fails loudly rather than complete short (2026-11-28).
+   A row left under an orphaned block is moved here by the diff first (#34), so it counts.
+   The one exception is BIP30: 91,722 and 91,812 complete with their coinbase row under 91,880 and 91,842, which hold the same txids again.
+   Each row is stored under the block being fetched, whatever `blockhash` a source's JSON names.
+   The block's first tx is its coinbase by the verified order, so completion flags that row `coinbase` if it isn't (a row stored before its block is skipped as present and meets no chunk step), and the block totals that follow find their miner reward.
    That change is broadcast; a run goes on to its next block, and when the job ends the coordinator hands the slot on.
    A raw-path block's exact bytes then go to the tx store as one object, `blocks/<height>-<hash>.bin`, read back and verified, with each tx's offset on its row (`TxStore.BlockObject`; docs/TX_STORAGE.md).
    That write never decides or delays completion: a failure is logged, the block's `raw_object_stored_at` stays nil, and `Release.store_block_objects/3` writes it later.
@@ -147,7 +152,7 @@ bin/bitblocks rpc 'Bitblocks.Release.reopen_short_blocks(9, 99)' # dry run; appl
 bin/bitblocks rpc 'Bitblocks.Release.sync_headers(0, 100_000)'   # headers for a range, by hand
 ```
 
-The audit counts by `block_hash`, so it is a lower bound: a txid stored under another block (reorg, BIP30 duplicate coinbase) can flag a block the worker completes without fetching anything.
+The audit counts by `block_hash`, as completion does; the BIP30 pair (91,722 and 91,812) shows one short by design.
 Repair is idempotent.
 
 ## Sources: where headers, txid lists and bodies come from

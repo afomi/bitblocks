@@ -69,6 +69,12 @@ So, like v3 and v4, v5 changes few rows; read the dry run's `types_changed` befo
 STAS-20 starts at block 787,411, so v6 changes no row below that; the tx types backfill over that range is an operator step, run once sync reaches it.
 `block_totals` v2 stamps a block only once its coinbase is known; v1 stamped blocks whose rows hadn't been through script analysis, leaving `miner_reward` and `fees_verified` nil and the coinbase counted in `sats_out`.
 A block left unstamped stays below the version, so the tally backfill finds it again after script analysis has run, and reports it under `reward_unknown` until then.
+Three blocks can never hold their coinbase row: genesis, whose coinbase the node doesn't serve as a tx, and 91,722 and 91,812, whose coinbase txids 91,880 and 91,842 hold again (BIP30).
+Each paid exactly 50 BTC, so `block_totals` takes that known reward for them (`Steps.BlockTotals.unstored_coinbase/0`) and stamps them like any block; the tallies acceptance has no exceptions.
+No version bump: only blocks that were unstamped change.
+Until 2026-11-28 a coinbase the strict decoder rejected (a miner tag output holding a truncated push) was analysed by the tolerant parser and stored with `coinbase` false at the current version, so a plain script analysis backfill never revisits it.
+`Release.flag_coinbases/3` finds completed blocks with no flagged row and flags the one row whose bytes spend the null outpoint, dry run first; the tally backfill over the same range then writes their totals.
+The catch-up after completion (`CatchUp.needed?/1`) also picks up a block whose rows are current and whose coinbase is flagged but whose totals are below the version, as when the block steps fail at completion.
 `index_tokens` v3 (#69) reads the lock on either side of the inscription envelope, names a cosign lock's owner, and records holders on classic deploys and mints too.
 `index_timelocks` v1 (#76) writes one `timelocks` row per script time lock, stamped `timelocks.version`; it never writes to `transactions`.
 Its backfill reads raw bytes only for txs with an output script analysis left `unknown` (or none analysed), on the `block_hash` index, and inserts the rows not yet stored at the version.

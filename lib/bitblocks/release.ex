@@ -209,6 +209,43 @@ defmodule Bitblocks.Release do
   end
 
   @doc """
+  Flags the coinbase row of completed blocks in `from..to` that have none
+  flagged (`Bitblocks.Chain.CoinbaseFlags`): a coinbase the strict decoder
+  rejected was stored with `coinbase` false until 2026-11-28, which left its
+  block with no miner reward and no totals. Writes only that one column; run
+  `backfill_tx_tallies/3` over the same range afterwards for the totals.
+  Dry run by default. Blocks whose coinbase row isn't stored at all are
+  listed under `not_stored`: `reopen_short_blocks/3` refills those.
+
+  ## Usage
+
+      bin/bitblocks rpc 'Bitblocks.Release.flag_coinbases(401_000, 440_000) |> IO.inspect()'
+      bin/bitblocks rpc 'Bitblocks.Release.flag_coinbases(401_000, 440_000, apply: true) |> IO.inspect()'
+  """
+  def flag_coinbases(from, to, opts \\ []) when is_integer(from) and is_integer(to) do
+    with_running_repo(fn ->
+      r = Bitblocks.Chain.CoinbaseFlags.run(from, to, opts)
+
+      IO.puts(
+        "flag_coinbases #{from}..#{to}: #{r.examined} completed block(s), " <>
+          "#{r.unflagged} with no coinbase flagged, #{r.flagged} " <>
+          if(r.applied, do: "flagged", else: "to flag (dry run)")
+      )
+
+      if r.not_stored != [],
+        do: IO.puts("  coinbase row not stored: #{inspect(r.not_stored)}")
+
+      if r.ambiguous != [],
+        do: IO.puts("  more than one coinbase-shaped row: #{inspect(r.ambiguous)}")
+
+      if r.unwritten != [],
+        do: IO.puts("  found but not written: #{inspect(r.unwritten)}")
+
+      r
+    end)
+  end
+
+  @doc """
   Reopens `completed` blocks in `from..to` that hold fewer rows than `num_tx`
   (`Bitblocks.Sync.reopen_short_blocks/3`). Dry run by default.
 

@@ -41,7 +41,8 @@ defmodule Bitblocks.Workers.FetchTransactionsWorker do
   ## Verified completeness
   The txid list is merkleroot-verified and the expected count comes from the
   header's `num_tx`. A block becomes `completed` only after a final count
-  shows every txid stored. The broadcast of that change tells
+  shows that many rows stored under its own hash, whatever path stored them,
+  and its first tx flagged as its coinbase. The broadcast of that change tells
   `Sync.Coordinator` to give the slot to the next block.
 
   ## Retries replace give-ups
@@ -163,7 +164,7 @@ defmodule Bitblocks.Workers.FetchTransactionsWorker do
          {:ok, block} <- mark_syncing(block) do
       case walk(block, items, offset, deadline, locations(raw, items)) do
         :completed ->
-          mark_completed(block)
+          mark_completed(block, items |> List.first() |> txid_of())
           store_block_object(block, raw, items)
           :ok
 
@@ -396,6 +397,7 @@ defmodule Bitblocks.Workers.FetchTransactionsWorker do
       monitor: monitor,
       deadline: deadline,
       reached: offset,
+      first_txid: nil,
       tracker: Tracker.new(block, total, min(offset, total))
     }
 
@@ -412,8 +414,17 @@ defmodule Bitblocks.Workers.FetchTransactionsWorker do
             "#{stats.txs} txs, merkleroot verified"
         )
 
-        mark_completed(block)
-        :ok
+        # Every chunk was confirmed stored, but a chunk counts a txid stored
+        # under any hash: the rows must be under this one.
+        case verify_complete(block, stats.txs) do
+          :ok ->
+            mark_completed(block, w.first_txid)
+            :ok
+
+          {:error, reason} ->
+            save_stream_progress(job, block, 0)
+            fail(block, reason)
+        end
 
       :paused ->
         save_stream_progress(job, block, w.reached)
@@ -452,7 +463,12 @@ defmodule Bitblocks.Workers.FetchTransactionsWorker do
                 do: Tracker.chunk(w.tracker, Enum.map(chunk.txs, &txid_of/1)),
                 else: w.tracker
 
-            w = %{w | tracker: tracker, reached: max(w.reached, chunk.to)}
+            w = %{
+              w
+              | tracker: tracker,
+                reached: max(w.reached, chunk.to),
+                first_txid: w.first_txid || first_txid(chunk)
+            }
 
             :telemetry.execute(
               [:bitblocks, :sync, :stream_chunk],
@@ -482,6 +498,11 @@ defmodule Bitblocks.Workers.FetchTransactionsWorker do
         {{:read_error, {:stream_reader_down, reason}}, w}
     end
   end
+
+  # The block's first tx (its coinbase), from the chunk that starts the block.
+  # Every run reads from the first byte, so a completing run always sees it.
+  defp first_txid(%{txs: [first | _] = txs, to: to}) when to == length(txs), do: txid_of(first)
+  defp first_txid(_chunk), do: nil
 
   # The reader is done, or no longer wanted: killed if still reading (Finch
   # drops a connection whose caller dies mid-response), and anything it sent
@@ -831,26 +852,80 @@ defmodule Bitblocks.Workers.FetchTransactionsWorker do
 
   # -- Completeness gate ---------------------------------------------------------
 
-  # Every txid of the verified list must be in the table. Counted by txid, not
-  # block_hash: a tx can legitimately live under another block (reorg, BIP30
-  # duplicate coinbase), and a block_hash count would wedge such a block.
-  # Chunked so the IN list is bounded at any block size.
-  defp verify_complete(block, txids) do
-    total = length(txids)
+  # Rows under the block's own hash must number its txs (`expected`, from the
+  # merkleroot-verified list or the verified stream), whatever path stored
+  # each row: this sync, the tip lane, a collections import. Counted under
+  # the block's `block_hash`: a txid counted wherever it was stored let a
+  # block complete with rows under another block's hash, which its totals,
+  # type counts and coinbase never see. A row left under an orphaned block
+  # is moved here by `TxIngest.existing_txids/2` before this count.
+  #
+  # The one legitimate exception is BIP30: blocks 91,722 and 91,812 hold a
+  # coinbase whose txid 91,880 and 91,842 hold again, and a unique txid keeps
+  # one row, under the later block (`@bip30_shared`).
+  #
+  # Given the txid list (raw and per-tx paths), it counts the list's txids
+  # under the hash, chunked so the IN list is bounded. Given only a count
+  # (the streamed path, whose list isn't held in memory), it counts the rows
+  # under the hash; a streamed block's unproven rows are removed on a failed
+  # check, so every row under its hash came from its bytes.
+  @bip30_shared %{91_722 => 1, 91_812 => 1}
 
-    stored =
+  defp verify_complete(block, txids) when is_list(txids) do
+    here =
       txids
       |> Stream.chunk_every(1_000)
       |> Enum.reduce(0, fn chunk, acc ->
-        acc + Repo.one(from(t in Chain.Transaction, where: t.txid in ^chunk, select: count()))
+        acc +
+          Repo.one(
+            from(t in Chain.Transaction,
+              where: t.txid in ^chunk and t.block_hash == ^block.hash,
+              select: count()
+            )
+          )
       end)
 
-    if stored >= total do
+    gate(block, here, length(txids))
+  end
+
+  defp verify_complete(block, expected) when is_integer(expected) do
+    here =
+      Repo.one(from(t in Chain.Transaction, where: t.block_hash == ^block.hash, select: count()))
+
+    gate(block, here, expected)
+  end
+
+  defp gate(block, here, expected) do
+    if here + Map.get(@bip30_shared, block.height, 0) >= expected do
       :ok
     else
-      Logger.error("FetchTxs block=#{block.height} incomplete: stored=#{stored}/#{total}")
-      {:error, {:incomplete, stored, total}}
+      Logger.error(
+        "FetchTxs block=#{block.height} incomplete: #{here}/#{expected} rows under its hash"
+      )
+
+      {:error, {:incomplete, here, expected}}
     end
+  end
+
+  # The block's first tx is its coinbase, by the merkleroot-verified order.
+  # A row stored before its block (skipped as present, so no chunk step ran
+  # on it), or analysed when the analyser missed the flag, is flagged here,
+  # so the block's totals find their miner reward. Only a row under this
+  # block's hash: a BIP30 coinbase stays with the block that holds it.
+  defp ensure_coinbase(_block, nil), do: :ok
+
+  defp ensure_coinbase(block, txid) do
+    {n, _} =
+      Repo.update_all(
+        from(t in Chain.Transaction,
+          where: t.txid == ^txid and t.block_hash == ^block.hash,
+          where: is_nil(t.coinbase) or t.coinbase == false
+        ),
+        set: [coinbase: true]
+      )
+
+    if n > 0, do: Logger.info("FetchTxs block=#{block.height} flagged coinbase #{txid}")
+    :ok
   end
 
   # -- State -------------------------------------------------------------------
@@ -864,7 +939,9 @@ defmodule Bitblocks.Workers.FetchTransactionsWorker do
     })
   end
 
-  defp mark_completed(block) do
+  defp mark_completed(block, coinbase_txid) do
+    ensure_coinbase(block, coinbase_txid)
+
     with {:ok, completed} <-
            change_block(block, %{
              sync_state: "completed",

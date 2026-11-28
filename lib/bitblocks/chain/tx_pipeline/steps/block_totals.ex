@@ -23,6 +23,15 @@ defmodule Bitblocks.Chain.TxPipeline.Steps.BlockTotals do
   it), `miner_reward` is nil, the coinbase counts among the ordinary txs, and
   the totals aren't final, so the stamp stays nil and a backfill picks the
   block up again. v2: that rule; v1 stamped such blocks.
+
+  Three blocks can never hold their coinbase row, so their reward is known
+  rather than read (`@unstored_coinbase`): genesis, whose coinbase the node
+  doesn't serve as a tx, and 91,722 and 91,812, whose coinbase txids 91,880
+  and 91,842 hold again (BIP30), and a unique txid keeps one row, under the
+  later block. Each of the three paid exactly 50 BTC in one output. They are
+  stamped like any other block, so the tallies acceptance has no exceptions.
+  The supply audit (`Bitblocks.Facts`) still counts all three as never
+  spendable.
   """
 
   @behaviour Bitblocks.Chain.TxPipeline.Step
@@ -36,6 +45,14 @@ defmodule Bitblocks.Chain.TxPipeline.Steps.BlockTotals do
 
   @initial_subsidy 5_000_000_000
   @halving_interval 210_000
+
+  # Height => the coinbase's total output, for the blocks whose coinbase row
+  # is never under their own hash (see the moduledoc).
+  @unstored_coinbase %{0 => 5_000_000_000, 91_722 => 5_000_000_000, 91_812 => 5_000_000_000}
+
+  @doc "Heights whose coinbase row can't be stored under them, with its known reward."
+  @spec unstored_coinbase() :: %{non_neg_integer() => non_neg_integer()}
+  def unstored_coinbase, do: @unstored_coinbase
 
   @impl true
   def name, do: "block_totals"
@@ -128,7 +145,13 @@ defmodule Bitblocks.Chain.TxPipeline.Steps.BlockTotals do
   def from_sums(row, height) do
     subsidy = subsidy(height)
     fees = if row.fees_unknown == 0, do: row.fees || 0
-    reward = if row.coinbases == 1, do: row.reward
+
+    reward =
+      cond do
+        row.coinbases == 1 -> row.reward
+        row.coinbases == 0 -> Map.get(@unstored_coinbase, height)
+        true -> nil
+      end
 
     %{
       sats_out: if(row.sats_out_unknown == 0, do: row.sats_out || 0),

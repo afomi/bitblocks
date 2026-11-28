@@ -137,11 +137,11 @@ defmodule Bitblocks.Workers.FetchTransactionsWorkerTest do
       assert reloaded.tx_sync_error =~ "unfetched_txs"
     end
 
-    test "completeness counts the block's txids anywhere in the table, not by block_hash" do
-      # The single tx already exists, but stored under a DIFFERENT block_hash
-      # (as happens with a reorg or a BIP30 duplicate coinbase). A block_hash
-      # count would see 0 and wedge the block in failed forever; the intersection
-      # count sees the txid is present, so the block completes without refetching.
+    test "a tx stored under a block no longer stored is moved here and counted" do
+      # The single tx already exists under a block_hash no stored block has
+      # (a reorg's orphan). The diff moves it to this block, so the count of
+      # rows under this block's hash sees it, and the block completes without
+      # refetching. (A BIP30 duplicate coinbase is the test further down.)
       transaction_fixture(%{txid: @genesis_txid, block_hash: "some_other_block"})
 
       block =
@@ -157,6 +157,76 @@ defmodule Bitblocks.Workers.FetchTransactionsWorkerTest do
       assert :ok =
                FetchTransactionsWorker.perform(%Oban.Job{args: %{"block_hash" => block.hash}})
 
+      assert Chain.get_block!(block.height).sync_state == "completed"
+    end
+  end
+
+  describe "the coinbase flag at completion" do
+    # A row stored before its block, or analysed when the analyser missed the
+    # flag, is skipped as present: no chunk step runs on it. The block's
+    # first tx is its coinbase, so completion flags it and the totals get
+    # their miner reward (blocks 401,094..439,213, 2026-11-28).
+    test "an already stored first tx without the flag is flagged, and the totals are written" do
+      block =
+        block_fixture(%{
+          height: 999_070,
+          hash: "coinbase_unflagged_hash",
+          merkleroot: @genesis_merkleroot,
+          num_tx: 1,
+          tx: [@genesis_txid],
+          sync_state: "txs_queued"
+        })
+
+      transaction_fixture(%{
+        txid: @genesis_txid,
+        raw: @genesis_raw,
+        block_hash: block.hash,
+        block_height: block.height,
+        coinbase: false,
+        total_output_satoshis: 5_000_000_000,
+        fee_satoshis: 0,
+        burned_satoshis: 0
+      })
+
+      assert :ok =
+               FetchTransactionsWorker.perform(%Oban.Job{args: %{"block_hash" => block.hash}})
+
+      assert Repo.get_by!(Chain.Transaction, txid: @genesis_txid).coinbase == true
+
+      done = Chain.get_block!(block.height)
+      assert done.sync_state == "completed"
+      assert done.miner_reward == 5_000_000_000
+      assert done.tallies_version
+    end
+
+    # A source answering with another block's hash (a node or WhatsOnChain
+    # mid-reorg) used to file the row under that hash, where this block's
+    # count, totals and coinbase never saw it.
+    test "a fetched tx is stored under the block being fetched, whatever its JSON says" do
+      block =
+        block_fixture(%{
+          height: 999_071,
+          hash: "fetch_json_elsewhere_hash",
+          merkleroot: @genesis_merkleroot,
+          num_tx: 1,
+          tx: [@genesis_txid],
+          sync_state: "txs_queued"
+        })
+
+      RpcStub.stub_getrawtransaction(@genesis_txid, 1, %{
+        "txid" => @genesis_txid,
+        "hex" => @genesis_raw,
+        "blockhash" => "some_competing_block_hash",
+        "height" => block.height,
+        "version" => 1,
+        "vin" => [%{"coinbase" => "04ffff001d0104", "sequence" => 4_294_967_295}],
+        "vout" => []
+      })
+
+      assert :ok =
+               FetchTransactionsWorker.perform(%Oban.Job{args: %{"block_hash" => block.hash}})
+
+      assert Repo.get_by!(Chain.Transaction, txid: @genesis_txid).block_hash == block.hash
       assert Chain.get_block!(block.height).sync_state == "completed"
     end
   end
@@ -422,7 +492,10 @@ defmodule Bitblocks.Workers.FetchTransactionsWorkerTest do
       assert RpcStub.calls(:batch_getrawtransaction) == []
     end
 
-    test "is left alone when its block is still stored (a duplicate txid)" do
+    # A row under another stored block is left alone, and it doesn't count
+    # for this one: completion counts rows under the block's own hash, so a
+    # block never completes with a tx its totals and coinbase can't see.
+    test "is left alone when its block is still stored, and the block doesn't complete" do
       other = block_fixture(%{height: 999_061, hash: "fetch_other_stored_block"})
 
       block =
@@ -441,10 +514,41 @@ defmodule Bitblocks.Workers.FetchTransactionsWorkerTest do
         block_height: other.height
       })
 
-      assert :ok =
+      assert {:snooze, _} =
                FetchTransactionsWorker.perform(%Oban.Job{args: %{"block_hash" => block.hash}})
 
       assert Chain.get_transaction!(@genesis_txid).block_hash == other.hash
+      block = Chain.get_block!(block.height)
+      assert block.sync_state == "failed"
+      assert block.tx_sync_error =~ "incomplete"
+    end
+
+    # BIP30: 91,722's coinbase txid is stored under 91,880, which holds it
+    # again. The one case allowed to complete without its row.
+    test "a BIP30 duplicate coinbase block completes with its row under the later block" do
+      later = block_fixture(%{height: 91_880, hash: "fetch_bip30_later"})
+
+      block =
+        block_fixture(%{
+          height: 91_722,
+          hash: "fetch_bip30_earlier",
+          merkleroot: @genesis_merkleroot,
+          num_tx: 1,
+          tx: [@genesis_txid],
+          sync_state: "txs_queued"
+        })
+
+      transaction_fixture(%{
+        txid: @genesis_txid,
+        block_hash: later.hash,
+        block_height: later.height
+      })
+
+      assert :ok =
+               FetchTransactionsWorker.perform(%Oban.Job{args: %{"block_hash" => block.hash}})
+
+      assert Chain.get_transaction!(@genesis_txid).block_hash == later.hash
+      assert Chain.get_block!(block.height).sync_state == "completed"
     end
   end
 end
