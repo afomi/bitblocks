@@ -115,6 +115,32 @@ defmodule BitblocksWeb.Plugs.RateLimiter.AiCrawlers do
     end
   end
 
+  # The /api/v1 pipelines a valid key opens (RequireCaller lets it through),
+  # whatever the sign-in gate says. ops_api also wants the ops_read scope.
+  @keyed_pipelines [:api, :public_api, :public_csv, :raw_api, :open_api]
+
+  @doc """
+  True when a payment from a caller holding `key` would actually be served:
+  the route exists, is under `/api/v1`, and the key opens it (ops routes only
+  for a key with `ops_read`; never an admin route). A keyed caller pays only
+  for what its budget would have bought.
+  """
+  @spec payable_with_key?(Plug.Conn.t(), Bitblocks.ApiKeys.ApiKey.t()) :: boolean()
+  def payable_with_key?(%Plug.Conn{path_info: ["api", "v1" | _]} = conn, key) do
+    case Phoenix.Router.route_info(BitblocksWeb.Router, conn.method, conn.path_info, conn.host) do
+      %{pipe_through: [_ | _] = pipes} ->
+        Enum.all?(pipes, fn pipe ->
+          pipe in @keyed_pipelines or
+            (pipe == :ops_api and Bitblocks.ApiKeys.scope?(key, "ops_read"))
+        end)
+
+      _ ->
+        false
+    end
+  end
+
+  def payable_with_key?(_conn, _key), do: false
+
   @doc "The page that tells a crawler's operator how to get a key."
   @spec page_url() :: String.t()
   def page_url, do: "https://bitblocks.app/pricing#crawlers"

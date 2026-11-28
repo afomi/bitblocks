@@ -24,7 +24,7 @@ A cache hit makes no upstream call, so it costs none here.
 
 | `caller_kind` | `caller_id` | Who |
 | --- | --- | --- |
-| `key` | the `api_keys` id | A request with a valid API key |
+| `key` | the `api_keys` id | A request with a valid API key, paid in BSV past its budget or not (its `bsv_payments` row names the key as `key:<id>`, with the txid) |
 | `user` | the `users` id | A signed-in session, admin or not |
 | `bsv` | the payer's identity key, compressed hex | A request past a shared budget paid in BSV (BRC-121, `docs/BSV_402.md`) |
 | `crawler` | the family (`gptbot`, …) | An AI crawler without a key |

@@ -3,7 +3,8 @@ defmodule BitblocksWeb.Plugs.RateLimiter do
   Simple ETS-backed rate limiter: each caller gets a budget by who is asking.
 
   Tracks request counts in a sliding window. Returns 429 Too Many Requests
-  when the limit is exceeded, with a Retry-After header.
+  when the limit is exceeded, with a Retry-After header, or 402 Payment
+  Required where a payment can buy the request (below).
 
   ## Configuration
 
@@ -130,8 +131,9 @@ defmodule BitblocksWeb.Plugs.RateLimiter do
   With `Bitblocks.Payments.Bsv402` enabled (`BSV402_ENABLED`, with its key
   and price), the same 402 also carries BRC-121's terms, `x-bsv-sats` and
   `x-bsv-server`, for a route the caller could read for free, beside the
-  x402 offer when that's on. A retry with `x-bsv-beef` (and the other four
-  `x-bsv-*` headers):
+  x402 offer when that's on; a key past its own budget gets them too (see
+  "API keys"). A retry with `x-bsv-beef` (and the other four `x-bsv-*`
+  headers):
 
     * meets the same two paid-attempt caps as x402, per IP and site-wide;
     * paid: served as the anonymous caller it is, with
@@ -150,7 +152,18 @@ defmodule BitblocksWeb.Plugs.RateLimiter do
   A request carrying `Authorization: Bearer bbk_…` or `x-api-key: bbk_…` is
   counted against that key's `requests_per_minute` instead of its IP (see
   `Bitblocks.ApiKeys`). An unknown or revoked key is a 401, never a silent
-  fallback to the anonymous budget.
+  fallback to the anonymous budget, and never a 402.
+
+  Past its budget, a key gets a 429, unless BSV 402 is on and the route is
+  one the key opens under `/api/v1` (`AiCrawlers.payable_with_key?/2`): then
+  the same 402 as above, with BRC-121's terms (and x402's offer when that's
+  on too), its JSON saying `api_key_rate_limited`. A retry with the same key
+  and a payment goes through the same paid caps and the same verifier, and
+  is served outside the key's budget: a request past it isn't counted, so
+  the payment buys that one request and leaves the free allowance as it
+  was. It is metered under the key, and its `bsv_payments` row names the key
+  (`caller: "key:<id>"`), so the key's record holds the payment's txid.
+  (BSV 402 slice B, for qart's server; `docs/BSV_402.md`.)
 
   ## Cluster awareness (T1/T12)
 
@@ -435,7 +448,30 @@ defmodule BitblocksWeb.Plugs.RateLimiter do
     end
   end
 
-  defp refuse(conn, bucket, tier, max_requests, retry_after_s) do
+  # A key past its own budget: on a route a payment could open, with BSV 402
+  # on, the same 402 with BRC-121's terms (and x402's offer when that's on
+  # too), and a paid retry served outside the key's budget; otherwise the 429
+  # it always was.
+  defp refuse(conn, bucket, :api_key, max_requests, retry_after_s) do
+    cond do
+      not offering?(conn, :bsv) ->
+        too_many(conn, bucket, :api_key, max_requests, retry_after_s)
+
+      get_req_header(conn, "x-bsv-beef") != [] ->
+        pay(conn, :bsv, bucket, :api_key, max_requests, retry_after_s)
+
+      offering?(conn, :x402) and get_req_header(conn, X402.payment_header()) != [] ->
+        pay(conn, :x402, bucket, :api_key, max_requests, retry_after_s)
+
+      true ->
+        payment_required(conn, bucket, :api_key, max_requests, retry_after_s)
+    end
+  end
+
+  defp refuse(conn, bucket, tier, max_requests, retry_after_s),
+    do: too_many(conn, bucket, tier, max_requests, retry_after_s)
+
+  defp too_many(conn, bucket, tier, max_requests, retry_after_s) do
     Logger.warning("Rate limited #{bucket} tier=#{tier} limit=#{max_requests}")
 
     conn
@@ -447,8 +483,10 @@ defmodule BitblocksWeb.Plugs.RateLimiter do
   end
 
   # Whether this request may be offered, and take, a payment on this rail: the
-  # rail is on, the key wasn't bad (that is a 401), and the route is open to
-  # a caller with no key, so a payment never buys a 401 or a 404.
+  # rail is on, the key wasn't bad (that is a 401), and the route is one the
+  # caller could read within its budget (with no key, a route open to anyone;
+  # with a key, a route under /api/v1 that key opens), so a payment never
+  # buys a 401 or a 404.
   defp offering?(conn, rail) do
     on? =
       case rail do
@@ -456,8 +494,13 @@ defmodule BitblocksWeb.Plugs.RateLimiter do
         :bsv -> Bsv402.enabled?()
       end
 
-    on? and not Map.has_key?(conn.private, :rate_limiter_bad_key) and AiCrawlers.payable?(conn)
+    on? and not Map.has_key?(conn.private, :rate_limiter_bad_key) and payable?(conn)
   end
+
+  defp payable?(%Plug.Conn{assigns: %{api_key: key}} = conn),
+    do: AiCrawlers.payable_with_key?(conn, key)
+
+  defp payable?(conn), do: AiCrawlers.payable?(conn)
 
   # A paid retry. Each one costs work beyond a lookup (a facilitator call for
   # x402; a BEEF climb and a node call for BSV), so paid attempts on either
@@ -522,11 +565,12 @@ defmodule BitblocksWeb.Plugs.RateLimiter do
   end
 
   # BRC-121: checked against our headers, claimed once, taken by our node
-  # (Bitblocks.Payments.Bsv402), then served as the anonymous caller it is,
-  # metered under the payer's identity key, with what was paid in the
-  # response headers.
+  # (Bitblocks.Payments.Bsv402), then served as the caller it is, with what
+  # was paid in the response headers. With no key, metered under the payer's
+  # identity key; with a key, under the key, and the payment's row names the
+  # key too, so the key's record stays whole.
   defp pay_bsv(conn, bucket, tier, max_requests, retry_after_s, ip) do
-    case Bsv402.handle(conn) do
+    case Bsv402.handle(conn, bsv_opts(conn)) do
       {:ok, paid} ->
         record_paid(tier)
 
@@ -572,11 +616,28 @@ defmodule BitblocksWeb.Plugs.RateLimiter do
     end
   end
 
+  # Who a BSV payment's row names: the key, for a keyed caller; otherwise
+  # Bsv402's default, the payer. A test hands the verifier its clock, headers
+  # and node in the conn's private, which no client can set.
+  defp bsv_opts(conn) do
+    opts = Map.get(conn.private, :bsv402_opts, [])
+
+    case conn.assigns do
+      %{api_key: %{id: id}} -> Keyword.put(opts, :caller, "key:#{id}")
+      _ -> opts
+    end
+  end
+
   defp payment_required(conn, bucket, tier, max_requests, retry_after_s) do
     record_throttle(tier)
     conn = offers(conn)
 
-    label = if tier == :anonymous_site, do: "Anonymous budget spent", else: "AI crawler throttled"
+    label =
+      case tier do
+        :anonymous_site -> "Anonymous budget spent"
+        :api_key -> "API key budget spent"
+        _ -> "AI crawler throttled"
+      end
 
     Logger.info(
       "#{label} #{bucket} limit=#{max_requests} path=#{conn.request_path} " <>
@@ -628,6 +689,12 @@ defmodule BitblocksWeb.Plugs.RateLimiter do
     :ets.update_counter(@table, key, 1, {key, 0})
     :telemetry.execute([:bitblocks, :anonymous, :throttled], %{count: 1}, %{})
   end
+
+  defp record_throttle(:api_key),
+    do: :telemetry.execute([:bitblocks, :api_key, :throttled], %{count: 1}, %{})
+
+  defp record_paid(:api_key),
+    do: :telemetry.execute([:bitblocks, :api_key, :paid], %{count: 1}, %{})
 
   defp record_paid({:ai_crawler, family}),
     do: :telemetry.execute([:bitblocks, :ai_crawler, :paid], %{count: 1}, %{family: family})

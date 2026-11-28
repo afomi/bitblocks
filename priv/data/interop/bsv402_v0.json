@@ -173,6 +173,27 @@
       "merkleroot": "c167e53a4356bd0d0cd556082bb8dfed6fe1f1c5521b11f14213f747ecf71c9b",
       "tx_count": 1,
       "note": "Made up for vector oversize: a one-tx block holding its coin."
+    },
+    {
+      "height": 3100022,
+      "synthetic": true,
+      "merkleroot": "013741d0a660e47f04eb7cdcd6dd027e12bb4618fde1ac20578cb9dd74248d4e",
+      "tx_count": 1,
+      "note": "Made up for vector keyed-pays: a one-tx block holding its coin."
+    },
+    {
+      "height": 3100023,
+      "synthetic": true,
+      "merkleroot": "ba06b1d4318530682edb6f19882a837a34aafc80aa6fac2d08adab1b3f74f7d5",
+      "tx_count": 1,
+      "note": "Made up for vector keyed-replay: a one-tx block holding its coin."
+    },
+    {
+      "height": 3100024,
+      "synthetic": true,
+      "merkleroot": "6669788e61c79810058b075f98677859e6e0e06c62d827f2000e2189b334f436",
+      "tx_count": 1,
+      "note": "Made up for vector keyed-bad-key: a one-tx block holding its coin."
     }
   ],
   "vectors": [
@@ -666,6 +687,244 @@
         "status": 413,
         "outcome": "refused",
         "reason": "too_large"
+      }
+    }
+  ],
+  "changes": [
+    {
+      "date": "2026-11-27",
+      "change": "Added keyed: a caller with an API key past its own budget. The vectors before it are unchanged."
+    }
+  ],
+  "keyed_how_to_use": [
+    "These run through the server's HTTP front, not the verifier alone: register api_key.token (when registered is true) as a key of requests_per_minute, and make spent requests with it, within the minute, before the vector's own.",
+    "Then send request with request_headers and, when payment isn't null, the payment headers, under the same clock, headers and node as the vectors above.",
+    "Compare status, each entry in expected.headers exactly, that each of headers_present is there and each of headers_absent isn't, and that the JSON body holds every field in expected.body.",
+    "outcome served or accepted: within the key's budget or paid; a paid request isn't counted against the key's budget. payment_required: past it, the terms given. refused: a payment refused (402 with the terms again), or a key refused (401, and no terms, since a payment can't mend a bad key)."
+  ],
+  "keyed": [
+    {
+      "id": "keyed-under-budget",
+      "case": "A key within its budget: served free, counted against the key.",
+      "envelope": "brc121",
+      "api_key": {
+        "token": "bbk_0ECO-xemoO03YfsClIRMsE81LdpEQM36gFD7iacVKXE",
+        "registered": true,
+        "requests_per_minute": 1,
+        "spent": 0
+      },
+      "request": {
+        "method": "GET",
+        "path": "/api/v1/blocks/latest",
+        "query": ""
+      },
+      "request_headers": {
+        "authorization": "Bearer bbk_0ECO-xemoO03YfsClIRMsE81LdpEQM36gFD7iacVKXE"
+      },
+      "payment": null,
+      "txid": null,
+      "claimed": [],
+      "node": "accept",
+      "expected": {
+        "status": 200,
+        "outcome": "served",
+        "reason": null,
+        "headers": {
+          "x-ratelimit-limit": "1",
+          "x-ratelimit-remaining": "0"
+        },
+        "headers_present": [],
+        "headers_absent": [
+          "x-bsv-txid"
+        ],
+        "body": null
+      }
+    },
+    {
+      "id": "keyed-over-budget",
+      "case": "A key past its budget, no payment: a 402 with BRC-121's terms, where it was a 429.",
+      "envelope": "brc121",
+      "api_key": {
+        "token": "bbk_0ECO-xemoO03YfsClIRMsE81LdpEQM36gFD7iacVKXE",
+        "registered": true,
+        "requests_per_minute": 1,
+        "spent": 1
+      },
+      "request": {
+        "method": "GET",
+        "path": "/api/v1/blocks/latest",
+        "query": ""
+      },
+      "request_headers": {
+        "authorization": "Bearer bbk_0ECO-xemoO03YfsClIRMsE81LdpEQM36gFD7iacVKXE"
+      },
+      "payment": null,
+      "txid": null,
+      "claimed": [],
+      "node": "accept",
+      "expected": {
+        "status": 402,
+        "outcome": "payment_required",
+        "reason": null,
+        "headers": {
+          "x-bsv-sats": "100",
+          "x-bsv-server": "0382d3cb3b4f4cd9f527d5eb94c01a4d64a2c5a16d8f3da0c49b099c0bea64239d",
+          "x-ratelimit-limit": "1",
+          "x-ratelimit-remaining": "0"
+        },
+        "headers_present": [
+          "retry-after"
+        ],
+        "headers_absent": [],
+        "body": {
+          "error": "api_key_rate_limited",
+          "budget": "api_key",
+          "limit_per_minute": 1
+        }
+      }
+    },
+    {
+      "id": "keyed-pays",
+      "case": "A key past its budget, paying: served, with what was paid, outside the key's budget.",
+      "envelope": "brc121",
+      "api_key": {
+        "token": "bbk_0ECO-xemoO03YfsClIRMsE81LdpEQM36gFD7iacVKXE",
+        "registered": true,
+        "requests_per_minute": 1,
+        "spent": 1
+      },
+      "request": {
+        "method": "GET",
+        "path": "/api/v1/blocks/latest",
+        "query": ""
+      },
+      "request_headers": {
+        "authorization": "Bearer bbk_0ECO-xemoO03YfsClIRMsE81LdpEQM36gFD7iacVKXE"
+      },
+      "payment": {
+        "x-bsv-beef": "AQEBAb1DfFm6JHTHQ1gclZWpNRvsBn/weTDUGgxotGHICGk+AQC+7wH+dk0vAAEBAAJOjSR03bmMVyCs4f0YRrsSfgLd1tx86wR/5GCm0EE3AQIBAAAAAZwHUf3ojagr5M19DiYevcI8Xo+uYUPuFbVyLFCO+wS3AAAAAAEA/////wGghgEAAAAAABl2qRTp/wMWFPXkO7Rwfbl24pRbJI9hD4isAAAAAAEAAQAAAAFOjSR03bmMVyCs4f0YRrsSfgLd1tx86wR/5GCm0EE3AQAAAAABAP////8CZAAAAAAAAAAZdqkUPdbazAiECGZGdLtc71CxtM4OZvKIrFSCAQAAAAAAGXapFOn/AxYU9eQ7tHB9uXbilFskj2EPiKwAAAAAAA==",
+        "x-bsv-sender": "03d3c42460bdf4efe595c888f763e1fc76d5486d620701c9525dde416b8a9a93ca",
+        "x-bsv-nonce": "LUWE4VrDYNg=",
+        "x-bsv-time": "1764000000000",
+        "x-bsv-vout": "0"
+      },
+      "txid": "3e6908c861b4680c1ad43079f07f06ec1b35a995951c5843c77424ba597c43bd",
+      "claimed": [],
+      "node": "accept",
+      "expected": {
+        "status": 200,
+        "outcome": "accepted",
+        "reason": null,
+        "headers": {
+          "x-bsv-payment-satoshis-paid": "100",
+          "x-bsv-txid": "3e6908c861b4680c1ad43079f07f06ec1b35a995951c5843c77424ba597c43bd"
+        },
+        "headers_present": [],
+        "headers_absent": [],
+        "body": null
+      }
+    },
+    {
+      "id": "keyed-replay",
+      "case": "A key past its budget, its payment's txid already bought another request.",
+      "envelope": "brc121",
+      "api_key": {
+        "token": "bbk_0ECO-xemoO03YfsClIRMsE81LdpEQM36gFD7iacVKXE",
+        "registered": true,
+        "requests_per_minute": 1,
+        "spent": 1
+      },
+      "request": {
+        "method": "GET",
+        "path": "/api/v1/blocks/latest",
+        "query": ""
+      },
+      "request_headers": {
+        "authorization": "Bearer bbk_0ECO-xemoO03YfsClIRMsE81LdpEQM36gFD7iacVKXE"
+      },
+      "payment": {
+        "x-bsv-beef": "AQEBAYg/yLj/B7Yddpsia//vmNrvlUhUt2bZcFTRrwkpU3APAQC+7wH+d00vAAEBAALV93Q/G6utCC2sb6qA/Ko0eoMqiBlv2y5oMIUx1LEGugIBAAAAAX1jv3Tcc833G29kHqN8Q7OLQ+dsw8dZZr4lgaN0uNUkAAAAAAEA/////wGghgEAAAAAABl2qRTp/wMWFPXkO7Rwfbl24pRbJI9hD4isAAAAAAEAAQAAAAHV93Q/G6utCC2sb6qA/Ko0eoMqiBlv2y5oMIUx1LEGugAAAAABAP////8CZAAAAAAAAAAZdqkUPdbazAiECGZGdLtc71CxtM4OZvKIrFSCAQAAAAAAGXapFOn/AxYU9eQ7tHB9uXbilFskj2EPiKwAAAAAAA==",
+        "x-bsv-sender": "03d3c42460bdf4efe595c888f763e1fc76d5486d620701c9525dde416b8a9a93ca",
+        "x-bsv-nonce": "LUWE4VrDYNg=",
+        "x-bsv-time": "1764000000000",
+        "x-bsv-vout": "0"
+      },
+      "txid": "0f70532909afd15470d966b7544895efda98efff6b229b761db607ffb8c83f88",
+      "claimed": [
+        {
+          "txid": "0f70532909afd15470d966b7544895efda98efff6b229b761db607ffb8c83f88",
+          "request": {
+            "method": "GET",
+            "path": "/api/v1/blocks/0",
+            "query": ""
+          }
+        }
+      ],
+      "node": "accept",
+      "expected": {
+        "status": 402,
+        "outcome": "refused",
+        "reason": "replayed",
+        "headers": {
+          "x-bsv-refused": "replayed",
+          "x-bsv-sats": "100",
+          "x-bsv-server": "0382d3cb3b4f4cd9f527d5eb94c01a4d64a2c5a16d8f3da0c49b099c0bea64239d"
+        },
+        "headers_present": [],
+        "headers_absent": [],
+        "body": {
+          "error": "api_key_rate_limited",
+          "budget": "api_key",
+          "limit_per_minute": 1,
+          "payment_refused": {
+            "protocol": "BRC-121",
+            "reason": "replayed"
+          }
+        }
+      }
+    },
+    {
+      "id": "keyed-bad-key",
+      "case": "An unknown key with a payment: a 401, never a 402; the payment isn't read.",
+      "envelope": "brc121",
+      "api_key": {
+        "token": "bbk_H6S3k9sT0bBClwOjt25a52Hv4yQ7lkAgveNThkR9CNw",
+        "registered": false,
+        "requests_per_minute": 1,
+        "spent": 0
+      },
+      "request": {
+        "method": "GET",
+        "path": "/api/v1/blocks/latest",
+        "query": ""
+      },
+      "request_headers": {
+        "authorization": "Bearer bbk_H6S3k9sT0bBClwOjt25a52Hv4yQ7lkAgveNThkR9CNw"
+      },
+      "payment": {
+        "x-bsv-beef": "AQEBAeVLNEvGYV0xpP+d+rfO6vaUCtAiLptMZrfK/ZeOp1JHAQC+7wH+eE0vAAEBAAI29DSziSEOAPIn2GJs4ODmWXhnmF8HiwUQmMdhjnhpZgIBAAAAAZio6OHgvYXdlFXq8hvvCAlajkNbY1lr3fX2905aeQ6hAAAAAAEA/////wGghgEAAAAAABl2qRTp/wMWFPXkO7Rwfbl24pRbJI9hD4isAAAAAAEAAQAAAAE29DSziSEOAPIn2GJs4ODmWXhnmF8HiwUQmMdhjnhpZgAAAAABAP////8CZAAAAAAAAAAZdqkUPdbazAiECGZGdLtc71CxtM4OZvKIrFSCAQAAAAAAGXapFOn/AxYU9eQ7tHB9uXbilFskj2EPiKwAAAAAAA==",
+        "x-bsv-sender": "03d3c42460bdf4efe595c888f763e1fc76d5486d620701c9525dde416b8a9a93ca",
+        "x-bsv-nonce": "LUWE4VrDYNg=",
+        "x-bsv-time": "1764000000000",
+        "x-bsv-vout": "0"
+      },
+      "txid": "4752a78e97fdcab7664c9b2e22d00a94f6eaceb7fa9dffa4315d61c64b344be5",
+      "claimed": [],
+      "node": "accept",
+      "expected": {
+        "status": 401,
+        "outcome": "refused",
+        "reason": "invalid_api_key",
+        "headers": {},
+        "headers_present": [],
+        "headers_absent": [
+          "x-bsv-sats",
+          "x-bsv-server",
+          "x-bsv-txid"
+        ],
+        "body": {
+          "error": "Invalid API key (unknown or revoked)"
+        }
       }
     }
   ]
